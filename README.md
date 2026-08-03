@@ -1,6 +1,6 @@
-# DiamondDrop
+# CaratForUs
 
-DiamondDrop is a U.S.-based jewelry business built around two revenue channels:
+CaratForUs is a U.S.-based jewelry business built around two revenue channels:
 
 1. Community-powered group buys with transparent tiered pricing.
 2. Custom jewelry requests handled through a guided customer questionnaire and manual quoting.
@@ -9,7 +9,7 @@ DiamondDrop is a U.S.-based jewelry business built around two revenue channels:
 
 Why take the risk of ordering overseas when customers can receive comparable group-buy pricing from a U.S.-based seller with warranty coverage, quality inspection, domestic support, and clearer accountability?
 
-DiamondDrop is not positioned merely as the cheapest option. The brand combines competitive pricing with trust, service, transparency, and after-sale support.
+CaratForUs is not positioned merely as the cheapest option. The brand combines competitive pricing with trust, service, transparency, and after-sale support.
 
 ## MVP1: Minimum Viable Business
 
@@ -63,7 +63,7 @@ Everyone receives the same final price. Community referrals help unlock better p
 1. Customer selects “Start a Custom Design.”
 2. Customer completes a guided questionnaire.
 3. Customer uploads inspiration images or sketches.
-4. DiamondDrop reviews the request manually.
+4. CaratForUs reviews the request manually.
 5. Customer receives a consultation and quote.
 6. Payment is collected.
 7. CAD, approval, production, inspection, and delivery are handled manually during MVP1.
@@ -107,4 +107,4 @@ The final payment presentation and fee structure must be reviewed before launch 
 
 ## Guiding Rule
 
-If a feature does not help DiamondDrop launch sooner or materially improve the customer experience, it belongs in the backlog.
+If a feature does not help CaratForUs launch sooner or materially improve the customer experience, it belongs in the backlog.
