@@ -20,7 +20,7 @@ CaratForUs will be built around a structured jewelry product data model and pric
 Each jewelry design will have one Master Product Definition containing the core engineering and commercial data needed to manufacture and price the item. This may include:
 
 - Product category and design metadata
-- CAD files, renderings, photos, and manufacturing notes
+- CAD files, renderings, photos, videos, and manufacturing notes
 - Base metal type and base finished weight
 - Center stone specifications
 - Accent and side stone specifications
@@ -273,6 +273,46 @@ A customer's order may show a more detailed sequence such as:
 
 The customer-facing experience should make clear whether a status refers to the overall campaign or the customer's specific order.
 
+## Product Visuals & Technical Details — LOCKED DECISION
+
+Because manufacturing is outsourced, CaratForUs will not require in-process manufacturing photography for each item. Instead, each product should support a structured set of visual and technical media assets.
+
+Supported visual types include:
+
+- Actual product photos when available
+- Actual product video when available
+- CAD renders
+- Dimensioned CAD images showing measurements and proportions
+- AI-generated lifestyle or visualization images when no physical sample is available
+- Optional manufacturer-provided photos or videos if available
+
+### Labeling & Trust Rules
+
+The website must clearly distinguish the type of media being shown so customers are not misled.
+
+Suggested labels include:
+
+- **Actual Product Photo**
+- **Actual Product Video**
+- **CAD Rendering**
+- **CAD Dimensions**
+- **AI Visualization — final appearance may vary slightly**
+
+AI-generated media must never be presented as if it were a photograph or video of the finished manufactured item.
+
+### Product Page Presentation
+
+The product page should support:
+
+- Mixed photo and video gallery
+- Optional autoplay-disabled product video preview
+- Full-screen or enlarged video viewing
+- CAD render gallery
+- Expandable **View Dimensions & Details** section for dimensioned CAD and technical specifications
+- Mobile-friendly display for images and video
+
+Video support should be optional at the product level. A product does not require a video to be published, but if an actual item video is available it should be prominently available in the media gallery.
+
 ## MVP1: Minimum Viable Business
 
 The first release is intentionally small. The goal is to launch a fully functioning business capable of accepting and fulfilling orders while keeping internal operations manual wherever practical, except where pricing automation is required to protect margins and maintain Buy Now prices.
@@ -290,6 +330,7 @@ The first release is intentionally small. The goal is to launch a fully function
 - Product-specific estimated production and delivery timeline
 - Campaign status tracker
 - Individual order status tracker where appropriate
+- Product photos, videos, CAD renders, dimensioned CAD, and labeled AI visualizations where applicable
 - Shopify checkout
 - Order confirmation
 - Custom jewelry request form
