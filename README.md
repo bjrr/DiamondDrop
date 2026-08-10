@@ -384,7 +384,15 @@ The first release is intentionally small. The goal is to launch a fully function
 - FAQ, policies, contact, and about pages
 - Past Group Buys section
 - Bring It Back / Notify Me If It Returns
-- Request a New Group Buy form
+- Simple Request a New Group Buy form
+
+## Post-MVP / Backlog
+
+### Vote on the Next Group Buy
+
+Voting on future group buys is **not required for MVP1**. Early demand should be measured using actual orders, Bring It Back requests, and New Group Buy requests rather than adding poll infrastructure before there is enough customer traffic for voting data to be meaningful.
+
+A future voting feature may allow customers to vote among a small number of candidate designs, but it should be added only after CaratForUs has sufficient audience size and operational need.
 
 ## Custom Jewelry Flow
 
