@@ -265,10 +265,11 @@ A customer's order may show a more detailed sequence such as:
 - Order received
 - Campaign open
 - Final price confirmed
-- Refund issued, if applicable
+- Refund pending, if applicable
 - In production
 - QC complete
 - Shipped
+- Refund issued, if applicable
 - Delivered
 
 The customer-facing experience should make clear whether a status refers to the overall campaign or the customer's specific order.
@@ -313,9 +314,105 @@ The product page should support:
 
 Video support should be optional at the product level. A product does not require a video to be published, but if an actual item video is available it should be prominently available in the media gallery.
 
+## Group-Buy Refund Engine — LOCKED DECISION
+
+CaratForUs will not use store credit for tier-price adjustments. Any amount owed because a lower group-buy tier was unlocked must be refunded to the customer's original payment method where supported.
+
+### Refund Timing
+
+Refunds are not issued each time a new tier is unlocked. The system calculates and tracks the amount owed continuously, but the refund is held until the applicable order is ready to ship / enters the shipping stage.
+
+This avoids multiple small refunds during a campaign and creates a single final adjustment per order.
+
+### Per-Order Refund Ledger
+
+Every group-buy order must maintain a refund ledger with at least:
+
+- Campaign ID
+- Order ID
+- Customer ID
+- Payment processor
+- Processor payment / charge / payment-intent reference
+- Amount originally charged
+- Customer's purchased variant and option set
+- Group-buy price applicable when the customer ordered
+- Final group-buy price applicable to that exact variant
+- Calculated refund amount
+- Refund status
+- Refund requested timestamp
+- Refund processed timestamp
+- Processor refund reference
+- Refund failure reason, if any
+- Manual override / adjustment field
+- Audit history
+
+Refund amount is calculated as:
+
+**Refund Due = Amount Charged for Group-Buy Merchandise - Final Price for the Customer's Exact Variant**, adjusted for any approved manual corrections or other defined refund rules.
+
+The system must calculate the refund at the order/line-item/variant level rather than assuming every buyer purchased the same configuration. Ring size, chain length, metal, stone choice, center-stone size, and other paid options may produce different final prices.
+
+### Batch Refund Processing
+
+CaratForUs should support batch processing when a campaign reaches the shipping stage.
+
+Operational flow:
+
+1. Campaign closes and final buyer count determines the final tier.
+2. Final group-buy price is calculated for every purchased variant.
+3. Each order's refund due is calculated and stored.
+4. Refunds remain in a **Pending Refund** state during production and QC.
+5. When orders enter the shipping stage, eligible pending refunds are placed into a refund batch.
+6. The system submits the partial refunds to the original payment processors through available APIs or supported batch workflows.
+7. Successful refunds store the processor refund identifier and completion timestamp.
+8. Failed refunds are isolated for retry or manual handling without blocking successful refunds in the same batch.
+
+The architecture must not be Stripe-only. Use a processor abstraction so Stripe, Shopify Payments, PayPal, or other supported payment methods can implement the same internal refund workflow while retaining processor-specific identifiers and rules.
+
+### Controls & Safety
+
+Before a refund batch is executed, the system should provide an internal review summary showing:
+
+- Number of refunds
+- Total dollar amount to be refunded
+- Orders included
+- Amount for each order
+- Payment processor breakdown
+- Any orders that cannot be automatically refunded
+- Any manual overrides
+
+A batch should have statuses such as Draft → Reviewed/Approved → Processing → Completed / Completed with Exceptions.
+
+Refund processing must be idempotent so retries cannot accidentally issue the same refund twice.
+
+### Customer Communication
+
+Customers should be told from the beginning that they can join early without losing access to later pricing tiers.
+
+Suggested customer-facing language:
+
+**Join now. If the group unlocks a lower price later, we automatically calculate your savings and refund the difference when your order ships.**
+
+When a refund is processed, the customer should receive a confirmation showing the refund amount and original payment method.
+
+## How Group Buying Works — LOCKED DIRECTION
+
+The group-buy explanation should remain short on active product pages and link to a fuller FAQ / How It Works page.
+
+Recommended active-product explanation:
+
+1. **Join the Group Buy** — Choose your options and place your order at the current group price.
+2. **More Buyers, Better Pricing** — As more customers join, lower pricing tiers unlock.
+3. **Everyone Gets the Best Final Price** — If a lower tier is reached after you order, your final price drops too.
+4. **Campaign Closes** — At the end of the campaign, the final group price is locked.
+5. **We Produce Your Jewelry** — Your item goes into production using the options you selected.
+6. **QC, Refund & Shipping** — We inspect your jewelry, process any group-price refund due, and ship your order with tracking.
+
+The page should explicitly state that there is no minimum buyer count required for the campaign to proceed. Buyer count / next-tier progress remains in the campaign pricing area rather than being duplicated inside the How It Works section.
+
 ## MVP1: Minimum Viable Business
 
-The first release is intentionally small. The goal is to launch a fully functioning business capable of accepting and fulfilling orders while keeping internal operations manual wherever practical, except where pricing automation is required to protect margins and maintain Buy Now prices.
+The first release is intentionally small. The goal is to launch a fully functioning business capable of accepting and fulfilling orders while keeping internal operations manual wherever practical, except where pricing automation and refund tracking are required to protect margins and honor group-buy commitments.
 
 ### Customer-Facing Features
 
@@ -331,6 +428,7 @@ The first release is intentionally small. The goal is to launch a fully function
 - Campaign status tracker
 - Individual order status tracker where appropriate
 - Product photos, videos, CAD renders, dimensioned CAD, and labeled AI visualizations where applicable
+- Short How Group Buying Works explanation on active campaign pages
 - Shopify checkout
 - Order confirmation
 - Custom jewelry request form
@@ -348,23 +446,24 @@ Internal operations may initially use:
 - Email
 - Manual campaign closeout
 - Manual final-price verification
-- Manual partial refunds
+- Refund batch review / approval
 - Manual manufacturing exports
 - Manual customer updates
 - Manual custom-order quoting
 
-The product data model and pricing logic should nevertheless be designed from day one so these manual components can later be automated without restructuring the underlying product records.
+The product data model, pricing logic, and refund ledger should nevertheless be designed from day one so these manual components can later be automated without restructuring the underlying product and order records.
 
 ## Group-Buy Payment Model
 
-1. Customer joins a campaign.
-2. Customer pays immediately.
-3. Campaign ends.
-4. Final unlocked price is determined.
-5. Customers who paid more than the final price receive a partial refund.
-6. Manufacturing begins.
+1. Customer joins a campaign and pays immediately at the current tier price.
+2. Lower tiers may unlock as more customers join.
+3. The system continuously tracks the customer's potential refund but does not issue interim refunds.
+4. Campaign ends and the final unlocked tier is determined.
+5. Manufacturing and QC proceed.
+6. When the order enters the shipping stage, any amount paid above the customer's final variant-specific group price is refunded to the original payment method.
+7. The order ships.
 
-Everyone receives the same final price. Community referrals help unlock better pricing for all participants and do not earn customer commissions.
+Everyone receives the same final tier pricing for an equivalent product/variant configuration. Community referrals help unlock better pricing for all participants and do not earn customer commissions.
 
 ## Custom Jewelry Flow
 
@@ -403,8 +502,6 @@ The final payment presentation and fee structure must be reviewed before launch 
 ## Deferred Until After Launch
 
 - Full custom admin dashboard
-- Automated refund calculations
-- Automated refund processing
 - Customer referral automation
 - Ambassador or influencer commission system
 - Merchant portal
@@ -415,4 +512,4 @@ The final payment presentation and fee structure must be reviewed before launch 
 
 ## Guiding Rule
 
-If a feature does not help CaratForUs launch sooner, protect pricing/margins, or materially improve the customer experience, it belongs in the backlog.
+If a feature does not help CaratForUs launch sooner, protect pricing/margins, honor group-buy pricing commitments, or materially improve the customer experience, it belongs in the backlog.
