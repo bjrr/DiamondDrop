@@ -327,6 +327,18 @@ MVP behavior:
 
 Post-MVP, the media system may add customer-submitted photos and completed-order galleries once enough real content exists. Any future customer-photo feature should require customer permission and staff approval before public display.
 
+## Buyer Map / Geographic Social Proof — POST-MVP
+
+CaratForUs will not include a buyer map or geographic social-proof module in the initial MVP because there may be little or no customer activity at launch.
+
+Post-MVP, once order volume is meaningful, CaratForUs may add aggregate geographic social proof such as:
+
+- Number of states represented in a campaign
+- Generalized regional activity
+- A privacy-safe buyer map using aggregate or approximate location only
+
+The feature must never expose exact customer addresses or precise locations. It should be added only when enough real customer activity exists for the data to provide meaningful social proof.
+
 ## Group-Buy Refund Engine — LOCKED DECISION
 
 CaratForUs will not use store credit for tier-price adjustments. Any amount owed because a lower group-buy tier was unlocked must be refunded to the customer's original payment method where supported.
@@ -396,13 +408,16 @@ The first release is intentionally small. The goal is to launch a fully function
 - Warranty and support information
 - FAQ, policies, contact, and about pages
 - Past Group Buys section
-- Bring It Back / Notify Me If It Returns
-- Request a New Group Buy
 
 ## Post-MVP / Backlog
 
+Features that should be added only after CaratForUs has meaningful customer traffic or enough real customer content include:
+
 - Vote on the Next Group Buy
-- Customer-submitted photos / Seen in Real Life galleries
+- Real Customer / Campaign Photos and customer-photo upload/moderation
+- Buyer Map / Geographic Social Proof
+
+These features should not delay launch.
 
 ## Custom Jewelry Flow
 
