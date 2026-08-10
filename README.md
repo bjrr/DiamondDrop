@@ -11,6 +11,56 @@ Why take the risk of ordering overseas when customers can receive comparable gro
 
 CaratForUs is not positioned merely as the cheapest option. The brand combines competitive pricing with trust, service, transparency, and after-sale support.
 
+## Why Buy From Us — LOCKED DIRECTION
+
+The Why Buy From Us message must represent CaratForUs as a whole, not only group buys. It should apply consistently across Buy Now, Group Buy, and Custom Jewelry purchases.
+
+### Core Positioning
+
+CaratForUs should compete for customers who may otherwise purchase jewelry directly from overseas sellers by offering strong value without requiring customers to accept the uncertainty and service burden of an overseas transaction.
+
+Primary positioning direction:
+
+**Better value. Better protection. Better buying experience.**
+
+Supporting concept:
+
+**Jewelry pricing that makes sense. Service that stays close to home.**
+
+Customer-facing copy should avoid making CaratForUs sound like a broker or middleman. Primary marketing should generally avoid emphasizing factories, manufacturers, China, or CaratForUs's upstream supply chain. Customers should experience CaratForUs as the seller and accountable brand.
+
+### Brand-Wide Reasons to Choose CaratForUs
+
+The marketing story should be built around concrete customer benefits, including:
+
+- **U.S.-based accountability** — customers purchase from CaratForUs, and CaratForUs stands behind the order.
+- **Quality inspection before delivery** — jewelry is checked against the ordered specifications before reaching the customer.
+- **Domestic support and service** — questions, warranty matters, service, repairs, and approved returns are handled through a U.S.-based business.
+- **Reduced overseas buying burden** — customers should not have to manage foreign seller communication, customs paperwork, international service coordination, or overseas return logistics where CaratForUs can handle those responsibilities.
+- **Transparent pricing** — pricing should be based on the actual product configuration and commercial model rather than inflated comparison prices or artificial retail anchors.
+- **Strong value across every purchase path** — competitive Buy Now pricing, additional savings opportunities through Group Buys, and clear/fair quoting for Custom Jewelry.
+- **Clear product specifications** — metal, stone quality, dimensions, weights, CAD details, and available options should be clearly defined so customers understand what they are purchasing.
+- **Warranty and after-sale support** — customer support continues after delivery.
+- **One accountable company** — customers should not have to determine which supplier, producer, shipper, or outside party is responsible when they need help.
+
+### Channel-Specific Reinforcement
+
+**Buy Now** should emphasize competitive current pricing, U.S.-based accountability, pre-delivery inspection, warranty, and a simpler domestic buying experience.
+
+**Group Buy** should include all brand-wide benefits plus transparent tier progression, community-unlocked savings, and automatic final-price adjustment/refund if a lower tier is reached.
+
+**Custom Jewelry** should include all brand-wide benefits plus guided design support, defined specifications, CAD/design approval, and CaratForUs managing the custom process from request through delivery.
+
+### Overseas-Alternative Message
+
+A deeper section of the site may directly address customers considering an overseas purchase using a message such as:
+
+**Why buy overseas when you can get the value without the uncertainty?**
+
+The narrative should acknowledge that modern jewelry pricing has changed and customers should not need traditional retail markups, while making the case that better value should not require giving up service, accountability, quality inspection, or peace of mind.
+
+Exact campaign copy, headlines, and claims should only be finalized once CaratForUs has confirmed the operational policies that support them.
+
 ## Core Product & Pricing Architecture
 
 CaratForUs will be built around a structured jewelry product data model and pricing engine rather than manually maintained selling prices.
