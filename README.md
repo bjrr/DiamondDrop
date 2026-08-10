@@ -248,6 +248,23 @@ Refund amount is calculated at the order/line-item/variant level.
 
 CaratForUs should support batch refund processing at shipping, with internal review, processor abstraction, idempotency, and exception handling.
 
+## Group-Buy Product Options — LOCKED DECISION
+
+Group-buy products are standardized campaigns, not custom-design orders.
+
+Customers may only purchase from the **pre-approved options explicitly configured for that campaign**, such as:
+
+- Metal and metal color
+- Stone type
+- Stone color or quality when offered
+- Ring size or chain/bracelet/necklace length
+- Predefined engraving options when a campaign allows engraving
+- Other predefined variants approved before the campaign launches
+
+A group-buy product page must **not include a free-form Custom Request field for design changes**. Customers who want a different design, unlisted gemstone, nonstandard construction, or other modification should be directed to the separate Custom Jewelry flow.
+
+If an optional Order Note field is offered, it is for non-design logistics or clarification only and must not be treated as authorization to change the product specification.
+
 ## How Group Buying Works — LOCKED DIRECTION
 
 The group-buy explanation should remain short on active product pages and link to a fuller FAQ / How It Works page.
