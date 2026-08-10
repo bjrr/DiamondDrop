@@ -85,6 +85,53 @@ When a campaign is opened, store a versioned cost/pricing snapshot including app
 
 There is no mandatory minimum buyer count required to complete a campaign. If only one customer joins, that customer receives the highest applicable pricing tier and the item can still proceed to production.
 
+### Group-Buy Tier Model — LOCKED DECISION
+
+CaratForUs will use percentage-based group-buy tiers because product variants can have different prices based on ring size, chain length, metal, stone choice, and other options.
+
+The group-buy tier discount must be applied to the frozen campaign base price for each exact variant rather than using a fixed-dollar discount across all variants.
+
+**Variant Group Price = Frozen Campaign Base Price for Exact Variant × Applicable Tier Percentage**
+
+Default campaign structure:
+
+- Tier 1 — starting group-buy price
+- Tier 2 — better group-buy price
+- Tier 3 — best group-buy price
+
+The default is **3 tiers**.
+
+The system must support **2 to 5 configurable tiers per campaign** when a different structure is commercially appropriate.
+
+For every tier, the campaign administrator should be able to define:
+
+- Buyer-count threshold
+- Percentage discount from the campaign's Tier 1 / base group-buy price
+- Optional customer-facing tier label
+- Optional manually overridden price rule where needed
+
+Example:
+
+- Tier 1: 1–9 buyers — 0% additional discount
+- Tier 2: 10–24 buyers — 5% discount
+- Tier 3: 25+ buyers — 10% discount
+
+The same percentage applies proportionally to each eligible variant. For example, if a size 4 ring has a frozen campaign base price of $600 and a size 8 ring has a frozen campaign base price of $660, a 10% final-tier discount produces $540 and $594 respectively.
+
+### Margin Protection
+
+Before a campaign can be published, the pricing engine must validate the tier schedule against every allowed variant.
+
+Each campaign and/or pricing profile must support:
+
+- Minimum gross-margin percentage
+- Minimum dollar profit per item
+- Optional variant-specific floor
+
+If a configured tier would push any allowed variant below its required margin or dollar-profit floor, the system should prevent publication or require an explicit authorized override.
+
+Tier percentages and thresholds are frozen with the campaign pricing snapshot once the campaign opens.
+
 ## Variant Weight Model — LOCKED DECISION
 
 For products where weight changes predictably with size or length, CaratForUs will use a **base specification + incremental adjustment + optional exact override** model.
@@ -162,14 +209,6 @@ For each active campaign, show:
 - Number of additional buyers needed to unlock the next tier
 - Additional dollar savings available at the next tier
 - Lowest possible tier may be shown, but only as secondary information rather than the primary callout
-
-Example presentation:
-
-- Current Group Price: $649
-- Buy Now Today: $729
-- You Save: $80 (11%)
-- 12 more buyers unlock $619
-- Potential additional savings: $30
 
 ### Behavioral Rule
 
@@ -446,24 +485,23 @@ Internal operations may initially use:
 - Email
 - Manual campaign closeout
 - Manual final-price verification
-- Refund batch review / approval
+- Manual partial refunds
 - Manual manufacturing exports
 - Manual customer updates
 - Manual custom-order quoting
 
-The product data model, pricing logic, and refund ledger should nevertheless be designed from day one so these manual components can later be automated without restructuring the underlying product and order records.
+The product data model and pricing logic should nevertheless be designed from day one so these manual components can later be automated without restructuring the underlying product records.
 
 ## Group-Buy Payment Model
 
-1. Customer joins a campaign and pays immediately at the current tier price.
-2. Lower tiers may unlock as more customers join.
-3. The system continuously tracks the customer's potential refund but does not issue interim refunds.
-4. Campaign ends and the final unlocked tier is determined.
-5. Manufacturing and QC proceed.
-6. When the order enters the shipping stage, any amount paid above the customer's final variant-specific group price is refunded to the original payment method.
-7. The order ships.
+1. Customer joins a campaign.
+2. Customer pays immediately.
+3. Campaign ends.
+4. Final unlocked price is determined.
+5. Customers who paid more than the final price receive a partial refund when their order ships.
+6. Manufacturing and fulfillment proceed according to the campaign timeline.
 
-Everyone receives the same final tier pricing for an equivalent product/variant configuration. Community referrals help unlock better pricing for all participants and do not earn customer commissions.
+Everyone receives the same final tier discount for their exact purchased variant. Community referrals help unlock better pricing for all participants and do not earn customer commissions.
 
 ## Custom Jewelry Flow
 
@@ -502,14 +540,13 @@ The final payment presentation and fee structure must be reviewed before launch 
 ## Deferred Until After Launch
 
 - Full custom admin dashboard
-- Customer referral automation
 - Ambassador or influencer commission system
 - Merchant portal
 - Multi-tenant SaaS architecture
 - Advanced analytics dashboard
-- Automated manufacturing workflow
+- Fully automated manufacturing workflow
 - Native mobile applications
 
 ## Guiding Rule
 
-If a feature does not help CaratForUs launch sooner, protect pricing/margins, honor group-buy pricing commitments, or materially improve the customer experience, it belongs in the backlog.
+If a feature does not help CaratForUs launch sooner, protect pricing/margins, or materially improve the customer experience, it belongs in the backlog.
