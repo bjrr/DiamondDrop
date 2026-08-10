@@ -35,7 +35,7 @@ Each jewelry design will have one Master Product Definition containing the core 
 
 Pricing must be built from linked cost components rather than hard-coded product prices. Libraries should support:
 
-- Precious metals: 10K, 14K, 18K, platinum and future metals
+- Precious metals: Sterling Silver, 10K, 14K, 18K, platinum and future metals
 - Daily market pricing and configurable alloy/casting adjustments
 - Lab-grown and natural diamonds by shape, carat, size, color, clarity, cut, certification, and supplier
 - Moissanite by shape, size, grade, brand, and supplier
@@ -105,18 +105,12 @@ The system must support **2 to 5 configurable tiers per campaign** when a differ
 
 For every tier, the campaign administrator should be able to define:
 
-- Buyer-count threshold
+- Unit-count threshold
 - Percentage discount from the campaign's Tier 1 / base group-buy price
 - Optional customer-facing tier label
 - Optional manually overridden price rule where needed
 
-Example:
-
-- Tier 1: 1–9 buyers — 0% additional discount
-- Tier 2: 10–24 buyers — 5% discount
-- Tier 3: 25+ buyers — 10% discount
-
-The same percentage applies proportionally to each eligible variant. For example, if a size 4 ring has a frozen campaign base price of $600 and a size 8 ring has a frozen campaign base price of $660, a 10% final-tier discount produces $540 and $594 respectively.
+Group-buy thresholds are based on **qualifying units sold**, not unique buyers. If one customer purchases three eligible pieces, all three units count toward the tier threshold. Cancelled/refunded orders that no longer qualify should stop counting.
 
 ### Margin Protection
 
@@ -142,43 +136,62 @@ The default ring-weight method is:
 
 **Calculated Weight = Base Weight at Base Ring Size + ((Selected Ring Size - Base Ring Size) × Weight Added per Full Size)**
 
-Example:
-
-- Base ring size: 4
-- Base finished weight: 3.20 g
-- Increment: 0.10 g per full ring size
-- Size 7 calculated weight: 3.20 g + (3 × 0.10 g) = 3.50 g
-
-Half sizes use the proportional increment automatically. In the example above, size 4.5 would be 3.25 g.
-
-This method is the default because it avoids maintaining a separate finished weight for every ring size.
+Half sizes use the proportional increment automatically.
 
 ### Exact-Weight Override
 
 The system must also support an exact finished-weight override for any specific size where a linear formula is not accurate.
 
-This is important for designs such as:
-
-- Wide bands
-- Eternity and partial-eternity rings
-- Unusual shanks
-- Highly sculptural designs
-- Designs where stone count changes by size
-- Any product where CAD/manufacturing data provides more accurate size-specific weights
-
-When an exact override exists, it takes precedence over the calculated weight.
-
 ### Other Product Types
 
-The same model should be reusable for other products:
+The same model should be reusable for chains, bracelets, tennis necklaces, bands, and other products using base specification + incremental adjustment where appropriate.
 
-- Chains: base length + grams per additional inch
-- Bracelets: base length + grams per additional inch
-- Tennis necklaces: base length + component/weight adjustments per additional inch
-- Bands: base ring size + grams per additional size
-- Other products: base specification + incremental adjustment where appropriate
+## Ring Size Guide & Pricing Bands — LOCKED DECISION
 
-The data model should not require duplicate full product records for every variant. Variants should inherit master-product data and store only what changes, such as ring size, chain length, center-stone option, metal, backing style, stone-count change, or incremental weight.
+Every ring product page should include a **Find Your Ring Size** link near the size selector. The guide should support U.S. whole and half sizes, common international conversions, internal diameter/circumference in millimeters, guidance for measuring an existing ring and measuring the finger, and a warning that wide bands can fit tighter than narrow bands.
+
+Each ring product should define:
+
+- Minimum offered size
+- Maximum offered size
+- Size increment, usually 0.5
+- Base size used for weight calculation
+- Whether quarter sizes are allowed
+- Whether custom sizes are available
+- Resizing restrictions
+- Product-specific sizing notes
+
+A checkout confirmation such as **I have confirmed the ring size selected above** may be used to reduce sizing errors.
+
+For customer-facing pricing, CaratForUs will simplify ring sizes into configurable pricing bands instead of showing a different selling price for every half-size.
+
+Default pricing bands:
+
+- **Size 2–6**
+- **Size 6.5–8**
+- **Size 8.5–11**
+
+The internal cost model still calculates expected metal weight by exact ring size using the base-weight formula or an exact override. The customer-facing price is then assigned by the applicable size-price band.
+
+Each size-price band should use a safe cost basis so the highest-cost size inside that band remains profitable. By default, the pricing engine may use the largest size in the band as the cost reference, subject to the configured minimum-margin and minimum-profit rules.
+
+These bands must be configurable per product because wide rings, eternity rings, sculptural designs, and other unusual pieces may require different ranges or exact-size overrides.
+
+## Metal Selection & Education — LOCKED DECISION
+
+Supported metal library includes:
+
+- Sterling Silver
+- 10K Gold
+- 14K Gold
+- 18K Gold
+- Platinum
+
+The person creating each product must explicitly select which metals are offered for that product. Metals are not automatically enabled simply because they exist in the global library.
+
+Reusable product-entry presets may preselect common metal combinations to speed setup, but the creator must confirm the final allowed metals before publishing.
+
+Metal selection must connect directly to the pricing engine and variant pricing.
 
 ## Past Group Buys — LOCKED DIRECTION
 
@@ -187,7 +200,7 @@ CaratForUs will maintain a public **Past Group Buys** section.
 - Show the five most recent completed campaigns on the homepage.
 - Provide a dedicated View All Past Group Buys archive.
 - Completed campaigns should have a clearly disabled/completed visual treatment rather than appearing active.
-- Show actual final buyer count.
+- Show actual final unit count.
 - Show historical starting price and final unlocked group price.
 - Preserve historical campaign data even when today's costs have changed.
 - Completed items may later be offered as Buy Now products using current pricing generated by the pricing engine rather than the historical campaign price.
@@ -197,257 +210,56 @@ CaratForUs will maintain a public **Past Group Buys** section.
 
 Active group-buy campaigns should make the value of joining clear without encouraging customers to delay participation.
 
-### Active Campaign Display
-
-For each active campaign, show:
-
-- Current Group Price
-- Current Buy Now price generated by the live pricing engine
-- Current dollar savings versus Buy Now
-- Current percentage savings versus Buy Now
-- Next pricing tier
-- Number of additional buyers needed to unlock the next tier
-- Additional dollar savings available at the next tier
-- Lowest possible tier may be shown, but only as secondary information rather than the primary callout
-
-### Behavioral Rule
+For each active campaign, show current group price, current Buy Now price, dollar savings, percentage savings, next tier, units needed to unlock it, and additional potential savings. The lowest possible tier may be shown as secondary information.
 
 The page must clearly explain that customers do not need to wait for a lower tier before joining. If a lower tier is unlocked later, earlier participants receive the same final price through the campaign's refund/final-price mechanism.
 
-Suggested message:
-
-**Join now. If the group unlocks a lower tier, your final price drops too.**
-
-### Dynamic Comparison Rule
-
-The Buy Now comparison price may continue updating while the campaign is active because it is generated from current pricing inputs such as gold and stone costs.
-
-The active group-buy tier prices themselves remain frozen for the duration of the campaign.
-
-Therefore:
-
-- Group Buy Price = frozen
-- Buy Now Comparison Price = dynamic
-- Savings dollars = dynamic
-- Savings percentage = dynamic
-
-### Historical Campaign Savings
-
-For completed campaigns, preserve the historical savings achieved during that campaign, including:
-
-- Starting Group Price
-- Final Group Price
-- Dollar savings unlocked by the community
-
-Historical campaign data must not be overwritten by later Buy Now price changes.
-
-### Comparison Pricing Rule
-
-Do not rely on artificial or inflated "retail" comparison prices. Savings should primarily be compared against CaratForUs's actual current Buy Now price generated by the pricing engine.
+The Buy Now comparison price may continue updating while the campaign is active, while active group-buy tier prices remain frozen.
 
 ## Production Timeline — LOCKED DECISION
 
 Production and delivery timing must be product-level data entered when each product or campaign is created rather than relying on a single global timeline.
 
-Each product/campaign record should support:
-
-- Campaign start date
-- Campaign end date
-- Production lead time or production lead-time range
-- Quality-control / inspection duration
-- Shipping estimate
-- Optional manufacturing buffer
-- Calculated estimated delivery date range
-- Manual override for any displayed dates or durations when needed
-
-The customer-facing estimated delivery window should be calculated from these fields.
-
-Different products may have different production timelines. For example, a simple ring may have a shorter production cycle than a tennis necklace, bracelet, complex pavé item, or custom-manufactured piece.
-
-The system must support supplier- or product-specific timing overrides without changing global defaults.
-
-### Estimated Timeline vs. Actual Status
-
-Estimated timing and actual order/campaign status are separate concepts:
-
-- **Estimated timeline** describes when the customer is expected to receive the item.
-- **Actual status** describes what is currently happening operationally.
-
-After a campaign closes, the estimated timeline remains visible while an actual-status tracker may show progress such as Production → Quality Inspection → Shipping → Delivered.
+Each product/campaign record should support campaign dates, production lead time, QC duration, shipping estimate, optional manufacturing buffer, calculated estimated delivery range, and manual overrides.
 
 ## Campaign & Order Status — LOCKED DECISION
 
-Campaign status and individual order status are separate but related.
+Campaign and individual order status are separate but related.
 
-### Campaign Status
+Campaign stages should support Open, Closed, In Production, Quality Inspection, Shipping, and Completed. Open/Closed may update automatically; production/QC may be manual; shipping/delivery may use Shopify or carrier events where available. All statuses support manual override.
 
-Customer-facing campaign stages should support:
-
-- Open
-- Closed
-- In Production
-- Quality Inspection
-- Shipping
-- Completed
-
-Status behavior:
-
-- Open / Closed should update automatically from campaign dates where practical.
-- In Production and Quality Inspection may be updated manually by staff in MVP1.
-- Shipping and Delivered/Completed may update automatically when Shopify or carrier tracking supports it.
-- Every status must support a manual override.
-
-### Individual Order Status
-
-A customer's order may show a more detailed sequence such as:
-
-- Order received
-- Campaign open
-- Final price confirmed
-- Refund pending, if applicable
-- In production
-- QC complete
-- Shipped
-- Refund issued, if applicable
-- Delivered
-
-The customer-facing experience should make clear whether a status refers to the overall campaign or the customer's specific order.
+Individual orders may show Order received, Campaign open, Final price confirmed, Refund pending, In production, QC complete, Shipped, Refund issued, and Delivered.
 
 ## Product Visuals & Technical Details — LOCKED DECISION
 
-Because manufacturing is outsourced, CaratForUs will not require in-process manufacturing photography for each item. Instead, each product should support a structured set of visual and technical media assets.
+Because manufacturing is outsourced, CaratForUs will not require in-process manufacturing photography for each item. Instead, each product should support actual product photos, actual product video, CAD renders, dimensioned CAD images, clearly labeled AI visualizations, and optional manufacturer-provided media.
 
-Supported visual types include:
-
-- Actual product photos when available
-- Actual product video when available
-- CAD renders
-- Dimensioned CAD images showing measurements and proportions
-- AI-generated lifestyle or visualization images when no physical sample is available
-- Optional manufacturer-provided photos or videos if available
-
-### Labeling & Trust Rules
-
-The website must clearly distinguish the type of media being shown so customers are not misled.
-
-Suggested labels include:
-
-- **Actual Product Photo**
-- **Actual Product Video**
-- **CAD Rendering**
-- **CAD Dimensions**
-- **AI Visualization — final appearance may vary slightly**
-
-AI-generated media must never be presented as if it were a photograph or video of the finished manufactured item.
-
-### Product Page Presentation
-
-The product page should support:
-
-- Mixed photo and video gallery
-- Optional autoplay-disabled product video preview
-- Full-screen or enlarged video viewing
-- CAD render gallery
-- Expandable **View Dimensions & Details** section for dimensioned CAD and technical specifications
-- Mobile-friendly display for images and video
-
-Video support should be optional at the product level. A product does not require a video to be published, but if an actual item video is available it should be prominently available in the media gallery.
+The website must clearly distinguish Actual Product Photo, Actual Product Video, CAD Rendering, CAD Dimensions, and AI Visualization — final appearance may vary slightly.
 
 ## Group-Buy Refund Engine — LOCKED DECISION
 
 CaratForUs will not use store credit for tier-price adjustments. Any amount owed because a lower group-buy tier was unlocked must be refunded to the customer's original payment method where supported.
 
-### Refund Timing
+Refunds are calculated continuously but held until the applicable order is ready to ship / enters the shipping stage.
 
-Refunds are not issued each time a new tier is unlocked. The system calculates and tracks the amount owed continuously, but the refund is held until the applicable order is ready to ship / enters the shipping stage.
+Every group-buy order must maintain a refund ledger with campaign, order, customer, processor, amount charged, exact variant, original group price, final group price, calculated refund, status, timestamps, processor refund reference, exceptions, manual override, and audit history.
 
-This avoids multiple small refunds during a campaign and creates a single final adjustment per order.
+Refund amount is calculated at the order/line-item/variant level.
 
-### Per-Order Refund Ledger
-
-Every group-buy order must maintain a refund ledger with at least:
-
-- Campaign ID
-- Order ID
-- Customer ID
-- Payment processor
-- Processor payment / charge / payment-intent reference
-- Amount originally charged
-- Customer's purchased variant and option set
-- Group-buy price applicable when the customer ordered
-- Final group-buy price applicable to that exact variant
-- Calculated refund amount
-- Refund status
-- Refund requested timestamp
-- Refund processed timestamp
-- Processor refund reference
-- Refund failure reason, if any
-- Manual override / adjustment field
-- Audit history
-
-Refund amount is calculated as:
-
-**Refund Due = Amount Charged for Group-Buy Merchandise - Final Price for the Customer's Exact Variant**, adjusted for any approved manual corrections or other defined refund rules.
-
-The system must calculate the refund at the order/line-item/variant level rather than assuming every buyer purchased the same configuration. Ring size, chain length, metal, stone choice, center-stone size, and other paid options may produce different final prices.
-
-### Batch Refund Processing
-
-CaratForUs should support batch processing when a campaign reaches the shipping stage.
-
-Operational flow:
-
-1. Campaign closes and final buyer count determines the final tier.
-2. Final group-buy price is calculated for every purchased variant.
-3. Each order's refund due is calculated and stored.
-4. Refunds remain in a **Pending Refund** state during production and QC.
-5. When orders enter the shipping stage, eligible pending refunds are placed into a refund batch.
-6. The system submits the partial refunds to the original payment processors through available APIs or supported batch workflows.
-7. Successful refunds store the processor refund identifier and completion timestamp.
-8. Failed refunds are isolated for retry or manual handling without blocking successful refunds in the same batch.
-
-The architecture must not be Stripe-only. Use a processor abstraction so Stripe, Shopify Payments, PayPal, or other supported payment methods can implement the same internal refund workflow while retaining processor-specific identifiers and rules.
-
-### Controls & Safety
-
-Before a refund batch is executed, the system should provide an internal review summary showing:
-
-- Number of refunds
-- Total dollar amount to be refunded
-- Orders included
-- Amount for each order
-- Payment processor breakdown
-- Any orders that cannot be automatically refunded
-- Any manual overrides
-
-A batch should have statuses such as Draft → Reviewed/Approved → Processing → Completed / Completed with Exceptions.
-
-Refund processing must be idempotent so retries cannot accidentally issue the same refund twice.
-
-### Customer Communication
-
-Customers should be told from the beginning that they can join early without losing access to later pricing tiers.
-
-Suggested customer-facing language:
-
-**Join now. If the group unlocks a lower price later, we automatically calculate your savings and refund the difference when your order ships.**
-
-When a refund is processed, the customer should receive a confirmation showing the refund amount and original payment method.
+CaratForUs should support batch refund processing at shipping, with internal review, processor abstraction, idempotency, and exception handling.
 
 ## How Group Buying Works — LOCKED DIRECTION
 
 The group-buy explanation should remain short on active product pages and link to a fuller FAQ / How It Works page.
 
-Recommended active-product explanation:
+1. Join the Group Buy.
+2. More units sold unlock better pricing.
+3. Everyone gets the best final price reached.
+4. Campaign closes and final pricing is locked.
+5. Jewelry goes into production.
+6. QC, refund adjustment if applicable, and shipping follow.
 
-1. **Join the Group Buy** — Choose your options and place your order at the current group price.
-2. **More Buyers, Better Pricing** — As more customers join, lower pricing tiers unlock.
-3. **Everyone Gets the Best Final Price** — If a lower tier is reached after you order, your final price drops too.
-4. **Campaign Closes** — At the end of the campaign, the final group price is locked.
-5. **We Produce Your Jewelry** — Your item goes into production using the options you selected.
-6. **QC, Refund & Shipping** — We inspect your jewelry, process any group-price refund due, and ship your order with tracking.
-
-The page should explicitly state that there is no minimum buyer count required for the campaign to proceed. Buyer count / next-tier progress remains in the campaign pricing area rather than being duplicated inside the How It Works section.
+The page should explicitly state that there is no minimum unit count required for the campaign to proceed.
 
 ## MVP1: Minimum Viable Business
 
@@ -457,16 +269,17 @@ The first release is intentionally small. The goal is to launch a fully function
 
 - Shopify storefront
 - Active group-buy campaign pages
-- Live or frequently updated buyer count
+- Live or frequently updated qualifying unit count
 - Countdown timer
 - Tiered pricing display
 - Current unlocked price
-- Next pricing tier and buyers needed
+- Next pricing tier and units needed
 - Dynamic savings vs. Buy Now display
 - Product-specific estimated production and delivery timeline
 - Campaign status tracker
 - Individual order status tracker where appropriate
 - Product photos, videos, CAD renders, dimensioned CAD, and labeled AI visualizations where applicable
+- Ring size guide
 - Short How Group Buying Works explanation on active campaign pages
 - Shopify checkout
 - Order confirmation
@@ -476,36 +289,9 @@ The first release is intentionally small. The goal is to launch a fully function
 - FAQ, policies, contact, and about pages
 - Past Group Buys section
 
-### Manual Internal Operations
-
-Internal operations may initially use:
-
-- Shopify Admin
-- Google Sheets or Airtable
-- Email
-- Manual campaign closeout
-- Manual final-price verification
-- Manual partial refunds
-- Manual manufacturing exports
-- Manual customer updates
-- Manual custom-order quoting
-
-The product data model and pricing logic should nevertheless be designed from day one so these manual components can later be automated without restructuring the underlying product records.
-
-## Group-Buy Payment Model
-
-1. Customer joins a campaign.
-2. Customer pays immediately.
-3. Campaign ends.
-4. Final unlocked price is determined.
-5. Customers who paid more than the final price receive a partial refund when their order ships.
-6. Manufacturing and fulfillment proceed according to the campaign timeline.
-
-Everyone receives the same final tier discount for their exact purchased variant. Community referrals help unlock better pricing for all participants and do not earn customer commissions.
-
 ## Custom Jewelry Flow
 
-1. Customer selects “Start a Custom Design.”
+1. Customer selects Start a Custom Design.
 2. Customer completes a guided questionnaire.
 3. Customer uploads inspiration images or sketches.
 4. CaratForUs reviews the request manually.
@@ -513,39 +299,9 @@ Everyone receives the same final tier discount for their exact purchased variant
 6. Payment is collected.
 7. CAD, approval, production, inspection, and delivery are handled manually during MVP1.
 
-Initial categories may include:
-
-- Engagement rings
-- Wedding bands
-- Earrings
-- Pendants
-- Necklaces
-- Bracelets
-- Jewelry redesigns
-- Other custom concepts
-
 ## Payment Strategy
 
-The preferred strategy is to encourage lower-cost payment methods while keeping credit-card payment available.
-
-Potential methods:
-
-- ACH or bank transfer
-- Zelle
-- PayPal where appropriate
-- Credit or debit card at a higher displayed price or with a clearly disclosed fee, subject to processor rules and applicable law
-
-The final payment presentation and fee structure must be reviewed before launch for Shopify, payment-processor, card-network, and legal compliance.
-
-## Deferred Until After Launch
-
-- Full custom admin dashboard
-- Ambassador or influencer commission system
-- Merchant portal
-- Multi-tenant SaaS architecture
-- Advanced analytics dashboard
-- Fully automated manufacturing workflow
-- Native mobile applications
+The preferred strategy is to encourage lower-cost payment methods while keeping credit-card payment available, subject to processor rules and applicable law.
 
 ## Guiding Rule
 
