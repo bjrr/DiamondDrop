@@ -314,6 +314,19 @@ Because manufacturing is outsourced, CaratForUs will not require in-process manu
 
 The website must clearly distinguish Actual Product Photo, Actual Product Video, CAD Rendering, CAD Dimensions, and AI Visualization — final appearance may vary slightly.
 
+## Real Customer / Campaign Photos — POST-MVP
+
+CaratForUs will not require customer-submitted or completed-campaign photography for the initial MVP because there may be little or no customer-generated content at launch.
+
+MVP behavior:
+
+- Product pages should use available actual product photos, CAD renders, dimensioned CAD, clearly labeled AI visualizations, and supplier-provided media where appropriate.
+- Do not display an empty Customer Photos or Seen in Real Life section when no content exists.
+- Do not build a customer photo-upload or moderation workflow for MVP1.
+- Customer/campaign photos should not be required for product publication or launch credibility.
+
+Post-MVP, the media system may add customer-submitted photos and completed-order galleries once enough real content exists. Any future customer-photo feature should require customer permission and staff approval before public display.
+
 ## Group-Buy Refund Engine — LOCKED DECISION
 
 CaratForUs will not use store credit for tier-price adjustments. Any amount owed because a lower group-buy tier was unlocked must be refunded to the customer's original payment method where supported.
@@ -384,15 +397,12 @@ The first release is intentionally small. The goal is to launch a fully function
 - FAQ, policies, contact, and about pages
 - Past Group Buys section
 - Bring It Back / Notify Me If It Returns
-- Simple Request a New Group Buy form
+- Request a New Group Buy
 
 ## Post-MVP / Backlog
 
-### Vote on the Next Group Buy
-
-Voting on future group buys is **not required for MVP1**. Early demand should be measured using actual orders, Bring It Back requests, and New Group Buy requests rather than adding poll infrastructure before there is enough customer traffic for voting data to be meaningful.
-
-A future voting feature may allow customers to vote among a small number of candidate designs, but it should be added only after CaratForUs has sufficient audience size and operational need.
+- Vote on the Next Group Buy
+- Customer-submitted photos / Seen in Real Life galleries
 
 ## Custom Jewelry Flow
 
