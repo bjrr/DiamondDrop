@@ -1,19 +1,20 @@
 # CaratForUs
 
-CaratForUs is a U.S.-based jewelry business built around two revenue channels:
+CaratForUs is a U.S.-based jewelry business built around three customer purchase paths:
 
-1. Community-powered group buys with transparent tiered pricing.
-2. Custom jewelry requests handled through a guided customer questionnaire and manual quoting.
+1. Buy Now jewelry with dynamically calculated current pricing.
+2. Community-powered Group Buys with transparent tiered pricing.
+3. Custom Jewelry requests handled through a guided customer questionnaire and manual quoting.
 
 ## Core Value Proposition
 
-Why take the risk of ordering overseas when customers can receive comparable group-buy pricing from a U.S.-based seller with warranty coverage, quality inspection, domestic support, and clearer accountability?
+CaratForUs combines strong jewelry value with U.S.-based accountability, pre-delivery quality inspection, domestic support, warranty service, and a simpler buying experience.
 
 CaratForUs is not positioned merely as the cheapest option. The brand combines competitive pricing with trust, service, transparency, and after-sale support.
 
 ## Why Buy From Us — LOCKED DIRECTION
 
-The Why Buy From Us message must represent CaratForUs as a whole, not only group buys. It should apply consistently across Buy Now, Group Buy, and Custom Jewelry purchases.
+The Why Buy From Us message must represent CaratForUs as a whole, not only Group Buys. It should apply consistently across Buy Now, Group Buy, and Custom Jewelry purchases.
 
 ### Core Positioning
 
@@ -129,25 +130,25 @@ Buy Now prices should be recalculated automatically at least daily, with a targe
 
 ### Group Buy Pricing
 
-Active group-buy campaign pricing is frozen for the campaign and must not automatically change as precious-metal or market costs move after customer commitments begin.
+Active Group Buy campaign pricing is frozen for the campaign and must not automatically change as precious-metal or market costs move after customer commitments begin.
 
 When a campaign is opened, store a versioned cost/pricing snapshot including applicable metal prices, stone costs, labor assumptions, fees, margins, and tier prices. This historical snapshot remains associated with that campaign permanently.
 
-There is no mandatory minimum buyer count required to complete a campaign. If only one customer joins, that customer receives the highest applicable pricing tier and the item can still proceed to production.
+There is no mandatory minimum unit count required to complete a campaign. Even one qualifying unit can proceed at Tier 1 pricing.
 
 ### Group-Buy Tier Model — LOCKED DECISION
 
-CaratForUs will use percentage-based group-buy tiers because product variants can have different prices based on ring size, chain length, metal, stone choice, and other options.
+CaratForUs will use percentage-based Group Buy tiers because product variants can have different prices based on ring size/price band, chain length, metal, stone choice, and other options.
 
-The group-buy tier discount must be applied to the frozen campaign base price for each exact variant rather than using a fixed-dollar discount across all variants.
+The Group Buy tier discount must be applied to the frozen campaign base price for the customer's eligible variant rather than using a fixed-dollar discount across all variants.
 
-**Variant Group Price = Frozen Campaign Base Price for Exact Variant × Applicable Tier Percentage**
+**Variant Group Price = Frozen Campaign Base Price for Eligible Variant × Applicable Tier Percentage**
 
 Default campaign structure:
 
-- Tier 1 — starting group-buy price
-- Tier 2 — better group-buy price
-- Tier 3 — best group-buy price
+- Tier 1 — starting Group Buy price
+- Tier 2 — better Group Buy price
+- Tier 3 — best Group Buy price
 
 The default is **3 tiers**.
 
@@ -156,11 +157,11 @@ The system must support **2 to 5 configurable tiers per campaign** when a differ
 For every tier, the campaign administrator should be able to define:
 
 - Unit-count threshold
-- Percentage discount from the campaign's Tier 1 / base group-buy price
+- Percentage discount from the campaign's Tier 1/base Group Buy price
 - Optional customer-facing tier label
 - Optional manually overridden price rule where needed
 
-Group-buy thresholds are based on **qualifying units sold**, not unique buyers. If one customer purchases three eligible pieces, all three units count toward the tier threshold. Cancelled/refunded orders that no longer qualify should stop counting.
+Group Buy thresholds are based on **qualifying units sold**, not unique buyers. If one customer purchases three eligible pieces, all three units count toward the tier threshold. Cancelled/refunded orders that no longer qualify stop counting.
 
 ### Margin Protection
 
@@ -176,13 +177,41 @@ If a configured tier would push any allowed variant below its required margin or
 
 Tier percentages and thresholds are frozen with the campaign pricing snapshot once the campaign opens.
 
+## Campaign Progress / Live Savings Meter — MVP1 LOCKED DECISION
+
+Every active Group Buy page should prominently show campaign progress and the price impact for the customer's current selection.
+
+The module should show:
+
+- Qualifying units sold
+- Current tier unlocked
+- Current tier percentage
+- Next tier threshold
+- Number of additional qualifying units needed for the next tier
+- Current Group Buy price for the selected eligible variant
+- Current Buy Now comparison price for the selected eligible variant
+- Current dollar and percentage savings versus Buy Now
+- Next-tier price for the selected eligible variant
+- Additional savings if the next tier unlocks
+- Countdown/time remaining near the progress area
+
+The visual progress bar should mark the configured tier thresholds. The default 3-tier campaign can be presented as Tier 1 → Tier 2 → Tier 3 / Best Price.
+
+When the final tier is reached, next-tier messaging should be replaced with a clear **Best Price Unlocked** state.
+
+Do not use a crowdfunding-style funded percentage or imply that a minimum order count is required, because CaratForUs Group Buys do not require a minimum to proceed.
+
+The progress module should make clear that customers do not need to wait for a lower tier before joining. Suggested message:
+
+**Join now. If the group unlocks a lower price later, your final price drops too.**
+
 ## Variant Weight Model — LOCKED DECISION
 
 For products where weight changes predictably with size or length, CaratForUs will use a **base specification + incremental adjustment + optional exact override** model.
 
 ### Rings
 
-The default ring-weight method is:
+The internal ring-weight method is:
 
 **Calculated Weight = Base Weight at Base Ring Size + ((Selected Ring Size - Base Ring Size) × Weight Added per Full Size)**
 
@@ -191,6 +220,8 @@ Half sizes use the proportional increment automatically.
 ### Exact-Weight Override
 
 The system must also support an exact finished-weight override for any specific size where a linear formula is not accurate.
+
+This is especially useful for wide bands, eternity rings, sculptural designs, designs where stone count changes by size, or cases where exact CAD/manufacturing data is available.
 
 ### Other Product Types
 
@@ -221,11 +252,11 @@ Default pricing bands:
 - **Size 6.5–8**
 - **Size 8.5–11**
 
-The internal cost model still calculates expected metal weight by exact ring size using the base-weight formula or an exact override. The customer-facing price is then assigned by the applicable size-price band.
+The internal cost model still calculates expected metal weight by exact ring size using the base-weight formula or an exact override. Customer-facing selling price is assigned by the applicable size-price band.
 
-Each size-price band should use a safe cost basis so the highest-cost size inside that band remains profitable. By default, the pricing engine may use the largest size in the band as the cost reference, subject to the configured minimum-margin and minimum-profit rules.
+Each size-price band should use a safe cost basis so the highest-cost size inside that band remains profitable. By default, the pricing engine may use the largest size in the band as the cost reference, subject to configured minimum-margin and minimum-profit rules.
 
-These bands must be configurable per product because wide rings, eternity rings, sculptural designs, and other unusual pieces may require different ranges or exact-size overrides.
+These bands must be configurable per product because wide rings, eternity rings, sculptural designs, and other unusual pieces may require different ranges or exact-size pricing.
 
 ## Metal Selection & Education — LOCKED DECISION
 
@@ -243,6 +274,8 @@ Reusable product-entry presets may preselect common metal combinations to speed 
 
 Metal selection must connect directly to the pricing engine and variant pricing.
 
+Product pages should provide a compact **Which metal should I choose?** education element rather than interrupting checkout with a long comparison lesson. Only metals actually offered for that product should be shown.
+
 ## Past Group Buys — LOCKED DIRECTION
 
 CaratForUs will maintain a public **Past Group Buys** section.
@@ -250,11 +283,11 @@ CaratForUs will maintain a public **Past Group Buys** section.
 - Show the five most recent completed campaigns on the homepage.
 - Provide a dedicated View All Past Group Buys archive.
 - Completed campaigns should have a clearly disabled/completed visual treatment rather than appearing active.
-- Show actual final unit count.
-- Show historical starting price and final unlocked group price.
+- Show actual final qualifying unit count.
+- Show historical starting price and final unlocked Group Buy price.
 - Preserve historical campaign data even when today's costs have changed.
 - Completed items may later be offered as Buy Now products using current pricing generated by the pricing engine rather than the historical campaign price.
-- Include a Bring It Back / future-campaign interest mechanism so customers can request a past design as a new group buy.
+- Include a Bring It Back/future-campaign interest mechanism so customers can request a past design as a new Group Buy.
 
 ## Future Group-Buy Interest — LOCKED DECISION
 
@@ -262,10 +295,10 @@ CaratForUs should support two lightweight demand-capture actions.
 
 ### Bring It Back
 
-Completed group-buy pages should include a simple **Bring It Back** or **Notify Me If It Returns** action.
+Completed Group Buy pages should include a simple **Bring It Back** or **Notify Me If It Returns** action.
 
 - If the customer is logged in, one click records their interest using the account already on file.
-- If the customer is not logged in, only an email address is required so CaratForUs can notify them if the group buy returns.
+- If the customer is not logged in, only an email address is required so CaratForUs can notify them if the Group Buy returns.
 - Internally store the related product/campaign ID, customer ID when available, email, request date, and aggregate interest count.
 
 No metal, size, budget, stone-preference, or other configuration questions are required for this interest action.
@@ -282,37 +315,108 @@ Optional fields may include:
 - Inspiration image upload
 - Product category
 
-The form should remain intentionally low-friction and must not turn into the Custom Jewelry questionnaire. It is for suggesting a standardized future group buy, not requesting a one-off custom order.
+The form should remain intentionally low-friction and must not turn into the Custom Jewelry questionnaire. It is for suggesting a standardized future Group Buy, not requesting a one-off custom order.
 
 ## Estimated Savings — LOCKED DECISION
 
-Active group-buy campaigns should make the value of joining clear without encouraging customers to delay participation.
+Active Group Buy campaigns should make the value of joining clear without encouraging customers to delay participation.
 
-For each active campaign, show current group price, current Buy Now price, dollar savings, percentage savings, next tier, units needed to unlock it, and additional potential savings. The lowest possible tier may be shown as secondary information.
+For each active campaign, show current Group Buy price, current Buy Now price, dollar savings, percentage savings, next tier, qualifying units needed to unlock it, and additional potential savings. The lowest possible tier may be shown as secondary information.
 
 The page must clearly explain that customers do not need to wait for a lower tier before joining. If a lower tier is unlocked later, earlier participants receive the same final price through the campaign's refund/final-price mechanism.
 
-The Buy Now comparison price may continue updating while the campaign is active, while active group-buy tier prices remain frozen.
+The Buy Now comparison price may continue updating while the campaign is active, while active Group Buy tier prices remain frozen.
 
 ## Production Timeline — LOCKED DECISION
 
 Production and delivery timing must be product-level data entered when each product or campaign is created rather than relying on a single global timeline.
 
-Each product/campaign record should support campaign dates, production lead time, QC duration, shipping estimate, optional manufacturing buffer, calculated estimated delivery range, and manual overrides.
+Each product/campaign record should support:
+
+- Campaign start date
+- Campaign end date
+- Production lead time or range
+- QC/inspection duration
+- Shipping estimate
+- Optional manufacturing buffer
+- Calculated estimated delivery date range
+- Manual overrides
+- Supplier/product-specific overrides where needed
+
+Estimated timing and actual campaign/order status are separate concepts.
 
 ## Campaign & Order Status — LOCKED DECISION
 
 Campaign and individual order status are separate but related.
 
-Campaign stages should support Open, Closed, In Production, Quality Inspection, Shipping, and Completed. Open/Closed may update automatically; production/QC may be manual; shipping/delivery may use Shopify or carrier events where available. All statuses support manual override.
+Campaign stages should support:
 
-Individual orders may show Order received, Campaign open, Final price confirmed, Refund pending, In production, QC complete, Shipped, Refund issued, and Delivered.
+- Open
+- Closed
+- In Production
+- Quality Inspection
+- Shipping
+- Completed
+
+Open/Closed may update automatically from campaign dates; production/QC may be manual in MVP1; shipping/delivery may use Shopify or carrier events where available. All statuses support manual override.
+
+Individual orders may show:
+
+- Order received
+- Campaign open
+- Final price confirmed
+- Refund pending, if applicable
+- In production
+- QC complete
+- Shipped
+- Refund issued, if applicable
+- Delivered
 
 ## Product Visuals & Technical Details — LOCKED DECISION
 
-Because manufacturing is outsourced, CaratForUs will not require in-process manufacturing photography for each item. Instead, each product should support actual product photos, actual product video, CAD renders, dimensioned CAD images, clearly labeled AI visualizations, and optional manufacturer-provided media.
+Because manufacturing is outsourced, CaratForUs will not require in-process manufacturing photography for each item. Instead, each product should support:
 
-The website must clearly distinguish Actual Product Photo, Actual Product Video, CAD Rendering, CAD Dimensions, and AI Visualization — final appearance may vary slightly.
+- Actual product photos when available
+- Actual product video when available
+- CAD renders
+- Dimensioned CAD images
+- Clearly labeled AI visualizations
+- Optional manufacturer-provided media
+
+The website must clearly distinguish:
+
+- **Actual Product Photo**
+- **Actual Product Video**
+- **CAD Rendering**
+- **CAD Dimensions**
+- **AI Visualization — final appearance may vary slightly**
+
+AI-generated media must never be presented as if it were a photograph or video of the finished manufactured item.
+
+## FAQ Structure — LOCKED DIRECTION
+
+CaratForUs should use a centrally managed FAQ system instead of one undifferentiated page or duplicated answers across products.
+
+The main FAQ hub should support categories such as:
+
+- Group Buys
+- Pricing & Refunds
+- Production & Delivery
+- Materials & Stones
+- Ring Sizing
+- Custom Jewelry
+- Warranty & Repairs
+- Returns & Cancellations
+- Payments
+- Shipping & Insurance
+
+Product pages should be able to attach relevant reusable FAQ entries and also support product-specific FAQ entries when truly needed.
+
+Variant-aware help may be shown near selectors, for example metal education, lab diamond vs. moissanite guidance, gemstone information, sizing help, or product-specific construction notes.
+
+Group Buy pages should include concise FAQs covering issues such as later tier unlocks, refund timing, no minimum unit count, cancellation rules, production timing, and sizing responsibility.
+
+Group Buy FAQs and product-detail copy must not imply that free-form custom design changes are accepted within a standardized Group Buy.
 
 ## Real Customer / Campaign Photos — POST-MVP
 
@@ -337,43 +441,88 @@ Post-MVP, once order volume is meaningful, CaratForUs may add aggregate geograph
 - Generalized regional activity
 - A privacy-safe buyer map using aggregate or approximate location only
 
-The feature must never expose exact customer addresses or precise locations. It should be added only when enough real customer activity exists for the data to provide meaningful social proof.
+The feature must never expose exact customer addresses or precise locations.
 
 ## Invite Friends / Social Sharing — MVP1 LOCKED DECISION
 
-Active group-buy pages should include lightweight sharing tools from launch because sharing directly supports campaign growth and can help unlock lower pricing tiers.
+Active Group Buy pages should include lightweight sharing tools from launch because sharing directly supports campaign growth and can help unlock lower pricing tiers.
 
 MVP1 should include:
 
-- A prominent **Share** action on every active group-buy page.
-- Native mobile share-sheet support where available so customers can share through installed apps.
-- **Copy Link**.
-- Quick-share options for common channels such as SMS/Text, Email, WhatsApp, Facebook, Instagram, and TikTok where the platform/device supports the intended share flow.
-- A prewritten share message that can reference the product, current campaign status, and the opportunity to help unlock better pricing.
-- Shared links should go directly to the active campaign page.
-- Sharing should be available to any visitor; purchase is not required before sharing.
+- A prominent **Share** action on every active Group Buy page
+- Native mobile share-sheet support where available
+- **Copy Link**
+- Quick-share options for SMS/Text, Email, WhatsApp, Facebook, Instagram, and TikTok where the platform/device supports the intended share flow
+- A prewritten share message that can reference the product, current campaign status, and opportunity to help unlock better pricing
+- Shared links that go directly to the active campaign page
+- Sharing available to any visitor; purchase is not required
 
-For Instagram and TikTok, MVP1 should not depend on a complex direct-post API integration. Instead, use the native device share flow where supported and provide an easy way to copy the campaign link and share/download a campaign social asset or suggested caption.
+For Instagram and TikTok, MVP1 should not depend on a complex direct-post API integration. Use the native device share flow where supported and provide an easy way to copy the campaign link and share/download a campaign social asset or suggested caption.
 
 Campaigns should support a reusable social-sharing asset using approved product imagery, CaratForUs branding, campaign title, and a concise message such as **Help unlock the next price**.
 
-Referral credits, affiliate commissions, tracked reward programs, and complex referral attribution are **Post-MVP**.
+Referral credits, affiliate commissions, tracked reward programs, and complex referral attribution are Post-MVP.
+
+## Campaign Milestone Notifications / Return Experience — MVP1 LOCKED DECISION
+
+CaratForUs should give customers a reason to return to an active Group Buy by notifying participants when something meaningful changes, without creating noisy gamification.
+
+MVP1 should use email notifications for campaign participants at meaningful milestones, including:
+
+- A new pricing tier is unlocked
+- The best/final pricing tier is unlocked
+- The campaign closes and the final price is confirmed
+- Optionally, the campaign is very close to the next tier, using a configurable threshold
+
+Do not send an email for every unit-count change.
+
+Milestone notifications should link directly back to the campaign page, where the customer can immediately see current qualifying units, current tier, selected-variant pricing/savings, next-tier progress, and time remaining.
+
+SMS, push notifications, streaks, daily check-in rewards, and advanced gamification are Post-MVP unless later justified by customer behavior.
 
 ## Group-Buy Refund Engine — LOCKED DECISION
 
-CaratForUs will not use store credit for tier-price adjustments. Any amount owed because a lower group-buy tier was unlocked must be refunded to the customer's original payment method where supported.
+CaratForUs will not use store credit for tier-price adjustments. Any amount owed because a lower Group Buy tier was unlocked must be refunded to the customer's original payment method where supported.
 
-Refunds are calculated continuously but held until the applicable order is ready to ship / enters the shipping stage.
+Refunds are calculated continuously but held until the applicable order is ready to ship/enters the shipping stage.
 
-Every group-buy order must maintain a refund ledger with campaign, order, customer, processor, amount charged, exact variant, original group price, final group price, calculated refund, status, timestamps, processor refund reference, exceptions, manual override, and audit history.
+Every Group Buy order must maintain a refund ledger with at least:
+
+- Campaign ID
+- Order ID
+- Customer ID
+- Payment processor
+- Processor payment/charge/payment-intent reference
+- Amount originally charged
+- Purchased variant/options
+- Group Buy price at order time
+- Final Group Buy price for the applicable exact eligible variant/price band
+- Calculated refund amount
+- Refund status
+- Requested/processed timestamps
+- Processor refund reference
+- Failure reason
+- Manual override/adjustment
+- Audit history
 
 Refund amount is calculated at the order/line-item/variant level.
 
-CaratForUs should support batch refund processing at shipping, with internal review, processor abstraction, idempotency, and exception handling.
+Operational flow:
+
+1. Campaign closes and final qualifying unit count determines the final tier.
+2. Final Group Buy price is calculated for each purchased eligible variant.
+3. Each order's refund due is calculated and stored.
+4. Refunds remain Pending Refund during production/QC.
+5. At shipping, eligible refunds enter a refund batch.
+6. Partial refunds are submitted to the original payment processor where supported.
+7. Successful processor references/timestamps are stored.
+8. Failed refunds are isolated for retry/manual handling without blocking successful refunds.
+
+Refund batch processing should include internal review, processor abstraction, idempotency, and exception handling.
 
 ## Group-Buy Product Options — LOCKED DECISION
 
-Group-buy products are standardized campaigns, not custom-design orders.
+Group Buy products are standardized campaigns, not custom-design orders.
 
 Customers may only purchase from the **pre-approved options explicitly configured for that campaign**, such as:
 
@@ -384,58 +533,68 @@ Customers may only purchase from the **pre-approved options explicitly configure
 - Predefined engraving options when a campaign allows engraving
 - Other predefined variants approved before the campaign launches
 
-A group-buy product page must **not include a free-form Custom Request field for design changes**. Customers who want a different design, unlisted gemstone, nonstandard construction, or other modification should be directed to the separate Custom Jewelry flow.
+A Group Buy product page must **not include a free-form Custom Request field for design changes**. Customers who want a different design, unlisted gemstone, nonstandard construction, or other modification should be directed to the separate Custom Jewelry flow.
 
 If an optional Order Note field is offered, it is for non-design logistics or clarification only and must not be treated as authorization to change the product specification.
 
 ## How Group Buying Works — LOCKED DIRECTION
 
-The group-buy explanation should remain short on active product pages and link to a fuller FAQ / How It Works page.
+The Group Buy explanation should remain short on active product pages and link to a fuller FAQ/How It Works page.
 
-1. Join the Group Buy.
-2. More units sold unlock better pricing.
-3. Everyone gets the best final price reached.
-4. Campaign closes and final pricing is locked.
-5. Jewelry goes into production.
-6. QC, refund adjustment if applicable, and shipping follow.
+1. **Join the Group Buy** — Choose from the approved options and place the order at the current Group Buy price.
+2. **More Units, Better Pricing** — More qualifying pieces ordered can unlock lower percentage tiers.
+3. **Everyone Gets the Best Final Price** — If a lower tier is reached after an earlier customer ordered, that customer's final price drops too.
+4. **Campaign Closes** — Final qualifying unit count determines the final tier and final price.
+5. **We Produce Your Jewelry** — Orders proceed into production using the selected approved configuration.
+6. **QC, Refund & Shipping** — CaratForUs inspects the jewelry, processes any Group Buy price refund due, and ships the order with tracking.
 
 The page should explicitly state that there is no minimum unit count required for the campaign to proceed.
 
 ## MVP1: Minimum Viable Business
 
-The first release is intentionally small. The goal is to launch a fully functioning business capable of accepting and fulfilling orders while keeping internal operations manual wherever practical, except where pricing automation and refund tracking are required to protect margins and honor group-buy commitments.
+The first release is intentionally focused. The goal is to launch a fully functioning business capable of accepting and fulfilling Buy Now, Group Buy, and Custom Jewelry orders while keeping internal operations manual wherever practical, except where pricing automation, campaign mechanics, and refund tracking are required to protect margins and honor customer commitments.
 
 ### Customer-Facing Features
 
 - Shopify storefront
-- Active group-buy campaign pages
+- Buy Now product pages
+- Active Group Buy campaign pages
 - Live or frequently updated qualifying unit count
+- Campaign progress/live savings meter
 - Countdown timer
 - Tiered pricing display
 - Current unlocked price
-- Next pricing tier and units needed
+- Next pricing tier and qualifying units needed
 - Dynamic savings vs. Buy Now display
 - Product-specific estimated production and delivery timeline
 - Campaign status tracker
 - Individual order status tracker where appropriate
+- Milestone email notifications for Group Buy participants
 - Product photos, videos, CAD renders, dimensioned CAD, and labeled AI visualizations where applicable
 - Ring size guide
+- Metal-selection education
+- Contextual/global FAQ system
 - Short How Group Buying Works explanation on active campaign pages
-- Invite Friends / social sharing tools for active campaigns
+- Invite Friends/social sharing tools for active campaigns
+- Bring It Back interest capture
+- Request a New Group Buy form
 - Shopify checkout
 - Order confirmation
-- Custom jewelry request form
+- Custom Jewelry request form
 - Inspiration image upload
 - Warranty and support information
-- FAQ, policies, contact, and about pages
+- FAQ, policies, contact, about, and Why Buy From Us pages/sections
 - Past Group Buys section
 
 ## Post-MVP / Backlog
 
 - Vote on the Next Group Buy
-- Real Customer / Campaign Photos
+- Real Customer / Campaign Photos and customer upload/moderation workflow
 - Buyer Map / Geographic Social Proof
 - Referral credits, affiliate commissions, and tracked reward programs
+- SMS/push campaign milestone notifications
+- Advanced daily-return gamification, streaks, or check-in rewards
+- Complex direct-post integrations for Instagram/TikTok beyond supported native share flows
 
 ## Custom Jewelry Flow
 
@@ -453,4 +612,4 @@ The preferred strategy is to encourage lower-cost payment methods while keeping 
 
 ## Guiding Rule
 
-If a feature does not help CaratForUs launch sooner, protect pricing/margins, or materially improve the customer experience, it belongs in the backlog.
+If a feature does not help CaratForUs launch sooner, protect pricing/margins, drive acquisition/conversion, or materially improve the customer experience, it belongs in the backlog.
