@@ -236,6 +236,43 @@ Estimated timing and actual order/campaign status are separate concepts:
 
 After a campaign closes, the estimated timeline remains visible while an actual-status tracker may show progress such as Production → Quality Inspection → Shipping → Delivered.
 
+## Campaign & Order Status — LOCKED DECISION
+
+Campaign status and individual order status are separate but related.
+
+### Campaign Status
+
+Customer-facing campaign stages should support:
+
+- Open
+- Closed
+- In Production
+- Quality Inspection
+- Shipping
+- Completed
+
+Status behavior:
+
+- Open / Closed should update automatically from campaign dates where practical.
+- In Production and Quality Inspection may be updated manually by staff in MVP1.
+- Shipping and Delivered/Completed may update automatically when Shopify or carrier tracking supports it.
+- Every status must support a manual override.
+
+### Individual Order Status
+
+A customer's order may show a more detailed sequence such as:
+
+- Order received
+- Campaign open
+- Final price confirmed
+- Refund issued, if applicable
+- In production
+- QC complete
+- Shipped
+- Delivered
+
+The customer-facing experience should make clear whether a status refers to the overall campaign or the customer's specific order.
+
 ## MVP1: Minimum Viable Business
 
 The first release is intentionally small. The goal is to launch a fully functioning business capable of accepting and fulfilling orders while keeping internal operations manual wherever practical, except where pricing automation is required to protect margins and maintain Buy Now prices.
@@ -251,6 +288,8 @@ The first release is intentionally small. The goal is to launch a fully function
 - Next pricing tier and buyers needed
 - Dynamic savings vs. Buy Now display
 - Product-specific estimated production and delivery timeline
+- Campaign status tracker
+- Individual order status tracker where appropriate
 - Shopify checkout
 - Order confirmation
 - Custom jewelry request form
