@@ -339,6 +339,26 @@ Post-MVP, once order volume is meaningful, CaratForUs may add aggregate geograph
 
 The feature must never expose exact customer addresses or precise locations. It should be added only when enough real customer activity exists for the data to provide meaningful social proof.
 
+## Invite Friends / Social Sharing — MVP1 LOCKED DECISION
+
+Active group-buy pages should include lightweight sharing tools from launch because sharing directly supports campaign growth and can help unlock lower pricing tiers.
+
+MVP1 should include:
+
+- A prominent **Share** action on every active group-buy page.
+- Native mobile share-sheet support where available so customers can share through installed apps.
+- **Copy Link**.
+- Quick-share options for common channels such as SMS/Text, Email, WhatsApp, Facebook, Instagram, and TikTok where the platform/device supports the intended share flow.
+- A prewritten share message that can reference the product, current campaign status, and the opportunity to help unlock better pricing.
+- Shared links should go directly to the active campaign page.
+- Sharing should be available to any visitor; purchase is not required before sharing.
+
+For Instagram and TikTok, MVP1 should not depend on a complex direct-post API integration. Instead, use the native device share flow where supported and provide an easy way to copy the campaign link and share/download a campaign social asset or suggested caption.
+
+Campaigns should support a reusable social-sharing asset using approved product imagery, CaratForUs branding, campaign title, and a concise message such as **Help unlock the next price**.
+
+Referral credits, affiliate commissions, tracked reward programs, and complex referral attribution are **Post-MVP**.
+
 ## Group-Buy Refund Engine — LOCKED DECISION
 
 CaratForUs will not use store credit for tier-price adjustments. Any amount owed because a lower group-buy tier was unlocked must be refunded to the customer's original payment method where supported.
@@ -401,6 +421,7 @@ The first release is intentionally small. The goal is to launch a fully function
 - Product photos, videos, CAD renders, dimensioned CAD, and labeled AI visualizations where applicable
 - Ring size guide
 - Short How Group Buying Works explanation on active campaign pages
+- Invite Friends / social sharing tools for active campaigns
 - Shopify checkout
 - Order confirmation
 - Custom jewelry request form
@@ -411,13 +432,10 @@ The first release is intentionally small. The goal is to launch a fully function
 
 ## Post-MVP / Backlog
 
-Features that should be added only after CaratForUs has meaningful customer traffic or enough real customer content include:
-
 - Vote on the Next Group Buy
-- Real Customer / Campaign Photos and customer-photo upload/moderation
+- Real Customer / Campaign Photos
 - Buyer Map / Geographic Social Proof
-
-These features should not delay launch.
+- Referral credits, affiliate commissions, and tracked reward programs
 
 ## Custom Jewelry Flow
 
