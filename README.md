@@ -11,9 +11,144 @@ Why take the risk of ordering overseas when customers can receive comparable gro
 
 CaratForUs is not positioned merely as the cheapest option. The brand combines competitive pricing with trust, service, transparency, and after-sale support.
 
+## Core Product & Pricing Architecture
+
+CaratForUs will be built around a structured jewelry product data model and pricing engine rather than manually maintained selling prices.
+
+### Master Product Definition
+
+Each jewelry design will have one Master Product Definition containing the core engineering and commercial data needed to manufacture and price the item. This may include:
+
+- Product category and design metadata
+- CAD files, renderings, photos, and manufacturing notes
+- Base metal type and base finished weight
+- Center stone specifications
+- Accent and side stone specifications
+- Stone type, shape, size, carat weight, color, clarity, cut, certification, quality grade, and supplier where applicable
+- Moissanite and colored gemstone specifications
+- Manufacturing complexity and labor category
+- Packaging, shipping, insurance, warranty reserve, payment-cost assumptions, and other configurable cost components
+- Shopify and marketplace SKU mappings
+- Historical campaign and pricing snapshots
+
+### Cost Component Libraries
+
+Pricing must be built from linked cost components rather than hard-coded product prices. Libraries should support:
+
+- Precious metals: 10K, 14K, 18K, platinum and future metals
+- Daily market pricing and configurable alloy/casting adjustments
+- Lab-grown and natural diamonds by shape, carat, size, color, clarity, cut, certification, and supplier
+- Moissanite by shape, size, grade, brand, and supplier
+- Colored gemstones by stone type, natural/lab status, shape, size, quality grade, and supplier
+- Accent stones by type, shape, size, quantity, total carat weight, and supplier cost
+- CAD, casting, setting, polishing, assembly, QC, packaging, shipping, insurance, and warranty costs
+- Supplier-specific pricing where the same component may come from different manufacturing partners
+
+Diamond and gemstone pricing must not assume all shapes cost the same. Round, oval, pear, emerald, radiant, cushion, princess, marquise, heart, Asscher, and other shapes must be independently priceable.
+
+### Pricing Profiles
+
+The same product may be priced differently under configurable pricing profiles, including:
+
+- Group Buy
+- Buy Now
+- Custom Order
+- Wholesale
+- Friends & Family
+- Marketplace channels such as Amazon, Etsy, and TikTok Shop
+
+Each profile may use its own margin, minimum profit, fees, and rounding rules.
+
+### Buy Now Pricing
+
+Buy Now prices are calculated from current cost data and are not permanently hard-coded.
+
+The pricing engine may include:
+
+- Current precious-metal cost
+- Current stone costs
+- Manufacturing/labor
+- Packaging
+- Shipping and insurance
+- Payment processing
+- Warranty reserve
+- Other allocated costs
+- Required margin and/or minimum profit
+
+Buy Now prices should be recalculated automatically at least daily, with a target of twice-daily precious-metal updates where practical. Updated calculated prices are then synchronized to Shopify.
+
+### Group Buy Pricing
+
+Active group-buy campaign pricing is frozen for the campaign and must not automatically change as precious-metal or market costs move after customer commitments begin.
+
+When a campaign is opened, store a versioned cost/pricing snapshot including applicable metal prices, stone costs, labor assumptions, fees, margins, and tier prices. This historical snapshot remains associated with that campaign permanently.
+
+There is no mandatory minimum buyer count required to complete a campaign. If only one customer joins, that customer receives the highest applicable pricing tier and the item can still proceed to production.
+
+## Variant Weight Model — LOCKED DECISION
+
+For products where weight changes predictably with size or length, CaratForUs will use a **base specification + incremental adjustment + optional exact override** model.
+
+### Rings
+
+The default ring-weight method is:
+
+**Calculated Weight = Base Weight at Base Ring Size + ((Selected Ring Size - Base Ring Size) × Weight Added per Full Size)**
+
+Example:
+
+- Base ring size: 4
+- Base finished weight: 3.20 g
+- Increment: 0.10 g per full ring size
+- Size 7 calculated weight: 3.20 g + (3 × 0.10 g) = 3.50 g
+
+Half sizes use the proportional increment automatically. In the example above, size 4.5 would be 3.25 g.
+
+This method is the default because it avoids maintaining a separate finished weight for every ring size.
+
+### Exact-Weight Override
+
+The system must also support an exact finished-weight override for any specific size where a linear formula is not accurate.
+
+This is important for designs such as:
+
+- Wide bands
+- Eternity and partial-eternity rings
+- Unusual shanks
+- Highly sculptural designs
+- Designs where stone count changes by size
+- Any product where CAD/manufacturing data provides more accurate size-specific weights
+
+When an exact override exists, it takes precedence over the calculated weight.
+
+### Other Product Types
+
+The same model should be reusable for other products:
+
+- Chains: base length + grams per additional inch
+- Bracelets: base length + grams per additional inch
+- Tennis necklaces: base length + component/weight adjustments per additional inch
+- Bands: base ring size + grams per additional size
+- Other products: base specification + incremental adjustment where appropriate
+
+The data model should not require duplicate full product records for every variant. Variants should inherit master-product data and store only what changes, such as ring size, chain length, center-stone option, metal, backing style, stone-count change, or incremental weight.
+
+## Past Group Buys — LOCKED DIRECTION
+
+CaratForUs will maintain a public **Past Group Buys** section.
+
+- Show the five most recent completed campaigns on the homepage.
+- Provide a dedicated View All Past Group Buys archive.
+- Completed campaigns should have a clearly disabled/completed visual treatment rather than appearing active.
+- Show actual final buyer count.
+- Show historical starting price and final unlocked group price.
+- Preserve historical campaign data even when today's costs have changed.
+- Completed items may later be offered as Buy Now products using current pricing generated by the pricing engine rather than the historical campaign price.
+- Include a Bring It Back / future-campaign interest mechanism so customers can request a past design as a new group buy.
+
 ## MVP1: Minimum Viable Business
 
-The first release is intentionally small. The goal is to launch a fully functioning business capable of accepting and fulfilling orders, while keeping internal operations manual wherever practical.
+The first release is intentionally small. The goal is to launch a fully functioning business capable of accepting and fulfilling orders while keeping internal operations manual wherever practical, except where pricing automation is required to protect margins and maintain Buy Now prices.
 
 ### Customer-Facing Features
 
@@ -30,12 +165,11 @@ The first release is intentionally small. The goal is to launch a fully function
 - Inspiration image upload
 - Warranty and support information
 - FAQ, policies, contact, and about pages
+- Past Group Buys section
 
 ### Manual Internal Operations
 
-No custom admin panel is required for MVP1.
-
-Operations can be managed through:
+Internal operations may initially use:
 
 - Shopify Admin
 - Google Sheets or Airtable
@@ -46,6 +180,8 @@ Operations can be managed through:
 - Manual manufacturing exports
 - Manual customer updates
 - Manual custom-order quoting
+
+The product data model and pricing logic should nevertheless be designed from day one so these manual components can later be automated without restructuring the underlying product records.
 
 ## Group-Buy Payment Model
 
@@ -94,7 +230,7 @@ The final payment presentation and fee structure must be reviewed before launch 
 
 ## Deferred Until After Launch
 
-- Custom admin dashboard
+- Full custom admin dashboard
 - Automated refund calculations
 - Automated refund processing
 - Customer referral automation
@@ -107,4 +243,4 @@ The final payment presentation and fee structure must be reviewed before launch 
 
 ## Guiding Rule
 
-If a feature does not help CaratForUs launch sooner or materially improve the customer experience, it belongs in the backlog.
+If a feature does not help CaratForUs launch sooner, protect pricing/margins, or materially improve the customer experience, it belongs in the backlog.
