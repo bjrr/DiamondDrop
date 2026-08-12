@@ -513,6 +513,58 @@ Custom Jewelry begins with a free request/review stage. When CaratForUs is ready
 - Once the customer approves the final design/specifications and pays for the jewelry, the Custom Jewelry order becomes non-refundable/final sale except for covered defects, incorrect specifications, shipping damage, or failure to materially match the approved design/specifications.
 - Final CAD/specification approval must be stored as part of the order record.
 
+## Custom Design Approval & Purchase Page — MVP1 LOCKED DECISION
+
+MVP1 will use email for consultation, CAD/design discussion, revisions, and general communication. CaratForUs will **not** build a full customer custom-project portal for MVP1.
+
+When a custom design is ready for final approval and purchase, CaratForUs will create a dedicated customer-specific page on the CaratForUs site for that design. That page becomes the formal approval and purchase checkpoint.
+
+The page should display, as applicable:
+
+- Customer/project reference
+- Final CAD/renderings and/or approved design images
+- Jewelry type and design description
+- Metal type/color/purity
+- Ring size, length, or other applicable dimensions
+- Center stone specifications
+- Accent/side stone specifications
+- Engraving or other approved options
+- Any important construction or specification notes
+- Final quoted price
+- $49 Design Deposit credit
+- Remaining amount due
+- Estimated production/delivery timing
+- Applicable 1-year limited manufacturing warranty summary
+- Shipping/insurance/signature requirements
+- Final-sale/custom-order terms
+
+Before the purchase can proceed, the page must require affirmative acknowledgment of the material terms. At minimum, the customer must acknowledge that:
+
+- the displayed CAD/design and specifications are the design they are approving;
+- the listed size, metal, stones, dimensions, engraving, and other specifications are correct;
+- reasonable handmade/manufacturing tolerances and minor visual variation from renderings may occur where applicable;
+- once the final custom order is approved and purchased, it is non-refundable/final sale except for covered manufacturing defects, incorrect specifications, shipping damage, or material failure to match the approved design/specifications;
+- the customer has reviewed the applicable warranty, shipping, and other material purchase terms.
+
+These acknowledgments must be **unchecked by default** and required before purchase.
+
+The system must retain a timestamped approval record tied to the order/custom-project record, including:
+
+- exact page/specification version approved
+- exact acknowledgment language/version
+- timestamp
+- customer/order/project identifier
+- CAD/media references shown at approval
+- final specifications
+- final price and Design Deposit credit
+- checkout/payment reference where available
+
+The page and its approved specification snapshot must be preserved as part of the immutable transaction evidence and must not be overwritten by later edits to a live design page.
+
+This custom approval/purchase page replaces the need for a full customer project portal in MVP1 while creating a stronger formal record than relying on an informal email approval alone.
+
+A richer Custom Design project portal with message history, revision tracking, file exchange, and customer dashboard remains **Post-MVP**.
+
 ## 1-Year Limited Manufacturing Warranty — MVP1 LOCKED DECISION
 
 CaratForUs will provide a **1-year limited manufacturing warranty** across Buy Now, Group Buy, and Custom Jewelry.
@@ -546,7 +598,7 @@ Use explicit, unchecked acknowledgments for unusual/high-risk purchase terms rat
 Examples:
 
 - Group Buy: acknowledgment that the order may be cancelled until the stated campaign close date/time and becomes final sale after campaign close except for covered defects/fulfillment errors.
-- Custom Jewelry: acknowledgment of final CAD/specification approval and final-sale status before production/payment commitment.
+- Custom Jewelry: acknowledgment of final CAD/specification approval and final-sale status on the dedicated design approval/purchase page before checkout/payment commitment.
 
 Buy Now does not need excessive checkbox friction if the return policy is conspicuously displayed and preserved with the transaction record.
 
@@ -577,9 +629,9 @@ At payment/commitment, preserve a snapshot of what the customer purchased and wh
 - Applicable return/cancellation policy version
 - Warranty version
 - Material acknowledgment records
-- Custom CAD/specification approval references
+- Custom approval-page version and CAD/specification approval references
 
-Later edits to a live product page must not overwrite the historical transaction snapshot.
+Later edits to a live product or custom-design page must not overwrite the historical transaction snapshot.
 
 ### Confirmation & Lifecycle Notices
 
@@ -588,7 +640,7 @@ Important terms should be repeated after purchase.
 - Order confirmation should restate the applicable cancellation/return status and key dates.
 - Group Buy confirmation should identify the exact cancellation deadline.
 - When a Group Buy closes, send a notice that final pricing is confirmed and the order is now committed/final sale, subject to defect/warranty protections.
-- Custom Jewelry should retain the customer's final design/spec approval before production.
+- Custom Jewelry should retain the customer's final design/spec approval from the dedicated approval/purchase page before production.
 
 ### QC Evidence
 
@@ -622,7 +674,7 @@ The packet should include as applicable:
 - Product/configuration snapshot
 - Policy and acknowledgment versions
 - Group Buy campaign/tier/cancellation history
-- Custom CAD/spec approval
+- Custom approval-page snapshot and CAD/spec approval
 - Customer communications
 - QC records/photos
 - Shipping/tracking/delivery/signature evidence
@@ -770,7 +822,9 @@ The first release is intentionally focused. The goal is to launch a fully functi
 - Custom Jewelry request form
 - Inspiration image upload
 - $49 Custom Jewelry Design Deposit workflow
-- Final CAD/specification approval workflow for Custom Jewelry
+- Email-driven Custom Jewelry consultation/revision workflow
+- Dedicated customer-specific Custom Design approval/purchase page
+- Final CAD/specification approval acknowledgments on that page
 - Warranty and support information
 - Shipping policy showing full-value insurance and signature requirements
 - FAQ, policies, contact, about, and Why Buy From Us pages/sections
@@ -782,6 +836,7 @@ The first release is intentionally focused. The goal is to launch a fully functi
 - Material acknowledgment logs and policy versioning
 - Group Buy cancellation/tier audit history
 - Refund ledger and processor references
+- Custom approval-page/specification snapshot
 - Custom design/CAD approval record
 - QC checklist/evidence storage
 - Shipping/tracking/full-value insurance/delivery/signature evidence storage
@@ -797,19 +852,21 @@ The first release is intentionally focused. The goal is to launch a fully functi
 - SMS/push campaign milestone notifications
 - Advanced daily-return gamification, streaks, or check-in rewards
 - Complex direct-post integrations for Instagram/TikTok beyond supported native share flows
+- Full Custom Design project portal with customer dashboard, message history, revision tracking, and file exchange
 
 ## Custom Jewelry Flow
 
 1. Customer selects Start a Custom Design.
 2. Customer completes a guided questionnaire.
 3. Customer uploads inspiration images or sketches.
-4. CaratForUs reviews the request manually.
+4. CaratForUs reviews the request manually and communicates by email during MVP1.
 5. When CaratForUs is ready to begin actual design/CAD work, the customer pays the $49 Design Deposit.
-6. CaratForUs completes the agreed design/CAD stage.
-7. Customer reviews and either declines to proceed, triggering the applicable deposit refund, or approves the final CAD/specifications.
-8. If proceeding, the $49 deposit is credited toward the final jewelry price.
-9. Customer pays for the final Custom Jewelry order and acknowledges final-sale status.
-10. Production, QC, insured shipping, and delivery are handled under the applicable Custom Jewelry, warranty, and shipping rules.
+6. CaratForUs completes the agreed design/CAD stage; CADs, revisions, questions, and quote discussion are handled through email.
+7. If the customer decides not to proceed after the agreed design stage is completed, the applicable $49 Design Deposit refund is processed.
+8. If the customer wants to proceed, CaratForUs creates a dedicated customer-specific Custom Design approval/purchase page on the site containing the final CAD/design, specifications, price, Design Deposit credit, and material legal/purchase terms.
+9. Customer reviews the page, affirmatively acknowledges the final design/specifications and final-sale terms, and completes purchase through that page.
+10. The approval-page version, acknowledgment text/version, timestamp, specifications, CAD/media references, and payment record are retained as transaction evidence.
+11. Production, QC, insured shipping, and delivery are handled under the applicable Custom Jewelry, warranty, and shipping rules.
 
 ## Payment Strategy
 
