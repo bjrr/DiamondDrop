@@ -636,6 +636,36 @@ The architecture should also support operational review of suspicious/high-risk 
 
 A restrictive return policy alone is not considered sufficient chargeback protection; the objective is to preserve evidence that the customer saw the terms, affirmatively accepted material conditions, received the item, and received what was described/approved.
 
+## Shipping, Insurance & Signature Requirements — MVP1 LOCKED DECISION
+
+CaratForUs will use conservative shipping controls because jewelry is high-risk for loss, fraud, and delivery-related chargebacks.
+
+- **Every outbound customer shipment must be insured for the full order value.**
+- Every shipment must include carrier tracking.
+- **Any shipment with an order value above $100 requires signature confirmation.**
+- Customers may not waive the signature requirement on shipments above $100.
+- Orders valued at $100 or less may ship without signature unless CaratForUs manually requires it based on risk or product circumstances.
+- CaratForUs may apply stricter delivery controls to higher-risk orders even when not otherwise required by the base rules.
+- Fulfillment should use the shipping address approved through checkout/payment unless an address change is explicitly reviewed and documented before shipment.
+- Any post-order shipping-address change must create an audit record.
+- Where carrier/service capabilities permit, high-value shipments should not allow unattended leave-at-door overrides that bypass required signature controls.
+
+The order/shipment record should retain at least:
+
+- Carrier and service level
+- Tracking number
+- Ship date
+- Full insured value
+- Insurance reference/policy/coverage identifier where available
+- Signature-required flag
+- Delivery status/date/time
+- Delivery address
+- Signature/proof-of-delivery record when applicable
+- Any address-change approval/audit history
+- Any shipping exception or claim reference
+
+Shipping insurance cost must be incorporated into the pricing/cost engine so full-value coverage does not silently erode margins.
+
 ## Group-Buy Refund Engine — LOCKED DECISION
 
 CaratForUs will not use store credit for tier-price adjustments. Any amount owed because a lower Group Buy tier was unlocked must be refunded to the customer's original payment method where supported.
@@ -742,6 +772,7 @@ The first release is intentionally focused. The goal is to launch a fully functi
 - $49 Custom Jewelry Design Deposit workflow
 - Final CAD/specification approval workflow for Custom Jewelry
 - Warranty and support information
+- Shipping policy showing full-value insurance and signature requirements
 - FAQ, policies, contact, about, and Why Buy From Us pages/sections
 - Past Group Buys section
 
@@ -753,7 +784,7 @@ The first release is intentionally focused. The goal is to launch a fully functi
 - Refund ledger and processor references
 - Custom design/CAD approval record
 - QC checklist/evidence storage
-- Shipping/tracking/delivery/signature evidence storage
+- Shipping/tracking/full-value insurance/delivery/signature evidence storage
 - Customer communication history where available
 - Manual dispute-evidence packet assembly capability
 
@@ -774,13 +805,11 @@ The first release is intentionally focused. The goal is to launch a fully functi
 3. Customer uploads inspiration images or sketches.
 4. CaratForUs reviews the request manually.
 5. When CaratForUs is ready to begin actual design/CAD work, the customer pays the $49 Design Deposit.
-6. CaratForUs completes the agreed design/CAD stage and presents the design/specifications to the customer.
-7. If the customer declines to proceed after the agreed design stage is completed, the $49 Design Deposit is refunded.
-8. If the customer proceeds, the $49 Design Deposit is credited toward the final jewelry price.
-9. Customer explicitly approves the final CAD/specifications.
-10. Customer pays the remaining balance/final jewelry price.
-11. The Custom Jewelry order becomes final sale/non-refundable except for covered defects, incorrect specifications, shipping damage, or failure to materially match the approved design/specifications.
-12. Production, inspection, and delivery follow.
+6. CaratForUs completes the agreed design/CAD stage.
+7. Customer reviews and either declines to proceed, triggering the applicable deposit refund, or approves the final CAD/specifications.
+8. If proceeding, the $49 deposit is credited toward the final jewelry price.
+9. Customer pays for the final Custom Jewelry order and acknowledges final-sale status.
+10. Production, QC, insured shipping, and delivery are handled under the applicable Custom Jewelry, warranty, and shipping rules.
 
 ## Payment Strategy
 
@@ -788,4 +817,4 @@ The preferred strategy is to encourage lower-cost payment methods while keeping 
 
 ## Guiding Rule
 
-If a feature does not help CaratForUs launch sooner, protect pricing/margins, drive acquisition/conversion, reduce operational/chargeback risk, or materially improve the customer experience, it belongs in the backlog.
+If a feature does not help CaratForUs launch sooner, protect pricing/margins, drive acquisition/conversion, or materially improve the customer experience, it belongs in the backlog.
