@@ -775,6 +775,19 @@ A Group Buy product page must **not include a free-form Custom Request field for
 
 If an optional Order Note field is offered, it is for non-design logistics or clarification only and must not be treated as authorization to change the product specification.
 
+### Group-Buy Cart / Line-Item Behavior — MVP1 LOCKED DECISION
+
+Customers may purchase multiple pieces from the same Group Buy in one Shopify order, including different eligible configurations.
+
+- Each unique configuration must be added to the cart as a **separate Shopify line item** rather than combining materially different configurations into one opaque quantity line.
+- A line item should preserve the exact selected configuration, including applicable metal, stone option, ring size or length, engraving choice, and other approved campaign options.
+- Multiple quantities of the **same exact configuration** may use a quantity greater than one on that line item.
+- Different ring sizes, metals, stone choices, lengths, engravings, or other configuration differences must remain separate line items.
+- Tier qualification counts **units**, so line-item quantity contributes that number of qualifying units when the order qualifies.
+- Cancellation/refund/tier-adjustment calculations must operate at line-item/unit level so one configuration can be handled correctly without corrupting another configuration in the same Shopify order.
+- The immutable order snapshot and refund ledger must retain the exact configuration and quantity for every Group Buy line item.
+- The cart/order summary should make each configuration easy for the customer to verify before checkout.
+
 ## How Group Buying Works — LOCKED DIRECTION
 
 The Group Buy explanation should remain short on active product pages and link to a fuller FAQ/How It Works page.
@@ -822,9 +835,7 @@ The first release is intentionally focused. The goal is to launch a fully functi
 - Custom Jewelry request form
 - Inspiration image upload
 - $49 Custom Jewelry Design Deposit workflow
-- Email-driven Custom Jewelry consultation/revision workflow
-- Dedicated customer-specific Custom Design approval/purchase page
-- Final CAD/specification approval acknowledgments on that page
+- Final CAD/specification approval workflow for Custom Jewelry
 - Warranty and support information
 - Shipping policy showing full-value insurance and signature requirements
 - FAQ, policies, contact, about, and Why Buy From Us pages/sections
@@ -836,7 +847,6 @@ The first release is intentionally focused. The goal is to launch a fully functi
 - Material acknowledgment logs and policy versioning
 - Group Buy cancellation/tier audit history
 - Refund ledger and processor references
-- Custom approval-page/specification snapshot
 - Custom design/CAD approval record
 - QC checklist/evidence storage
 - Shipping/tracking/full-value insurance/delivery/signature evidence storage
@@ -852,21 +862,51 @@ The first release is intentionally focused. The goal is to launch a fully functi
 - SMS/push campaign milestone notifications
 - Advanced daily-return gamification, streaks, or check-in rewards
 - Complex direct-post integrations for Instagram/TikTok beyond supported native share flows
-- Full Custom Design project portal with customer dashboard, message history, revision tracking, and file exchange
+- Rich Custom Design customer portal with message history, revision tracking, file exchange, and customer dashboard
 
 ## Custom Jewelry Flow
 
 1. Customer selects Start a Custom Design.
 2. Customer completes a guided questionnaire.
 3. Customer uploads inspiration images or sketches.
-4. CaratForUs reviews the request manually and communicates by email during MVP1.
+4. CaratForUs reviews the request manually and communicates by email.
 5. When CaratForUs is ready to begin actual design/CAD work, the customer pays the $49 Design Deposit.
-6. CaratForUs completes the agreed design/CAD stage; CADs, revisions, questions, and quote discussion are handled through email.
-7. If the customer decides not to proceed after the agreed design stage is completed, the applicable $49 Design Deposit refund is processed.
-8. If the customer wants to proceed, CaratForUs creates a dedicated customer-specific Custom Design approval/purchase page on the site containing the final CAD/design, specifications, price, Design Deposit credit, and material legal/purchase terms.
-9. Customer reviews the page, affirmatively acknowledges the final design/specifications and final-sale terms, and completes purchase through that page.
-10. The approval-page version, acknowledgment text/version, timestamp, specifications, CAD/media references, and payment record are retained as transaction evidence.
+6. CaratForUs completes the agreed design/CAD stage and handles revisions/communication by email.
+7. When the design is ready for final approval, CaratForUs creates a dedicated Shopify-based custom approval/purchase page from a reusable template and populates it with the final CAD/design, specifications, pricing, Design Deposit credit, and applicable terms.
+8. Customer reviews the page, affirmatively approves the displayed design/specifications and material final-sale terms, and proceeds through the normal Shopify checkout.
+9. The $49 Design Deposit is credited toward the final jewelry price.
+10. The approved page/specification snapshot, acknowledgment records, and Shopify payment/order references are retained as transaction evidence.
 11. Production, QC, insured shipping, and delivery are handled under the applicable Custom Jewelry, warranty, and shipping rules.
+
+## Shopify Custom Approval/Purchase Template — MVP1 LOCKED DECISION
+
+CaratForUs should maintain a reusable Shopify template for customer-specific custom jewelry approval and checkout pages. Staff should create a custom item by populating structured fields rather than designing a new page from scratch each time.
+
+The template should accept, as applicable:
+
+- customer/project reference
+- custom product title
+- CAD/rendering/design images
+- design description
+- metal type/color/purity
+- stone specifications
+- ring size, length, dimensions, or other sizing data
+- engraving/personalization
+- construction/specification notes
+- final quoted price
+- $49 Design Deposit credit
+- remaining balance due
+- production/delivery estimate
+- warranty summary
+- shipping/insurance/signature summary
+- final-sale/custom-order terms
+- required acknowledgment text/version
+
+The completed page should be customer-specific and may be excluded from normal storefront discovery/navigation where practical. It must still use Shopify's normal purchase/checkout process.
+
+The template must require the customer to verify the displayed design/specifications and accept the material custom-order terms before the purchase action is enabled.
+
+At purchase, CaratForUs must retain the exact populated template/specification version, CAD/media references, acknowledgment language/version and timestamp, price, Design Deposit credit, and Shopify order/payment references as part of the immutable transaction evidence.
 
 ## Payment Strategy
 
