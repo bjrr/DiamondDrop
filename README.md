@@ -36,12 +36,12 @@ The marketing story should be built around concrete customer benefits, including
 
 - **U.S.-based accountability** — customers purchase from CaratForUs, and CaratForUs stands behind the order.
 - **Quality inspection before delivery** — jewelry is checked against the ordered specifications before reaching the customer.
-- **Domestic support and service** — questions, warranty matters, service, repairs, and approved returns are handled through a U.S.-based business.
+- **Domestic support and service** — questions, warranty matters, approved returns, and support are handled through a U.S.-based business.
 - **Reduced overseas buying burden** — customers should not have to manage foreign seller communication, customs paperwork, international service coordination, or overseas return logistics where CaratForUs can handle those responsibilities.
 - **Transparent pricing** — pricing should be based on the actual product configuration and commercial model rather than inflated comparison prices or artificial retail anchors.
 - **Strong value across every purchase path** — competitive Buy Now pricing, additional savings opportunities through Group Buys, and clear/fair quoting for Custom Jewelry.
 - **Clear product specifications** — metal, stone quality, dimensions, weights, CAD details, and available options should be clearly defined so customers understand what they are purchasing.
-- **Warranty and after-sale support** — customer support continues after delivery.
+- **Warranty and after-sale support** — customer support continues after delivery within the published warranty/support terms.
 - **One accountable company** — customers should not have to determine which supplier, producer, shipper, or outside party is responsible when they need help.
 
 ### Channel-Specific Reinforcement
@@ -480,6 +480,162 @@ Milestone notifications should link directly back to the campaign page, where th
 
 SMS, push notifications, streaks, daily check-in rewards, and advanced gamification are Post-MVP unless later justified by customer behavior.
 
+## Group Buy Cancellation & Returns — MVP1 LOCKED DECISION
+
+Group Buy orders may be cancelled for a full refund **until the campaign closes**.
+
+- The product page and checkout must show the exact campaign closing date/time.
+- A cancelled order immediately stops counting toward qualifying units.
+- If cancellations cause the campaign to fall below a previously unlocked tier before close, live campaign pricing/progress adjusts accordingly.
+- At campaign close, the final qualifying unit count and final tier are locked.
+- After campaign close, the order becomes committed and is no longer eligible for discretionary cancellation or return.
+- Defects, incorrect specifications, shipping damage, warranty claims, or CaratForUs fulfillment failures are handled separately and are not treated as discretionary returns.
+
+## Buy Now Return Policy — MVP1 LOCKED DECISION
+
+Buy Now items use a low-margin return structure:
+
+- **Within 7 days of delivery:** eligible items may be returned for refund to the original payment method.
+- **Days 8–30 after delivery:** eligible items may be returned for store credit only.
+- **After 30 days:** no discretionary return.
+- Returned items must be unworn, undamaged, unaltered, and returned with original packaging/documentation where applicable.
+- Engraved, resized, altered, personalized, or otherwise customized Buy Now items are not eligible for discretionary return.
+- Defects, incorrect specifications, shipping damage, and warranty claims are handled separately from the discretionary return window.
+
+## Custom Jewelry Design Deposit & Final Sale — MVP1 LOCKED DECISION
+
+Custom Jewelry begins with a free request/review stage. When CaratForUs is ready to begin actual design/CAD work, the customer pays a **$49 Design Deposit**.
+
+- The $49 deposit is applied toward the final jewelry price if the customer proceeds.
+- If CaratForUs completes the agreed design/CAD stage and the customer decides not to proceed, the $49 deposit is refunded with no questions asked.
+- The deposit is intended as a seriousness filter and is not described as a non-refundable design fee.
+- If the customer abandons the process before the agreed design stage is completed or stops responding, the refund is not automatic; CaratForUs may determine whether the deposit is refundable based on work completed and the circumstances.
+- Once the customer approves the final design/specifications and pays for the jewelry, the Custom Jewelry order becomes non-refundable/final sale except for covered defects, incorrect specifications, shipping damage, or failure to materially match the approved design/specifications.
+- Final CAD/specification approval must be stored as part of the order record.
+
+## 1-Year Limited Manufacturing Warranty — MVP1 LOCKED DECISION
+
+CaratForUs will provide a **1-year limited manufacturing warranty** across Buy Now, Group Buy, and Custom Jewelry.
+
+The warranty covers defects in materials, construction, setting, or assembly under normal use, such as defective solder joints, structural workmanship failures, setting defects, or defective clasps/mechanisms.
+
+The warranty does not cover normal wear, scratches, dents, impact damage, bent/worn prongs caused by use, lost stones caused by damage or wear, misuse, improper care, sizing changes, third-party repairs/modifications, loss, theft, or other damage not caused by a covered manufacturing defect.
+
+CaratForUs may determine the appropriate remedy for a valid covered claim, including repair, replacement, refund, or another reasonable resolution where appropriate.
+
+Customers must contact CaratForUs for authorization/instructions before sending an item back.
+
+CaratForUs does **not** promise a paid repair service after the warranty period and should not market itself as maintaining an ongoing repair department.
+
+## Customer Acknowledgment & Chargeback Evidence Architecture — MVP1 LOCKED DECISION
+
+Chargeback resistance is a core design requirement for CaratForUs. The site should create a clear, timestamped evidence trail showing what the customer saw, selected, approved, and agreed to.
+
+### Conspicuous Purchase-Path Disclosures
+
+Material terms should be shown in context, not only buried in Terms & Conditions.
+
+- Group Buy pages should show campaign close date/time, cancellation rights before close, final-sale status after close, tier/refund mechanics, and estimated production timing near the purchase action.
+- Buy Now pages should show the 7-day refund / days 8–30 store-credit policy near Add to Cart or in a clearly accessible compact disclosure.
+- Custom Jewelry should show the $49 Design Deposit terms and the point at which the final jewelry order becomes non-refundable.
+
+### Mandatory Acknowledgments for Material Terms
+
+Use explicit, unchecked acknowledgments for unusual/high-risk purchase terms rather than relying only on a generic Terms acceptance.
+
+Examples:
+
+- Group Buy: acknowledgment that the order may be cancelled until the stated campaign close date/time and becomes final sale after campaign close except for covered defects/fulfillment errors.
+- Custom Jewelry: acknowledgment of final CAD/specification approval and final-sale status before production/payment commitment.
+
+Buy Now does not need excessive checkbox friction if the return policy is conspicuously displayed and preserved with the transaction record.
+
+### Acceptance Logging
+
+For material acknowledgments, store at least:
+
+- Order ID
+- Customer/account ID when available
+- Campaign ID or custom-project ID where applicable
+- Exact acknowledgment text/version
+- Policy version
+- Timestamp
+- Selected product/variant/configuration
+- Checkout/session reference where available
+- Relevant technical metadata where reasonably available through the commerce/payment platform
+
+### Immutable Order Snapshot
+
+At payment/commitment, preserve a snapshot of what the customer purchased and what was disclosed at that time, including as applicable:
+
+- Product title
+- Product images/media references used at purchase
+- Metal, stone specifications, size/length, engraving, and other selected options
+- Price charged
+- Group Buy tier/status at order time
+- Campaign close date/time
+- Applicable return/cancellation policy version
+- Warranty version
+- Material acknowledgment records
+- Custom CAD/specification approval references
+
+Later edits to a live product page must not overwrite the historical transaction snapshot.
+
+### Confirmation & Lifecycle Notices
+
+Important terms should be repeated after purchase.
+
+- Order confirmation should restate the applicable cancellation/return status and key dates.
+- Group Buy confirmation should identify the exact cancellation deadline.
+- When a Group Buy closes, send a notice that final pricing is confirmed and the order is now committed/final sale, subject to defect/warranty protections.
+- Custom Jewelry should retain the customer's final design/spec approval before production.
+
+### QC Evidence
+
+CaratForUs QC should create evidence, not just an internal status.
+
+For each order, retain practical QC records appropriate to the product/value, such as:
+
+- QC checklist/results
+- Photos of the finished item when practical, especially for Custom Jewelry and higher-value orders
+- Verification of key ordered specifications where feasible
+- Date/time and staff/internal reviewer identity or record
+
+### Shipping & Delivery Evidence
+
+Store shipping evidence for every order, including:
+
+- Carrier
+- Tracking number
+- Ship date
+- Delivery status/date
+- Delivery address used for fulfillment
+- Signature confirmation or other delivery proof where required by configured value/risk thresholds
+
+### Dispute Evidence Packet
+
+The admin system should make it possible to assemble a dispute/chargeback evidence packet for any order. MVP1 may assemble this manually, but all required records must be retained.
+
+The packet should include as applicable:
+
+- Order/payment record
+- Product/configuration snapshot
+- Policy and acknowledgment versions
+- Group Buy campaign/tier/cancellation history
+- Custom CAD/spec approval
+- Customer communications
+- QC records/photos
+- Shipping/tracking/delivery/signature evidence
+- Cancellation/refund history
+- Group Buy tier-refund history
+- Warranty/claim history
+
+### Fraud/Chargeback Operational Support
+
+The architecture should also support operational review of suspicious/high-risk orders, preservation of recognizable billing-statement descriptors, tracking/delivery evidence, and any commerce/payment-platform fraud tools used at launch.
+
+A restrictive return policy alone is not considered sufficient chargeback protection; the objective is to preserve evidence that the customer saw the terms, affirmatively accepted material conditions, received the item, and received what was described/approved.
+
 ## Group-Buy Refund Engine — LOCKED DECISION
 
 CaratForUs will not use store credit for tier-price adjustments. Any amount owed because a lower Group Buy tier was unlocked must be refunded to the customer's original payment method where supported.
@@ -552,7 +708,7 @@ The page should explicitly state that there is no minimum unit count required fo
 
 ## MVP1: Minimum Viable Business
 
-The first release is intentionally focused. The goal is to launch a fully functioning business capable of accepting and fulfilling Buy Now, Group Buy, and Custom Jewelry orders while keeping internal operations manual wherever practical, except where pricing automation, campaign mechanics, and refund tracking are required to protect margins and honor customer commitments.
+The first release is intentionally focused. The goal is to launch a fully functioning business capable of accepting and fulfilling Buy Now, Group Buy, and Custom Jewelry orders while keeping internal operations manual wherever practical, except where pricing automation, campaign mechanics, refund tracking, customer acknowledgments, and evidence retention are required to protect margins and honor customer commitments.
 
 ### Customer-Facing Features
 
@@ -579,12 +735,27 @@ The first release is intentionally focused. The goal is to launch a fully functi
 - Bring It Back interest capture
 - Request a New Group Buy form
 - Shopify checkout
-- Order confirmation
+- Purchase-path-specific policy disclosures and material acknowledgments
+- Order confirmation with applicable cancellation/return/final-sale terms
 - Custom Jewelry request form
 - Inspiration image upload
+- $49 Custom Jewelry Design Deposit workflow
+- Final CAD/specification approval workflow for Custom Jewelry
 - Warranty and support information
 - FAQ, policies, contact, about, and Why Buy From Us pages/sections
 - Past Group Buys section
+
+### Required Internal Records / Admin Support
+
+- Immutable order/configuration/policy snapshot
+- Material acknowledgment logs and policy versioning
+- Group Buy cancellation/tier audit history
+- Refund ledger and processor references
+- Custom design/CAD approval record
+- QC checklist/evidence storage
+- Shipping/tracking/delivery/signature evidence storage
+- Customer communication history where available
+- Manual dispute-evidence packet assembly capability
 
 ## Post-MVP / Backlog
 
@@ -602,9 +773,14 @@ The first release is intentionally focused. The goal is to launch a fully functi
 2. Customer completes a guided questionnaire.
 3. Customer uploads inspiration images or sketches.
 4. CaratForUs reviews the request manually.
-5. Customer receives a consultation and quote.
-6. Payment is collected.
-7. CAD, approval, production, inspection, and delivery are handled manually during MVP1.
+5. When CaratForUs is ready to begin actual design/CAD work, the customer pays the $49 Design Deposit.
+6. CaratForUs completes the agreed design/CAD stage and presents the design/specifications to the customer.
+7. If the customer declines to proceed after the agreed design stage is completed, the $49 Design Deposit is refunded.
+8. If the customer proceeds, the $49 Design Deposit is credited toward the final jewelry price.
+9. Customer explicitly approves the final CAD/specifications.
+10. Customer pays the remaining balance/final jewelry price.
+11. The Custom Jewelry order becomes final sale/non-refundable except for covered defects, incorrect specifications, shipping damage, or failure to materially match the approved design/specifications.
+12. Production, inspection, and delivery follow.
 
 ## Payment Strategy
 
@@ -612,4 +788,4 @@ The preferred strategy is to encourage lower-cost payment methods while keeping 
 
 ## Guiding Rule
 
-If a feature does not help CaratForUs launch sooner, protect pricing/margins, drive acquisition/conversion, or materially improve the customer experience, it belongs in the backlog.
+If a feature does not help CaratForUs launch sooner, protect pricing/margins, drive acquisition/conversion, reduce operational/chargeback risk, or materially improve the customer experience, it belongs in the backlog.
