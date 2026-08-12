@@ -513,6 +513,84 @@ Custom Jewelry begins with a free request/review stage. When CaratForUs is ready
 - Once the customer approves the final design/specifications and pays for the jewelry, the Custom Jewelry order becomes non-refundable/final sale except for covered defects, incorrect specifications, shipping damage, or failure to materially match the approved design/specifications.
 - Final CAD/specification approval must be stored as part of the order record.
 
+## Custom Design Intake Form — MVP1 LOCKED DECISION
+
+MVP1 should use a low-friction custom-design intake form similar to the Raywan Jewelers custom-design flow rather than an exhaustive jewelry configurator.
+
+The purpose of this form is to capture enough information for CaratForUs to understand and qualify the request. Detailed technical design decisions can be handled later by email/consultation.
+
+### Required Contact Fields
+
+- First Name — required
+- Last Name — required
+- Email Address — required
+- Phone Number — required
+
+### Starting Point
+
+The form should let the customer choose either:
+
+- an existing CaratForUs design as the starting point; or
+- **I have my own idea / Starting from scratch**.
+
+Selecting an existing design must not be required for a fully original custom request.
+
+### Inspiration Uploads
+
+The customer may upload multiple inspiration/reference files.
+
+- Upload is optional.
+- Support common image formats such as JPG, PNG, and WEBP.
+- PDF may also be supported for sketches or reference documents if practical.
+- Show selected filenames and/or preview thumbnails before submission where practical.
+
+### Describe the Design
+
+Include one prominent required free-text field asking the customer to describe what they want to create or change.
+
+Suggested customer-facing prompt:
+
+**Tell us what you'd like to create or change. For example: oval center stone, yellow gold, thinner band, hidden halo, different side stones, or any other details that matter to you.**
+
+This field intentionally replaces a long list of mandatory technical jewelry questions at the initial inquiry stage.
+
+### Lightweight Structured Qualifying Fields
+
+MVP1 should capture only a few additional structured fields that materially help qualify the request:
+
+- Jewelry Type — Ring / Necklace / Bracelet / Earrings / Other
+- Approximate Budget Range
+- Desired Completion Date, with an option such as **No specific deadline**
+
+These fields should remain simple and should not turn the initial form into a technical CAD/specification questionnaire.
+
+Do not require detailed center-stone color/clarity, prong style, basket design, under-gallery construction, pavé layout, or similar technical choices during initial intake unless a later business need specifically justifies adding them.
+
+### Follow-Up Preference
+
+Ask:
+
+**How would you like us to follow up?**
+
+Options:
+
+- Schedule a consultation meeting
+- Please contact me
+
+If the customer selects Schedule a consultation meeting, the site may route them to the scheduling flow after the request has been submitted. If Please contact me is selected, CaratForUs follows up manually.
+
+### Submission Behavior
+
+When the customer selects **Submit Request**:
+
+- generate/store a custom request/project reference;
+- save all submitted answers and uploaded references;
+- send a confirmation email to the customer;
+- notify CaratForUs internally;
+- do not charge the $49 Design Deposit at this stage.
+
+The initial request is free. The $49 Design Deposit is requested only later, when CaratForUs is ready to begin actual design/CAD work under the separately defined Custom Jewelry Design Deposit workflow.
+
 ## Custom Design Approval & Purchase Page — MVP1 LOCKED DECISION
 
 MVP1 will use email for consultation, CAD/design discussion, revisions, and general communication. CaratForUs will **not** build a full customer custom-project portal for MVP1.
@@ -832,7 +910,7 @@ The first release is intentionally focused. The goal is to launch a fully functi
 - Shopify checkout
 - Purchase-path-specific policy disclosures and material acknowledgments
 - Order confirmation with applicable cancellation/return/final-sale terms
-- Custom Jewelry request form
+- Custom Jewelry request/intake form
 - Inspiration image upload
 - $49 Custom Jewelry Design Deposit workflow
 - Final CAD/specification approval workflow for Custom Jewelry
@@ -848,6 +926,7 @@ The first release is intentionally focused. The goal is to launch a fully functi
 - Group Buy cancellation/tier audit history
 - Refund ledger and processor references
 - Custom design/CAD approval record
+- Custom request intake data and uploaded references
 - QC checklist/evidence storage
 - Shipping/tracking/full-value insurance/delivery/signature evidence storage
 - Customer communication history where available
@@ -867,8 +946,8 @@ The first release is intentionally focused. The goal is to launch a fully functi
 ## Custom Jewelry Flow
 
 1. Customer selects Start a Custom Design.
-2. Customer completes a guided questionnaire.
-3. Customer uploads inspiration images or sketches.
+2. Customer completes the lightweight MVP1 Custom Design Intake Form.
+3. Customer uploads inspiration images or sketches if desired.
 4. CaratForUs reviews the request manually and communicates by email.
 5. When CaratForUs is ready to begin actual design/CAD work, the customer pays the $49 Design Deposit.
 6. CaratForUs completes the agreed design/CAD stage and handles revisions/communication by email.
