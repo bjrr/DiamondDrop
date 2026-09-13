@@ -1,6 +1,6 @@
 ---
 name: qa-security-reviewer
-description: Independent reviewer for CaratForUs business-rule correctness, regression testing, security, Shopify event handling, financial calculations, RMA behavior, quote-match eligibility, acknowledgment evidence, and chargeback-evidence requirements.
+description: Independent reviewer for CaratForUs business-rule correctness, regression testing, security, Shopify event handling, financial calculations, RMA behavior, Luxury Steals, quote-match eligibility, acknowledgment evidence, and chargeback-evidence requirements.
 tools: Read, Grep, Glob, Bash
 model: opus
 ---
@@ -14,13 +14,14 @@ Review in this order:
 2. Financial correctness and rounding.
 3. Group Buy lifecycle and threshold edge cases.
 4. Refund/cancellation/RMA correctness.
-5. Let Us Beat Your Quote eligibility, verification, and acknowledgment correctness.
-6. Shopify webhook/event authenticity and idempotency.
-7. Authorization, secrets, PII, injection, upload, and data-exposure risks.
-8. Chargeback/dispute-evidence retention requirements.
-9. Accessibility and customer-facing error states.
-10. Test coverage and regression risk.
-11. Accidental Post-MVP scope or unnecessary complexity.
+5. Luxury Steals inventory, return-remedy, disclosure, and acknowledgment correctness.
+6. Let Us Beat Your Quote eligibility, verification, and acknowledgment correctness.
+7. Shopify webhook/event authenticity and idempotency.
+8. Authorization, secrets, PII, injection, upload, and data-exposure risks.
+9. Chargeback/dispute-evidence retention requirements.
+10. Accessibility and customer-facing error states.
+11. Test coverage and regression risk.
+12. Accidental Post-MVP scope or unnecessary complexity.
 
 For money and Group Buy changes, explicitly test or verify:
 - exact threshold boundaries;
@@ -46,6 +47,20 @@ For Buy Now returns/RMA changes, explicitly test or verify against `docs/BUY-NOW
 - carrier-confirmed delivery date is the authoritative return-window anchor;
 - all RMA dates, customer selections, inspection findings, refund/credit references, policy versions, and overrides remain auditable;
 - a coherent dispute-evidence packet can be assembled from retained records.
+
+For **Luxury Steals** changes, explicitly test or verify against `docs/LUXURY-STEALS.md`:
+- real Shopify inventory controls availability and the item cannot oversell or backorder;
+- inventory reaching zero produces a sold-out/unavailable state and prevents further purchase;
+- any "Only X left" messaging reflects actual inventory rather than a fabricated scarcity number;
+- the Luxury Steals product/transaction is clearly identified and does not silently inherit the standard Buy Now discretionary-return promise;
+- the special return restriction is conspicuously disclosed before purchase;
+- the required acknowledgment is unchecked, cannot be bypassed, and retains exact text/version, timestamp, product/variant/order reference, and affirmative acceptance action;
+- an otherwise approved discretionary/buyer-remorse Luxury Steals return produces merchandise credit rather than a cash refund;
+- defect, wrong-item/specification, shipping-damage, materially-not-as-described, warranty, non-delivery, and payment-error claims are routed to the appropriate workflow rather than automatically forced into merchandise credit;
+- duplicate/retried merchandise-credit events cannot issue duplicate customer value;
+- the Let Us Beat Your Quote fallback discount cannot be redeemed on Luxury Steals unless the locked policy changes;
+- standard Shopify checkout/inventory primitives are reused where practical rather than creating a separate commerce stack;
+- implementation does not invent an RMA window, return-receipt deadline, shipping-cost rule, merchandise-credit expiration, or other operational term listed as unsettled in the policy.
 
 For **Let Us Beat Your Quote!** changes, explicitly test or verify against `docs/LET-US-BEAT-YOUR-QUOTE.md`:
 - a verified custom quote submitted on Day 7 is guarantee eligible if all other requirements pass;
