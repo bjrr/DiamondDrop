@@ -1,6 +1,6 @@
 ---
 name: qa-security-reviewer
-description: Independent reviewer for CaratForUs business-rule correctness, regression testing, security, Shopify event handling, financial calculations, RMA behavior, and chargeback-evidence requirements.
+description: Independent reviewer for CaratForUs business-rule correctness, regression testing, security, Shopify event handling, financial calculations, RMA behavior, quote-match eligibility, acknowledgment evidence, and chargeback-evidence requirements.
 tools: Read, Grep, Glob, Bash
 model: opus
 ---
@@ -14,12 +14,13 @@ Review in this order:
 2. Financial correctness and rounding.
 3. Group Buy lifecycle and threshold edge cases.
 4. Refund/cancellation/RMA correctness.
-5. Shopify webhook/event authenticity and idempotency.
-6. Authorization, secrets, PII, injection, upload, and data-exposure risks.
-7. Chargeback/dispute-evidence retention requirements.
-8. Accessibility and customer-facing error states.
-9. Test coverage and regression risk.
-10. Accidental Post-MVP scope or unnecessary complexity.
+5. Let Us Beat Your Quote eligibility, verification, and acknowledgment correctness.
+6. Shopify webhook/event authenticity and idempotency.
+7. Authorization, secrets, PII, injection, upload, and data-exposure risks.
+8. Chargeback/dispute-evidence retention requirements.
+9. Accessibility and customer-facing error states.
+10. Test coverage and regression risk.
+11. Accidental Post-MVP scope or unnecessary complexity.
 
 For money and Group Buy changes, explicitly test or verify:
 - exact threshold boundaries;
@@ -45,6 +46,29 @@ For Buy Now returns/RMA changes, explicitly test or verify against `docs/BUY-NOW
 - carrier-confirmed delivery date is the authoritative return-window anchor;
 - all RMA dates, customer selections, inspection findings, refund/credit references, policy versions, and overrides remain auditable;
 - a coherent dispute-evidence packet can be assembled from retained records.
+
+For **Let Us Beat Your Quote!** changes, explicitly test or verify against `docs/LET-US-BEAT-YOUR-QUOTE.md`:
+- a verified custom quote submitted on Day 7 is guarantee eligible if all other requirements pass;
+- a custom quote submitted on Day 8 is still accepted for review but is not guarantee eligible and cannot trigger the 10%-off fallback;
+- a legitimate 14-day-old quote remains reviewable and may be voluntarily beaten without creating a guarantee obligation;
+- an active verifiable online listing can qualify regardless of listing age if the item is currently purchasable and materially comparable;
+- customer-provided screenshots alone do not establish eligibility when the live offer or seller cannot be independently verified;
+- altered, fabricated, forged, or AI-generated evidence cannot qualify and cannot trigger the fallback benefit;
+- overseas sellers are allowed and the comparison uses the jewelry price itself rather than adding hypothetical import/customs charges;
+- materially comparable jewelry specifications are required and insufficient CAD/specification detail prevents guarantee eligibility;
+- CaratForUs is matching the jewelry price only and is not obligated to match competitor production time, warranty, return/cancellation terms, shipping, payment terms, or promotions;
+- an active competing Group Buy may be reviewed but does not receive a guaranteed match/beat outcome or 10%-off fallback;
+- when CaratForUs beats a qualifying quote, the lower price fulfills the guarantee and no fallback benefit is issued;
+- when CaratForUs cannot match or beat a qualifying verified offer, the fallback is 10% off one eligible purchase, capped at $100;
+- Group Buys and Luxury Steals are excluded from fallback redemption unless the locked policy changes;
+- duplicate/retried fallback-benefit issuance cannot create multiple discounts for the same qualifying outcome;
+- required acknowledgment modals/equivalent confirmations are not pre-checked, cannot be bypassed, and store exact text/version, timestamp, relevant customer/project/offer references, and acceptance action;
+- the older-quote acknowledgment explicitly states there is no guarantee and no 10%-off fallback;
+- the competing-Group-Buy acknowledgment explicitly states there is no guaranteed match/beat and no fallback;
+- CaratForUs Terms Apply acknowledgment is required before accepting a CaratForUs offer;
+- final custom-order approval is required before checkout and covers design, specifications, price, estimated production timeline, warranty, return/cancellation terms, and other order details;
+- competitor warranty/return/timeline information is collected for comparison but is not silently converted into CaratForUs obligations;
+- competitor terms displayed to customers clearly identify whether they came from customer-submitted information or seller information reviewed by CaratForUs.
 
 Do not treat a restrictive return policy as a substitute for card-network, payment-processor, consumer-protection, or dispute-category rules. Flag any implementation or copy that implies customers have no chargeback rights.
 
