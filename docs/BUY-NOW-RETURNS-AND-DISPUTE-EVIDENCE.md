@@ -1,227 +1,157 @@
 # Buy Now Returns, RMA & Dispute Evidence — MVP1 LOCKED DECISION
 
-This document is an authoritative CaratForUs MVP1 policy specification. Where this document conflicts with an older Buy Now return-policy summary in `README.md`, this document controls until the README is consolidated.
+This document is the authoritative CaratForUs MVP1 specification for discretionary Buy Now returns, RMAs, and related dispute evidence. Any older conflicting README summary is superseded by this document.
 
 ## 1. Scope
+This policy applies to eligible **Buy Now** merchandise only. Group Buy, Custom Jewelry, and Luxury Steals follow their separately defined rules.
 
-This policy applies to eligible **Buy Now** merchandise only. Group Buy and Custom Jewelry orders follow their separately defined cancellation/final-sale rules.
+Defects, incorrect specifications, shipping damage, warranty claims, fulfillment errors, unauthorized-payment claims, duplicate charges, non-delivery claims, and merchandise materially not as described are handled separately from discretionary buyer-remorse returns. This policy does not eliminate rights required by applicable law, card-network rules, or payment-processor rules.
 
-Defects, incorrect specifications, shipping damage, warranty claims, fulfillment errors, unauthorized-payment claims, duplicate charges, non-delivery claims, and merchandise materially not as described are handled separately from discretionary buyer-remorse returns. A discretionary return policy must not be used to deny rights that apply under law, card-network rules, or the applicable payment processor agreement.
+## 2. RMA Required
+No discretionary Buy Now return may be sent without an approved CaratForUs **Return Merchandise Authorization (RMA)**. Sending merchandise without an approved RMA does not create return eligibility.
 
-## 2. RMA Required for Every Discretionary Return
-
-No discretionary Buy Now return may be sent back without an approved CaratForUs **Return Merchandise Authorization (RMA)**.
-
-The RMA process must:
-
-- identify the order and exact item/line item being returned;
-- retrieve or verify the carrier-confirmed delivery date;
-- calculate the customer's eligibility window from that delivery date;
-- record the RMA request timestamp;
-- record the requested return reason;
-- record the customer's requested remedy where more than one option is available;
-- generate a unique RMA number when approved;
-- provide return instructions and the applicable receipt deadline;
-- record return tracking where supplied/available;
-- record the date the item is physically received by CaratForUs;
-- record inspection results and disposition;
-- retain all dates, communications, policy versions, and refund/store-credit transaction references as part of the order evidence record.
-
-Sending merchandise without an approved RMA does not create return eligibility.
+The RMA process must identify the order and exact line item, verify carrier-confirmed delivery date, calculate eligibility, record request timestamp/reason/remedy, generate an RMA number when approved, provide return instructions/deadline, record tracking, receipt, inspection and disposition, and retain policy/refund/credit evidence and audit history.
 
 ## 3. Days 0–7: Standard Refund Window
-
 The window begins on the **carrier-confirmed delivery date**.
 
 For an otherwise eligible Buy Now item:
+- RMA request must be submitted within **7 calendar days** of carrier-confirmed delivery;
+- return must be approved before shipment back;
+- merchandise must be **received by CaratForUs no later than 14 calendar days after original carrier-confirmed delivery**;
+- if inspection and eligibility pass, the eligible merchandise refund is issued to the **original payment method**.
 
-- the customer must submit the RMA request **within 7 calendar days of the carrier-confirmed delivery date**;
-- the return must be approved before the customer sends the merchandise back;
-- the merchandise must be **received by CaratForUs no later than 14 calendar days after the original carrier-confirmed delivery date**;
-- if the return passes inspection and all eligibility requirements, the approved refund is issued to the **original payment method**.
-
-An RMA requested after Day 7 does not qualify for the standard full-refund window.
-
-A return received after Day 14 does not qualify for the standard full-refund window, even if the RMA was requested during Days 0–7, unless CaratForUs grants a documented exception or applicable law requires otherwise.
+An RMA requested after Day 7 does not qualify for the standard full-refund window. Receipt after Day 14 does not qualify for the standard full-refund window unless a documented exception or applicable law requires otherwise.
 
 ## 4. Days 8–30: Late Discretionary Return Options
-
-For an otherwise eligible Buy Now item where the RMA request is submitted **after Day 7 but no later than Day 30 after the carrier-confirmed delivery date**, the customer may choose one of the following remedies:
-
-1. **Refund to the original payment method, subject to a 50% restocking fee**, meaning the customer receives 50% of the eligible merchandise amount back to the original payment method; or
+For an otherwise eligible Buy Now item where the RMA request is submitted after Day 7 but no later than Day 30, the customer may choose:
+1. **Refund to original payment method subject to a 50% restocking fee** — customer receives 50% of the eligible merchandise amount; or
 2. **100% merchandise credit** for the eligible merchandise amount.
 
-The RMA must be requested **no later than Day 30**.
+The RMA must be requested no later than Day 30. Once approved, merchandise must be **received by CaratForUs within 10 calendar days after RMA approval**. If not received within that period, the RMA expires unless a documented exception or applicable law requires otherwise.
 
-Once the RMA is approved, the returned merchandise must be **received by CaratForUs within 10 calendar days after the RMA approval date**.
-
-If the return is not received within that 10-calendar-day period, the RMA expires and the discretionary return is no longer eligible unless CaratForUs grants a documented exception or applicable law requires otherwise.
-
-For MVP1, merchandise credit should be represented by a traceable Shopify/store-credit mechanism supported by the approved architecture. The system must retain the amount, issue date, order/RMA reference, and redemption/transaction reference where available.
+Merchandise credit must use a traceable approved Shopify/store-credit mechanism and retain amount, issue date, order/RMA reference, status, and redemption/transaction references where available.
 
 ## 5. After Day 30
+After 30 calendar days from carrier-confirmed delivery, there is **no discretionary Buy Now return**. Warranty, defect, damage, fulfillment-error and other non-discretionary claims remain separate.
 
-After 30 calendar days from carrier-confirmed delivery, there is **no discretionary Buy Now return**.
+## 6. Customer-Paid Return Shipping — LOCKED
+For discretionary Buy Now returns:
+- **the customer pays the cost of return shipping to CaratForUs**;
+- the return shipment must include **tracking**;
+- the return shipment must be **insured for the appropriate value of the merchandise being returned**;
+- the customer must follow the approved RMA shipping instructions;
+- the customer bears the risk of loss or damage in return transit until the merchandise is received by CaratForUs, subject to applicable law and carrier/insurance rights.
 
-Covered warranty, defect, damage, fulfillment-error, or other non-discretionary claims remain subject to their applicable rules.
+A discretionary-return RMA does not obligate CaratForUs to provide a prepaid return label.
 
-## 6. Item Eligibility / Condition
+If a return instead concerns a defect, wrong item/specification, shipping damage, materially-not-as-described merchandise, warranty, or another non-discretionary claim, use the applicable claim/warranty policy rather than automatically applying the discretionary-return shipping rule.
 
+### Original/outbound shipping
+Separately purchased expedited or optional outbound shipping charges are **not refundable for a discretionary return**. If the return results from a CaratForUs fulfillment error or another covered non-discretionary claim, shipping treatment is determined under that claim rather than this buyer-remorse rule.
+
+## 7. Item Eligibility / Condition
 To qualify for a discretionary Buy Now return, merchandise must be:
-
 - unworn beyond reasonable try-on/inspection;
 - undamaged;
 - unaltered after delivery;
 - returned with original packaging, certificates, reports, accessories, and documentation where applicable;
-- the same item and configuration originally shipped by CaratForUs.
+- the same item/configuration originally shipped.
 
-CaratForUs should document the condition at receipt before issuing the final refund or merchandise credit.
+CaratForUs must document condition at receipt before issuing a refund or merchandise credit. Inspection evidence may include photos/video, package/item condition, serial/certificate/product identifiers, weight/measurements, and reviewer identity.
 
-Where appropriate, inspection evidence should include photographs/video, package condition, item condition, serial/certificate identifiers, stone/product identifiers, weight or measurements, and staff/reviewer identity.
+## 8. Personalized / Altered Buy Now Merchandise
+Engraved, resized, altered, personalized, or otherwise customized Buy Now merchandise is **not eligible for a discretionary return** unless a product-specific locked policy expressly says otherwise. This restriction must be clearly disclosed before purchase and the applicable disclosure/policy version and acknowledgment retained.
 
-## 7. Personalized / Altered Buy Now Merchandise
+Defects, wrong specifications, shipping damage, warranty claims, and failure to deliver the ordered/presented product remain separate.
 
-Engraved, resized, altered, personalized, or otherwise customized Buy Now merchandise is **not eligible for a discretionary return** unless a product-specific policy expressly says otherwise.
-
-Because this is a material exception to the normal Buy Now return policy, the customer must be clearly informed before purchase. The transaction record must preserve the applicable disclosure/policy version and any required acknowledgment.
-
-Defects, wrong specifications, shipping damage, warranty claims, and failure to deliver the ordered/presented product remain separate from discretionary-return eligibility.
-
-## 8. RMA Form — Required MVP Fields
-
-The customer-facing RMA form should capture or derive at least:
-
+## 9. RMA Form — Required MVP Fields
+Capture or derive at least:
 - Order number
 - Purchaser email
 - Customer/account ID when available
-- Item/line item being returned
+- Item/line item
 - Product/variant/configuration snapshot
 - Carrier-confirmed delivery date
 - RMA request date/time
-- Number of calendar days since delivery
-- Return reason category
-- Customer explanation/details
+- Calendar days since delivery
+- Return reason category and explanation
 - Requested remedy
-- Required condition confirmations
-- Confirmation that merchandise has not been altered after delivery
+- Condition confirmations
+- Confirmation merchandise was not altered after delivery
 - Applicable return-policy acknowledgment
 - RMA number/status
-- RMA approval/denial timestamp and reason
+- Approval/denial timestamp and reason
 - Return-by/receive-by deadline
-- Customer-provided return tracking where applicable
+- Customer return tracking
+- Confirmation of required return-shipment insurance / insurance reference where available
 - Actual CaratForUs received date/time
-- Inspection outcome
-- Photos/evidence references when collected
-- Refund amount, restocking amount, or merchandise-credit amount
+- Inspection outcome and evidence references
+- Refund/restocking/merchandise-credit amount
 - Processor/store-credit transaction reference
-- Staff/manual override and reason, if any
+- Manual override and reason
 - Complete audit history
 
-The customer's reason should distinguish at minimum:
+Reason categories must distinguish buyer remorse, size/fit, style preference, alleged defect, wrong item/specification, transit damage, materially not as described, and other. Defect/damage/wrong/not-as-described claims route to the applicable claim workflow rather than automatically receiving a restocking fee.
 
-- changed mind / buyer remorse;
-- size/fit preference;
-- style preference;
-- alleged defect;
-- wrong item/specification;
-- damaged in transit;
-- materially not as described;
-- other.
-
-Claims that indicate a defect, shipping damage, wrong item/specification, or materially-not-as-described issue should route into the applicable support/claim workflow rather than being automatically treated as a buyer-remorse return subject to a restocking fee.
-
-## 9. Customer-Facing Disclosure
-
-The return policy must be conspicuously available before purchase and not hidden solely inside long Terms & Conditions.
-
-A compact Buy Now disclosure near the purchasing flow should communicate the substance of the policy, including:
-
+## 10. Customer-Facing Disclosure
+The policy must be conspicuously available before purchase, not hidden solely in Terms & Conditions. Compact Buy Now disclosure should communicate:
 - RMA required;
-- RMA requested within 7 days for the normal refund window;
-- item received by CaratForUs within 14 days of original delivery for the normal refund window;
-- Days 8–30: choice of 50% restocking-fee refund or 100% merchandise credit;
-- late-window RMA must be requested by Day 30 and received within 10 calendar days after RMA approval;
-- after Day 30: no discretionary return;
-- personalized/altered merchandise restrictions;
-- defect/warranty/fulfillment issues handled separately.
+- RMA requested within 7 days for normal refund;
+- item received within 14 days of original delivery for normal refund;
+- Days 8–30: 50% restocking-fee refund or 100% merchandise credit;
+- late RMA requested by Day 30 and received within 10 calendar days after approval;
+- customer pays return shipping and must use tracked, appropriately insured return shipping;
+- separately purchased expedited/optional outbound shipping is not refunded for discretionary returns;
+- after Day 30 no discretionary return;
+- personalized/altered restrictions;
+- defect/warranty/fulfillment claims handled separately.
 
-Order confirmation should repeat the applicable return terms and the carrier-confirmed delivery date should later become the authoritative anchor for calculating deadlines.
+Order confirmation should repeat applicable terms. Carrier-confirmed delivery is the authoritative deadline anchor.
 
-## 10. Chargeback / Dispute Evidence Requirements
-
-The objective is not to prevent customers from exercising legitimate card-dispute rights. The objective is to ensure CaratForUs does not lose an otherwise defensible dispute because required disclosures, fulfillment evidence, customer approvals, return records, or refund records were not preserved.
-
-For every applicable transaction, preserve a versioned and timestamped evidence trail containing, as available/applicable:
+## 11. Chargeback / Dispute Evidence
+Preserve a versioned/timestamped evidence trail sufficient to assemble a coherent dispute packet, including as applicable:
 
 ### Purchase evidence
-- Order ID and payment reference
-- Customer/account reference
-- Billing and shipping information supplied through the approved commerce/payment flow
-- Exact product title and line-item configuration
-- Product description/specification snapshot
-- Product/media references shown at purchase
-- Price, discounts, taxes, and shipping charged
-- Policy version in effect at purchase
-- Material acknowledgments and exact text/version where required
-- Checkout/session reference and technical metadata available through Shopify/payment systems
+Order/payment/customer references; billing/shipping information supplied through approved systems; exact product/configuration/specification/media snapshot; price/discount/tax/shipping; policy version; acknowledgments; checkout/session and permitted platform metadata.
 
 ### Fulfillment evidence
-- QC record and photos when practical
-- Carrier and service
-- Tracking number
-- Ship date
-- Delivery address used
-- Full insured value and insurance reference where available
-- Signature-required flag
-- Carrier-confirmed delivery status/date/time
-- Signature/proof of delivery when applicable
-- Address-change audit records
+QC records/photos where practical; carrier/service/tracking/ship date; delivery address; insured value/insurance reference; signature-required flag; carrier-confirmed delivery; proof/signature where applicable; address-change audit history.
 
-### Return / refund evidence
-- RMA request and timestamp
-- Carrier-confirmed delivery date used to calculate eligibility
-- Policy window calculated by the system
-- Customer's stated reason
-- Customer's selected remedy
-- RMA approval/denial and reason
-- Return shipping/tracking records
-- Date CaratForUs received the item
-- Inspection record and photos where practical
-- Any restocking fee calculation
-- Merchandise-credit issue record, if selected
-- Refund processor reference and timestamp, if selected
-- Customer communications
-- Manual exceptions/overrides and documented reason
+### Return/refund evidence
+RMA request/timestamp; delivery date and calculated window; customer reason/remedy; approval/denial; return tracking and insurance evidence where available; receipt date; inspection/evidence; restocking calculation; credit/refund references/timestamps; communications; exceptions/overrides and reasons.
 
-### Dispute packet
-The admin system must make it possible to assemble the above records into a coherent dispute-evidence packet. MVP1 may assemble the packet manually, but the underlying evidence must be retained in a retrievable form.
+MVP1 may assemble dispute packets manually, but underlying records must be retrievable.
 
-## 11. Operational Rules for Dispute Defensibility
-
-- Do not promise that CaratForUs policies eliminate or override chargeback rights.
-- Do not use language such as “no chargebacks” or claim that a final-sale policy defeats card-network protections.
+## 12. Operational Rules for Dispute Defensibility
+- Do not claim CaratForUs policies eliminate chargeback or legally required rights.
 - Make material restrictions conspicuous before payment.
-- Preserve the exact policy/version that applied when the customer purchased.
-- Preserve immutable product/configuration snapshots so later website edits cannot change the evidence.
-- Keep refund/credit records linked to the original order and RMA.
-- Use recognizable billing-statement descriptors where supported.
-- Use Shopify/payment-platform fraud screening/risk tools available at launch.
-- Review suspicious/high-risk orders before fulfillment where operationally practical.
-- Verify webhook/event authenticity and make payment/refund event processing idempotent.
-- Never collect or store sensitive payment-card data beyond what the approved processor/platform exposes and permits.
-- Treat disputes involving unauthorized transactions, non-delivery, duplicate processing, wrong merchandise, defects, or materially-not-as-described claims according to their actual dispute category rather than relying solely on the return policy.
+- Preserve exact policy/version applicable at purchase.
+- Preserve immutable product/configuration snapshots.
+- Link refunds/credits to original order/RMA.
+- Use recognizable billing descriptors where supported.
+- Use available Shopify/payment fraud/risk tools.
+- Review suspicious/high-risk orders where practical.
+- Verify webhook/event authenticity and make processing idempotent.
+- Never collect/store raw payment-card data beyond approved platform exposure.
+- Treat unauthorized transaction, non-delivery, duplicate, wrong merchandise, defect and not-as-described disputes according to their actual category.
 
-## 12. MVP Acceptance Criteria
+## 13. MVP Acceptance Criteria
+1. Day 7 RMA + Day 14 receipt qualifies for standard refund if condition passes.
+2. Day 8 RMA offers 50% restocking-fee refund or 100% merchandise credit.
+3. Day 30 RMA remains late-window eligible and must arrive within 10 days after approval.
+4. Day 31 is not discretionary-return eligible.
+5. Day 6 request + Day 15 receipt is outside standard refund unless documented exception.
+6. Late-window return received more than 10 days after approval is expired unless documented exception.
+7. Personalized/altered item follows preserved final-sale disclosure.
+8. Defect/wrong/not-as-described routes to claim workflow, not automatic restocking fee.
+9. Discretionary return instructions require customer-paid tracked, appropriately insured return shipment.
+10. Separately purchased expedited/optional outbound shipping is not refunded on a discretionary return.
+11. Duplicate/retried refund or credit cannot create duplicate value.
+12. Dispute packet can show purchase terms, fulfillment/delivery, RMA timeline, return tracking/insurance evidence where available, inspection, remedy selection, and refund/credit result.
 
-The Buy Now returns/RMA implementation is not complete unless it can demonstrably handle and retain evidence for at least these cases:
-
-1. RMA on Day 7, merchandise received on Day 14 — eligible for standard refund if condition requirements pass.
-2. RMA on Day 8 — customer must choose 50% restocking-fee refund or 100% merchandise credit.
-3. RMA on Day 30 — late-window option remains available; return must arrive within 10 calendar days after approval.
-4. RMA on Day 31 — no discretionary return.
-5. RMA requested Day 6 but merchandise received Day 15 — outside standard refund receipt deadline unless documented exception applies.
-6. Late-window RMA approved but merchandise arrives after the 10-day approval-to-receipt deadline — RMA expired unless documented exception applies.
-7. Personalized/altered Buy Now item — discretionary return denied according to preserved purchase disclosure/acknowledgment.
-8. Customer alleges defect/wrong item/not-as-described — route to the appropriate claim workflow instead of automatically applying the restocking fee.
-9. Refund/credit action is retried or receives a duplicate event — no duplicate refund/credit is issued.
-10. A dispute-evidence packet can be assembled showing the purchase terms, fulfillment, delivery, RMA timeline, inspection, customer selection, and refund/credit result.
+## 14. Remaining Unsettled Buy Now Detail
+Do not invent the following without owner approval:
+- exact tax treatment of the 50% restocking-fee refund and merchandise credit;
+- merchandise-credit expiration/transferability unless separately locked;
+- holiday extensions or special-event exceptions.
