@@ -8,7 +8,7 @@ Build CaratForUs MVP1 as a lean Shopify-centered jewelry commerce business with 
 - Also read any locked policy documents under `docs/` that apply to the feature being built.
 - `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md` is the authoritative specification for Buy Now returns, RMA handling, late-return remedies, and dispute-evidence requirements. If it conflicts with an older Buy Now return-policy summary in `README.md`, the policy document controls.
 - `docs/LET-US-BEAT-YOUR-QUOTE.md` is the authoritative MVP1 specification for competitor custom-quote, live online-item, and competing Group Buy submissions; quote-age eligibility; match/beat and fallback rules; verification; service-term comparisons; and required customer acknowledgments.
-- `docs/LUXURY-STEALS.md` is the authoritative MVP1 specification for the Luxury Steals limited-availability sale section, inventory/scarcity behavior, special discretionary-return remedy, customer disclosures/acknowledgments, and evidence requirements.
+- `docs/LUXURY-STEALS.md` is the authoritative MVP1 specification for the Luxury Steals limited-availability sale section, inventory/scarcity behavior, Final Sale rules, customer disclosures/acknowledgments, claim/warranty separation, and evidence requirements.
 - Locked policy documents and `README.md` business rules override assumptions, generic ecommerce conventions, and speculative enhancements.
 - Do not silently change a locked business decision. Flag conflicts for owner approval.
 - Build MVP1 only unless explicitly asked to work on backlog/Post-MVP functionality.
@@ -59,7 +59,7 @@ Treat these as high-risk and require tests/review:
 - cancellations and tier rollback before close
 - final-price/refund calculations
 - Buy Now RMA eligibility windows, receipt deadlines, restocking-fee calculations, and merchandise-credit issuance
-- Luxury Steals inventory depletion, sold-out behavior, discretionary merchandise-credit handling, and special acknowledgment evidence
+- Luxury Steals inventory depletion, sold-out behavior, Final Sale enforcement, claim/warranty separation, and acknowledgment evidence
 - return/refund/dispute audit history
 - Let Us Beat Your Quote eligibility, 7-day quote-age calculation, live-listing verification, competing Group Buy treatment, and 10%-off fallback issuance
 - competitor-offer authenticity/comparability review and evidence retention
@@ -75,7 +75,7 @@ Treat these as high-risk and require tests/review:
 Use current calculated pricing and native Shopify purchasing wherever practical. Preserve the applicable transaction snapshot and policies. Implement discretionary returns and RMA behavior exactly as defined in `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md`.
 
 ### Luxury Steals
-Luxury Steals is an MVP1 limited-availability, extreme-value merchandising program built on normal Shopify Buy Now checkout/inventory wherever practical. Implement inventory scarcity, sold-out behavior, special discretionary merchandise-credit-only return treatment, material disclosures, required acknowledgment evidence, and claim/warranty separation exactly as defined in `docs/LUXURY-STEALS.md`. Do not silently apply standard Buy Now discretionary-return rules to a Luxury Steal transaction.
+Luxury Steals is an MVP1 limited-availability, extreme-value merchandising program built on normal Shopify Buy Now checkout/inventory wherever practical. **All Luxury Steals purchases are Final Sale: no discretionary returns, exchanges, cash refunds, or merchandise-credit returns.** Implement inventory scarcity, sold-out behavior, conspicuous Final Sale disclosure, required acknowledgment evidence, and claim/warranty separation exactly as defined in `docs/LUXURY-STEALS.md`. Do not silently apply standard Buy Now discretionary-return rules to a Luxury Steal transaction, and do not use Final Sale to automatically deny legitimate defect, wrong-item/specification, shipping-damage, materially-not-as-described, non-delivery, payment-error, warranty, or legally required claims.
 
 ### Group Buy
 This is custom CaratForUs functionality. Implement frozen campaign pricing, configurable tiers, unit-based qualification, selected-variant pricing, campaign progress, cancellation-before-close behavior, final-price determination, refund ledger, and evidence requirements exactly as specified in README.md.
