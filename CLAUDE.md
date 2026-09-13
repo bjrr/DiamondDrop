@@ -7,6 +7,7 @@ Build CaratForUs MVP1 as a lean Shopify-centered jewelry commerce business with 
 - Read `README.md` before planning or implementing product behavior. It contains the approved business and product requirements.
 - Also read any locked policy documents under `docs/` that apply to the feature being built.
 - `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md` is the authoritative specification for Buy Now returns, RMA handling, late-return remedies, and dispute-evidence requirements. If it conflicts with an older Buy Now return-policy summary in `README.md`, the policy document controls.
+- `docs/LET-US-BEAT-YOUR-QUOTE.md` is the authoritative MVP1 specification for competitor custom-quote, live online-item, and competing Group Buy submissions; quote-age eligibility; match/beat and fallback rules; verification; service-term comparisons; and required customer acknowledgments.
 - Locked policy documents and `README.md` business rules override assumptions, generic ecommerce conventions, and speculative enhancements.
 - Do not silently change a locked business decision. Flag conflicts for owner approval.
 - Build MVP1 only unless explicitly asked to work on backlog/Post-MVP functionality.
@@ -58,6 +59,9 @@ Treat these as high-risk and require tests/review:
 - final-price/refund calculations
 - Buy Now RMA eligibility windows, receipt deadlines, restocking-fee calculations, and merchandise-credit issuance
 - return/refund/dispute audit history
+- Let Us Beat Your Quote eligibility, 7-day quote-age calculation, live-listing verification, competing Group Buy treatment, and 10%-off fallback issuance
+- competitor-offer authenticity/comparability review and evidence retention
+- quote-match acknowledgment/version evidence and duplicate-benefit prevention
 - Shopify order/webhook idempotency
 - custom-design approval evidence
 - policy/acknowledgment versioning
@@ -72,12 +76,13 @@ Use current calculated pricing and native Shopify purchasing wherever practical.
 This is custom CaratForUs functionality. Implement frozen campaign pricing, configurable tiers, unit-based qualification, selected-variant pricing, campaign progress, cancellation-before-close behavior, final-price determination, refund ledger, and evidence requirements exactly as specified in README.md.
 
 ### Custom Jewelry
-MVP1 is email-driven for consultation/revisions. The site provides the lightweight intake form, $49 Design Deposit workflow, and reusable Shopify custom approval/purchase template. Do not build the Post-MVP customer project portal.
+MVP1 is email-driven for consultation/revisions. The site provides the lightweight intake form, $49 Design Deposit workflow, reusable Shopify custom approval/purchase template, and the **Let Us Beat Your Quote!** acquisition flow defined in `docs/LET-US-BEAT-YOUR-QUOTE.md`. Do not build the Post-MVP customer project portal. Quote-match review remains manual in MVP1; automate intake, evidence capture, eligibility calculations, acknowledgment storage, and workflow status where practical, but do not auto-commit CaratForUs to a competitor price.
 
 ## Customer experience
 - Mobile-first and accessible.
 - Keep forms and checkout friction low except where explicit acknowledgment is materially required.
-- Never hide material final-sale, cancellation, pricing, return, restocking, warranty, or RMA terms.
+- Never hide material final-sale, cancellation, pricing, return, restocking, warranty, RMA, quote-match eligibility, or guarantee terms.
+- Required quote-match acknowledgments must be explicit, unambiguous, versioned, and retained as evidence; do not pre-check or silently infer agreement.
 - Clearly label CAD renders, actual photos/videos, and AI visualizations according to README.md.
 
 ## Security and privacy
