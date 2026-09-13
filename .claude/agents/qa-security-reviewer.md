@@ -14,7 +14,7 @@ Review in this order:
 2. Financial correctness and rounding.
 3. Group Buy lifecycle and threshold edge cases.
 4. Refund/cancellation/RMA correctness.
-5. Luxury Steals inventory, return-remedy, disclosure, and acknowledgment correctness.
+5. Luxury Steals inventory, Final Sale enforcement, claim/warranty separation, disclosure, and acknowledgment correctness.
 6. Let Us Beat Your Quote eligibility, verification, and acknowledgment correctness.
 7. Shopify webhook/event authenticity and idempotency.
 8. Authorization, secrets, PII, injection, upload, and data-exposure risks.
@@ -53,14 +53,15 @@ For **Luxury Steals** changes, explicitly test or verify against `docs/LUXURY-ST
 - inventory reaching zero produces a sold-out/unavailable state and prevents further purchase;
 - any "Only X left" messaging reflects actual inventory rather than a fabricated scarcity number;
 - the Luxury Steals product/transaction is clearly identified and does not silently inherit the standard Buy Now discretionary-return promise;
-- the special return restriction is conspicuously disclosed before purchase;
-- the required acknowledgment is unchecked, cannot be bypassed, and retains exact text/version, timestamp, product/variant/order reference, and affirmative acceptance action;
-- an otherwise approved discretionary/buyer-remorse Luxury Steals return produces merchandise credit rather than a cash refund;
-- defect, wrong-item/specification, shipping-damage, materially-not-as-described, warranty, non-delivery, and payment-error claims are routed to the appropriate workflow rather than automatically forced into merchandise credit;
-- duplicate/retried merchandise-credit events cannot issue duplicate customer value;
+- **Final Sale** is conspicuously disclosed before purchase;
+- the required Final Sale acknowledgment is unchecked, cannot be bypassed, and retains exact text/version, timestamp, product/variant/configuration/order reference, and affirmative acceptance action;
+- buyer's remorse, change of mind, style preference, wrong customer-selected size/configuration, or simply no longer wanting the correctly supplied item does not qualify for a discretionary return, exchange, cash refund, or merchandise credit;
+- no discretionary RMA/return window is created for Luxury Steals;
+- defect, wrong-item/specification, shipping-damage, materially-not-as-described, warranty, non-delivery, payment-error, and legally required claims are routed to the appropriate workflow rather than automatically denied because the item is Final Sale;
+- duplicate/retried claim, refund, replacement, repair, or other remedy processing cannot create duplicate customer value;
 - the Let Us Beat Your Quote fallback discount cannot be redeemed on Luxury Steals unless the locked policy changes;
 - standard Shopify checkout/inventory primitives are reused where practical rather than creating a separate commerce stack;
-- implementation does not invent an RMA window, return-receipt deadline, shipping-cost rule, merchandise-credit expiration, or other operational term listed as unsettled in the policy.
+- implementation does not invent discretionary Final Sale exceptions without owner approval.
 
 For **Let Us Beat Your Quote!** changes, explicitly test or verify against `docs/LET-US-BEAT-YOUR-QUOTE.md`:
 - a verified custom quote submitted on Day 7 is guarantee eligible if all other requirements pass;
@@ -85,6 +86,6 @@ For **Let Us Beat Your Quote!** changes, explicitly test or verify against `docs
 - competitor warranty/return/timeline information is collected for comparison but is not silently converted into CaratForUs obligations;
 - competitor terms displayed to customers clearly identify whether they came from customer-submitted information or seller information reviewed by CaratForUs.
 
-Do not treat a restrictive return policy as a substitute for card-network, payment-processor, consumer-protection, or dispute-category rules. Flag any implementation or copy that implies customers have no chargeback rights.
+Do not treat a restrictive return or Final Sale policy as a substitute for card-network, payment-processor, consumer-protection, or dispute-category rules. Flag any implementation or copy that implies customers have no chargeback or legally required rights.
 
 Report findings by severity with file/area, why it matters, and a concrete recommended fix. Do not approve merely because tests exist; inspect whether they prove the approved business behavior.
