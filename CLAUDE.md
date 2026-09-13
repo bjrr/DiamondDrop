@@ -4,112 +4,100 @@
 Build CaratForUs MVP1 as a lean Shopify-centered jewelry commerce business with three purchase paths: Buy Now, Group Buy, and Custom Jewelry, plus the Luxury Steals limited-availability merchandising program.
 
 ## Source of truth
-- Read `README.md` before planning or implementing product behavior. It contains the approved business and product requirements.
-- Also read any locked policy documents under `docs/` that apply to the feature being built.
-- `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md` is the authoritative specification for Buy Now returns, RMA handling, late-return remedies, and dispute-evidence requirements. If it conflicts with an older Buy Now return-policy summary in `README.md`, the policy document controls.
-- `docs/LET-US-BEAT-YOUR-QUOTE.md` is the authoritative MVP1 specification for competitor custom-quote, live online-item, and competing Group Buy submissions; quote-age eligibility; match/beat and fallback rules; verification; service-term comparisons; and required customer acknowledgments.
-- `docs/LUXURY-STEALS.md` is the authoritative MVP1 specification for the Luxury Steals limited-availability sale section, inventory/scarcity behavior, Final Sale rules, customer disclosures/acknowledgments, claim/warranty separation, and evidence requirements.
-- Locked policy documents and `README.md` business rules override assumptions, generic ecommerce conventions, and speculative enhancements.
+- Read `README.md` for approved business/product requirements, then read every applicable locked policy under `docs/` before implementing the relevant domain.
+- `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md` is authoritative for Buy Now discretionary returns, RMA windows, customer-paid tracked/insured return shipping, outbound-shipping treatment, remedies and dispute evidence. Any older conflicting README Buy Now return summary is stale and must not be implemented.
+- `docs/LUXURY-STEALS.md` is authoritative for Luxury Steals inventory/scarcity, Final Sale, acknowledgment, claim/warranty separation and evidence.
+- `docs/LET-US-BEAT-YOUR-QUOTE.md` plus `docs/LET-US-BEAT-YOUR-QUOTE-AMENDMENT.md` govern competitor submissions. **The amendment controls any conflict:** only qualifying verified recent custom quotes receive the guarantee/fallback; active online listings and competing Group Buys are review-only with no guarantee/fallback; fallback expires 90 calendar days after issuance.
+- `docs/WARRANTY-CLAIMS.md` is authoritative for the 1-year limited manufacturing warranty claim workflow, customer-paid tracked/insured inbound warranty shipping, inspection, remedy selection and internal-only local-jeweler option.
+- Locked policy documents override conflicting README summaries, assumptions and generic ecommerce conventions.
 - Do not silently change a locked business decision. Flag conflicts for owner approval.
 - Build MVP1 only unless explicitly asked to work on backlog/Post-MVP functionality.
 
 ## Engineering principles
 1. Prefer native Shopify capabilities for commodity commerce: storefront primitives, cart, checkout, orders, customer accounts, payments, and standard commerce behavior.
 2. Custom-build only CaratForUs-specific logic or UX that Shopify cannot reasonably provide.
-3. Keep the architecture inexpensive, understandable, maintainable, and appropriate for a low-margin startup.
-4. Avoid premature microservices, headless commerce, complex event infrastructure, and unnecessary SaaS dependencies.
-5. Financial calculations must be deterministic, auditable, versioned where required, and protected by tests.
-6. Never use floating-point arithmetic for money. Use integer minor units or an appropriate decimal/money representation.
-7. Group Buy campaign prices and their cost assumptions freeze when the campaign opens as specified in README.md.
-8. Buy Now pricing may update from current costs according to the approved pricing rules.
-9. Preserve transaction evidence and material customer acknowledgments required by README.md and applicable locked policy documents.
-10. Never expose secrets, supplier-private cost data, admin-only margins, or credentials to storefront clients.
+3. Keep architecture inexpensive, understandable and maintainable for a low-margin startup.
+4. Avoid premature microservices, headless commerce, complex event infrastructure and unnecessary SaaS dependencies.
+5. Financial calculations must be deterministic, auditable, versioned where required and protected by tests.
+6. Never use floating-point arithmetic for money. Use integer minor units or appropriate decimal/money representation.
+7. Group Buy campaign prices/cost assumptions freeze when campaign opens as specified in README.md.
+8. Buy Now pricing may update from current costs according to approved rules.
+9. Preserve transaction evidence and material acknowledgments required by README and locked policies.
+10. Never expose secrets, supplier-private cost data, admin-only margins or credentials to storefront clients.
 
 ## Required development process
 For non-trivial work:
-1. Read the relevant README requirements and any applicable locked policy document under `docs/`.
-2. Inspect existing implementation before proposing changes.
-3. State a concise implementation plan and acceptance criteria.
-4. Implement the smallest complete vertical slice.
+1. Read relevant README requirements and applicable locked policy documents.
+2. Inspect existing implementation.
+3. State concise implementation plan and acceptance criteria.
+4. Implement smallest complete vertical slice.
 5. Add/update automated tests for business-critical behavior.
 6. Run relevant lint/typecheck/tests/build.
-7. Review the diff for regressions, security, money/math errors, and accidental Post-MVP scope.
-8. Summarize what changed, validation performed, and unresolved risks.
+7. Review diff for regressions, security, money/math errors and accidental Post-MVP scope.
+8. Summarize changes, validation and unresolved risks.
 
-Do not claim tests passed unless they were actually run successfully.
+Do not claim tests passed unless actually run successfully.
 
 ## Git discipline
-- Keep changes focused.
-- Do not rewrite unrelated files.
-- Do not force-push, delete branches, reset shared work, or perform destructive Git operations without explicit owner approval.
+- Keep changes focused; do not rewrite unrelated files.
+- No force-push, branch deletion, shared reset or destructive operations without owner approval.
 - Never commit secrets or `.env` values.
-- Use descriptive commits and branches when requested.
-- When multiple agents work concurrently, assign clear file/domain ownership and avoid editing the same files simultaneously.
+- Use descriptive commits/branches when requested.
+- Coordinate agent file/domain ownership to avoid simultaneous conflicting edits.
 
 ## Architecture ownership
-The Tech Lead owns cross-cutting architecture. Domain agents may recommend architecture changes but should not independently introduce major frameworks, databases, payment approaches, or Shopify architecture changes.
+The Tech Lead owns cross-cutting architecture. Domain agents may recommend changes but must not independently introduce major frameworks, databases, payment approaches or Shopify architecture changes.
 
 ## Critical domains
-Treat these as high-risk and require tests/review:
-- money and price calculations
-- precious-metal and gemstone cost calculations
-- variant weights and ring-size pricing bands
-- Group Buy tiers and qualifying-unit counts
-- campaign freeze/close behavior
-- cancellations and tier rollback before close
-- final-price/refund calculations
-- Buy Now RMA eligibility windows, receipt deadlines, restocking-fee calculations, and merchandise-credit issuance
-- Luxury Steals inventory depletion, sold-out behavior, Final Sale enforcement, claim/warranty separation, and acknowledgment evidence
-- return/refund/dispute audit history
-- Let Us Beat Your Quote eligibility, 7-day quote-age calculation, live-listing verification, competing Group Buy treatment, and 10%-off fallback issuance
-- competitor-offer authenticity/comparability review and evidence retention
-- quote-match acknowledgment/version evidence and duplicate-benefit prevention
-- Shopify order/webhook idempotency
-- custom-design approval evidence
-- policy/acknowledgment versioning
-- refunds/payment processor references
-- authentication/authorization and admin-only data
+Require tests/review for:
+- money, metal/gem cost calculations, variant weights and ring-size bands;
+- Group Buy tiers, qualifying units, freeze/close, cancellations, final-price/refund calculations;
+- Buy Now RMA windows, receipt deadlines, customer-paid tracked/insured return shipping, restocking/refund/credit calculations;
+- Luxury Steals inventory, sold-out behavior, Final Sale enforcement and acknowledgment evidence;
+- warranty claim intake, authorization, customer-paid tracked/insured inbound shipping, inspection, repair/replacement/refund remedy and local-jeweler authorization records;
+- return/refund/warranty/dispute audit history;
+- Let Us Beat Your Quote recent-custom-quote eligibility, online-listing/Group-Buy review-only treatment, 90-day fallback expiration and duplicate-benefit prevention;
+- competitor authenticity/comparability evidence;
+- Shopify webhook idempotency/authenticity;
+- custom-design approval evidence;
+- policy/acknowledgment versioning;
+- authentication/authorization/admin-only data.
 
 ## Product boundaries
 ### Buy Now
-Use current calculated pricing and native Shopify purchasing wherever practical. Preserve the applicable transaction snapshot and policies. Implement discretionary returns and RMA behavior exactly as defined in `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md`.
+Use current calculated pricing and native Shopify purchasing wherever practical. Implement discretionary returns/RMA exactly per `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md`.
 
 ### Luxury Steals
-Luxury Steals is an MVP1 limited-availability, extreme-value merchandising program built on normal Shopify Buy Now checkout/inventory wherever practical. **All Luxury Steals purchases are Final Sale: no discretionary returns, exchanges, cash refunds, or merchandise-credit returns.** Implement inventory scarcity, sold-out behavior, conspicuous Final Sale disclosure, required acknowledgment evidence, and claim/warranty separation exactly as defined in `docs/LUXURY-STEALS.md`. Do not silently apply standard Buy Now discretionary-return rules to a Luxury Steal transaction, and do not use Final Sale to automatically deny legitimate defect, wrong-item/specification, shipping-damage, materially-not-as-described, non-delivery, payment-error, warranty, or legally required claims.
+Built on normal Shopify Buy Now checkout/inventory wherever practical. **All Luxury Steals are Final Sale: no discretionary returns, exchanges, cash refunds or merchandise-credit returns.** Follow `docs/LUXURY-STEALS.md`; Final Sale must not automatically deny legitimate covered claims.
 
 ### Group Buy
-This is custom CaratForUs functionality. Implement frozen campaign pricing, configurable tiers, unit-based qualification, selected-variant pricing, campaign progress, cancellation-before-close behavior, final-price determination, refund ledger, and evidence requirements exactly as specified in README.md.
+Custom CaratForUs functionality. Implement frozen pricing, configurable tiers, unit qualification, selected-variant pricing, progress, cancellation-before-close, final-price determination, refund ledger and evidence per README.
 
-### Custom Jewelry
-MVP1 is email-driven for consultation/revisions. The site provides the lightweight intake form, $49 Design Deposit workflow, reusable Shopify custom approval/purchase template, and the **Let Us Beat Your Quote!** acquisition flow defined in `docs/LET-US-BEAT-YOUR-QUOTE.md`. Do not build the Post-MVP customer project portal. Quote-match review remains manual in MVP1; automate intake, evidence capture, eligibility calculations, acknowledgment storage, and workflow status where practical, but do not auto-commit CaratForUs to a competitor price.
+### Custom Jewelry / Let Us Beat Your Quote
+MVP1 consultation/revisions remain email-driven. Provide lightweight intake, $49 Design Deposit, reusable Shopify approval/purchase template and quote-acquisition flow. Read both quote documents; the amendment controls conflicts. Review remains manual; automate intake/evidence/eligibility calculations/acknowledgments/status but never auto-commit CaratForUs to competitor pricing.
+
+### Warranty
+Provide a dedicated Warranty Claim Form and auditable claim workflow per `docs/WARRANTY-CLAIMS.md`. Customer pays tracked, appropriately insured inbound shipping after authorization for inspection. CaratForUs determines repair, replacement, refund or other appropriate remedy after inspection. The possible local-jeweler repair path is internal-only until CaratForUs selects/authorizes it for a specific claim; do not advertise it as a customer entitlement.
 
 ## Customer experience
 - Mobile-first and accessible.
-- Keep forms and checkout friction low except where explicit acknowledgment is materially required.
-- Never hide material final-sale, cancellation, pricing, return, restocking, warranty, RMA, Luxury Steals, quote-match eligibility, or guarantee terms.
-- Required Luxury Steals and quote-match acknowledgments must be explicit, unambiguous, versioned, and retained as evidence; do not pre-check or silently infer agreement.
-- Clearly label CAD renders, actual photos/videos, and AI visualizations according to README.md.
+- Keep friction low except where explicit acknowledgment is materially required.
+- Never hide material final-sale, cancellation, pricing, return, shipping, warranty, RMA, Luxury Steals or quote eligibility terms.
+- Required acknowledgments must be explicit, unambiguous, versioned and retained; never pre-check or silently infer acceptance.
+- Clearly label CAD renders, actual photos/videos and AI visualizations per requirements.
 
 ## Security and privacy
-- Validate all server-side inputs.
-- Verify Shopify webhook authenticity using the supported mechanism.
-- Make webhook/event processing idempotent.
-- Apply least privilege to Shopify/API scopes.
-- Keep PII collection to what the feature actually requires.
-- Log important business events without logging secrets or unnecessary sensitive payment data.
-- Do not collect or store raw payment-card data beyond what the approved payment platform exposes and permits.
+- Validate server-side inputs.
+- Verify Shopify webhook authenticity and make event processing idempotent.
+- Least-privilege Shopify/API scopes.
+- Minimize PII.
+- Log important business events without secrets/unnecessary sensitive payment data.
+- Never collect/store raw card data beyond approved platform exposure.
 
 ## Team
-Project agent definitions live under `.claude/agents/`:
-- `tech-lead.md`
-- `shopify-developer.md`
-- `backend-pricing-engineer.md`
-- `frontend-ux-engineer.md`
-- `qa-security-reviewer.md`
-
-Reusable workflows live under `.claude/skills/`.
+Project agents live under `.claude/agents/` and reusable workflows under `.claude/skills/`.
 
 ## Initial state
-This repository begins essentially from requirements, not an established application. Before scaffolding, the Tech Lead must propose the lean Shopify-centered architecture, Shopify/native-vs-custom boundaries, persistence model, deployment approach, local tooling, required credentials/environment variables, and phased MVP implementation plan for owner approval.
+This repository begins essentially from requirements, not an established application. Before broad scaffolding, the Tech Lead must propose the lean Shopify-centered architecture, native-vs-custom boundaries, persistence model, deployment approach, local tooling, required credentials/environment variables and phased MVP implementation plan for owner approval.
 
 Do not begin a large scaffold simply because the repository is empty.
