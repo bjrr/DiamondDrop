@@ -5,7 +5,7 @@ Build CaratForUs MVP1 as a lean Shopify-centered jewelry commerce business with 
 
 ## Source of truth
 - Read `README.md` for approved business/product requirements, then read every applicable locked policy under `docs/` before implementing the relevant domain.
-- `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md` is authoritative for Buy Now discretionary returns, RMA windows, customer-paid tracked/insured return shipping, outbound-shipping treatment, remedies and dispute evidence. Any older conflicting README Buy Now return summary is stale and must not be implemented.
+- `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md` is authoritative for Buy Now discretionary returns, RMA windows, customer-paid tracked/insured return shipping, outbound-shipping treatment, remedies and dispute evidence.
 - `docs/LUXURY-STEALS.md` is authoritative for Luxury Steals inventory/scarcity, Final Sale, acknowledgment, claim/warranty separation and evidence.
 - `docs/LET-US-BEAT-YOUR-QUOTE.md` plus `docs/LET-US-BEAT-YOUR-QUOTE-AMENDMENT.md` govern competitor submissions. **The amendment controls any conflict:** only qualifying verified recent custom quotes receive the guarantee/fallback; active online listings and competing Group Buys are review-only with no guarantee/fallback; fallback expires 90 calendar days after issuance.
 - `docs/WARRANTY-CLAIMS.md` is authoritative for the 1-year limited manufacturing warranty claim workflow, customer-paid tracked/insured inbound warranty shipping, inspection, remedy selection and internal-only local-jeweler option.
@@ -25,16 +25,32 @@ Build CaratForUs MVP1 as a lean Shopify-centered jewelry commerce business with 
 9. Preserve transaction evidence and material acknowledgments required by README and locked policies.
 10. Never expose secrets, supplier-private cost data, admin-only margins or credentials to storefront clients.
 
+## Architect-led development model
+The Tech Lead is the Principal Architect and should reserve the top-tier model for architecture, decomposition, ambiguity, cross-domain integration, high-risk policy/financial review, and final technical approval.
+
+Routine implementation should be delegated to lower-cost specialized agents whenever the task is sufficiently specified:
+- Tech Lead / Principal Architect — `opus`
+- Shopify Developer — `sonnet`
+- Backend & Pricing Engineer — `sonnet`
+- Frontend & UX Engineer — `sonnet`
+- Test Engineer — `haiku`
+- QA & Security Reviewer — `sonnet`
+
+Do not use the architect for repetitive implementation when a bounded specialist task can be safely delegated. Escalate model tier only when complexity, ambiguity, failed attempts, or risk warrants it.
+
 ## Required development process
 For non-trivial work:
 1. Read relevant README requirements and applicable locked policy documents.
 2. Inspect existing implementation.
-3. State concise implementation plan and acceptance criteria.
-4. Implement smallest complete vertical slice.
-5. Add/update automated tests for business-critical behavior.
-6. Run relevant lint/typecheck/tests/build.
-7. Review diff for regressions, security, money/math errors and accidental Post-MVP scope.
-8. Summarize changes, validation and unresolved risks.
+3. Use `/feature-spec` to create explicit acceptance criteria, native-vs-custom boundaries, tests, and agent ownership.
+4. Delegate implementation to the smallest appropriate specialist agent.
+5. Require the specialist to use the relevant implementation skill (`/backend-feature`, `/frontend-feature`, `/shopify-integration`, or `/implement-feature`).
+6. Delegate deterministic automated test work to the Test Engineer where appropriate using `/test-business-rules` and/or `/integration-test`.
+7. Run relevant lint/typecheck/tests/build.
+8. Use `/review-code` and `/security-review` where applicable.
+9. Require `/handoff` from every delegated task.
+10. Have the architect inspect high-risk diffs/evidence before acceptance.
+11. Use `/ship-feature` as the final release gate.
 
 Do not claim tests passed unless actually run successfully.
 
@@ -47,6 +63,8 @@ Do not claim tests passed unless actually run successfully.
 
 ## Architecture ownership
 The Tech Lead owns cross-cutting architecture. Domain agents may recommend changes but must not independently introduce major frameworks, databases, payment approaches or Shopify architecture changes.
+
+Before broad scaffolding or major cross-domain changes, use `/plan-architecture` followed by `/architecture-review` and obtain owner approval when required.
 
 ## Critical domains
 Require tests/review for:
@@ -95,7 +113,15 @@ Provide a dedicated Warranty Claim Form and auditable claim workflow per `docs/W
 - Never collect/store raw card data beyond approved platform exposure.
 
 ## Team
-Project agents live under `.claude/agents/` and reusable workflows under `.claude/skills/`.
+Project agents live under `.claude/agents/`:
+- `tech-lead.md` — principal architect / final technical approval
+- `shopify-developer.md` — Shopify/theme/integration implementation
+- `backend-pricing-engineer.md` — backend/domain/pricing implementation
+- `frontend-ux-engineer.md` — storefront/UI implementation
+- `test-engineer.md` — lower-cost deterministic automated test implementation
+- `qa-security-reviewer.md` — independent QA/security review
+
+Reusable workflows live under `.claude/skills/`, including architecture, feature-specification, backend/frontend/Shopify implementation, business-rule testing, integration testing, security review, code review, structured handoff, and release validation.
 
 ## Initial state
 This repository begins essentially from requirements, not an established application. Before broad scaffolding, the Tech Lead must propose the lean Shopify-centered architecture, native-vs-custom boundaries, persistence model, deployment approach, local tooling, required credentials/environment variables and phased MVP implementation plan for owner approval.
