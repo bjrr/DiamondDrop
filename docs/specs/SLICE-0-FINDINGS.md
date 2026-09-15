@@ -157,6 +157,23 @@ A row with a null `claimed_at` would be permanently unreclaimable — stuck in `
 | **C-3** | In flight. `/health` no longer echoes raw Prisma error text (which embeds DB host, port and user) on an unauthenticated route. |
 | **F-11** | In flight. `logger.server.ts` redaction now traverses arrays, so `{items:[{apiKey:"…"}]}` is redacted. |
 
+### Process guard — mutation testing against a shared tree
+
+Recorded 2026-09-15 after it cost real time and produced a false alarm.
+
+Falsifying a test by temporarily editing production code is a practice worth keeping — it is the only way to know a test can actually fail, and it is how `httpServer.test.ts` was shown to detect body re-encoding rather than merely passing. But while the mutation is applied, **the working tree is genuinely broken, not apparently broken**, and anyone observing it reaches a correct conclusion from incorrect premises.
+
+Both failure modes occurred during the D13 migration, from a single mutation of `receive.server.ts:49`:
+
+- The reviewing architect saw HMAC input mutated and 12 red integration tests covering webhook authentication, and escalated to stop the commit. That was the correct response to the evidence available — a reviewer should raise this loudly rather than assume a benign explanation.
+- The operator who *applied* the mutation ran a gate sweep during the same window and misattributed the 12 failures to database lock contention, because a second agent's test run happened to be overlapping. This is the more insidious half: the window corrupts the signal of the person who created it.
+
+**The guard:**
+
+> Mutation testing that edits tracked source must be **announced before the edit and confirmed after the revert**, and must not overlap another agent's gate run against the same working tree or database. The sequence is: announce → mutate → observe → revert → re-run gates → confirm reverted.
+
+A related hazard worth stating: the integration suite is **not safe to run concurrently against one database**. Two simultaneous runs contend on `webhook_event` row locks and surface as ~20s timeouts on precisely the concurrency tests, which looks identical to a genuine dedup defect.
+
 ### Verified, not defects — recorded so they are not re-derived
 
 Findings from the D13 migration review (2026-09-15) that required no action. They are here because each is a property someone could reasonably doubt later, and re-establishing them costs more than reading this.
