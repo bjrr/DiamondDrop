@@ -1,0 +1,31 @@
+# Local development Postgres for the CaratForUs app.
+# Not used in CI (CI uses a GitHub Actions Postgres service container instead)
+# and not used in production (Fly managed Postgres, per docs/ARCHITECTURE-MVP1.md §2/§7).
+#
+# Usage:
+#   docker-compose up -d
+#   (then, from /app) npm run db:migrate && npm run db:seed && npm run dev
+#
+# Credentials below are local-dev-only defaults, not secrets — they never leave
+# this machine and are not valid anywhere else. Do not reuse them for anything
+# real.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: carat
+      POSTGRES_PASSWORD: carat_dev_password
+      POSTGRES_DB: carat_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - carat_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carat -d carat_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  carat_postgres_data:

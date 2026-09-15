@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# Slice 0 is deliberately scoped so the entire pipeline runs with no live
+# Shopify credentials (open decision D1, see docs/ARCHITECTURE-MVP1.md
+# §12) — every value below is a placeholder, not a real secret.
+env:
+  APP_ENV: test
+  DATABASE_URL: "postgresql://carat:carat_ci_password@localhost:5432/carat_ci?schema=public"
+  SESSION_SECRET: "ci_session_secret_placeholder_not_a_real_secret"
+  CRON_SECRET: "ci_cron_secret_placeholder_not_a_real_secret_"
+  SHOPIFY_API_SECRET: "ci_shopify_app_secret_placeholder____________"
+  SHOPIFY_APP_PROXY_SUBPATH: "carat"
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: carat
+          POSTGRES_PASSWORD: carat_ci_password
+          POSTGRES_DB: carat_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U carat -d carat_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Money safety check (no ad-hoc Math.round/floor/ceil)
+        run: npm run check:money-safety
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Apply database migrations
+        run: npm run db:migrate
+
+      - name: Integration tests
+        run: npm run test:integration
+
+      - name: Build
+        run: npm run build

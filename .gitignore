@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Environment secrets — never commit real values
+.env
+.env.*
+!.env.example
+
+# Build output
+/app/build/
+/app/.cache/
+/app/public/build/
+dist/
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Prisma
+/app/prisma/dev.db
+/app/prisma/dev.db-journal

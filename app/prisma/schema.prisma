@@ -1,0 +1,172 @@
+// CaratForUs MVP1 — Slice 0 schema.
+//
+// Only the six tables specified in docs/specs/SLICE-0-FOUNDATION.md §0.3:
+// policy_version, acknowledgment, snapshot, audit_event, webhook_event,
+// idempotency_key. Pricing/campaign/RMA/warranty/quote tables are explicitly
+// out of scope for this slice and ship with their own specs.
+//
+// Money columns convention (established here for all later slices): BIGINT
+// minor units + a CHAR(3) currency column. None of Slice 0's own tables
+// store money, but this is the documented pattern later models must follow
+// (see docs/specs/SLICE-0-FOUNDATION.md §0.3 and app/app/domain/money).
+//
+// policy_version, acknowledgment, snapshot, and audit_event are append-only
+// at the database level — see prisma/migrations/20260913000100_append_only_evidence_triggers.
+// The Prisma schema cannot express a trigger, so this comment is the only
+// place that fact is visible from the schema file itself; the migration SQL
+// is authoritative.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ActorType {
+  staff
+  system
+  customer
+
+  @@map("actor_type")
+}
+
+enum IdempotencyStatus {
+  pending
+  succeeded
+  failed
+  in_doubt
+
+  @@map("idempotency_status")
+}
+
+/// Append-only. See migration 20260913000100 for the enforcing trigger.
+model PolicyVersion {
+  id            String   @id @default(uuid()) @db.Uuid
+  slug          String
+  version       Int
+  effectiveFrom DateTime @map("effective_from")
+  text          String
+  contentHash   String   @map("content_hash")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  acknowledgments Acknowledgment[]
+
+  @@unique([slug, version])
+  @@index([slug])
+  @@map("policy_version")
+}
+
+/// Append-only. See migration 20260913000100 for the enforcing trigger.
+/// Writing a row requires exact displayed text, a policy version, a
+/// timestamp, and an explicit affirmative-action label — see
+/// app/app/domain/evidence/acknowledgment.ts. There is no boolean
+/// "accepted" column: the existence of the row, with these fields
+/// populated, is the evidence.
+model Acknowledgment {
+  id                     String        @id @default(uuid()) @db.Uuid
+  exactText              String        @map("exact_text")
+  policyVersionId        String        @map("policy_version_id") @db.Uuid
+  policyVersion          PolicyVersion @relation(fields: [policyVersionId], references: [id])
+  acknowledgedAt         DateTime      @map("acknowledged_at")
+  affirmativeActionLabel String        @map("affirmative_action_label")
+
+  // Nullable reference columns — exactly the set required by
+  // docs/specs/SLICE-0-FOUNDATION.md §0.5. Populate whichever apply to the
+  // transaction; all may be null except at least a reasonable minimum
+  // expected by the calling domain (enforced by that domain, not here).
+  customerRef   String? @map("customer_ref")
+  orderRef      String? @map("order_ref")
+  cartRef       String? @map("cart_ref")
+  campaignRef   String? @map("campaign_ref")
+  submissionRef String? @map("submission_ref")
+  productRef    String? @map("product_ref")
+  variantRef    String? @map("variant_ref")
+  sourceIp      String? @map("source_ip")
+  userAgent     String? @map("user_agent")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([policyVersionId])
+  @@index([customerRef])
+  @@index([orderRef])
+  @@index([campaignRef])
+  @@map("acknowledgment")
+}
+
+/// Append-only. See migration 20260913000100 for the enforcing trigger.
+model Snapshot {
+  id          String   @id @default(uuid()) @db.Uuid
+  kind        String
+  payload     Json
+  contentHash String   @map("content_hash")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([kind])
+  @@index([contentHash])
+  @@map("snapshot")
+}
+
+/// Append-only. See migration 20260913000100 for the enforcing trigger.
+model AuditEvent {
+  id         String    @id @default(uuid()) @db.Uuid
+  actorType  ActorType @map("actor_type")
+  actorRef   String?   @map("actor_ref")
+  action     String
+  entityType String    @map("entity_type")
+  entityId   String    @map("entity_id")
+  before     Json?
+  after      Json?
+  reason     String?
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([entityType, entityId])
+  @@map("audit_event")
+}
+
+/// Mutable (not append-only): processedAt/error are updated after receipt.
+/// Deduplication relies on the UNIQUE constraint on shopifyEventId, not a
+/// read-then-write check, so concurrent deliveries of the same event cannot
+/// both pass.
+model WebhookEvent {
+  id             String    @id @default(uuid()) @db.Uuid
+  shopifyEventId String    @unique @map("shopify_event_id")
+  topic          String
+  shopDomain     String?   @map("shop_domain")
+  rawBody        String    @map("raw_body")
+  receivedAt     DateTime  @default(now()) @map("received_at")
+  /// Set every time a caller successfully claims this delivery for
+  /// processing (initial insert, retry-after-failure, or stale reclaim).
+  /// Drives stale-claim detection: a row still unprocessed with no recorded
+  /// error whose claimedAt is older than the staleness threshold is treated
+  /// as a crashed attempt and may be reclaimed.
+  claimedAt      DateTime? @map("claimed_at")
+  processedAt    DateTime? @map("processed_at")
+  error          String?
+
+  @@index([topic])
+  @@index([processedAt, claimedAt])
+  @@map("webhook_event")
+}
+
+/// Mutable (not append-only): status/result are updated after the wrapped
+/// operation completes. The UNIQUE constraint on `key` is what makes
+/// "commit before call" safe under concurrency — see
+/// app/app/domain/idempotency.
+model IdempotencyKey {
+  id             String            @id @default(uuid()) @db.Uuid
+  key            String            @unique
+  operationType  String            @map("operation_type")
+  status         IdempotencyStatus @default(pending)
+  requestPayload Json?             @map("request_payload")
+  resultPayload  Json?             @map("result_payload")
+  errorMessage   String?           @map("error_message")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  completedAt    DateTime?         @map("completed_at")
+
+  @@index([operationType])
+  @@index([status])
+  @@map("idempotency_key")
+}
