@@ -29,11 +29,55 @@ const defaultClassifyError: ClassifyIdempotentError = () => "in_doubt";
  * open transaction) specifically so a crash leaves it durably visible
  * rather than locked forever, which is what makes it recoverable at all,
  * but it also means a live concurrent caller looks identical to a dead
- * one. This wrapper deliberately treats both cases the same way — surface
- * as in-doubt for staff review — rather than guess: guessing wrong risks
- * either double-executing a money movement or wrongly blocking a
- * legitimate concurrent caller (acceptance criteria 17, 18). Flagged for
- * architect review.
+ * one. This wrapper treats both cases the same way — surface as in-doubt
+ * for staff review — rather than guess (acceptance criteria 17, 18).
+ *
+ * ARCHITECT RULING, 2026-09-14 (slice 0 acceptance review). This replaces
+ * the earlier "flagged for architect review" note. The ruling has two
+ * halves, and they are not the same kind of statement:
+ *
+ * 1. THE BEHAVIOUR IS UPHELD, PERMANENTLY. A key that exists with no
+ *    recorded result must NEVER auto-retry the operation, and both "a
+ *    concurrent caller is live" and "the owner crashed" must refuse to
+ *    execute. No later slice may add an age threshold that RE-EXECUTES a
+ *    stale pending key. That proposal is rejected in advance, so that a
+ *    future reader who notices the stale-reclaim pattern in
+ *    `claimWebhookEventForProcessing` does not port it here: reclaiming a
+ *    crashed *webhook* claim is safe only because event processing is
+ *    required to be idempotent (CLAUDE.md), and a `refundCreate` is
+ *    precisely the thing that is not. The asymmetry between the two
+ *    modules is deliberate. Re-executing a pending money operation on the
+ *    assumption that the previous owner died is how a customer gets
+ *    refunded twice.
+ *
+ * 2. THE OBSERVABILITY IS NOT UPHELD — REQUIRED BEFORE SLICE 4 (the first
+ *    slice that moves money; not required for slices 1–3). Collapsing both
+ *    states into a single `InDoubtIdempotencyError`, and enrolling both
+ *    into one staff queue via `findPendingIdempotencyKeys()`, means two
+ *    calls a second apart during a staff double-click put a key into
+ *    manual review that needs none. Once slice 8 batches Group Buy
+ *    equalization refunds across a whole campaign, that noise is what
+ *    makes staff stop reading the queue — and the queue is where the
+ *    genuinely in-doubt refunds live. A safety mechanism that is routinely
+ *    wrong is a safety mechanism that gets ignored. Required change:
+ *      - distinguish by the existing `createdAt` age — a `pending` row
+ *        younger than a short threshold is IN FLIGHT, older is CRASHED;
+ *      - throw two distinct error types: an in-flight error (transient,
+ *        caller may back off and re-poll, NOT surfaced to staff) and an
+ *        in-doubt error (crashed, or a classified `in_doubt`, staff review
+ *        required);
+ *      - NEITHER type executes the operation. The distinction is for
+ *        triage only, never for control flow around the money movement;
+ *      - `findPendingIdempotencyKeys()` filters to `in_doubt` plus
+ *        `pending` older than the threshold.
+ *    Tracked as F-5's sibling in docs/specs/SLICE-0-FINDINGS.md.
+ *
+ * Also unresolved and untested (same gate): if `recordSuccess` throws
+ * after the operation already succeeded, the catch below classifies the
+ * *persistence* error, defaults to `in_doubt`, and if `recordInDoubt` also
+ * fails the row stays `pending`. That is the correct safe direction — an
+ * unresolved key blocks rather than duplicates — but it is currently
+ * neither documented behaviour nor covered by a test.
  *
  * `classifyError` (corrected 2026-09-14, spec §0.7 item 6): a definitive
  * provider rejection (validation error, explicit error response proving the

@@ -3,6 +3,7 @@ import { json } from "@remix-run/node";
 
 import { prisma } from "~/db/client.server";
 import { getMigrationState } from "~/db/migrationStatus.server";
+import { logger } from "~/lib/logger.server";
 
 interface DatabaseHealth {
   status: "ok" | "error";
@@ -16,7 +17,13 @@ async function checkDatabase(): Promise<DatabaseHealth> {
     await prisma.$queryRaw`SELECT 1`;
     return { status: "ok", latencyMs: Date.now() - startedAt };
   } catch (error) {
-    return { status: "error", error: error instanceof Error ? error.message : "unknown error" };
+    // This route is unauthenticated by design (see below), so the raw
+    // driver error — which can include connection strings, hostnames, or
+    // other internal detail — is logged server-side only. The response
+    // body gets a generic message instead.
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error("health.database_check_failed", { error: message });
+    return { status: "error", error: "database unreachable" };
   }
 }
 

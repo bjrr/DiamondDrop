@@ -12,18 +12,28 @@ const REDACTED = "[redacted]";
 const SENSITIVE_KEY_PATTERN =
   /secret|password|token|hmac|signature|card|cvv|api[_-]?key|authorization|cost|margin/i;
 
-function redact(fields: LogFields): LogFields {
-  const out: LogFields = {};
-  for (const [key, value] of Object.entries(fields)) {
-    if (SENSITIVE_KEY_PATTERN.test(key)) {
-      out[key] = REDACTED;
-    } else if (value && typeof value === "object" && !Array.isArray(value)) {
-      out[key] = redact(value as LogFields);
-    } else {
-      out[key] = value;
-    }
+/**
+ * Recurses into both plain objects and arrays so a sensitive key nested
+ * inside an array (e.g. `{ items: [{ apiKey: "secret" }] }`) is redacted
+ * just like one nested inside a plain object — arrays are not a safe
+ * hiding place for accidental sensitive fields (fixed 2026-09-14).
+ */
+function redactValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => redactValue(item));
   }
-  return out;
+  if (value && typeof value === "object") {
+    const out: LogFields = {};
+    for (const [key, val] of Object.entries(value as LogFields)) {
+      out[key] = SENSITIVE_KEY_PATTERN.test(key) ? REDACTED : redactValue(val);
+    }
+    return out;
+  }
+  return value;
+}
+
+function redact(fields: LogFields): LogFields {
+  return redactValue(fields) as LogFields;
 }
 
 function write(level: "info" | "warn" | "error", event: string, fields: LogFields = {}) {

@@ -5,6 +5,8 @@
 
 Owner decisions resolved at approval: **D2 = staff-entered metal prices** (adapter-backed; automated feed is a post-launch fast-follow). **D3/D4 = Fly.io app + managed Postgres, Cloudflare R2 private storage, Resend transactional email.**
 
+Resolved 2026-09-14, arising from the slice 0 acceptance review: **D12 = hybrid adoption of `@shopify/shopify-app-remix`** (OAuth, session storage and App Bridge from the library; webhook receipt stays ours). See §2.1 — it records why the library's `authenticate.webhook` is deliberately not used.
+
 Still open and tracked in §12: **D1** (Shopify development store + API credentials), **D5–D11**. D7 and D10 are reserved to the owner by `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md` §14 and must be resolved before slice 4 is accepted.
 
 Author: Principal Architect / Tech Lead
@@ -55,7 +57,7 @@ No headless storefront. No microservices. No message queue. No separate customer
 |---|---|---|
 | Commerce platform | Shopify (Basic or Grow) | Cart, checkout, payments, accounts, orders, inventory, taxes, order emails — all commodity. Non-negotiable per README. |
 | Storefront | Shopify Online Store 2.0 theme (Dawn-based), Liquid + light vanilla JS | Cheapest, fastest, SEO-native, no build pipeline to maintain. |
-| Custom app | Single Node 20 + TypeScript service, Remix (Shopify's official app template) | One deployable. Remix gives us server routes, the embedded-admin scaffold, session storage, and webhook plumbing out of the box. |
+| Custom app | Single Node 20 + TypeScript service, Remix — **hybrid** adoption of `@shopify/shopify-app-remix`, see §2.1 | One deployable. Remix gives us server routes and the embedded-admin scaffold; the Shopify library supplies OAuth, session storage and App Bridge. Webhook receipt is deliberately **ours**, not the library's — §2.1. |
 | Admin UI | Embedded in Shopify Admin via App Bridge + Polaris | Staff already live in Shopify Admin. No separate login, no separate auth system to secure. |
 | Customer forms | Shopify **App Proxy** (`/apps/carat/*`) | Forms render on the store's own domain, inherit theme styling, and arrive signed with the logged-in customer ID. Avoids a second domain, second session system, and CORS. |
 | Database | Managed Postgres | Money system: needs durability, transactions, concurrent webhook writes, PITR backups, unique constraints for idempotency. SQLite is rejected for those reasons. |
@@ -66,6 +68,29 @@ No headless storefront. No microservices. No message queue. No separate customer
 | Hosting | Single-instance container host (Fly.io or Render) | ~$7–25/mo, one region, simple logs, built-in cron. |
 | Tests | Vitest (unit + integration), Playwright smoke only | Business rules are pure functions — that is where nearly all test value is. |
 | CI | GitHub Actions: typecheck, lint, unit, integration, build | Cheap, sufficient. |
+
+### 2.1 Shopify app library: hybrid adoption (D12)
+
+**APPROVED BY OWNER 2026-09-14**, on the architect's recommendation arising from the slice 0 acceptance review.
+
+This document originally specified "Remix via the official Shopify app template" without qualification, and `docs/specs/SLICE-0-FOUNDATION.md` §0.2 repeated it. Slice 0 shipped plain Remix with no `@shopify/*` dependency at all. That was the right call for slice 0 — the slice needed no OAuth, no admin UI and no live store, so the template's dependencies would have been dead weight — but it left an unresolved question for slice 2, which needs all three. The decision below closes it.
+
+**Adopted from `@shopify/shopify-app-remix`:**
+- Embedded-admin **OAuth** / app install flow.
+- **Session storage** (Prisma-backed). The `session` model lands in the slice 2 migration; it is not part of slice 0's six tables.
+- **App Bridge** (and Polaris for admin UI).
+
+**Deliberately NOT adopted: the library's webhook handling (`authenticate.webhook`).** Inbound webhook receipt stays with our own `receiveShopifyWebhook` (`app/app/shopify/webhooks/receive.server.ts`) and `claimWebhookEventForProcessing` (`app/app/db/repositories/webhookEventRepository.server.ts`).
+
+**Why — read this before "fixing" the divergence.** A future reader will notice that we verify HMACs ourselves while importing a library that also verifies HMACs, and will be tempted to delete ours as duplication. It is not duplication. `authenticate.webhook` verifies the HMAC and parses the body; that is *all* it does. It has no delivery deduplication, no claim state machine, and no notion of a prior attempt having failed. Our receiver provides three properties the library does not, each of which exists because a specific failure mode would otherwise move money incorrectly:
+
+1. **Deduplication on a UNIQUE constraint** over `webhook_event.shopify_event_id` (not a read-then-write check), so two concurrent deliveries of the same event cannot both be processed. Without this, a redelivered `orders/paid` can create a second `campaign_unit` and shift a Group Buy tier.
+2. **Dedup keyed on successful processing, not row existence.** A replayed delivery whose prior attempt *failed* is reprocessed (`claimed_retry`), not swallowed. Swallowing it loses the event permanently, because Shopify's retry is the only redelivery we get.
+3. **Stale-claim reclaim plus a 5xx (not 200) response for an ambiguous in-flight claim.** A 2xx permanently ends Shopify redelivery, so answering 200 for an unresolved event buries it. A crashed attempt is recovered after `DEFAULT_STALE_CLAIM_MS`; until then the delivery stays in Shopify's retry schedule and remains visible in its failed-delivery reporting.
+
+Replacing our receiver with `authenticate.webhook` would silently discard all three. If a future slice wants to consolidate, the burden is on that slice to demonstrate the library has grown equivalents — not to assume the overlap is accidental.
+
+**Boundary rule.** The library owns *authentication and session* concerns. It does not own *event processing* concerns. Admin and App Proxy routes may use the library's authenticate helpers freely; webhook routes go through `receiveShopifyWebhook`.
 
 ### Alternatives considered and rejected
 
@@ -150,7 +175,7 @@ Append-only evidence tables are never UPDATEd. All money columns are `BIGINT` mi
 
 ## 5. Shopify Integration Points
 
-**Webhooks** (HMAC verified against raw body, deduped on `X-Shopify-Event-Id`):
+**Webhooks** (HMAC verified against raw body, deduped on the `X-Shopify-Webhook-Id` delivery header — **corrected 2026-09-14**: this document and `docs/specs/SLICE-0-FOUNDATION.md` originally said `X-Shopify-Event-Id`, which Shopify does not document; `X-Shopify-Webhook-Id` is the header Shopify documents as stable across retries of the same event, which is the property dedup requires. Kept in one constant at `app/app/shopify/webhooks/headers.ts`):
 `orders/create`, `orders/paid`, `orders/updated`, `orders/cancelled`, `refunds/create`, `fulfillments/create`, `fulfillments/update`, `app/uninstalled`, and the three mandatory compliance topics (`customers/data_request`, `customers/redact`, `shop/redact`).
 
 **Admin GraphQL API** (writes): `productVariantsBulkUpdate` (price sync, Group Buy tier price changes), `refundCreate` (Group Buy equalization refunds, RMA refunds, cancellations), store-credit or gift-card issuance (merchandise credit — see open decision D5), `discountCodeBasicCreate` (LUBYQ fallback benefit), metafield writes.
@@ -323,6 +348,7 @@ These block or shape work as noted. D1–D4 block Phase 1 start; the rest are ne
 | D9 | Payment methods to encourage as "lower-cost," since payment cost is a pricing-engine input | Owner to specify; engine treats it as a configurable component either way | Slice 1 |
 | D10 | Merchandise-credit expiration/transferability | `BUY-NOW-RETURNS` §14 leaves this unsettled — owner must lock it or confirm "no expiration" | Slice 4 |
 | D11 | Legal review of customer-facing policy/acknowledgment copy | Out of engineering scope; recommend counsel review before launch | Slice 12 |
+| D12 | ~~Shopify app library: official template vs. plain Remix~~ **RESOLVED 2026-09-14: hybrid.** Adopt `@shopify/shopify-app-remix` for OAuth, session storage and App Bridge; keep our own `receiveShopifyWebhook`/`claimWebhookEventForProcessing` for inbound webhooks. Prisma `session` model ships in the slice 2 migration. Full rationale and the "do not consolidate onto `authenticate.webhook`" warning are in §2.1 | — | — |
 
 ---
 

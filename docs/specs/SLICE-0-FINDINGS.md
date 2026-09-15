@@ -1,0 +1,143 @@
+# Slice 0 — Deferred Findings Register
+
+## Status
+
+Output of the **slice 0 acceptance review** (Principal Architect, 2026-09-14) against commit `81a5106` on `slice-0-foundation`, reviewed under `docs/specs/SLICE-0-FOUNDATION.md`.
+
+Slice 0 verdict was **ACCEPT WITH CONDITIONS**. Three conditions (C-1, C-2, C-3) are being fixed now and are listed under "Resolved / in flight" below. **Slice 1 is cleared to begin.**
+
+This document exists so that nothing deferred at slice 0 acceptance is lost. It is not a wish list: every item below is either a defect in shipped code or a contract a later slice must honour, and each carries an explicit gate. An item may only be closed by the slice that owns its gate, or by an architect decision recorded here.
+
+## How to use this
+
+- **Before a slice's feature spec is written**, read the section for that slice's gate and fold those items into the spec's acceptance criteria. They are inherited requirements, not optional extras.
+- **Severity** reflects business/financial/privacy impact, not effort.
+- **Real defect** = wrong behaviour or a missing guard in code that shipped. **Contract** = the code is correct today, but a later slice will break it unless it is told not to.
+- Items are numbered F-n from the acceptance review. F-20 to F-22 were split out of the review's §4 ruling when this register was created; the numbering is otherwise the review's.
+
+---
+
+## Gate: before slice 1 lands pricing code
+
+Slice 1 is the cost libraries + Buy Now pricing engine. These four exist because slice 1 is the first code to do arithmetic that becomes a price.
+
+| ID | Sev | Where | Item | Kind |
+|---|---|---|---|---|
+| F-1 | Medium | `app/scripts/check-money-safety.mjs:16`, `app/.eslintrc.cjs:30-38` | The money-safety scan does not satisfy acceptance criterion 6's first clause | Real defect |
+| F-9 | Medium | `app/app/domain/money/money.ts:99-103` | `multiplyByDecimal` — the method the pricing engine will use for every margin application — has no test | Real defect |
+| F-10 | Medium | `app/app/domain/evidence/canonicalJson.ts:61-71` | Evidence payloads accept JS `number`; slice 1/6 will put cost data in them | Contract |
+| F-16 | Low | `app/prisma/schema.prisma` (header comment) | The BIGINT-minor-units + CHAR(3) money convention is described but never demonstrated | Contract |
+
+**F-1 detail.** Criterion 6 reads "finds no float arithmetic **and** no ad-hoc `Math.round` on monetary values." The scan is a text regex `/Math\.(round|floor|ceil)\s*\(/g` and satisfies only the second clause. It misses `Math.trunc`, `Math["round"](x)`, aliasing (`const r = Math.round`), `~~x` / `x|0` / `x>>0`, `.toFixed(2)`, `parseFloat`, unary `+`, `Number(bigint)` above 2^53 — and, most importantly, plain float arithmetic: `price * 1.08` and `total / 3` are invisible to it. It also skips every `*.test.ts` (line 31). The ESLint rule has the same blind spots plus one more: `[callee.object.name='Math']` does not match computed member access. Criterion 6's first clause *is* in fact satisfied — by `Money`'s bigint type boundary and decimal.js, not by the scan. Record it that way rather than crediting the scan.
+**Fix:** add `toFixed(`, `parseFloat(`, `Math.trunc(`, `~~` to the pattern, allow-listing `app/app/domain/money/rounding.ts` (line 27 calls decimal.js's own exact `toFixed`, which is unrelated to `Number.prototype.toFixed`).
+
+**F-9 detail.** Also untested: `negate()`, `sumMoney`'s happy path, `fromDecimalMajorUnits` with a non-100 `minorUnitsPerMajorUnit`, and `allocate` with a zero weight among non-zero weights. (The zero-weight case is correct by construction — a zero weight always has remainder 0, and leftover is provably ≤ the count of non-zero remainders, so a zero-weight part can never receive a cent. Pin it with a test rather than leaving it as an unwritten proof.) The slice 0 spec named money and idempotency as the two modules that must be thoroughly covered; this is the one real gap in that promise.
+
+**F-10 detail.** `canonicalJsonStringify` permits any finite JS `number`. Correct for counts, indices and tier numbers. But slice 6's `campaign_snapshot` freezes cost inputs, and a gram weight or a price-per-gram stored as a `number` reintroduces binary float into a money-adjacent evidence path that neither the scan (F-1) nor the `Money` type boundary can see, in a row that is append-only and will be used as refund evidence.
+**Fix:** document the convention on `app/app/domain/evidence/snapshot.ts` — any decimal quantity in an evidence payload is a `Money` or a decimal **string**, never a `number` — and hold slice 1 and slice 6 to it in review.
+
+**F-16 detail.** Nothing notes that Prisma maps `BigInt` to a JS `bigint` that `JSON.stringify` refuses. Slice 1 will copy whatever pattern it finds. Add a commented example model.
+
+---
+
+## Gate: before slice 3 (Luxury Steals)
+
+| ID | Sev | Where | Item | Kind |
+|---|---|---|---|---|
+| F-6 | Medium | `app/app/domain/evidence/acknowledgment.ts` | Nothing relates `acknowledgment.exactText` to the referenced `policyVersion.text` | Contract |
+
+A caller can record an acknowledgment citing a policy version whose text bears no relation to what was actually displayed. This is probably intentional — a Luxury Steals Final Sale modal shows a specific excerpt, not the whole policy — but it is undocumented, and slice 3's Final Sale evidence is the first thing to depend on the answer. Decide once, in the slice 3 spec: either `exactText` must be a substring of the referenced version's text (enforced), or the divergence is deliberate and staff review tooling must display both side by side. Do not let slice 3 settle it implicitly by whatever it happens to write.
+
+---
+
+## Gate: before slice 4 (Buy Now RMA — the first slice that moves money)
+
+These four are the highest-value items in this register. Slice 4 is the first caller of `executeIdempotent` against a real value-moving operation.
+
+| ID | Sev | Where | Item | Kind |
+|---|---|---|---|---|
+| F-5 | **High** | `app/app/domain/idempotency/executeIdempotent.ts:84` | The replay path returns a JSON-deserialized echo typed as `TResult` | Real defect |
+| F-20 | Medium | `executeIdempotent.ts` (read-back branch), `app/app/db/repositories/idempotencyKeyRepository.server.ts:81-86` | In-flight and crashed pending keys are collapsed into one error type and one staff queue | Real defect |
+| F-21 | Medium | `executeIdempotent.ts` (catch branch) | The "operation succeeded but `recordSuccess` threw" path is neither documented nor tested | Real defect |
+| F-22 | **High** | `app/tests/integration/idempotency/idempotency.test.ts:20`, `app/app/domain/idempotency/executeIdempotent.test.ts:27-30` | No test in the suite can detect F-5 | Test gap |
+
+**F-5 detail.** `return existing.resultPayload as TResult` returns whatever `jsonb` deserialized to, under the same static type the first call returned. *Failure scenario:* a slice 8 refund result carries a `Money`; the first call returns a real `Money`, the retry returns a prototype-less `{amountMinorUnits, currency}`, and `result.refund.add(...)` throws **only on the replay path** — the path that is hardest to test and only runs in production, during a retry, while moving money. Worse: a raw `bigint` anywhere in the result makes `recordSuccess` throw (`idempotencyKeyRepository.server.ts:41-50`) *after* the external call already succeeded, which is precisely the duplicate-value hazard the wrapper exists to prevent.
+**Fix:** constrain `TResult` to a JSON-safe type, or take explicit `serialize` / `deserialize` functions on the wrapper.
+
+**F-20 detail.** This is half 2 of the architect ruling now recorded in full in `executeIdempotent.ts`'s doc comment. Half 1 — never auto-retry a pending key, and no later slice may add an age threshold that re-executes one — is **upheld permanently and is not an open item**; it is stated here only so that closing F-20 is never mistaken for licence to change it. Required change: distinguish in-flight from crashed by the existing `createdAt` age; throw two distinct error types (in-flight = transient, caller may back off and re-poll, not surfaced to staff; in-doubt = crashed or classified `in_doubt`, staff review required); **neither executes the operation**; `findPendingIdempotencyKeys()` filters to `in_doubt` plus `pending` older than the threshold. *Why it matters:* two calls a second apart during a staff double-click currently enter the manual-review queue needing no review. Once slice 8 batches Group Buy equalization refunds across a whole campaign, that noise is what makes staff stop reading the queue — and the queue is where the genuinely in-doubt refunds live.
+
+**F-21 detail.** If `recordSuccess` throws after the operation succeeded, the catch classifies the *persistence* error, defaults to `in_doubt`, and if `recordInDoubt` also fails the row stays `pending`. That is the correct safe direction — an unresolved key blocks rather than duplicates — but relying on undocumented, untested behaviour in the one function that guards every refund is not acceptable once real money flows. Document and test both sub-cases.
+
+**F-22 detail.** `idempotency.test.ts:20` asserts `toEqual` on a plain `{refundId: string}`, which is already JSON-identical; the unit fake at `executeIdempotent.test.ts:27-30` stores the object by reference and so round-trips perfectly by construction. The entire F-5 problem is therefore invisible to the suite. This is the clearest instance in the codebase of a test that would pass against a broken implementation, and it sits on the most safety-critical function in the system.
+**Fix:** an integration test whose result payload contains a `Date` and a `Money`, asserting the replayed value is *usable* (arithmetic on it succeeds), not merely structurally equal.
+
+---
+
+## Gate: slice 2 deploy task (operational, not code)
+
+| ID | Sev | Where | Item | Kind |
+|---|---|---|---|---|
+| F-7 | Medium | `app/prisma/migrations/20260914000000_append_only_evidence_truncate_triggers/migration.sql`, `app/app/lib/env.server.ts:16` | The append-only triggers only bind if the runtime DB role is not the table owner | Contract |
+
+The migration says so itself, correctly. But there is a single `DATABASE_URL`, and `prisma migrate deploy` needs DDL, so as configured on Fly the runtime role will be the table owner and can `DROP TRIGGER` and then `DELETE`. Today the append-only guarantee is documentation, not enforcement.
+**Fix (deploy configuration, no code):** provision a separate migration role holding DDL; grant the runtime role `INSERT` and `SELECT` only on `policy_version`, `acknowledgment`, `snapshot` and `audit_event`. Must be in place before any production data exists.
+
+---
+
+## Gate: next migration that touches `webhook_event`
+
+| ID | Sev | Where | Item | Kind |
+|---|---|---|---|---|
+| F-14 | Low | `app/prisma/schema.prisma` (`WebhookEvent.claimedAt`) | `claimed_at` is nullable, and the stale predicate `claimedAt < cutoff` never matches NULL | Real defect (latent) |
+
+A row with a null `claimed_at` would be permanently unreclaimable — stuck in `in_progress` forever, answering 503 to every redelivery until Shopify gives up. No current code path can produce one (`claimWebhookEventForProcessing` always stamps it on insert) and migration `20260914010000` backfills existing rows, so this is latent rather than live. Close it cheaply the next time a migration touches the table: `NOT NULL DEFAULT now()`.
+
+---
+
+## Opportunistic — fix when nearby, do not schedule a slice for them
+
+| ID | Sev | Where | Item | Kind |
+|---|---|---|---|---|
+| F-2 | Medium | `app/app/domain/evidence/canonicalJson.test.ts:161-181` | No pinned golden hash vector, and no unicode test | Test gap |
+| F-3 | Medium | `app/app/db/repositories/snapshotRepository.server.ts:16`, `auditEventRepository.server.ts:20-21` | Evidence rows persist a different serialization than the one that was hashed | Contract |
+| F-4 | Medium | `app/app/db/repositories/webhookEventRepository.server.ts:133-138` | `markWebhookEventFailed` can stamp an error onto an already-processed row | Real defect |
+| F-8 | Low | `app/tests/integration/webhooks/dedup.test.ts`, `idempotency.test.ts` | Slice 0 spec deferred-verification item 4 is reasoned, not observed | Test gap |
+| F-12 | Low | `app/app/lib/validateRequest.server.ts` | The shared zod route helper is unused and untested | Test gap |
+| F-13 | Low | `app/app/db/repositories/webhookEventRepository.server.ts:54` | `DEFAULT_STALE_CLAIM_MS = 15 min` is defensible; 5 min is better | Tuning |
+| F-15 | Low | `app/tests/integration/db/appendOnlyTriggers.test.ts:28-98` | Trigger tests assert bare `.toThrow()` with no error discrimination | Test gap |
+| F-17 | Low | `app/app/shopify/webhooks/receive.server.ts:119-120` | A throw from `markWebhookEventFailed` swallows the handler's own error log | Real defect |
+| F-18 | Low | `app/app/shopify/proxy/verify.ts` | The doc comment does not say the signature covers query parameters only, never the body | Contract |
+| F-19 | Low | `app/app/db/migrationStatus.server.ts:20-30` | `getMigrationState` cannot report genuinely un-applied migrations | Real defect |
+
+**F-2.** Every stored `content_hash` is meaningful only if `canonicalJsonStringify` never changes behaviour. A future edit to it would silently invalidate every historical hash and **nothing in the suite would fail**, because all existing tests compare two freshly-computed hashes to each other. Add one test asserting a fixed, committed SHA-256 digest for a fixed payload containing nested objects, an array, a `Date`, a `Money` and non-ASCII text. There is also no unicode test at all; add NFC-vs-NFD and a surrogate-pair case. Differing NFC/NFD hashes is *correct* — exact-text preservation is the point — but it should be asserted deliberately rather than left as an accident of `JSON.stringify`.
+
+**F-3.** The hash is computed over the canonical form; the raw in-memory value is what gets written to `jsonb`. They agree today, but incidentally rather than structurally. Recommended fix: persist `JSON.parse(canonicalJsonStringify(payload))` so the stored document *is* the hashed document, and the question stops needing to be re-argued in every later slice. **Downgraded to opportunistic by two things:** the C-2 snapshot round-trip integration test now demonstrates the agreement for the `Date` + `Money` case rather than merely arguing it; and the compliance audit row no longer carries a payload at all — the owner-approved shape is `topic`, `shopDomain`, `shopId`, `customerId`, `orderIds`, `dataRequestId` and a sha256 of the **raw body**, which sidesteps canonicalization entirely for that path. F-3 therefore now applies only to `snapshot.payload` and to `audit_event.before`/`after` rows written by later slices carrying entity state.
+
+**F-4.** *Scenario:* a handler exceeds the stale window; a retry reclaims and succeeds, setting `processedAt`; the original zombie then fails and writes `error` unconditionally. The row reads processed-and-errored. Traced consequence: **no event is lost** — `claimed_retry` requires `processedAt IS NULL` (line 93) and the `already_processed` branch (line 120) still answers 200 correctly. Evidence noise and operator confusion, not a correctness break. Fix is one word: `updateMany` with `processedAt: null` in the `where`.
+
+**F-8.** The four rewritten concurrency tests genuinely prove exactly-once and are a real improvement on what they replaced — the exactly-once assertions now sit first where a later failure cannot mask them, and the latch makes the 503 path deterministic instead of hoping for a scheduling coincidence. The limit, stated precisely: they prove the **decision table** (given a row in state X, the claim function returns Y), because by the time the loser runs the winner's write has committed and the predicates evaluate unambiguously. They do not exercise two `UPDATE ... WHERE` statements contending for the same row lock simultaneously, which is the READ COMMITTED predicate re-evaluation the slice 0 spec's deferred item 4 named. That item is therefore reasoned, not observed — the same status the spec gave it. Closing it needs one test with two distinct Prisma clients and a `pg_sleep` barrier issuing simultaneous conditional UPDATEs.
+
+**F-13.** Assessed and **accepted as defensible**; recorded for tuning, not as a defect. Reclaiming is safe *conditional on handlers being idempotent* — CLAUDE.md requires it but nothing enforces it, so that is a standing contract on every slice that attaches a topic handler. Counter-argument for 5 minutes: a Remix handler behind Fly is killed by HTTP timeout in well under 60 seconds, so the realistic bound on a live handler is two orders of magnitude below 15 minutes, while a crashed claim currently burns roughly six of Shopify's nineteen retries before the window opens. It is a constant; owner-neutral.
+
+**F-18.** `verify.ts` is correct — Shopify's App Proxy signature genuinely covers query parameters only. But slices 3, 4, 5, 9 and 10 all POST forms through the proxy, and the verified `logged_in_customer_id` is the only trustworthy identity on such a request; a body-supplied customer id must never be trusted. One sentence in the doc comment stops five slices rediscovering this independently. (The separately documented multi-value-parameter limitation at lines 16-20 is fail-safe: a repeated key produces a mismatched message and a rejection, never a false accept.)
+
+**F-19.** The health route reports rows in `_prisma_migrations` with a null `finished_at` — failed or interrupted applications — not migrations present on disk but never applied. A deploy that skipped `migrate deploy` reports `status: "ok"`. The criterion is met in letter; the route will mislead during a deploy incident, which is the one moment anybody reads it.
+
+---
+
+## Resolved / in flight — do not re-open
+
+| ID | Resolution |
+|---|---|
+| **A1** | **RESOLVED by owner 2026-09-14.** Hybrid: adopt `@shopify/shopify-app-remix` for OAuth, session storage and App Bridge; keep `receiveShopifyWebhook` / `claimWebhookEventForProcessing` for inbound webhooks. Prisma `session` model ships in the slice 2 migration. Recorded as **D12** in `docs/ARCHITECTURE-MVP1.md` §2.1 and §12, including the reason the library's `authenticate.webhook` is deliberately not used — read §2.1 before proposing to consolidate onto it. |
+| **C-1** | In flight. GDPR compliance handler no longer writes customer PII into the append-only `audit_event` table. Owner-approved row shape: `topic`, `shopDomain`, `shopId`, `customerId`, `orderIds`, `dataRequestId`, and a sha256 of the raw body — no payload. |
+| **C-2** | In flight. `app/tests/integration/evidence/snapshotRoundTrip.test.ts` closes slice 0 spec deferred-verification item 5 (write a snapshot containing a `Date` and a `Money`, read it back, re-hash, assert `contentHash` still matches). This also gives `snapshotRepository` its first test coverage of any kind. |
+| **C-3** | In flight. `/health` no longer echoes raw Prisma error text (which embeds DB host, port and user) on an unauthenticated route. |
+| **F-11** | In flight. `logger.server.ts` redaction now traverses arrays, so `{items:[{apiKey:"…"}]}` is redacted. |
+
+### Corrections to the slice 0 spec itself
+
+Recorded here because they are documentation debt created by this review, not code items:
+
+- **Acceptance criterion 13** of `docs/specs/SLICE-0-FOUNDATION.md` names `X-Shopify-Event-Id`. Shopify does not document that header. The implementation correctly uses `X-Shopify-Webhook-Id`, which Shopify documents as stable across retries of the same event — the only property dedup can rely on. **The code is right and the criterion's wording is wrong.** `docs/ARCHITECTURE-MVP1.md` §5 has been corrected; the slice 0 spec's criterion 13 should be amended the next time that file is touched.
+- **Acceptance criterion 20** (`docker-compose up` + migrate + seed + `dev` from a clean checkout) is **partially verified**: `app/README.md:19-50` documents both the Docker and no-Docker paths, but only the no-Docker path was ever exercised, because Docker Desktop requires the WSL2 backend which was unavailable on the build machine. The Docker path should be run once on a machine that has it, before it is relied on in onboarding. Do not record criterion 20 as fully verified until then.
