@@ -1,9 +1,9 @@
 {
   "include": ["**/*.ts", "**/*.tsx", "prisma/seed.ts", "scripts/**/*.mjs"],
-  "exclude": ["node_modules", "build", ".cache"],
+  "exclude": ["node_modules", "build", ".cache", ".react-router"],
   "compilerOptions": {
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
-    "types": ["@remix-run/node", "vite/client"],
+    "types": ["vite/client"],
     "isolatedModules": true,
     "esModuleInterop": true,
     "jsx": "react-jsx",

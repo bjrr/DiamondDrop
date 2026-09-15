@@ -21,7 +21,7 @@ module.exports = {
   settings: {
     react: { version: "detect" },
   },
-  ignorePatterns: ["build/", "node_modules/", ".cache/", "prisma/migrations/"],
+  ignorePatterns: ["build/", "node_modules/", ".cache/", ".react-router/", "prisma/migrations/"],
   rules: {
     // The money and rounding modules are the single centralized place
     // rounding is allowed to happen (spec §0.4). This rule is the
@@ -55,9 +55,17 @@ module.exports = {
       },
     },
     {
-      // Standalone CLI entry points and the Remix server entry are not
-      // request-scoped business logging; console is their correct output.
-      files: ["scripts/**/*.mjs", "prisma/seed.ts", "app/entry.server.tsx"],
+      // Standalone CLI entry points, the test bootstrap and the React Router
+      // server entry are not request-scoped business logging; console is their
+      // correct output. globalSetup runs before any test and reports why it is
+      // pausing to build the server bundle — that belongs on stdout, not in the
+      // redacting structured logger.
+      files: [
+        "scripts/**/*.mjs",
+        "prisma/seed.ts",
+        "app/entry.server.tsx",
+        "tests/integration/globalSetup.ts",
+      ],
       rules: {
         "no-console": "off",
       },

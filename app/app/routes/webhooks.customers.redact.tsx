@@ -1,4 +1,4 @@
-import type { ActionFunctionArgs } from "@remix-run/node";
+import type { ActionFunctionArgs } from "react-router";
 
 import { recordComplianceWebhook } from "~/shopify/webhooks/complianceHandlers.server";
 import { receiveShopifyWebhook } from "~/shopify/webhooks/receive.server";

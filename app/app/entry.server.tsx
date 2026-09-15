@@ -6,11 +6,11 @@ import "~/lib/assertEnvOnBoot.server";
 
 import { PassThrough } from "node:stream";
 
-import type { AppLoadContext, EntryContext } from "@remix-run/node";
-import { createReadableStreamFromReadable } from "@remix-run/node";
-import { RemixServer } from "@remix-run/react";
+import { createReadableStreamFromReadable } from "@react-router/node";
 import { isbot } from "isbot";
 import { renderToPipeableStream } from "react-dom/server";
+import type { AppLoadContext, EntryContext } from "react-router";
+import { ServerRouter } from "react-router";
 
 export const streamTimeout = 5_000;
 
@@ -35,7 +35,7 @@ function handleBotRequest(
   return new Promise((resolve, reject) => {
     let shellRendered = false;
     const { pipe, abort } = renderToPipeableStream(
-      <RemixServer context={remixContext} url={request.url} abortDelay={streamTimeout} />,
+      <ServerRouter context={remixContext} url={request.url} />,
       {
         onAllReady() {
           shellRendered = true;
@@ -74,7 +74,7 @@ function handleBrowserRequest(
   return new Promise((resolve, reject) => {
     let shellRendered = false;
     const { pipe, abort } = renderToPipeableStream(
-      <RemixServer context={remixContext} url={request.url} abortDelay={streamTimeout} />,
+      <ServerRouter context={remixContext} url={request.url} />,
       {
         onShellReady() {
           shellRendered = true;

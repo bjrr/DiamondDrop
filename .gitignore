@@ -10,6 +10,7 @@ node_modules/
 /app/build/
 /app/.cache/
 /app/public/build/
+/app/.react-router/
 dist/
 
 # Coverage

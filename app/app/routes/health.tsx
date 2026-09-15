@@ -1,5 +1,4 @@
-import type { LoaderFunctionArgs } from "@remix-run/node";
-import { json } from "@remix-run/node";
+import type { LoaderFunctionArgs } from "react-router";
 
 import { prisma } from "~/db/client.server";
 import { getMigrationState } from "~/db/migrationStatus.server";
@@ -35,7 +34,7 @@ export async function loader(_args: LoaderFunctionArgs) {
 
   const healthy = database.status === "ok" && !migrations.error;
 
-  return json(
+  return Response.json(
     {
       status: healthy ? "ok" : "degraded",
       service: "carat-for-us-app",

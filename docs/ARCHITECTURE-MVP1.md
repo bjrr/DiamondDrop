@@ -5,7 +5,9 @@
 
 Owner decisions resolved at approval: **D2 = staff-entered metal prices** (adapter-backed; automated feed is a post-launch fast-follow). **D3/D4 = Fly.io app + managed Postgres, Cloudflare R2 private storage, Resend transactional email.**
 
-Resolved 2026-09-14, arising from the slice 0 acceptance review: **D12 = hybrid adoption of `@shopify/shopify-app-remix`** (OAuth, session storage and App Bridge from the library; webhook receipt stays ours). See §2.1 — it records why the library's `authenticate.webhook` is deliberately not used.
+Resolved 2026-09-14, arising from the slice 0 acceptance review: **D12 = hybrid adoption of `@shopify/shopify-app-remix`** (OAuth, session storage and App Bridge from the library; webhook receipt stays ours). **D12 is SUPERSEDED as of 2026-09-15 by D13** and is retained in §12 only as history — do not implement it.
+
+Resolved 2026-09-15, owner-directed: **D13 = React Router 7 replaces Remix v2, and `@shopify/shopify-app-react-router` replaces `@shopify/shopify-app-remix`.** The *hybrid boundary* established by D12 is unchanged and carries over verbatim: the Shopify library supplies OAuth, session storage and App Bridge; inbound webhook receipt stays ours. See §2.1, which is the single live statement of this decision and records both the version pin and why the library's `authenticate.webhook` is deliberately not used.
 
 Still open and tracked in §12: **D1** (Shopify development store + API credentials), **D5–D11**. D7 and D10 are reserved to the owner by `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md` §14 and must be resolved before slice 4 is accepted.
 
@@ -57,7 +59,7 @@ No headless storefront. No microservices. No message queue. No separate customer
 |---|---|---|
 | Commerce platform | Shopify (Basic or Grow) | Cart, checkout, payments, accounts, orders, inventory, taxes, order emails — all commodity. Non-negotiable per README. |
 | Storefront | Shopify Online Store 2.0 theme (Dawn-based), Liquid + light vanilla JS | Cheapest, fastest, SEO-native, no build pipeline to maintain. |
-| Custom app | Single Node 20 + TypeScript service, Remix — **hybrid** adoption of `@shopify/shopify-app-remix`, see §2.1 | One deployable. Remix gives us server routes and the embedded-admin scaffold; the Shopify library supplies OAuth, session storage and App Bridge. Webhook receipt is deliberately **ours**, not the library's — §2.1. |
+| Custom app | Single Node 20 + TypeScript service, **React Router 7 (framework mode), pinned to `react-router@7.18.3`** — **hybrid** adoption of `@shopify/shopify-app-react-router` (designated, adopted in slice 2), see §2.1 | One deployable. React Router 7 gives us server routes and the embedded-admin scaffold; the Shopify library supplies OAuth, session storage and App Bridge. Webhook receipt is deliberately **ours**, not the library's — §2.1. **Do not upgrade React Router past 7.x without reading §2.1** — 8.x breaks the Shopify library's peer range and raises the Node floor. |
 | Admin UI | Embedded in Shopify Admin via App Bridge + Polaris | Staff already live in Shopify Admin. No separate login, no separate auth system to secure. |
 | Customer forms | Shopify **App Proxy** (`/apps/carat/*`) | Forms render on the store's own domain, inherit theme styling, and arrive signed with the logged-in customer ID. Avoids a second domain, second session system, and CORS. |
 | Database | Managed Postgres | Money system: needs durability, transactions, concurrent webhook writes, PITR backups, unique constraints for idempotency. SQLite is rejected for those reasons. |
@@ -69,28 +71,92 @@ No headless storefront. No microservices. No message queue. No separate customer
 | Tests | Vitest (unit + integration), Playwright smoke only | Business rules are pure functions — that is where nearly all test value is. |
 | CI | GitHub Actions: typecheck, lint, unit, integration, build | Cheap, sufficient. |
 
-### 2.1 Shopify app library: hybrid adoption (D12)
+### 2.1 Web framework and Shopify app library: React Router 7 + hybrid adoption (D13, supersedes D12)
 
-**APPROVED BY OWNER 2026-09-14**, on the architect's recommendation arising from the slice 0 acceptance review.
+**D13 APPROVED BY OWNER 2026-09-15.** **D12 (2026-09-14) is superseded and must not be implemented.** This section is the single live statement of the decision; §12's D12 row is retained as history only.
 
-This document originally specified "Remix via the official Shopify app template" without qualification, and `docs/specs/SLICE-0-FOUNDATION.md` §0.2 repeated it. Slice 0 shipped plain Remix with no `@shopify/*` dependency at all. That was the right call for slice 0 — the slice needed no OAuth, no admin UI and no live store, so the template's dependencies would have been dead weight — but it left an unresolved question for slice 2, which needs all three. The decision below closes it.
+**What changed and why.** D12 chose Remix v2 plus a hybrid adoption of `@shopify/shopify-app-remix`. Shopify's current official documentation recommends the **React Router app template** and **`@shopify/shopify-app-react-router`** for new apps. CaratForUs is pre-launch with one slice shipped, so establishing new architecture on the superseded library would buy a migration debt for nothing. Remix v2 → React Router 7 is the documented continuation — React Router 7 is what Remix v3 became — so this is very largely a rename-and-rewire of the framework shell rather than a rewrite.
 
-**Adopted from `@shopify/shopify-app-remix`:**
+**"Largely", not "entirely".** Exactly one genuine behaviour change came with the migration — a cross-origin guard on action submissions, harmless in slice 0 only by accident of how its routes are shaped. It is written up under *R-1* below and must be read before slice 3 builds the first App Proxy form. Do not let the "rename-and-rewire" summary license an assumption that nothing behavioural moved.
+
+**What did NOT change.** The hybrid boundary from D12 carries over unchanged, including the reasoning below about `authenticate.webhook`. Owner restatement, 2026-09-15: *"Do not replace our custom webhook processing merely because the Shopify library provides webhook authentication."* D13 is a framework/library swap, not a re-opening of the boundary.
+
+#### Version pin — read before upgrading anything
+
+| Package | Pinned | Why this exact line |
+|---|---|---|
+| `react-router` | **7.18.3** | The upper end of what the Shopify library supports, and compatible with our Node 20 floor. |
+| `@shopify/shopify-app-react-router` | **2.1.0** (designated; installed in slice 2) | Current latest. Peer deps: `react >=18`, `react-dom >=18`, **`react-router ^7.6.2`**. |
+
+**React Router is pinned to 7, not to latest, for two independent reasons — either one alone is disqualifying:**
+
+1. **Peer range.** `@shopify/shopify-app-react-router@2.1.0` declares `react-router: ^7.6.2`. React Router 8.x is outside that caret range. Upgrading to 8 puts us on an unsupported combination with the library that owns our OAuth and session storage.
+2. **Node floor.** React Router **8.x requires Node >=22.22.0**. Our CI is pinned to Node 20 and `package.json` declares `engines: {node: ">=20.0.0"}`. React Router 7.18.3 requires Node >=20.0.0, so the pin leaves both untouched. Moving to 8 forces a Node-runtime migration across CI, the Fly image and every developer machine, as a side effect of what would look like a routine dependency bump.
+
+This is recorded in this much detail because *"upgrade to the newest React Router"* is exactly the well-meaning maintenance change that would break both at once, and neither breakage is obvious from the diff. Raising the React Router major is an architecture decision requiring a recorded amendment here, not a dependency bump. It is unblocked only when `@shopify/shopify-app-react-router` publishes a release whose peer range admits it **and** the owner accepts the Node 22 floor.
+
+#### Hybrid adoption
+
+**Adopted from `@shopify/shopify-app-react-router` (designated now, installed in slice 2):**
 - Embedded-admin **OAuth** / app install flow.
 - **Session storage** (Prisma-backed). The `session` model lands in the slice 2 migration; it is not part of slice 0's six tables.
 - **App Bridge** (and Polaris for admin UI).
 
+**Deliberately deferred to slice 2, not installed in slice 0.** Slice 0's non-goals exclude admin OAuth, session storage and Admin API calls. A declared-but-unused dependency has no consumer and therefore cannot be tested; it would be dead weight that the first real integration would likely have to change anyway. The library is *designated* here so slice 2 does not re-litigate the choice, and *installed* there so its first commit has a caller and a test.
+
 **Deliberately NOT adopted: the library's webhook handling (`authenticate.webhook`).** Inbound webhook receipt stays with our own `receiveShopifyWebhook` (`app/app/shopify/webhooks/receive.server.ts`) and `claimWebhookEventForProcessing` (`app/app/db/repositories/webhookEventRepository.server.ts`).
 
-**Why — read this before "fixing" the divergence.** A future reader will notice that we verify HMACs ourselves while importing a library that also verifies HMACs, and will be tempted to delete ours as duplication. It is not duplication. `authenticate.webhook` verifies the HMAC and parses the body; that is *all* it does. It has no delivery deduplication, no claim state machine, and no notion of a prior attempt having failed. Our receiver provides three properties the library does not, each of which exists because a specific failure mode would otherwise move money incorrectly:
+**Why — read this before "fixing" the divergence.** A future reader will notice that we verify HMACs ourselves while importing a library that also verifies HMACs, and will be tempted to delete ours as duplication. It is not duplication. `authenticate.webhook` verifies the HMAC and parses the body; that is *all* it does — and this is as true of `@shopify/shopify-app-react-router` as it was of `@shopify/shopify-app-remix`; the rename changed nothing about it. It has no delivery deduplication, no claim state machine, and no notion of a prior attempt having failed. Our receiver provides three properties the library does not, each of which exists because a specific failure mode would otherwise move money incorrectly:
 
 1. **Deduplication on a UNIQUE constraint** over `webhook_event.shopify_event_id` (not a read-then-write check), so two concurrent deliveries of the same event cannot both be processed. Without this, a redelivered `orders/paid` can create a second `campaign_unit` and shift a Group Buy tier.
 2. **Dedup keyed on successful processing, not row existence.** A replayed delivery whose prior attempt *failed* is reprocessed (`claimed_retry`), not swallowed. Swallowing it loses the event permanently, because Shopify's retry is the only redelivery we get.
 3. **Stale-claim reclaim plus a 5xx (not 200) response for an ambiguous in-flight claim.** A 2xx permanently ends Shopify redelivery, so answering 200 for an unresolved event buries it. A crashed attempt is recovered after `DEFAULT_STALE_CLAIM_MS`; until then the delivery stays in Shopify's retry schedule and remains visible in its failed-delivery reporting.
 
-Replacing our receiver with `authenticate.webhook` would silently discard all three. If a future slice wants to consolidate, the burden is on that slice to demonstrate the library has grown equivalents — not to assume the overlap is accidental.
+Replacing our receiver with `authenticate.webhook` would silently discard all three. If a future slice wants to consolidate, the burden is on that slice to demonstrate the library has grown equivalents — not to assume the overlap is accidental. A *version bump* of the Shopify library is not such a demonstration.
 
 **Boundary rule.** The library owns *authentication and session* concerns. It does not own *event processing* concerns. Admin and App Proxy routes may use the library's authenticate helpers freely; webhook routes go through `receiveShopifyWebhook`.
+
+**File-path stability.** React Router 7 framework mode keeps Remix's `app/` route-module convention, so the module paths cited throughout this document and in `docs/specs/SLICE-0-FINDINGS.md` survive the migration. Line numbers in those citations may shift; treat a stale line number as a pointer to the named symbol, not as evidence the finding was addressed. **Checked 2026-09-15 and no citation actually moved** — every `Where` reference in that register points into `domain/`, `db/`, `lib/` or `shopify/`, and the migration changed no file in any of them (not even an import specifier; none of those modules ever imported `@remix-run/*`).
+
+#### R-1 — React Router 7's CSRF origin guard (new behaviour, no Remix v2 equivalent)
+
+Recorded 2026-09-15 from the D13 migration review. **This is a slice 2 input and a live trap for slices 3, 4, 5, 9 and 10.**
+
+D13 is described above as a rename-and-rewire of the framework shell. That is accurate for slice 0 but slightly understates one thing: React Router 7 introduced `throwIfPotentialCSRFAttack`, which Remix v2 had no counterpart for. It runs on **every mutation-method request to a route that has a default export**, and `allowedActionOrigins` defaults to an empty allowlist — so the check is always active with zero exemptions unless configured.
+
+**Resource routes are exempt.** `@react-router/dev`'s own config typing says the allowlist covers "action submissions to UI routes (does not apply to resource routes)". Slice 0's four routes all have `hasDefaultExport: false` — they are resource routes — which is why the migration passed every webhook test. Shopify webhooks also send no `Origin` header at all.
+
+Evidence from the review, against the built server:
+
+| Request | Result |
+|---|---|
+| `POST /webhooks/shop/redact` + `Origin: https://caratforus.com` | **200** (resource route, exempt) |
+| `POST /` + `Origin: https://caratforus.com` | **400** (UI route, guard fires) |
+| `POST /` + `Origin: http://127.0.0.1:3111` (same origin) | **405** |
+
+The 405 on the same-origin request is the load-bearing detail: it proves the 400 came from the CSRF guard and not from method rejection.
+
+**The failure mode to avoid.** Slices 3, 4, 5, 9 and 10 all POST customer forms through the App Proxy. A form rendered on `caratforus.com` posting to a route that *also renders UI* arrives with `Origin: https://caratforus.com` while `request.url` is the app host. The request is rejected with 400 **before any validation runs, before any evidence row is written, and before any log line our code emits**. A customer's Group Buy join or warranty claim fails silently with nothing in our logs to explain it — and nothing in the diff that introduced it to point at.
+
+**Mitigation, one line.** Either keep App Proxy POST endpoints as resource routes (no default export), or set `allowedActionOrigins: ["caratforus.com", "*.myshopify.com"]` in `app/react-router.config.ts`.
+
+#### Standing contract for a future React Router 8 upgrade
+
+The RR7 build emits five `v8_*` future-flag warnings. None are enabled and none should be enabled now. Four are inert for us (`v8_passThroughRequests` preserves bytes either way — both paths pass the body as a stream reference rather than reading and re-encoding it; `v8_trailingSlashAwareDataRequests` affects only `.data` URLs, which we have none of; `v8_splitRouteModules` and `v8_viteEnvironmentApi` are build-time only).
+
+**`v8_middleware` is the one that can break us, and the breakage will not be visible in the diff that enables it.**
+
+> **No middleware may consume the request body.** A single global middleware calling `request.text()` or `request.formData()` makes `receiveShopifyWebhook`'s own `request.text()` (`app/app/shopify/webhooks/receive.server.ts`) throw on an already-read body. Every webhook then fails, every delivery burns Shopify retries, and the fault sits in framework plumbing rather than in our code — so it will not look like a webhook bug to whoever debugs it.
+
+Enabling `v8_middleware` also changes `context` from `{}` to a `RouterContextProvider`, a breaking signature change that the slice 2 Shopify library is untested against.
+
+#### Configuration gaps to close in slice 2
+
+Slice 0's React Router configuration is complete and correct **for slice 0**. Three items are deliberately absent and become live the moment the Shopify library lands. Tracked as **F-23, F-24 and F-25** in `docs/specs/SLICE-0-FINDINGS.md`; summarised here so the slice 2 spec author does not need a second lookup.
+
+- **`allowedActionOrigins` is unset** (F-23). See R-1 above. Note that unset does not mean disabled: the key defaults to `false`, which the runtime coerces to an *empty allowlist*, so the guard runs with no exemptions.
+- **No route typegen** (F-24). `app/tsconfig.json` excludes `.react-router` and sets no `rootDirs`, and nothing runs `react-router typegen`. That is correct today, because our route modules use `LoaderFunctionArgs`/`ActionFunctionArgs`. Shopify's React Router template instead uses generated `+types/*` route types, which require `"rootDirs": [".", "./.react-router/types"]` plus a typegen step ahead of `tsc --noEmit`. Slice 2 must either wire that up or deliberately reject the template's typed-route style — the failure mode otherwise is a half-adopted template whose type errors look like a broken install.
+- **Vite major bump likely needed** (F-25). We run `vite@5.4.21`, comfortably inside `@react-router/dev@7.18.3`'s peer range (`^5.1.0 || ^6 || ^7 || ^8`), so nothing is broken now. But Vite 5 has no `server.allowedHosts`, which the tunnel used by `shopify app dev` generally needs. Budget a Vite major in slice 2 rather than meeting it as a surprise on the day the development store is first connected.
 
 ### Alternatives considered and rejected
 
@@ -178,6 +244,8 @@ Append-only evidence tables are never UPDATEd. All money columns are `BIGINT` mi
 **Webhooks** (HMAC verified against raw body, deduped on the `X-Shopify-Webhook-Id` delivery header — **corrected 2026-09-14**: this document and `docs/specs/SLICE-0-FOUNDATION.md` originally said `X-Shopify-Event-Id`, which Shopify does not document; `X-Shopify-Webhook-Id` is the header Shopify documents as stable across retries of the same event, which is the property dedup requires. Kept in one constant at `app/app/shopify/webhooks/headers.ts`):
 `orders/create`, `orders/paid`, `orders/updated`, `orders/cancelled`, `refunds/create`, `fulfillments/create`, `fulfillments/update`, `app/uninstalled`, and the three mandatory compliance topics (`customers/data_request`, `customers/redact`, `shop/redact`).
 
+**Route ownership under D13.** Topic *subscription* is declared in `shopify.app.toml`. Topic *delivery* is handled by our own route calling `receiveShopifyWebhook` — **not** by `@shopify/shopify-app-react-router`'s `authenticate.webhook`, and not by any webhook route the React Router app template scaffolds. When slice 2 installs the library, delete or bypass any template-generated webhook route rather than wiring it up; §2.1 explains why. Admin and App Proxy routes are the opposite case: they use the library's authenticate helpers.
+
 **Admin GraphQL API** (writes): `productVariantsBulkUpdate` (price sync, Group Buy tier price changes), `refundCreate` (Group Buy equalization refunds, RMA refunds, cancellations), store-credit or gift-card issuance (merchandise credit — see open decision D5), `discountCodeBasicCreate` (LUBYQ fallback benefit), metafield writes.
 
 **Metafields/metaobjects**: product-level metafields for CaratForUs-specific display data the theme needs cheaply (Luxury Steal flag, Group Buy campaign id, media-type labels, ring-size config, offered metals). Rule: metafields are a **read cache for presentation**; Postgres is the system of record. Never reconcile money from metafields.
@@ -234,7 +302,7 @@ Shopify's `refundCreate` has no generic idempotency token, so idempotency is our
 
 **Repository layout** (proposed, on approval):
 ```
-/app       Node + TypeScript + Remix service (admin, proxy, webhooks, jobs, engines)
+/app       Node + TypeScript + React Router 7 service (admin, proxy, webhooks, jobs, engines)
 /theme     Shopify Online Store 2.0 theme
 /docs      requirements and locked policies (existing)
 ```
@@ -242,6 +310,10 @@ Shopify's `refundCreate` has no generic idempotency token, so idempotency is our
 **Environments**: Shopify **development store** (free) for all build and QA work; production store cut over at launch. App runs in two instances (staging/prod) against two databases.
 
 **Local dev**: `shopify app dev` (tunnels the app, installs on the dev store) and `shopify theme dev` for the theme. Local Postgres via Docker. Seed script creates sample products, a campaign, and policy versions.
+
+**Build and serve (D13).** React Router 7 framework mode builds through Vite to the same two-directory layout Remix v2 used — `build/client` (static assets) and `build/server` (the server bundle, entry `build/server/index.js`). The production process is `react-router-serve ./build/server/index.js` in place of `remix-serve`. **Nothing in the deployment model changes**: same single Node process, same single port, same container, same Fly configuration, same build-output path to copy into the image. The only deployment-visible edits are the serve binary in the start command and the dependency names. Fly's app-host sizing, region count and cost are unaffected.
+
+**Node version.** The runtime image, CI and `engines` all stay on **Node 20**, which React Router 7.18.3 supports (`>=20.0.0`). See §2.1 — a React Router 8 upgrade would force Node 22 everywhere and is deliberately out of scope.
 
 **Cron**: platform scheduler → authenticated internal route guarded by `CRON_SECRET` (not in-process timers), so the job survives a future move to multiple instances.
 
@@ -289,6 +361,10 @@ Shopify plan $39+/mo · app host $7–25/mo · Postgres $0–25/mo · object sto
 
 **Standing rule:** a locked-policy calculation ships only with tests written from the policy document, and no test may be authored from a README summary where a locked document controls.
 
+**Effect of D13 on this strategy: none in substance, one in sequencing.** Where the test value lives is unchanged — the business rules are pure functions over explicit inputs and import nothing from the web framework, so the unit suite is framework-agnostic by construction. The integration suite exercises real Postgres plus **our own** `receiveShopifyWebhook`, the append-only triggers and the idempotency wrapper, none of which the framework touches; keeping webhook receipt out of the Shopify library (§2.1) is also what keeps the highest-value tests independent of it. The migration's surface is imports (`@remix-run/*` → `react-router`), route-module type names, the Vite plugin and the serve binary — compile-time and boot-time concerns, which typecheck, build and the existing suite already cover.
+
+The sequencing consequence: the framework migration **re-opens the slice 0 "Deferred verification" list** (`docs/specs/SLICE-0-FOUNDATION.md`). That list must pass on the React Router build, not only on the Remix build it was written against; a green run against the superseded shell does not carry over. This is verification of already-specified behaviour, not new test scope.
+
 ---
 
 ## 10. MVP1 Vertical Slices
@@ -311,6 +387,10 @@ Each slice is end-to-end and independently reviewable. Assignments use the least
 | 11 | **Shipping/insurance/signature** controls and evidence | 0 | Backend (`sonnet`) | Medium |
 | 12 | **Content**: FAQ architecture, policy pages, About, Why Buy From Us, contact | 2 | Shopify Dev (`sonnet`) | Low |
 | 13 | **Archive & demand capture**: Past Group Buys, Bring It Back, Request a New Group Buy | 6, 7 | Frontend (`sonnet`) + Backend (`sonnet`) | Low |
+
+**Slice 2 carries the Shopify library adoption (D13).** Per §2.1, `@shopify/shopify-app-react-router@2.1.0` is installed in slice 2 — OAuth, Prisma session storage (the `session` model and its migration) and App Bridge. The slice-2 row above is written as theme-and-PDP work owned by Shopify Dev + Frontend; the library adoption is a **backend** task that must be added to the slice 2 feature spec with the Backend & Pricing Engineer (`sonnet`) as its owner, and it is the first thing in slice 2 that requires D1 (a real development store). Flagging rather than silently re-scoping the table: the slice 2 spec is not yet written, so this is an input to it.
+
+That same backend task also owns the three React Router configuration gaps recorded in §2.1 — `allowedActionOrigins` (F-23), route typegen (F-24) and the likely Vite major bump (F-25). Two of them are cheap if done deliberately in slice 2 and expensive if discovered later: F-23 surfaces as silently-400ing customer forms in slices 3–10 (see R-1), and F-25 surfaces as a blocked `shopify app dev` on the day D1 is finally resolved.
 
 **Parallel-safety rule.** Slices 0 and 1 are serial and touch shared foundations — no parallel work during them. From slice 2 onward, at most two slices run concurrently and only when they own disjoint files (theme vs app, or distinct app modules). Slices 6 and 8 never run alongside another slice that writes to the pricing or ledger modules.
 
@@ -348,7 +428,8 @@ These block or shape work as noted. D1–D4 block Phase 1 start; the rest are ne
 | D9 | Payment methods to encourage as "lower-cost," since payment cost is a pricing-engine input | Owner to specify; engine treats it as a configurable component either way | Slice 1 |
 | D10 | Merchandise-credit expiration/transferability | `BUY-NOW-RETURNS` §14 leaves this unsettled — owner must lock it or confirm "no expiration" | Slice 4 |
 | D11 | Legal review of customer-facing policy/acknowledgment copy | Out of engineering scope; recommend counsel review before launch | Slice 12 |
-| D12 | ~~Shopify app library: official template vs. plain Remix~~ **RESOLVED 2026-09-14: hybrid.** Adopt `@shopify/shopify-app-remix` for OAuth, session storage and App Bridge; keep our own `receiveShopifyWebhook`/`claimWebhookEventForProcessing` for inbound webhooks. Prisma `session` model ships in the slice 2 migration. Full rationale and the "do not consolidate onto `authenticate.webhook`" warning are in §2.1 | — | — |
+| D12 | ~~Shopify app library: official template vs. plain Remix~~ Resolved 2026-09-14 as a hybrid adoption of `@shopify/shopify-app-remix`. **SUPERSEDED 2026-09-15 by D13 — historical record only, do not implement.** The *hybrid boundary* it established survives in D13; only the framework and library names changed | — | — |
+| D13 | ~~Web framework and Shopify app library~~ **RESOLVED 2026-09-15 (owner-directed): React Router 7 + `@shopify/shopify-app-react-router`.** Supersedes D12. Pin `react-router@7.18.3` (**not** 8.x — breaks the library's `^7.6.2` peer range and raises the Node floor to 22). `@shopify/shopify-app-react-router@2.1.0` is designated now and installed in **slice 2**, not slice 0. Hybrid boundary unchanged: library for OAuth/session/App Bridge; our `receiveShopifyWebhook`/`claimWebhookEventForProcessing` for inbound webhooks. Full rationale, version-pin reasoning and the "do not consolidate onto `authenticate.webhook`" warning are in §2.1 | — | — |
 
 ---
 
@@ -363,6 +444,8 @@ These block or shape work as noted. D1–D4 block Phase 1 start; the rest are ne
 | Test written from a superseded document | C1 documented; every feature spec cites the controlling document and section |
 | Shopify metafield/Postgres divergence | Metafields are presentation cache only; money and eligibility are never read from them |
 | Single-instance host outage | Webhooks retried by Shopify for 48h and deduped on receipt; no event loss |
+| A routine dependency bump raises React Router to 8, breaking the Shopify library's peer range and the Node 20 floor at once | Pin recorded with both reasons in §2.1 and repeated in the §2 stack table; a React Router major bump is an architecture amendment, not a maintenance change. Enforce in `/review-code` on any diff touching `app/package.json` |
+| A later slice "consolidates" webhook receipt onto the Shopify library's `authenticate.webhook`, silently dropping dedup, failed-attempt replay and stale-claim reclaim | §2.1 states the three properties and the failure mode each prevents; the boundary rule survived the D12→D13 rewrite deliberately. Burden of proof is on the consolidating slice |
 
 ---
 
@@ -386,3 +469,5 @@ Reviewed against Shopify-native boundaries, MVP1 scope, evidence/versioning need
 5. Every delegated slice preceded by `/feature-spec` and closed with `/handoff`.
 
 No scaffolding begins until condition 1 is met.
+
+**Amendment 2026-09-15 (D13).** The verdict above stands unchanged. D13 swaps the web framework and the Shopify app library (Remix v2 → React Router 7; `@shopify/shopify-app-remix` → `@shopify/shopify-app-react-router`) without altering any boundary this review assessed: Shopify-native vs custom is untouched; no framework, queue, service or database is added; financial determinism and the money primitives are framework-independent; inbound webhook idempotency stays with our receiver by explicit decision (§2.1); authn/authz, privacy and scopes are unchanged; recurring cost is unchanged (§7 — same single process, same Fly configuration, same ~$50–110/mo). The re-verification obligation it creates is recorded in §9 and in the slice 0 spec's Deferred verification list.

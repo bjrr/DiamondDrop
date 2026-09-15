@@ -41,18 +41,30 @@ Establish the technical foundation that every later CaratForUs MVP1 slice depend
 
 ### 0.1 Repository layout
 ```
-/app          Node 20 + TypeScript service (Remix, Shopify app template)
+/app          Node 20 + TypeScript service (React Router 7 — see the correction note under §0.2)
 /theme        placeholder only this slice (README stub; slice 2 populates it)
 /docs         existing requirements, policies, architecture, specs
 ```
 Root `.gitignore` must cover `node_modules`, `.env`, `.env.*` (except `.env.example`), build output, and coverage. **Never commit secrets.**
 
 ### 0.2 Application skeleton
-- Node 20, TypeScript strict mode, Remix via the official Shopify app template.
+- Node 20, TypeScript strict mode, ~~Remix via the official Shopify app template~~ **React Router 7 (framework mode), `react-router@7.18.3` — see the correction note immediately below.**
 - Module layout inside `/app` separating `domain/` (pure functions, no I/O), `db/`, `shopify/`, `routes/`, `jobs/`, `lib/`.
 - A health route returning service status and migration state. No other UI this slice.
 - Structured logging (business events + references only — never secrets, never payment data, never cost/margin data).
 - Server-side input validation with `zod` at every route boundary, including routes added later — provide the shared helper.
+
+> **Correction note — 2026-09-15 (owner-directed, recorded as D13 in `docs/ARCHITECTURE-MVP1.md` §2.1 and §12).**
+>
+> **What this bullet originally said:** "Node 20, TypeScript strict mode, Remix via the official Shopify app template."
+>
+> **What is now correct:** Node 20, TypeScript strict mode, **React Router 7 in framework mode, pinned to `react-router@7.18.3`**, via the official Shopify **React Router** app template. Shopify's current documentation recommends the React Router template and `@shopify/shopify-app-react-router` for new apps; CaratForUs is pre-launch and must not establish architecture on the superseded Remix library. Remix v2 → React Router 7 is the documented continuation, so this is a rename-and-rewire of the framework shell, not a rewrite.
+>
+> **Do not upgrade the pin to React Router 8.** It falls outside `@shopify/shopify-app-react-router@2.1.0`'s `react-router: ^7.6.2` peer range, and it requires Node >=22.22.0, which would break the CI Node 20 pin and `engines: {node: ">=20.0.0"}`. Both reasons are recorded in full in `docs/ARCHITECTURE-MVP1.md` §2.1.
+>
+> **Still true as originally written:** slice 0 installs **no `@shopify/*` runtime dependency at all.** `@shopify/shopify-app-react-router` is designated by D13 but adopted in **slice 2**, because this slice's non-goals exclude admin OAuth, session storage and Admin API calls — an uninstalled-but-declared dependency would have no consumer and could not be tested.
+>
+> **Scope of this correction:** §0.2 and the §0.1 layout line only. This is a forward-looking build instruction that is now wrong, which is why it is amended rather than left standing. **No acceptance criterion in this spec is changed by D13** — none of them name the framework, and all of them remain the bar. What D13 does change is *when* they were last proven: see the addition to "Deferred verification" below.
 
 ### 0.3 Database and migrations
 - Prisma + Postgres, `prisma migrate` forward-only.
@@ -197,6 +209,7 @@ Slice 0 was implemented in an environment with no Node, npm, or Docker, so **not
 4. **Concurrency behavior under real Postgres.** The webhook dedup race, the stale-reclaim race, and the idempotency single-execution guarantee are currently reasoned about, not observed. They depend on READ COMMITTED re-evaluating a conditional `UPDATE` predicate after the row lock releases — correct in principle, unverified in fact.
 5. **Snapshot payload round-trip.** `snapshotRepository` and `auditEventRepository` write the raw payload to Prisma's `Json` column, while `contentHash` is computed by our own canonicalizer. Analysis says these agree — Prisma serializes via `JSON.stringify`, which honors `toJSON`, so a `Date` stores as its ISO string and a `Money` as `{amountMinorUnits, currency}`, and re-canonicalizing a value read back from `jsonb` reproduces the same hash. Prove it with an integration test that writes a snapshot containing both a `Date` and a `Money`, reads it back, re-hashes, and asserts the stored `contentHash` still matches. This is the property that makes a snapshot usable as dispute evidence, so it should be demonstrated rather than argued.
 6. No lockfile is committed. The first real `npm install` must generate and commit one; CI should then move from `npm install` to `npm ci`.
+7. **Added 2026-09-15 (D13).** Items 1–6 must pass **on the React Router 7 build**. A green run against the superseded Remix shell does not carry over — the framework migration changes imports, route-module types, the Vite plugin and the serve binary, all of which items 1 and 3 cover. Specifically re-check: item 1's full pipeline end to end; item 3's `compilerOptions.types`, since route-module and server types now come from `react-router` rather than `@remix-run/*`; and that the build still emits `build/client` + `build/server` with the server entry the start command expects. Items 2, 4 and 5 are database-layer and are not expected to be affected by the framework change, but they run in the same pipeline and must be green in the same run. Do not mark slice 0 accepted against a Remix-era test result.
 
 ## Required closing step
 

@@ -1,7 +1,7 @@
 # CaratForUs App — Local Development
 
 This is the CaratForUs MVP1 custom application: a single Node 20 + TypeScript
-Remix service. See `../CLAUDE.md`, `../docs/ARCHITECTURE-MVP1.md`, and
+React Router service. See `../CLAUDE.md`, `../docs/ARCHITECTURE-MVP1.md`, and
 `../docs/specs/` for requirements and architecture. This README covers local
 setup only.
 
@@ -27,8 +27,10 @@ npm run db:seed
 npm run dev
 ```
 
-Visit `http://localhost:3000/health` — it should report `"status": "ok"`
-with the applied migration list.
+Visit `http://localhost:5173/health` — it should report `"status": "ok"`
+with the applied migration list. 5173 is Vite's default; `npm run dev` does
+not override it. The production server (`npm start`,
+`react-router-serve`) listens on 3000 instead, or on `PORT` if set.
 
 ### Without Docker
 
@@ -53,7 +55,7 @@ above. Stop the server with `pg_ctl -D <data-dir> stop`.
 
 | Command | Purpose |
 |---|---|
-| `npm run dev` | Start the Remix dev server |
+| `npm run dev` | Start the React Router dev server |
 | `npm run build` | Production build |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
@@ -67,11 +69,11 @@ above. Stop the server with `pg_ctl -D <data-dir> stop`.
 ## Module layout
 
 ```
-app/                Remix framework source
+app/                React Router framework source
   domain/           Pure functions, no I/O (money, evidence, idempotency)
   db/                Prisma client + repositories (create/read only for evidence tables)
   shopify/           Webhook verification/dedup, App Proxy signature verification
-  routes/            Remix routes (health, webhook endpoints)
+  routes/            React Router routes (health, webhook endpoints)
   jobs/              Scheduled job entry points (empty this slice)
   lib/               Env validation, structured logging, shared zod request helpers
 prisma/              Schema + forward-only migrations
