@@ -27,6 +27,12 @@ export function validateBandCoverage(bands: readonly BandSpec[], spec: SizeSpec)
     new MoneyDecimal(a.sizeMin).comparedTo(new MoneyDecimal(b.sizeMin))
   );
 
+  for (const band of sorted) {
+    if (new MoneyDecimal(band.sizeMin).greaterThan(new MoneyDecimal(band.sizeMax))) {
+      throw new InvalidBandError(band.label, `sizeMin ${band.sizeMin} exceeds sizeMax ${band.sizeMax}`);
+    }
+  }
+
   const min = new MoneyDecimal(spec.allowedSizeMin);
   const max = new MoneyDecimal(spec.allowedSizeMax);
 
@@ -36,12 +42,6 @@ export function validateBandCoverage(bands: readonly BandSpec[], spec: SizeSpec)
   const last = sorted[sorted.length - 1]!;
   if (!new MoneyDecimal(last.sizeMax).equals(max)) {
     throw new InvalidBandError(last.label, `last band must end at ${spec.allowedSizeMax}`);
-  }
-
-  for (const band of sorted) {
-    if (new MoneyDecimal(band.sizeMin).greaterThan(new MoneyDecimal(band.sizeMax))) {
-      throw new InvalidBandError(band.label, `sizeMin ${band.sizeMin} exceeds sizeMax ${band.sizeMax}`);
-    }
   }
 
   const increment = new MoneyDecimal(spec.sizeIncrement);
