@@ -84,6 +84,16 @@ const ALLOW_LIST = [
     pattern: ".toFixed(",
     reason: "decimal.js's own exact toFixed, not Number.prototype.toFixed",
   },
+  {
+    // Basis points, not money: an integer bounded by the tolerance comparison
+    // and stored in an INTEGER column, converted once at the persistence edge.
+    // The tolerance decision itself is made on the exact MoneyDecimal BEFORE
+    // this conversion, so no pricing comparison depends on the JS number.
+    // Reviewed and accepted by the architect, 2026-09-17.
+    path: "app/jobs/pricing/decideSync.ts",
+    pattern: "Number(",
+    reason: "basis-point integer for an INTEGER column; the tolerance decision is made on the exact decimal first",
+  },
 ];
 
 /**
