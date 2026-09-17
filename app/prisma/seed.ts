@@ -402,8 +402,8 @@ async function seedPricingProfile(): Promise<void> {
           minDollarProfitMinorUnits: 999999900n,
           currency: SEED_CURRENCY,
           roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
-          cashPriceRuleId: "CASH_DISCOUNT_FLOOR_WHOLE_DOLLAR_V1",
-          cashDiscountRate: "0.050000",
+          cardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
+          cardUpliftRate: "0.050000",
           priceEndingRuleId: "NONE_V1",
           autoApplyToleranceBps: 0,
           effectiveFrom: SEED_EFFECTIVE_FROM,
@@ -450,8 +450,8 @@ async function seedPricingProfile(): Promise<void> {
           minDollarProfitMinorUnits: 10000n,
           currency: SEED_CURRENCY,
           roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
-          cashPriceRuleId: "CASH_DISCOUNT_FLOOR_WHOLE_DOLLAR_V1",
-          cashDiscountRate: "0.050000",
+          cardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
+          cardUpliftRate: "0.050000",
           priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
           autoApplyToleranceBps: null,
           effectiveFrom: D14_EFFECTIVE_FROM,
@@ -464,7 +464,7 @@ async function seedPricingProfile(): Promise<void> {
   // v3 — the owner's two remaining decisions, 2026-09-17.
   //
   //   auto-apply tolerance   200 bps (2%)
-  //   cash discount          5% OFF THE LIST PRICE
+  //   card uplift            5% above the calculated cash price
   //
   // The tolerance closes D14: price changes within 2% of the last published
   // price may publish automatically, and anything larger queues for approval.
@@ -472,12 +472,20 @@ async function seedPricingProfile(): Promise<void> {
   // ordinary daily metal movement while still catching a mistyped metal price.
   // It is symmetric: a 3% DROP queues exactly as a 3% rise does.
   //
-  // The cash discount INVERTS D9. The calculated price is now the LIST price,
-  // which is the card price and carries card processing; cash-equivalent
-  // customers pay 5% less. Per the owner, this discount OVERRIDES the profit
-  // minimums — the floors bind the list price, and the cash price may fall
-  // below the $100 minimum. With these numbers that happens under $303.03 of
-  // landed cost. Deliberate, and recorded on every calculation.
+  // D9 in its final shape. The CALCULATED price is the CASH price (PayPal,
+  // Venmo, ACH, wire, Zelle): it is the real sale price, the floors bind it,
+  // and profit is measured on it. The DISPLAYED price is cash x 1.05, and that
+  // is what gets published; cash is presented to the customer as a discount
+  // off it.
+  //
+  // Because the floors bind the LOWER of the two prices, both clear them by
+  // construction. An earlier revision bound them to the displayed price
+  // instead, which left cash sales unprotected and put four of seven fixture
+  // prices under the $100 minimum.
+  //
+  // Note a 5% UPLIFT is not a 5% DISCOUNT: $400 cash becomes $420 card, and
+  // $400 is 4.76% off $420. Advertising a flat "5% cash discount" on this rate
+  // would overstate it — see cardPrice.ts.
   await createIfAbsent(
     "pricing_profile buy_now v3 (tolerance 200 bps; 5% cash discount)",
     () =>
@@ -497,8 +505,8 @@ async function seedPricingProfile(): Promise<void> {
           roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
           priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
           autoApplyToleranceBps: 200,
-          cashPriceRuleId: "CASH_DISCOUNT_FLOOR_WHOLE_DOLLAR_V1",
-          cashDiscountRate: "0.050000",
+          cardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
+          cardUpliftRate: "0.050000",
           effectiveFrom: D9_REVISION_EFFECTIVE_FROM,
           createdBy: "seed-script (owner decisions D14 tolerance + D9 revision, 2026-09-17)",
           isPlaceholder: false,

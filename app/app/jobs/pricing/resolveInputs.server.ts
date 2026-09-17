@@ -226,8 +226,8 @@ export async function resolveInputsForVariant(
       priceEndingRuleId:
         profile.priceEndingRuleId as BuyNowPricingInputs["profile"]["priceEndingRuleId"],
       autoApplyToleranceBps: profile.autoApplyToleranceBps,
-      cashPriceRuleId: profile.cashPriceRuleId as BuyNowPricingInputs["profile"]["cashPriceRuleId"],
-      cashDiscountRate: profile.cashDiscountRate,
+      cardPriceRuleId: profile.cardPriceRuleId as BuyNowPricingInputs["profile"]["cardPriceRuleId"],
+      cardUpliftRate: profile.cardUpliftRate,
       isPlaceholder: profile.isPlaceholder,
     },
     variantFloor:

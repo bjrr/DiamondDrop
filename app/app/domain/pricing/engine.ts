@@ -4,9 +4,9 @@ import { Money } from "~/domain/money/money";
 import { enumerateBandSizes, selectBandPrice } from "./bands";
 import { calculateLandedCost, partitionRevenueSide } from "./cost";
 import { PricingCurrencyMismatchError } from "./errors";
-import { deriveCashPrice } from "./cashPrice";
+import { deriveCardPrice } from "./cardPrice";
 import { applyPriceEnding, getPriceEndingRule } from "./priceEnding";
-import { enforceFloors, evaluateFloors, solveExactPrice } from "./solve";
+import { enforceFloors, solveExactPrice } from "./solve";
 import type {
   BuyNowBandPriceResult,
   BuyNowBandPricingInputs,
@@ -75,25 +75,24 @@ export function computeBuyNowPrice(inputs: BuyNowPricingInputs): BuyNowPriceResu
     getPriceEndingRule(inputs.profile.priceEndingRuleId).stepMinorUnits
   );
 
-  // D9. The cash price is derived from the FINAL list price — after rounding,
-  // price ending and every floor bump — not from the exact solve. Deriving it
-  // from the exact value would let the two disagree: a list price nudged up a
-  // dollar to clear a floor would keep a cash price computed from the pre-bump
-  // figure, and the advertised discount would not match the prices shown.
+  // D9. The displayed card price is derived from the FINAL cash price — after
+  // rounding, price ending and every floor bump — not from the exact solve.
+  // Deriving it from the exact value would let the two disagree: a cash price
+  // nudged up a dollar to clear a floor would keep a card price computed from
+  // the pre-bump figure, and the pair shown to the customer would not be
+  // consistent with each other.
   //
-  // The rule owns its own rounding (floor to whole dollars) rather than reusing
-  // the list price's ending rule, because a discount rounded the wrong way is
-  // advertised at 5% and delivered at 4.87%. See cashPrice.ts.
-  const cashPriceMinorUnits = deriveCashPrice(
+  // The rule owns its own rounding (ceiling to whole dollars) rather than
+  // reusing the price-ending rule, because rounding a derived price DOWN would
+  // put it under the uplift the configuration asked for. See cardPrice.ts.
+  //
+  // No floor evaluation for the card price: it is strictly above the cash
+  // price, which has already satisfied every floor, so it satisfies them too.
+  const cardPriceMinorUnits = deriveCardPrice(
     priceMinorUnits,
-    new MoneyDecimal(inputs.profile.cashDiscountRate),
-    inputs.profile.cashPriceRuleId
+    new MoneyDecimal(inputs.profile.cardUpliftRate),
+    inputs.profile.cardPriceRuleId
   );
-
-  // Evaluated for the RECORD, never enforced: the owner's instruction is that
-  // the discount overrides the profit minimums. Passing `final` through
-  // unchanged would hide how often that happens.
-  const cashFloors = evaluateFloors({ ...floorInput, priceMinorUnits: cashPriceMinorUnits });
 
   return {
     engineVersion: PRICING_ENGINE_VERSION,
@@ -104,10 +103,9 @@ export function computeBuyNowPrice(inputs: BuyNowPricingInputs): BuyNowPriceResu
     exactPriceMinorUnits: exact.toString(),
     binding,
     price: Money.fromMinorUnits(priceMinorUnits, inputs.currency).toJSON(),
-    cashPrice: Money.fromMinorUnits(cashPriceMinorUnits, inputs.currency).toJSON(),
-    cashPriceRuleId: inputs.profile.cashPriceRuleId,
-    cashDiscountRate: inputs.profile.cashDiscountRate,
-    cashFloors,
+    cardPrice: Money.fromMinorUnits(cardPriceMinorUnits, inputs.currency).toJSON(),
+    cardPriceRuleId: inputs.profile.cardPriceRuleId,
+    cardUpliftRate: inputs.profile.cardUpliftRate,
     floors: final,
     bumps,
     roundingRuleId: inputs.profile.roundingRuleId,

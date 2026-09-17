@@ -35,8 +35,8 @@ export interface ResolvedPricingProfile {
   roundingRuleId: string;
   priceEndingRuleId: string;
   autoApplyToleranceBps: number | null;
-  cashPriceRuleId: string;
-  cashDiscountRate: string;
+  cardPriceRuleId: string;
+  cardUpliftRate: string;
   /**
    * D14 is unresolved, so the seeded profile carries deliberately absurd
    * placeholder values behind this flag. The T8 review CLI MUST refuse to
@@ -91,8 +91,8 @@ export async function resolveActivePricingProfile(
     roundingRuleId: row.roundingRuleId,
     priceEndingRuleId: row.priceEndingRuleId,
     autoApplyToleranceBps: row.autoApplyToleranceBps,
-    cashPriceRuleId: row.cashPriceRuleId,
-    cashDiscountRate: row.cashDiscountRate.toString(),
+    cardPriceRuleId: row.cardPriceRuleId,
+    cardUpliftRate: row.cardUpliftRate.toString(),
     isPlaceholder: row.isPlaceholder,
     provenance: provenanceOf("pricing_profile", row),
   };

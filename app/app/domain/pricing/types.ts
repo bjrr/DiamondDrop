@@ -32,8 +32,8 @@ export type PriceEndingRuleId = "NONE_V1" | "WHOLE_DOLLAR_UP_V1";
  */
 export type MarginModelId = "MARKUP_ON_COST_V1" | "TARGET_GROSS_MARGIN_V1";
 
-/** D9. Versions the FORMULA deriving the cash price from the list price. */
-export type CashPriceRuleId = "CASH_DISCOUNT_FLOOR_WHOLE_DOLLAR_V1";
+/** D9. Versions the FORMULA deriving the displayed card price from the cash price. */
+export type CardPriceRuleId = "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1";
 
 export type ComponentBasis = "cost_side" | "revenue_side";
 export type ComponentValueKind = "fixed" | "per_stone" | "percentage";
@@ -99,9 +99,9 @@ export interface PricingProfileInputs {
    * legitimate answer meaning any change at all needs approval.
    */
   autoApplyToleranceBps: number | null;
-  /** D9. Formula id and rate for deriving the cash price from the list price. */
-  cashPriceRuleId: CashPriceRuleId;
-  cashDiscountRate: DecimalString;
+  /** D9. Formula id and rate for deriving the displayed card price from cash. */
+  cardPriceRuleId: CardPriceRuleId;
+  cardUpliftRate: DecimalString;
   isPlaceholder: boolean;
 }
 
@@ -158,27 +158,25 @@ export interface BuyNowPriceResult {
   exactPriceMinorUnits: DecimalString;
   binding: BindingConstraint;
   /**
-   * The LIST price (D9), which is also the CARD price: it carries the card
-   * processing cost, it is what the floors bind, and it is what gets published.
-   * This is the one stored price.
+   * The CASH price (D9) — PayPal, Venmo, ACH, wire, Zelle. This is the internal
+   * sale price: the floors bind it and profit is measured on it. It is the one
+   * stored price.
+   *
+   * It is NOT the price shown to the customer or published to Shopify. That is
+   * `cardPrice` below.
    */
   price: MoneyJSON;
   /**
-   * The cash-equivalent price (ACH, wire, Zelle, cheque), DERIVED from the list
-   * price and never stored independently. Re-derivable at any time from price +
-   * rate + rule id, all three recorded here.
+   * The DISPLAYED price, derived as cash x (1 + uplift) and never stored
+   * independently. This is what the customer sees and what the sync layer must
+   * publish; the cash price is presented to them as a discount off it.
+   *
+   * Publishing `price` instead of this would undercharge every card customer
+   * by the uplift, on every item, silently.
    */
-  cashPrice: MoneyJSON;
-  cashPriceRuleId: CashPriceRuleId;
-  cashDiscountRate: DecimalString;
-  /**
-   * Floors evaluated against the CASH price, for visibility only — never
-   * enforced. The owner's instruction is that the discount overrides the profit
-   * minimums, so a failing evaluation here is an approved outcome, not a defect.
-   * Recorded so that "how often does the discount go under the minimum?" is an
-   * answerable question rather than a guess.
-   */
-  cashFloors: FloorEvaluation;
+  cardPrice: MoneyJSON;
+  cardPriceRuleId: CardPriceRuleId;
+  cardUpliftRate: DecimalString;
   floors: FloorEvaluation;
   bumps: number;
   roundingRuleId: RoundingRuleId;

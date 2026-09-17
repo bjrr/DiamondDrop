@@ -36,11 +36,11 @@ describe("D14 — the auto-apply tolerance the job actually resolves", () => {
     expect(profile.marginModel).toBe("MARKUP_ON_COST_V1");
   });
 
-  it("the ACTIVE profile carries the owner's 5% cash discount", async () => {
+  it("the ACTIVE profile carries the owner's 5% card uplift", async () => {
     const profile = await resolveActivePricingProfile("buy_now", ASOF);
 
-    expect(profile.cashDiscountRate).toBe("0.05");
-    expect(profile.cashPriceRuleId).toBe("CASH_DISCOUNT_FLOOR_WHOLE_DOLLAR_V1");
+    expect(profile.cardUpliftRate).toBe("0.05");
+    expect(profile.cardPriceRuleId).toBe("CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1");
   });
 
   it("still routes a first-ever price to a human, tolerance or not", async () => {

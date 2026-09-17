@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { MoneyDecimal } from "~/domain/money/decimal";
 
-import { Money } from "~/domain/money/money";
-
 import { computeBuyNowPrice } from "./engine";
 import { applyPriceEnding } from "./priceEnding";
 import { enforceFloors, solveExactPrice } from "./solve";
@@ -31,8 +29,8 @@ describe("MARKUP_ON_COST_V1 (D14 target markup)", () => {
     roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
     priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
     autoApplyToleranceBps: null,
-    cashPriceRuleId: "CASH_DISCOUNT_FLOOR_WHOLE_DOLLAR_V1",
-    cashDiscountRate: "0.050000",
+    cardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
+    cardUpliftRate: "0.050000",
     isPlaceholder: false,
     ...overrides,
   });
@@ -187,8 +185,8 @@ describe("the engine end-to-end under the owner's D14 + D9 profile", () => {
       roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
       priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
       autoApplyToleranceBps: null,
-      cashPriceRuleId: "CASH_DISCOUNT_FLOOR_WHOLE_DOLLAR_V1",
-      cashDiscountRate: "0.050000",
+      cardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
+      cardUpliftRate: "0.050000",
       isPlaceholder: false,
     },
   };
@@ -201,88 +199,67 @@ describe("the engine end-to-end under the owner's D14 + D9 profile", () => {
     expect(new MoneyDecimal(result.floors.contribution).greaterThanOrEqualTo("10000")).toBe(true);
   });
 
-  it("derives the cash price from the FINAL list price, not the exact solve", () => {
+  it("derives the card price from the FINAL cash price, not the exact solve", () => {
     const result = computeBuyNowPrice(inputs);
-    const list = new MoneyDecimal(result.price.amountMinorUnits);
+    const cash = new MoneyDecimal(result.price.amountMinorUnits);
 
     // Re-derivable from the recorded price and rate — that is D9's whole point.
-    // Computed here from the OUTPUT, so it catches a cash price derived from the
-    // pre-bump exact figure rather than from the list price actually charged.
-    const expected = list.times("0.95").dividedBy(100).floor().times(100);
-    expect(result.cashPrice.amountMinorUnits).toBe(expected.toString());
+    // Computed here from the OUTPUT, so it catches a card price derived from
+    // the pre-bump exact figure rather than from the cash price actually used.
+    const expected = cash.times("1.05").dividedBy(100).ceil().times(100);
+    expect(result.cardPrice.amountMinorUnits).toBe(expected.toString());
 
-    // The exact solve and the final list price differ (rounding + ending), so
+    // The exact solve and the final cash price differ (rounding + ending), so
     // the assertion above is genuinely discriminating rather than trivially true.
-    expect(new MoneyDecimal(result.exactPriceMinorUnits).equals(list)).toBe(false);
+    expect(new MoneyDecimal(result.exactPriceMinorUnits).equals(cash)).toBe(false);
   });
 
-  it("delivers AT LEAST the advertised discount, never less", () => {
-    // The reason the cash rule floors rather than rounds. A $349 list at 5% is
-    // $331.55; rounding up to $332 would advertise 5% and deliver 4.87%.
+  it("gives a whole-dollar card price above the whole-dollar cash price", () => {
     const result = computeBuyNowPrice(inputs);
-    const list = new MoneyDecimal(result.price.amountMinorUnits);
-    const cash = new MoneyDecimal(result.cashPrice.amountMinorUnits);
-    const realised = list.minus(cash).dividedBy(list);
-
-    expect(realised.greaterThanOrEqualTo("0.05")).toBe(true);
-    // Sanity bound: flooring to a whole dollar can never overshoot by more than
-    // $1, so the realised discount stays close to the advertised one.
-    expect(realised.lessThan("0.06")).toBe(true);
-  });
-
-  it("gives a whole-dollar cash price below the whole-dollar list price", () => {
-    const result = computeBuyNowPrice(inputs);
-    expect(BigInt(result.cashPrice.amountMinorUnits) % 100n).toBe(0n);
-    expect(BigInt(result.cashPrice.amountMinorUnits)).toBeLessThan(
+    expect(BigInt(result.cardPrice.amountMinorUnits) % 100n).toBe(0n);
+    expect(BigInt(result.cardPrice.amountMinorUnits)).toBeGreaterThan(
       BigInt(result.price.amountMinorUnits)
     );
   });
 
-  it("records the rule id and rate so a historical cash price can be re-derived", () => {
+  it("records the rule id and rate so a historical card price can be re-derived", () => {
     const result = computeBuyNowPrice(inputs);
-    expect(result.cashPriceRuleId).toBe("CASH_DISCOUNT_FLOOR_WHOLE_DOLLAR_V1");
-    expect(result.cashDiscountRate).toBe("0.050000");
+    expect(result.cardPriceRuleId).toBe("CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1");
+    expect(result.cardUpliftRate).toBe("0.050000");
   });
 
-  it("lets the discount take the cash price BELOW the minimum profit, by owner instruction", () => {
-    // D9, owner-revised: "5% should override any profit minimums." The floors
-    // bind the LIST price; the cash price may fall through them. With the MVP1
-    // numbers this happens under $303.03 of landed cost.
+  it("binds the floors to the CASH price, so BOTH prices clear them", () => {
+    // The reason the internal calculation is cash-based. An earlier revision
+    // bound the floors to the displayed card price, which left cash sales
+    // unprotected and put four of seven fixture prices under the $100 minimum.
     //
-    // A cheap piece: 1.5g at $50/g is $75 of metal, far under that threshold.
+    // A deliberately cheap piece, well under the threshold where the minimum
+    // profit binds.
     const cheap = computeBuyNowPrice({
       ...inputs,
       weight: { ...inputs.weight, baseWeightGrams: "1.5000" },
     });
 
-    // The LIST price still satisfies every floor — the override does not weaken
-    // the constraint that actually governs what is published.
     expect(cheap.floors.satisfied).toBe(true);
 
-    // The CASH price does not, and that is the approved outcome rather than a
-    // defect. Asserted explicitly so that "fixing" it by clamping cash up to the
-    // floor — which would silently cancel the discount on exactly the items it
-    // was meant for — fails this test.
-    expect(cheap.cashFloors.satisfied).toBe(false);
-    expect(cheap.cashFloors.failing).toContain("min_dollar_profit");
-
-    // Still a real price, and still above cost: the override extends to the
-    // profit minimums, not to selling at a loss.
-    expect(BigInt(cheap.cashPrice.amountMinorUnits)).toBeGreaterThan(
-      BigInt(Money.fromDecimalMinorUnits(
-        new MoneyDecimal(cheap.breakdown.landedCostMinorUnits),
-        "USD",
-        "HALF_UP_MINOR_UNIT_V1"
-      ).amountMinorUnits)
+    // The card price is strictly higher, so it clears the same floors without
+    // needing its own evaluation.
+    expect(BigInt(cheap.cardPrice.amountMinorUnits)).toBeGreaterThan(
+      BigInt(cheap.price.amountMinorUnits)
     );
   });
 
-  it("records the cash floor evaluation even when it passes", () => {
-    // "Checked and satisfied" must be distinguishable from "never evaluated",
-    // or "how often does the discount go under the minimum?" is unanswerable.
+  it("measures margin and profit on the CASH price, not the displayed one", () => {
+    // What the floors report must describe the price actually netted. Reporting
+    // margin on the card price would overstate profitability on every cash sale.
     const result = computeBuyNowPrice(inputs);
-    expect(result.cashFloors).toBeDefined();
-    expect(typeof result.cashFloors.satisfied).toBe("boolean");
-    expect(result.cashFloors.grossMargin).toMatch(/^[0-9.-]+$/);
+    const cash = new MoneyDecimal(result.price.amountMinorUnits);
+    const cost = new MoneyDecimal(result.breakdown.landedCostMinorUnits);
+
+    // contribution = cash - revenue-side deductions - cost, so it must be
+    // strictly below cash - cost, and nowhere near card - cost.
+    const contribution = new MoneyDecimal(result.floors.contribution);
+    expect(contribution.lessThan(cash.minus(cost))).toBe(true);
+    expect(contribution.lessThan(new MoneyDecimal(result.cardPrice.amountMinorUnits).minus(cost))).toBe(true);
   });
 });

@@ -32,8 +32,8 @@ function profile(overrides: Partial<PricingProfileInputs> = {}): PricingProfileI
     roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
     priceEndingRuleId: "NONE_V1",
     autoApplyToleranceBps: null,
-    cashPriceRuleId: "CASH_DISCOUNT_FLOOR_WHOLE_DOLLAR_V1",
-    cashDiscountRate: "0.050000",
+    cardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
+    cardUpliftRate: "0.050000",
     isPlaceholder: false,
     ...overrides,
   };
