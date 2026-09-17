@@ -289,6 +289,11 @@ enum CostComponentType {
   supplier_fee
   other
   payment_processing
+  /// D9 (2026-09-17): the credit-card adjustment applied to the authoritative
+  /// cash-equivalent base price. NOT a cost component in the landed-cost sense
+  /// — it derives a second customer-facing price from the first, so the engine
+  /// must never fold it into C.
+  payment_adjustment
 
   @@map("cost_component_type")
 }
@@ -477,18 +482,43 @@ model PricingProfile {
   /// an enum, so a new model is a registry addition, not a schema
   /// migration, matching the rounding/price-ending rule ids below.
   marginModel               String             @map("margin_model")
-  targetGrossMarginRate     Decimal            @map("target_gross_margin_rate") @db.Decimal(9, 6)
+  /// Interpreted per `marginModel` (D14, owner-resolved 2026-09-17):
+  ///   TARGET_GROSS_MARGIN_V1 -> `targetGrossMarginRate`, a fraction OF PRICE.
+  ///   MARKUP_ON_COST_V1      -> `targetMarkupRate`, a fraction OF COST:
+  ///                             price = cost x (1 + rate). MVP1 default 0.40.
+  /// Both columns exist because a 40% markup and a 40% margin are different
+  /// numbers — 40% markup on a $100 cost is $140 (a 28.6% margin), while a 40%
+  /// margin on the same cost is $166.67. Conflating them in one column is how
+  /// a profile silently prices ~16% low.
+  targetGrossMarginRate     Decimal?           @map("target_gross_margin_rate") @db.Decimal(9, 6)
+  targetMarkupRate          Decimal?           @map("target_markup_rate") @db.Decimal(9, 6)
+  /// Hard safety floor, always a fraction OF PRICE regardless of margin model
+  /// (R11). D14 default 0.20.
   minGrossMarginRate        Decimal            @map("min_gross_margin_rate") @db.Decimal(9, 6)
   minDollarProfitMinorUnits BigInt             @map("min_dollar_profit_minor_units")
   currency                  String             @db.Char(3)
   roundingRuleId            String             @map("rounding_rule_id")
   priceEndingRuleId         String             @map("price_ending_rule_id")
-  autoApplyToleranceBps     Int                @map("auto_apply_tolerance_bps")
-  effectiveFrom             DateTime           @map("effective_from")
-  createdBy                 String             @map("created_by")
+  /// D14's outstanding value. NULL means the owner has not supplied a
+  /// tolerance, and automatic publication stays DISABLED — every change needs
+  /// manual approval. Zero is a legitimate, different answer meaning "any
+  /// change at all requires approval".
+  autoApplyToleranceBps     Int?               @map("auto_apply_tolerance_bps")
+
+  /// D9 (owner-resolved 2026-09-17). The calculated price is the CASH-EQUIVALENT
+  /// base (ACH, wire, Zelle, cheque). The credit-card price is DERIVED from it,
+  /// never stored as a second independently editable number — that was the
+  /// explicit owner instruction, because two hand-maintained prices drift.
+  ///
+  /// The rule id versions the FORMULA; the rate makes the number configurable
+  /// without a code change. Same split as marginModel/targetMarkupRate above.
+  creditCardPriceRuleId String   @map("credit_card_price_rule_id")
+  creditCardUpliftRate  Decimal  @map("credit_card_uplift_rate") @db.Decimal(9, 6)
+  effectiveFrom         DateTime @map("effective_from")
+  createdBy             String   @map("created_by")
   /// See model doc comment. D14 placeholder marker.
-  isPlaceholder             Boolean            @default(false) @map("is_placeholder")
-  createdAt                 DateTime           @default(now()) @map("created_at")
+  isPlaceholder         Boolean  @default(false) @map("is_placeholder")
+  createdAt             DateTime @default(now()) @map("created_at")
 
   priceCalculations PriceCalculation[]
 
@@ -557,6 +587,7 @@ model MasterVariant {
   stones            MasterVariantStone[]
   priceCalculations PriceCalculation[]      @relation("VariantCalculations")
   syncIntents       PriceSyncIntent[]
+  priceOverrides    PriceOverride[]
 
   @@unique([masterProductId, metal, purity, bandId])
   @@index([status])
@@ -627,6 +658,98 @@ model MasterVariantStone {
 /// §6): enforcement depends on the slice-2 deploy task splitting the
 /// migration role from the runtime role — until then, the runtime role
 /// could DROP TRIGGER and this is documentation, not a guarantee.
+/// D15. What caused a recalculation run. Recorded because "the price changed"
+/// and "a staff member changed the price" are different facts in an audit, and
+/// a dispute six months later cannot distinguish them after the fact.
+enum PriceRecalculationTrigger {
+  /// The platform scheduler (R21). Daily by default; the cadence is scheduler
+  /// configuration, not code.
+  scheduled
+  /// A staff member asked for an immediate run rather than waiting for the
+  /// next scheduled one (D15).
+  staff
+  /// Entry of a new metal reference price, which makes every dependent price
+  /// stale immediately (D15).
+  metal_price_entry
+
+  @@map("price_recalculation_trigger")
+}
+
+/// D15 run-level audit record. PriceCalculation already carries the per-variant
+/// facts; this carries the facts that belong to the RUN — what triggered it,
+/// who asked for it, and what it did overall.
+///
+/// Append-only like the rest of the pricing history: a run record is written
+/// once at the start and completed once at the end, and is never rewritten.
+model PriceRecalculationRun {
+  id          String                    @id @db.Uuid
+  trigger     PriceRecalculationTrigger
+  /// Actor for a staff-triggered run. NULL for a scheduled run, where there is
+  /// no human to name and inventing one would be false attribution.
+  triggeredBy String?                   @map("triggered_by")
+  /// Free-text justification a staff member supplies for an off-schedule run.
+  reason      String?
+  /// The as-of instant the run resolved its inputs at (§5.6 reproducibility).
+  asOf        DateTime                  @map("as_of") @db.Timestamptz(6)
+  startedAt   DateTime                  @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt  DateTime?                 @map("finished_at") @db.Timestamptz(6)
+
+  computed      Int @default(0)
+  skipped       Int @default(0)
+  failed        Int @default(0)
+  autoApply     Int @default(0) @map("auto_apply")
+  needsApproval Int @default(0) @map("needs_approval")
+  unchanged     Int @default(0)
+
+  @@index([trigger, startedAt])
+  @@map("price_recalculation_run")
+}
+
+/// D14 (owner-directed 2026-09-17): "manual owner overrides are permitted even
+/// when they violate the floors, subject to warning, confirmation, reason and
+/// audit". This table IS that audit.
+///
+/// Append-only. An override is a deliberate departure from the calculated
+/// price, and the record of who made it, what they were warned about and why
+/// is the whole point — a mutable override row would defeat it.
+///
+/// The override does NOT edit any price_calculation. The calculated price
+/// remains on the record exactly as computed; this sits alongside it. That
+/// separation is what lets "what did the engine say?" and "what did we
+/// actually charge?" both be answered later.
+model PriceOverride {
+  id              String        @id @default(uuid()) @db.Uuid
+  masterVariantId String        @map("master_variant_id") @db.Uuid
+  masterVariant   MasterVariant @relation(fields: [masterVariantId], references: [id])
+
+  /// The calculation this override departs from, so the delta is reconstructible.
+  priceCalculationId String?           @map("price_calculation_id") @db.Uuid
+  priceCalculation   PriceCalculation? @relation(fields: [priceCalculationId], references: [id])
+
+  overridePriceMinorUnits BigInt @map("override_price_minor_units")
+  currency                String @db.Char(3)
+
+  /// Which floors the override breaches, if any. An EMPTY array is meaningful:
+  /// it records that the system checked and found none, as distinct from never
+  /// having checked.
+  breachedFloors Json @map("breached_floors")
+
+  /// The exact warning text shown to the operator. Stored verbatim rather than
+  /// regenerated later: what they were actually told is the fact that matters,
+  /// and the wording may change in a future release.
+  warningShown String? @map("warning_shown")
+
+  /// Required, always. An override without a stated reason is indistinguishable
+  /// from a mistake.
+  reason       String
+  overriddenBy String @map("overridden_by")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([masterVariantId, createdAt])
+  @@map("price_override")
+}
+
 model PriceCalculation {
   id                      String                 @id @default(uuid()) @db.Uuid
   runId                   String                 @map("run_id") @db.Uuid
@@ -651,6 +774,7 @@ model PriceCalculation {
 
   syncIntents         PriceSyncIntent[]
   lastSyncedByVariant MasterVariant?    @relation("LastSyncedCalculation")
+  priceOverrides      PriceOverride[]
 
   @@unique([runId, masterVariantId])
   @@index([masterVariantId, createdAt])
@@ -674,6 +798,10 @@ model PriceSyncIntent {
   previousPriceMinorUnits BigInt?               @map("previous_price_minor_units")
   previousPriceCurrency   String?               @map("previous_price_currency") @db.Char(3)
   deltaBps                Int?                  @map("delta_bps")
+  /// D15 requires the DOLLAR change alongside the percentage one. Stored
+  /// rather than derived so the audit row is self-contained: the previous price
+  /// can be superseded later, but this record of what changed stays intact.
+  deltaMinorUnits         BigInt?               @map("delta_minor_units")
   decidedBy               String?               @map("decided_by")
   decidedAt               DateTime?             @map("decided_at")
   reason                  String?

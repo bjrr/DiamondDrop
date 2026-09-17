@@ -24,7 +24,10 @@ export interface InputProvenance {
   effectiveFrom: string;
 }
 
-export type PriceEndingRuleId = "NONE_V1";
+export type PriceEndingRuleId = "NONE_V1" | "WHOLE_DOLLAR_UP_V1";
+
+/** D9. Versions the FORMULA deriving the card price from the cash base. */
+export type CreditCardPriceRuleId = "MULTIPLY_BASE_V1";
 
 export type ComponentBasis = "cost_side" | "revenue_side";
 export type ComponentValueKind = "fixed" | "per_stone" | "percentage";
@@ -75,13 +78,24 @@ export interface BandSpec {
 export interface PricingProfileInputs {
   code: string;
   version: number;
-  marginModel: "TARGET_GROSS_MARGIN_V1";
-  targetGrossMarginRate: DecimalString;
+  marginModel: "TARGET_GROSS_MARGIN_V1" | "MARKUP_ON_COST_V1";
+  /** Fraction OF PRICE. Present for TARGET_GROSS_MARGIN_V1. */
+  targetGrossMarginRate?: DecimalString;
+  /** Fraction OF COST. Present for MARKUP_ON_COST_V1 (D14 default 0.40). */
+  targetMarkupRate?: DecimalString;
   minGrossMarginRate: DecimalString;
   minDollarProfit: MoneyJSON;
   roundingRuleId: RoundingRuleId;
   priceEndingRuleId: PriceEndingRuleId;
-  autoApplyToleranceBps: number;
+  /**
+   * NULL while D14 s tolerance is unresolved, which DISABLES automatic
+   * publication: every change requires manual approval. Zero is a different,
+   * legitimate answer meaning any change at all needs approval.
+   */
+  autoApplyToleranceBps: number | null;
+  /** D9. Formula id and rate for deriving the card price from the cash base. */
+  creditCardPriceRuleId: CreditCardPriceRuleId;
+  creditCardUpliftRate: DecimalString;
   isPlaceholder: boolean;
 }
 
@@ -137,7 +151,19 @@ export interface BuyNowPriceResult {
   /** The exact unrounded solve result, retained for audit (§5.6). */
   exactPriceMinorUnits: DecimalString;
   binding: BindingConstraint;
+  /**
+   * The CASH-EQUIVALENT price (D9): ACH, wire, Zelle, cheque. This is the one
+   * stored price and the basis for everything below.
+   */
   price: MoneyJSON;
+  /**
+   * DERIVED from the cash price, never stored independently (D9). It is
+   * recomputable at any time from price + rate + rule id, all three of which
+   * are recorded on this result.
+   */
+  creditCardPrice: MoneyJSON;
+  creditCardPriceRuleId: CreditCardPriceRuleId;
+  creditCardUpliftRate: DecimalString;
   floors: FloorEvaluation;
   bumps: number;
   roundingRuleId: RoundingRuleId;

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import type { PriceRecalculationTrigger } from "@prisma/client";
+
 import { prisma } from "~/db/client.server";
 import {
   createPriceCalculation,
@@ -51,12 +53,58 @@ export interface RunOptions {
   runId?: string;
   asOf?: Date;
   openCampaignExclusions?: OpenCampaignExclusionSource;
+  /**
+   * D15. What caused this run. Defaults to `scheduled` because that is the
+   * overwhelmingly common case (the daily platform scheduler), and because a
+   * run whose origin is unknown is better recorded as the routine one than as
+   * a human action nobody took.
+   */
+  trigger?: PriceRecalculationTrigger;
+  /** Required for a staff-triggered run; meaningless for a scheduled one. */
+  triggeredBy?: string;
+  /** Free-text justification for an off-schedule run. */
+  reason?: string;
+}
+
+/**
+ * D15. A staff-triggered run must name the person who asked for it. Without
+ * this, "who forced a repricing the day before the dispute?" has no answer —
+ * and a nullable column alone would let the answer be quietly omitted.
+ */
+/**
+ * Prisma's unique-violation code. Matched structurally rather than by message
+ * so a Prisma upgrade that rewords the error does not silently turn a handled
+ * re-run into a crash.
+ */
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
+
+export class MissingTriggerActorError extends Error {
+  constructor(readonly trigger: PriceRecalculationTrigger) {
+    super(
+      `A ${trigger} price recalculation must name the staff member who triggered it (triggeredBy).`
+    );
+    this.name = "MissingTriggerActorError";
+  }
 }
 
 export async function runPriceRecalculation(options: RunOptions = {}): Promise<RunSummary> {
   const runId = options.runId ?? randomUUID();
   const asOf = options.asOf ?? new Date();
   const openCampaigns = options.openCampaignExclusions ?? new NoOpOpenCampaignExclusionSource();
+  const trigger = options.trigger ?? "scheduled";
+
+  // Checked BEFORE any work, so an unattributable run never reaches the point
+  // of writing prices.
+  if (trigger !== "scheduled" && !options.triggeredBy) {
+    throw new MissingTriggerActorError(trigger);
+  }
 
   const summary: RunSummary = {
     runId,
@@ -69,7 +117,33 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
     unchanged: 0,
   };
 
-  logger.info("pricing.run_started", { runId, asOf: asOf.toISOString() });
+  // D15 run-level audit row, written BEFORE the work so that a run which
+  // crashes still leaves evidence it happened. finished_at stays NULL in that
+  // case, which is how an interrupted run is told apart from a clean one.
+  //
+  // Created idempotently. Re-running with the same runId is a deliberate no-op
+  // (criterion 23), so a duplicate id here means "this run already started",
+  // not an error — and must not abort a re-run before it can reconcile.
+  try {
+    await prisma.priceRecalculationRun.create({
+      data: {
+        id: runId,
+        trigger,
+        triggeredBy: options.triggeredBy ?? null,
+        reason: options.reason ?? null,
+        asOf,
+      },
+    });
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+  }
+
+  logger.info("pricing.run_started", {
+    runId,
+    asOf: asOf.toISOString(),
+    trigger,
+    triggeredBy: options.triggeredBy ?? null,
+  });
 
   const variants = await prisma.masterVariant.findMany({
     where: { status: "active" },
@@ -223,6 +297,9 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
       const decision = decideSync({
         newPrice: result.price,
         lastSyncedPrice: lastSynced,
+        // NULL tolerance means D14 is unresolved: automatic publication is
+        // disabled and every change needs a human. Passing null rather than a
+        // default is deliberate — a defaulted tolerance would silently publish.
         toleranceBps: resolved.inputs.profile.autoApplyToleranceBps,
       });
 
@@ -257,6 +334,7 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
         previousPriceMinorUnits: lastSynced ? BigInt(lastSynced.amountMinorUnits) : null,
         previousPriceCurrency: lastSynced?.currency ?? null,
         deltaBps: decision.deltaBps,
+        deltaMinorUnits: decision.deltaMinorUnits,
         reason: decision.reason,
       });
 
@@ -313,6 +391,28 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
       }
     }
   }
+
+  // Completes the D15 audit row. The database trigger permits this exactly
+  // once and only on a row whose finished_at is still NULL, so a run cannot be
+  // retroactively retold with different counts.
+  //
+  // updateMany with a finishedAt IS NULL guard rather than update-by-id: a
+  // re-run of an already-completed runId must leave the original completion
+  // record alone. The guard means no row matches, so the append-only trigger
+  // never fires — the alternative would be a re-run crashing on its own
+  // idempotency.
+  await prisma.priceRecalculationRun.updateMany({
+    where: { id: runId, finishedAt: null },
+    data: {
+      finishedAt: new Date(),
+      computed: summary.computed,
+      skipped: summary.skipped,
+      failed: summary.failed,
+      autoApply: summary.autoApply,
+      needsApproval: summary.needsApproval,
+      unchanged: summary.unchanged,
+    },
+  });
 
   logger.info("pricing.run_finished", {
     runId,

@@ -29,6 +29,7 @@ export interface UpsertIntentInput {
   previousPriceMinorUnits?: bigint | null;
   previousPriceCurrency?: string | null;
   deltaBps?: number | null;
+  deltaMinorUnits?: bigint | null;
   reason?: string | null;
 }
 /**
@@ -67,6 +68,7 @@ export async function supersedeAndCreateIntent(input: UpsertIntentInput) {
         previousPriceMinorUnits: input.previousPriceMinorUnits ?? null,
         previousPriceCurrency: input.previousPriceCurrency ?? null,
         deltaBps: input.deltaBps ?? null,
+        deltaMinorUnits: input.deltaMinorUnits ?? null,
         reason: input.reason ?? null,
         attemptCount: 0,
       },

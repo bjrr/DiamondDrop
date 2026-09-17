@@ -136,3 +136,68 @@ describe("the comparison is exact, not floating point", () => {
     expect(result.decision).toBe("auto_apply");
   });
 });
+
+/**
+ * D14 (owner instruction, 2026-09-17): the auto-apply tolerance is still
+ * outstanding. Until it is supplied, "the pricing engine may calculate and
+ * display real prices, but automatic Shopify price publication requiring the
+ * tolerance must remain disabled or require manual approval."
+ *
+ * A NULL tolerance is what encodes that. These tests are the gate.
+ */
+describe("a null tolerance disables automatic publication", () => {
+  it("routes an ordinary change to manual approval", () => {
+    const result = decideSync({
+      newPrice: usd("35900"),
+      lastSyncedPrice: usd("34900"),
+      toleranceBps: null,
+    });
+    expect(result.decision).toBe("needs_approval");
+    expect(result.reason).toMatch(/no auto-apply tolerance/);
+  });
+
+  it("routes even a one-minor-unit change to manual approval", () => {
+    // The point of the gate is that NO size of change publishes itself, not
+    // that large ones do not. A tiny change is the case a defaulted tolerance
+    // would have waved through.
+    const result = decideSync({
+      newPrice: usd("34901"),
+      lastSyncedPrice: usd("34900"),
+      toleranceBps: null,
+    });
+    expect(result.decision).toBe("needs_approval");
+  });
+
+  it("still treats an unchanged price as a no-op rather than queueing it", () => {
+    // Checked deliberately: a price that did not move has nothing to publish,
+    // so the gate must not fill the approval queue with nothing to approve.
+    const result = decideSync({
+      newPrice: usd("34900"),
+      lastSyncedPrice: usd("34900"),
+      toleranceBps: null,
+    });
+    expect(result.unchanged).toBe(true);
+    expect(result.decision).toBe("auto_apply");
+  });
+
+  it("is distinguishable from a zero tolerance in the recorded reason", () => {
+    // Zero is a legitimate owner choice meaning "any change needs approval".
+    // Both refuse to auto-apply, but the audit trail must not conflate an
+    // unconfigured system with a deliberately strict one.
+    const unconfigured = decideSync({
+      newPrice: usd("35900"),
+      lastSyncedPrice: usd("34900"),
+      toleranceBps: null,
+    });
+    const strict = decideSync({
+      newPrice: usd("35900"),
+      lastSyncedPrice: usd("34900"),
+      toleranceBps: 0,
+    });
+
+    expect(unconfigured.decision).toBe("needs_approval");
+    expect(strict.decision).toBe("needs_approval");
+    expect(unconfigured.reason).not.toBe(strict.reason);
+    expect(strict.reason).toMatch(/exceeds/);
+  });
+});

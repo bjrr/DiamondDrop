@@ -10,9 +10,16 @@
  *   approve --intent <id> --actor <staff-id> [--reason <text>]
  *   reject  --intent <id> --actor <staff-id> --reason <text>
  *   verify  --calculation <id>
+ *   override --variant <id> --price <minor-units> --actor <staff-id>
+ *            --reason <text> [--calculation <id>] [--confirm-breach]
  *
- * `--actor` is mandatory on approve and reject. There is no anonymous
+ * `--actor` is mandatory on approve, reject and override. There is no anonymous
  * approval: an unattributable sign-off on a price change is not a sign-off.
+ *
+ * `override` is D14's manual owner override. Run WITHOUT --confirm-breach it
+ * previews: it prints what floors the price would breach and writes nothing.
+ * That is the default on purpose — the warning has to be seen before it can be
+ * acknowledged, and a flag that defaults to "proceed" is not a confirmation.
  *
  * TypeScript rather than plain .mjs so it can import the real modules. The
  * previous .mjs version reached for `../build/server/index.js` and printed
@@ -22,7 +29,9 @@
 import "dotenv/config";
 
 import { prisma } from "~/db/client.server";
+import { MoneyDecimal } from "~/domain/money/decimal";
 import { decideIntent } from "~/jobs/pricing/intentTransitions.server";
+import { applyPriceOverride, previewPriceOverride } from "~/jobs/pricing/priceOverride.server";
 import { verifyPriceCalculation } from "~/jobs/pricing/verify.server";
 
 function arg(name: string): string | undefined {
@@ -101,6 +110,68 @@ async function decide(status: "approved" | "rejected"): Promise<void> {
   console.log(`intent ${intentId} ${status} by ${actor}.`);
 }
 
+/**
+ * D14 manual override. Two-step by construction: the first invocation shows the
+ * warning and refuses, the second carries --confirm-breach.
+ */
+async function override(): Promise<void> {
+  const masterVariantId = arg("variant");
+  const price = arg("price");
+  const actor = arg("actor");
+  const reason = arg("reason");
+
+  if (!masterVariantId) return fail("--variant <id> is required");
+  if (!price) return fail("--price <minor-units> is required");
+  if (!actor) return fail("--actor <staff-id> is required");
+  if (!reason) return fail("--reason <text> is required (D14)");
+
+  if (!/^[0-9]+$/.test(price)) {
+    // Parsed as a bigint from an exact digit string. A price typed as "349.00"
+    // would need a decimal conversion here, and that conversion is exactly the
+    // kind of ad-hoc money handling the slice keeps out of operator scripts.
+    return fail("--price must be whole MINOR units (e.g. 34900 for $349.00)");
+  }
+
+  const request = {
+    masterVariantId,
+    priceCalculationId: arg("calculation"),
+    overridePriceMinorUnits: BigInt(price),
+    currency: arg("currency") ?? "USD",
+    reason,
+    overriddenBy: actor,
+    confirmBreach: process.argv.includes("--confirm-breach"),
+  };
+
+  const preview = await previewPriceOverride(request);
+
+  console.log(`calculation:    ${preview.priceCalculationId}`);
+  console.log(`override price: ${formatMinorUnits(request.overridePriceMinorUnits, request.currency)}`);
+  // Truncated for DISPLAY only. The exact decimal is what the floor check
+  // used; printing all 40 significant digits at an operator is noise they have
+  // to squint past to see the number that matters.
+  console.log(
+    `gross margin:   ${new MoneyDecimal(preview.grossMargin).times(100).toDecimalPlaces(2).toString()}%`
+  );
+  console.log(
+    `contribution:   ${formatMinorUnits(BigInt(preview.contributionMinorUnits.split(".")[0] ?? "0"), request.currency)}`
+  );
+
+  if (preview.warning) {
+    console.log("");
+    console.log(preview.warning);
+    console.log("");
+  }
+
+  if (preview.breaches.length > 0 && !request.confirmBreach) {
+    return fail(
+      "this override breaches the floors above. Re-run with --confirm-breach to proceed; it will be recorded."
+    );
+  }
+
+  const result = await applyPriceOverride(request);
+  console.log(`override ${result.id} recorded by ${actor}.`);
+}
+
 async function verify(): Promise<void> {
   const calculationId = arg("calculation");
   if (!calculationId) return fail("--calculation <id> is required");
@@ -117,10 +188,12 @@ const run =
         ? () => decide("rejected")
         : verb === "verify"
           ? verify
-          : null;
+          : verb === "override"
+            ? override
+            : null;
 
 if (!run) {
-  console.log("usage: price-review <list|approve|reject|verify> [options]");
+  console.log("usage: price-review <list|approve|reject|verify|override> [options]");
   process.exitCode = 1;
 } else {
   run()

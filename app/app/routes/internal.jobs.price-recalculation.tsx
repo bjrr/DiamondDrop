@@ -2,7 +2,10 @@ import { timingSafeEqual } from "node:crypto";
 
 import type { ActionFunctionArgs } from "react-router";
 
-import { runPriceRecalculation } from "~/jobs/pricing/runRecalculation.server";
+import {
+  MissingTriggerActorError,
+  runPriceRecalculation,
+} from "~/jobs/pricing/runRecalculation.server";
 import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
 
@@ -23,11 +26,32 @@ import { logger } from "~/lib/logger.server";
  * one.
  *
  * Invoked by the platform scheduler (R21) — there is no in-process timer.
- * Daily by default; twice-daily is a scheduler configuration change, not a
- * code change (R7, and D15 is still open).
+ * D15 (owner-resolved 2026-09-17) sets the cadence at DAILY. Twice-daily, or
+ * any other schedule, is a scheduler configuration change rather than a code
+ * change: nothing here encodes "once a day".
+ *
+ * D15 also allows staff to trigger an immediate run instead of waiting for the
+ * next scheduled one. That arrives on this same endpoint with a JSON body
+ * naming the trigger and the person responsible; a scheduled run sends no body.
+ * One endpoint rather than two, because the work is identical and only the
+ * attribution differs — and a second endpoint would be a second thing to
+ * secure.
  */
 
 const CRON_SECRET_HEADER = "x-carat-cron-secret";
+
+/**
+ * D15 staff-trigger body. Every field is optional: a scheduled run posts no
+ * body at all, which is what keeps the existing cron configuration working
+ * unchanged.
+ */
+interface StaffTriggerBody {
+  trigger?: "scheduled" | "staff" | "metal_price_entry";
+  triggeredBy?: string;
+  reason?: string;
+}
+
+const ALLOWED_TRIGGERS = new Set(["scheduled", "staff", "metal_price_entry"]);
 
 export async function action({ request }: ActionFunctionArgs) {
   // Authenticate BEFORE reading the body, so an unauthenticated caller cannot
@@ -41,9 +65,42 @@ export async function action({ request }: ActionFunctionArgs) {
     return new Response(null, { status: 405 });
   }
 
-  const summary = await runPriceRecalculation();
-  // Counts and references only — no price, cost or margin values (criterion 30).
-  return Response.json(summary, { status: 200 });
+  let options: StaffTriggerBody = {};
+  if (request.headers.get("content-type")?.includes("application/json")) {
+    try {
+      options = (await request.json()) as StaffTriggerBody;
+    } catch {
+      return Response.json({ error: "malformed JSON body" }, { status: 400 });
+    }
+  }
+
+  // Validated here rather than trusted: this endpoint writes the attribution
+  // that a later dispute relies on, so "who asked for this run" must be a real
+  // claim from the caller, not a default we invented.
+  if (options.trigger !== undefined && !ALLOWED_TRIGGERS.has(options.trigger)) {
+    return Response.json({ error: "unknown trigger" }, { status: 400 });
+  }
+  if (options.trigger !== undefined && options.trigger !== "scheduled" && !options.triggeredBy) {
+    return Response.json(
+      { error: "triggeredBy is required for a staff-triggered run" },
+      { status: 400 }
+    );
+  }
+
+  try {
+    const summary = await runPriceRecalculation({
+      trigger: options.trigger,
+      triggeredBy: options.triggeredBy,
+      reason: options.reason,
+    });
+    // Counts and references only — no price, cost or margin values (criterion 30).
+    return Response.json(summary, { status: 200 });
+  } catch (error) {
+    if (error instanceof MissingTriggerActorError) {
+      return Response.json({ error: error.message }, { status: 400 });
+    }
+    throw error;
+  }
 }
 
 function isAuthorised(request: Request): boolean {

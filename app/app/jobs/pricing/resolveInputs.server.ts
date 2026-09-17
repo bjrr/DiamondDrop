@@ -198,14 +198,21 @@ export async function resolveInputsForVariant(
     profile: {
       code: profile.code,
       version: profile.version,
-      marginModel: "TARGET_GROSS_MARGIN_V1",
-      targetGrossMarginRate: profile.targetGrossMarginRate,
+      // Read from the profile rather than hard-coded. An earlier version wrote
+      // the literal here while reading the column into an unused variable,
+      // which would have silently ignored a MARKUP_ON_COST_V1 profile.
+      marginModel: profile.marginModel as BuyNowPricingInputs["profile"]["marginModel"],
+      targetGrossMarginRate: profile.targetGrossMarginRate ?? undefined,
+      targetMarkupRate: profile.targetMarkupRate ?? undefined,
       minGrossMarginRate: profile.minGrossMarginRate,
       minDollarProfit: profile.minDollarProfit.toJSON(),
       roundingRuleId: profile.roundingRuleId as BuyNowPricingInputs["profile"]["roundingRuleId"],
       priceEndingRuleId:
         profile.priceEndingRuleId as BuyNowPricingInputs["profile"]["priceEndingRuleId"],
       autoApplyToleranceBps: profile.autoApplyToleranceBps,
+      creditCardPriceRuleId:
+        profile.creditCardPriceRuleId as BuyNowPricingInputs["profile"]["creditCardPriceRuleId"],
+      creditCardUpliftRate: profile.creditCardUpliftRate,
       isPlaceholder: profile.isPlaceholder,
     },
     variantFloor:

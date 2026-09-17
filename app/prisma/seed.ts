@@ -44,6 +44,12 @@ const prisma = new PrismaClient();
 // here, so re-running this script always resolves to the same natural key.
 const SEED_EFFECTIVE_FROM = new Date("2026-01-01T00:00:00.000Z");
 const SEED_CURRENCY = "USD";
+/**
+ * When the owner s real pricing controls took effect (D14, resolved
+ * 2026-09-17). Later than SEED_EFFECTIVE_FROM so effective-dated resolution
+ * picks v2 over the v1 placeholder for any as-of date from this point on.
+ */
+const D14_EFFECTIVE_FROM = new Date("2026-09-17T00:00:00.000Z");
 const SEED_ENTERED_BY = "seed-script";
 
 // Fixed, deterministic ids for the mutable design/definition rows, so
@@ -369,15 +375,12 @@ async function seedCostComponents(): Promise<void> {
 async function seedPricingProfile(): Promise<void> {
   console.log("Seeding pricing_profile...");
 
-  // D14 (docs/specs/SLICE-1-PRICING.md §13) is an OPEN owner decision: the
-  // real target/minimum margin, minimum dollar profit and auto-apply
-  // tolerance are business numbers this seed must not invent. The values
-  // below are deliberately absurd (99.99% margin, a $9,999,999.00 minimum
-  // dollar profit) so they cannot be mistaken for real business data if
-  // ever surfaced by mistake, and `isPlaceholder = true` is the queryable
-  // flag the T8 review CLI must check before allowing an approval.
+  // v1 — the original D14 placeholder. RETAINED, not edited: pricing_profile is
+  // append-only, and calculations already reference this version. Its absurd
+  // values (99.99% margin, $9,999,999.00 minimum profit) exist so placeholder
+  // data could never be mistaken for business data.
   await createIfAbsent(
-    "pricing_profile buy_now v1 (PLACEHOLDER — D14 unresolved)",
+    "pricing_profile buy_now v1 (superseded D14 placeholder)",
     () =>
       prisma.pricingProfile.findUnique({
         where: { code_version: { code: PricingProfileCode.buy_now, version: 1 } },
@@ -393,11 +396,61 @@ async function seedPricingProfile(): Promise<void> {
           minDollarProfitMinorUnits: 999999900n,
           currency: SEED_CURRENCY,
           roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
+          creditCardPriceRuleId: "MULTIPLY_BASE_V1",
+          creditCardUpliftRate: "0.050000",
           priceEndingRuleId: "NONE_V1",
           autoApplyToleranceBps: 0,
           effectiveFrom: SEED_EFFECTIVE_FROM,
-          createdBy: "seed-script (D14 PLACEHOLDER — see docs/specs/SLICE-1-PRICING.md §13; not real business data)",
+          createdBy:
+            "seed-script (D14 PLACEHOLDER — superseded by v2; see docs/ARCHITECTURE-MVP1.md D14)",
           isPlaceholder: true,
+        },
+      })
+  );
+
+  // v2 — REAL BUSINESS DATA. Owner decision D14, resolved 2026-09-17.
+  //
+  //   target markup           40% ON COST  -> price = cost x 1.40
+  //   minimum gross margin    20% OF PRICE (hard floor)
+  //   minimum dollar profit   $100.00      (hard floor)
+  //   price ending            whole dollars, rounded up
+  //
+  // Markup and margin are different bases and are NOT interchangeable: 40%
+  // markup on cost is a 28.6% gross margin. Both numbers are the owner s, and
+  // each is stored against the model that reads it.
+  //
+  // autoApplyToleranceBps is NULL on purpose. The owner has not yet supplied
+  // the tolerance, and per their instruction the engine may calculate and
+  // display real prices while AUTOMATIC Shopify publication stays disabled.
+  // NULL is what disables it; a defaulted number here would silently enable
+  // automatic publication of prices no one had agreed a threshold for.
+  //
+  // isPlaceholder is FALSE: these are real approved numbers, so the T8 review
+  // CLI will allow approvals against this profile.
+  await createIfAbsent(
+    "pricing_profile buy_now v2 (D14 resolved — real business data)",
+    () =>
+      prisma.pricingProfile.findUnique({
+        where: { code_version: { code: PricingProfileCode.buy_now, version: 2 } },
+      }),
+    () =>
+      prisma.pricingProfile.create({
+        data: {
+          code: PricingProfileCode.buy_now,
+          version: 2,
+          marginModel: "MARKUP_ON_COST_V1",
+          targetMarkupRate: "0.400000",
+          minGrossMarginRate: "0.200000",
+          minDollarProfitMinorUnits: 10000n,
+          currency: SEED_CURRENCY,
+          roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
+          creditCardPriceRuleId: "MULTIPLY_BASE_V1",
+          creditCardUpliftRate: "0.050000",
+          priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
+          autoApplyToleranceBps: null,
+          effectiveFrom: D14_EFFECTIVE_FROM,
+          createdBy: "seed-script (owner decision D14, resolved 2026-09-17)",
+          isPlaceholder: false,
         },
       })
   );

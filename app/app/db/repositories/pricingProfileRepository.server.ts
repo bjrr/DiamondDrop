@@ -28,12 +28,15 @@ export interface ResolvedPricingProfile {
   version: number;
   marginModel: string;
   /** Decimal strings, never numbers (§4.1). */
-  targetGrossMarginRate: string;
+  targetGrossMarginRate: string | null;
+  targetMarkupRate: string | null;
   minGrossMarginRate: string;
   minDollarProfit: Money;
   roundingRuleId: string;
   priceEndingRuleId: string;
-  autoApplyToleranceBps: number;
+  autoApplyToleranceBps: number | null;
+  creditCardPriceRuleId: string;
+  creditCardUpliftRate: string;
   /**
    * D14 is unresolved, so the seeded profile carries deliberately absurd
    * placeholder values behind this flag. The T8 review CLI MUST refuse to
@@ -81,12 +84,15 @@ export async function resolveActivePricingProfile(
     code: row.code,
     version: row.version,
     marginModel: row.marginModel,
-    targetGrossMarginRate: row.targetGrossMarginRate.toString(),
+    targetGrossMarginRate: row.targetGrossMarginRate?.toString() ?? null,
+    targetMarkupRate: row.targetMarkupRate?.toString() ?? null,
     minGrossMarginRate: row.minGrossMarginRate.toString(),
     minDollarProfit: Money.fromMinorUnits(row.minDollarProfitMinorUnits, row.currency),
     roundingRuleId: row.roundingRuleId,
     priceEndingRuleId: row.priceEndingRuleId,
     autoApplyToleranceBps: row.autoApplyToleranceBps,
+    creditCardPriceRuleId: row.creditCardPriceRuleId,
+    creditCardUpliftRate: row.creditCardUpliftRate.toString(),
     isPlaceholder: row.isPlaceholder,
     provenance: provenanceOf("pricing_profile", row),
   };

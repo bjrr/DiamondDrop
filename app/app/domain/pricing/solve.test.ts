@@ -17,6 +17,7 @@ import type { FloorInput, SolveInput } from "./solve";
 
 describe("solveExactPrice (spec §5.3)", () => {
   const baseInput: SolveInput = {
+    marginModel: "TARGET_GROSS_MARGIN_V1",
     landedCostMinorUnits: new MoneyDecimal("75365.25"),
     targetGrossMarginRate: new MoneyDecimal("0.42"),
     revenueRate: new MoneyDecimal("0.029"),
@@ -84,6 +85,7 @@ describe("solveExactPrice (spec §5.3)", () => {
 
     // Revenue-side case (base): rate 0.02 revenue-side
     const revenueSide = solveExactPrice({
+      marginModel: "TARGET_GROSS_MARGIN_V1",
       landedCostMinorUnits: new MoneyDecimal("100000"),
       targetGrossMarginRate: new MoneyDecimal("0.40"),
       revenueRate: new MoneyDecimal("0.02"),
@@ -94,6 +96,7 @@ describe("solveExactPrice (spec §5.3)", () => {
 
     // Cost-side case: add 2% of base to cost
     const costSide = solveExactPrice({
+      marginModel: "TARGET_GROSS_MARGIN_V1",
       landedCostMinorUnits: new MoneyDecimal("102000"), // 100000 + (100000 * 0.02)
       targetGrossMarginRate: new MoneyDecimal("0.40"),
       revenueRate: new MoneyDecimal("0"),
