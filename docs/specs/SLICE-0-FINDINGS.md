@@ -106,6 +106,24 @@ Three configuration items are correct to omit for slice 0 and become live when `
 
 ---
 
+## Gate: before slice 2 wires the Shopify price sync
+
+Added 2026-09-17 from the slice 1 QA review (T10). These are not slice 1
+defects — slice 1 deliberately never calls Shopify — but each becomes live the
+moment slice 2 does.
+
+| ID | Sev | Where | Item | Kind |
+|---|---|---|---|---|
+| F-26 | High | `app/prisma/schema.prisma` (`master_variant.lastSyncedPriceCalculationId`), read at `app/app/jobs/pricing/runRecalculation.server.ts` | The compare-and-set anchor is declared and READ but never WRITTEN anywhere. Until slice 2 populates it, `decideSync` always sees `lastSyncedPrice: null` and always returns `needs_approval` — so the entire auto-apply path is dead code in production | Contract |
+| F-27 | High | `app/app/jobs/pricing/ports.ts`, `runRecalculation.server.ts` | Nothing calls `ShopifyPriceSyncPort.applyVariantPrice`. An intent reaching `approved` is cleared for sync but no sync occurs. Slice 2 must move `approved -> syncing -> synced` on a real call, and must re-check `isPlaceholderProfile` immediately before the call rather than trusting the status alone | Contract |
+| F-28 | Medium | `app/app/jobs/pricing/runRecalculation.server.ts` | A variant whose `bandId` does not resolve to one of its product's bands now throws, failing that variant every run. Correct — pricing off the wrong band is worse — but there is no operator surface to discover or repair such a variant. Slice 2's admin UI should surface persistently failing variants | Contract |
+
+## Gate: test infrastructure (raised by slice 1 QA review)
+
+| ID | Sev | Where | Item | Kind |
+|---|---|---|---|---|
+| F-29 | High | `app/tests/integration/pricing/*.test.ts`, `app/vitest.integration.config.ts` | Integration tests create non-placeholder `pricing_profile` rows in the shared `carat_dev` database. The table is append-only, so they accumulate and cannot be removed: 62 exist as of 2026-09-17 against 1 real placeholder, and several outrank it for any `asOf >= 2026-05-01`. **The D14 placeholder guard therefore will not demonstrate itself in `carat_dev`** — a stray test profile with realistic-looking values resolves instead. Integration tests need a disposable database or schema, never the one used for manual verification | Real defect |
+
 ## Gate: next migration that touches `webhook_event`
 
 | ID | Sev | Where | Item | Kind |
