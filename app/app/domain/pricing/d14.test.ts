@@ -5,7 +5,7 @@ import { MoneyDecimal } from "~/domain/money/decimal";
 import { computeBuyNowPrice } from "./engine";
 import { applyPriceEnding } from "./priceEnding";
 import { enforceFloors, solveExactPrice } from "./solve";
-import type { BuyNowPricingInputs } from "./types";
+import type { BuyNowPricingInputs, PricingProfileInputs } from "./types";
 
 /**
  * D14 (owner-resolved 2026-09-17) — the four pricing controls:
@@ -19,13 +19,27 @@ import type { BuyNowPricingInputs } from "./types";
  */
 
 describe("MARKUP_ON_COST_V1 (D14 target markup)", () => {
+  const markupProfile = (overrides: Partial<PricingProfileInputs> = {}): PricingProfileInputs => ({
+    code: "buy_now",
+    version: 2,
+    marginModel: "MARKUP_ON_COST_V1",
+    targetMarkupRate: "0.40",
+    minGrossMarginRate: "0.20",
+    minDollarProfit: { amountMinorUnits: "0", currency: "USD" },
+    roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
+    priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
+    autoApplyToleranceBps: null,
+    creditCardPriceRuleId: "MULTIPLY_BASE_V1",
+    creditCardUpliftRate: "0.050000",
+    isPlaceholder: false,
+    ...overrides,
+  });
+
   const base = {
-    marginModel: "MARKUP_ON_COST_V1" as const,
+    profile: markupProfile(),
     landedCostMinorUnits: new MoneyDecimal("10000"), // $100.00
-    targetMarkupRate: new MoneyDecimal("0.40"),
     revenueRate: new MoneyDecimal("0"),
     revenueFixedMinorUnits: new MoneyDecimal("0"),
-    minDollarProfitMinorUnits: new MoneyDecimal("0"),
     variantFloorMinorUnits: new MoneyDecimal("0"),
   };
 
@@ -37,9 +51,11 @@ describe("MARKUP_ON_COST_V1 (D14 target markup)", () => {
     const markup = solveExactPrice(base).exact;
     const margin = solveExactPrice({
       ...base,
-      marginModel: "TARGET_GROSS_MARGIN_V1" as const,
-      targetMarkupRate: undefined,
-      targetGrossMarginRate: new MoneyDecimal("0.40"),
+      profile: markupProfile({
+        marginModel: "TARGET_GROSS_MARGIN_V1",
+        targetMarkupRate: undefined,
+        targetGrossMarginRate: "0.40",
+      }),
     }).exact;
 
     expect(markup.toDecimalPlaces(2).toString()).toBe("14000"); // $140.00
@@ -64,8 +80,10 @@ describe("MARKUP_ON_COST_V1 (D14 target markup)", () => {
     expect(() =>
       solveExactPrice({
         ...base,
-        targetMarkupRate: undefined,
-        targetGrossMarginRate: new MoneyDecimal("0.40"),
+        profile: markupProfile({
+          targetMarkupRate: undefined,
+          targetGrossMarginRate: "0.40",
+        }),
       })
     ).toThrow(/targetMarkupRate/);
   });
@@ -75,7 +93,9 @@ describe("MARKUP_ON_COST_V1 (D14 target markup)", () => {
     // minimum dollar profit has to win.
     const { exact, binding } = solveExactPrice({
       ...base,
-      minDollarProfitMinorUnits: new MoneyDecimal("10000"),
+      profile: markupProfile({
+        minDollarProfit: { amountMinorUnits: "10000", currency: "USD" },
+      }),
     });
     expect(binding).toBe("min_profit");
     expect(exact.toString()).toBe("20000");

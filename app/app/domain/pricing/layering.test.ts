@@ -85,3 +85,33 @@ describe("criterion 35 — engine.ts performs no arithmetic of its own", () => {
     }
   });
 });
+
+/**
+ * The margin-model seam (architect follow-up N1).
+ *
+ * The first version of the two-model solve named each model and each rate in
+ * engine.ts, so adding a third margin model meant editing the engine — a seam
+ * violation that would only have been noticed when the third model arrived.
+ * The registry in solve.ts fixed it, and these tests are what keep it fixed:
+ * engine.ts must know that a margin model EXISTS without knowing which ones do.
+ */
+describe("engine.ts is agnostic to which margin models exist", () => {
+  const source = readFileSync(join(PRICING_DIR, "engine.ts"), "utf8");
+
+  it("names no specific margin model", () => {
+    expect(source).not.toMatch(/MARKUP_ON_COST_V1|TARGET_GROSS_MARGIN_V1/);
+  });
+
+  it("names no model-specific rate", () => {
+    // These belong to individual models. engine.ts passes the profile whole and
+    // lets each model read its own; if either name reappears here, the engine
+    // has started making per-model decisions again.
+    expect(source).not.toMatch(/targetMarkupRate|targetGrossMarginRate/);
+  });
+
+  it("finds the source it is checking", () => {
+    // Guards the guard: a bad path would make every assertion above vacuous.
+    expect(source).toMatch(/solveExactPrice/);
+    expect(source.length).toBeGreaterThan(500);
+  });
+});

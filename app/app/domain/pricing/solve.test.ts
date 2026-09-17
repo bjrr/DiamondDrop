@@ -9,20 +9,42 @@ import {
 } from "./solve";
 import { MarginFloorUnreachableError } from "./errors";
 import type { FloorInput, SolveInput } from "./solve";
+import type { PricingProfileInputs } from "./types";
 
 /**
  * CRITERION 16, 17, 18 and CRITERION 35 — Price solve and floors (spec §5.3, §5.5).
  * `evaluateFloors` tested as a pure predicate without `enforceFloors` (criterion 35).
  */
 
+/**
+ * A minimal pricing profile for solve tests. `solveExactPrice` takes the
+ * profile WHOLE — that is what keeps its signature stable as margin models are
+ * added — so the tests build one here and override the one field under test.
+ */
+function profile(overrides: Partial<PricingProfileInputs> = {}): PricingProfileInputs {
+  return {
+    code: "buy_now",
+    version: 1,
+    marginModel: "TARGET_GROSS_MARGIN_V1",
+    targetGrossMarginRate: "0.42",
+    minGrossMarginRate: "0.35",
+    minDollarProfit: { amountMinorUnits: "15000", currency: "USD" },
+    roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
+    priceEndingRuleId: "NONE_V1",
+    autoApplyToleranceBps: null,
+    creditCardPriceRuleId: "MULTIPLY_BASE_V1",
+    creditCardUpliftRate: "0.050000",
+    isPlaceholder: false,
+    ...overrides,
+  };
+}
+
 describe("solveExactPrice (spec §5.3)", () => {
   const baseInput: SolveInput = {
-    marginModel: "TARGET_GROSS_MARGIN_V1",
+    profile: profile(),
     landedCostMinorUnits: new MoneyDecimal("75365.25"),
-    targetGrossMarginRate: new MoneyDecimal("0.42"),
     revenueRate: new MoneyDecimal("0.029"),
     revenueFixedMinorUnits: new MoneyDecimal("30"),
-    minDollarProfitMinorUnits: new MoneyDecimal("15000"),
     variantFloorMinorUnits: new MoneyDecimal("0"),
   };
 
@@ -38,7 +60,9 @@ describe("solveExactPrice (spec §5.3)", () => {
   it("uses min-profit when it exceeds margin (criterion 17)", () => {
     const highMinProfit: SolveInput = {
       ...baseInput,
-      minDollarProfitMinorUnits: new MoneyDecimal("200000"), // Very high
+      profile: profile({
+        minDollarProfit: { amountMinorUnits: "200000", currency: "USD" }, // Very high
+      }),
     };
     const result = solveExactPrice(highMinProfit);
     expect(result.binding).toBe("min_profit");
@@ -62,7 +86,7 @@ describe("solveExactPrice (spec §5.3)", () => {
   it("throws UnreachableMarginError when 1 - m - r ≤ 0 (criterion 16)", () => {
     const unreachable: SolveInput = {
       ...baseInput,
-      targetGrossMarginRate: new MoneyDecimal("0.97"),
+      profile: profile({ targetGrossMarginRate: "0.97" }),
       revenueRate: new MoneyDecimal("0.05"),
       // 1 - 0.97 - 0.05 = -0.02 ≤ 0
     };
@@ -85,23 +109,25 @@ describe("solveExactPrice (spec §5.3)", () => {
 
     // Revenue-side case (base): rate 0.02 revenue-side
     const revenueSide = solveExactPrice({
-      marginModel: "TARGET_GROSS_MARGIN_V1",
+      profile: profile({
+        targetGrossMarginRate: "0.40",
+        minDollarProfit: { amountMinorUnits: "0", currency: "USD" },
+      }),
       landedCostMinorUnits: new MoneyDecimal("100000"),
-      targetGrossMarginRate: new MoneyDecimal("0.40"),
       revenueRate: new MoneyDecimal("0.02"),
       revenueFixedMinorUnits: new MoneyDecimal("0"),
-      minDollarProfitMinorUnits: new MoneyDecimal("0"),
       variantFloorMinorUnits: new MoneyDecimal("0"),
     });
 
     // Cost-side case: add 2% of base to cost
     const costSide = solveExactPrice({
-      marginModel: "TARGET_GROSS_MARGIN_V1",
+      profile: profile({
+        targetGrossMarginRate: "0.40",
+        minDollarProfit: { amountMinorUnits: "0", currency: "USD" },
+      }),
       landedCostMinorUnits: new MoneyDecimal("102000"), // 100000 + (100000 * 0.02)
-      targetGrossMarginRate: new MoneyDecimal("0.40"),
       revenueRate: new MoneyDecimal("0"),
       revenueFixedMinorUnits: new MoneyDecimal("0"),
-      minDollarProfitMinorUnits: new MoneyDecimal("0"),
       variantFloorMinorUnits: new MoneyDecimal("0"),
     });
 

@@ -1,4 +1,4 @@
-import { MoneyDecimal } from "~/domain/money/decimal";
+import { MoneyDecimal, type MoneyDecimalValue } from "~/domain/money/decimal";
 import { Money } from "~/domain/money/money";
 
 import { enumerateBandSizes, selectBandPrice } from "./bands";
@@ -45,25 +45,18 @@ export function computeBuyNowPrice(inputs: BuyNowPricingInputs): BuyNowPriceResu
 
   const revenueSide = partitionRevenueSide(inputs.components);
 
+  // The profile goes in WHOLE. This file names no margin model and no
+  // model-specific rate, which is what lets a new model be added without
+  // touching the engine — the seam that the first version of this got wrong.
   const { exact, binding } = solveExactPrice({
-    marginModel: inputs.profile.marginModel,
+    profile: inputs.profile,
     landedCostMinorUnits: landedCost,
-    targetGrossMarginRate: inputs.profile.targetGrossMarginRate
-      ? new MoneyDecimal(inputs.profile.targetGrossMarginRate)
-      : undefined,
-    targetMarkupRate: inputs.profile.targetMarkupRate
-      ? new MoneyDecimal(inputs.profile.targetMarkupRate)
-      : undefined,
     revenueRate: revenueSide.rate,
     revenueFixedMinorUnits: revenueSide.fixedMinorUnits,
-    minDollarProfitMinorUnits: new MoneyDecimal(inputs.profile.minDollarProfit.amountMinorUnits),
     variantFloorMinorUnits: new MoneyDecimal(inputs.variantFloor?.amountMinorUnits ?? "0"),
   });
 
-  // THE single load-bearing rounding boundary (§5.4). Everything above is
-  // exact decimal; everything below is whole minor units.
-  const rounded = Money.fromDecimalMinorUnits(exact, inputs.currency, inputs.profile.roundingRuleId);
-  const ended = applyPriceEnding(rounded.amountMinorUnits, inputs.profile.priceEndingRuleId);
+  const ended = finalise(exact, inputs);
 
   const floorInput = {
     priceMinorUnits: ended,
@@ -89,15 +82,13 @@ export function computeBuyNowPrice(inputs: BuyNowPricingInputs): BuyNowPriceResu
   // figure. It then passes through the same rounding boundary and the same
   // price-ending rule, so a whole-dollar cash price yields a whole-dollar card
   // price rather than $366.45.
-  const exactCardPrice = deriveCreditCardPrice(
-    new MoneyDecimal(priceMinorUnits.toString()),
-    new MoneyDecimal(inputs.profile.creditCardUpliftRate),
-    inputs.profile.creditCardPriceRuleId
-  );
-  const cardPrice = applyPriceEnding(
-    Money.fromDecimalMinorUnits(exactCardPrice, inputs.currency, inputs.profile.roundingRuleId)
-      .amountMinorUnits,
-    inputs.profile.priceEndingRuleId
+  const cardPrice = finalise(
+    deriveCreditCardPrice(
+      new MoneyDecimal(priceMinorUnits.toString()),
+      new MoneyDecimal(inputs.profile.creditCardUpliftRate),
+      inputs.profile.creditCardPriceRuleId
+    ),
+    inputs
   );
 
   return {
@@ -140,6 +131,26 @@ export function computeBuyNowBandPrice(inputs: BuyNowBandPricingInputs): BuyNowB
     perSize: selection.perSize,
     winning: selection.winning,
   };
+}
+
+/**
+ * THE single load-bearing rounding boundary (§5.4), plus the price ending that
+ * always follows it. Everything upstream is exact decimal; everything
+ * downstream is whole minor units.
+ *
+ * Extracted because the cash price and the card price must cross that boundary
+ * IDENTICALLY. Written out twice, the two could drift — a different rounding
+ * rule on one, or a price ending applied to one and not the other — and the
+ * symptom would be a card price that is not a clean multiple of the cash price,
+ * which reads as a rounding curiosity rather than as a bug.
+ *
+ * This is sequencing, not arithmetic: the rounding lives in the rounding
+ * registry and the ending in the price-ending registry. The anti-monolith rule
+ * for this file still holds.
+ */
+function finalise(exact: MoneyDecimalValue, inputs: BuyNowPricingInputs): bigint {
+  const rounded = Money.fromDecimalMinorUnits(exact, inputs.currency, inputs.profile.roundingRuleId);
+  return applyPriceEnding(rounded.amountMinorUnits, inputs.profile.priceEndingRuleId);
 }
 
 /**

@@ -26,6 +26,12 @@ export interface InputProvenance {
 
 export type PriceEndingRuleId = "NONE_V1" | "WHOLE_DOLLAR_UP_V1";
 
+/**
+ * Versions the margin model. An id referenced by a stored calculation may never
+ * change behaviour; a new pricing formula is a new id (see solve.ts).
+ */
+export type MarginModelId = "MARKUP_ON_COST_V1" | "TARGET_GROSS_MARGIN_V1";
+
 /** D9. Versions the FORMULA deriving the card price from the cash base. */
 export type CreditCardPriceRuleId = "MULTIPLY_BASE_V1";
 
@@ -78,7 +84,7 @@ export interface BandSpec {
 export interface PricingProfileInputs {
   code: string;
   version: number;
-  marginModel: "TARGET_GROSS_MARGIN_V1" | "MARKUP_ON_COST_V1";
+  marginModel: MarginModelId;
   /** Fraction OF PRICE. Present for TARGET_GROSS_MARGIN_V1. */
   targetGrossMarginRate?: DecimalString;
   /** Fraction OF COST. Present for MARKUP_ON_COST_V1 (D14 default 0.40). */

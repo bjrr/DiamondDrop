@@ -1,7 +1,15 @@
 import { MoneyDecimal, type MoneyDecimalValue } from "~/domain/money/decimal";
 
 import { MarginFloorUnreachableError, UnreachableMarginError } from "./errors";
-import type { BindingConstraint, FloorEvaluation, FloorId } from "./types";
+import type {
+  BindingConstraint,
+  FloorEvaluation,
+  FloorId,
+  MarginModelId,
+  PricingProfileInputs,
+} from "./types";
+
+export type { MarginModelId };
 
 /**
  * L5 — the price solve and the hard floors (spec §5.3, §5.5). Pure.
@@ -19,32 +27,112 @@ import type { BindingConstraint, FloorEvaluation, FloorId } from "./types";
  */
 
 /**
- * The two margin models (§5.3, D14).
- *
- * MARKUP_ON_COST_V1 is the MVP1 default, owner-resolved 2026-09-17:
- *
- *     price = cost x (1 + markupRate)        markupRate = 0.40
- *
- * This is NOT the same as a 40% gross margin, and the difference is large
- * enough to matter: 40% markup on a $100 cost is $140, which is a 28.6% gross
- * margin. A 40% gross margin on the same cost is $166.67. Using one number for
- * the other under-prices by roughly 16%.
- *
- * TARGET_GROSS_MARGIN_V1 solves for a fraction OF PRICE and remains available
- * for profiles that want it.
+ * What a margin model is given. It receives the whole profile rather than a
+ * pre-selected rate, and that is the point of the design: each model reads the
+ * rate IT needs, so adding a model never forces a caller to learn about that
+ * model's parameters. `engine.ts` passes `inputs.profile` wholesale and has no
+ * knowledge of any individual model.
  */
-export type MarginModelId = "MARKUP_ON_COST_V1" | "TARGET_GROSS_MARGIN_V1";
-
-export interface SolveInput {
-  marginModel: MarginModelId;
+export interface MarginModelContext {
   landedCostMinorUnits: MoneyDecimalValue;
-  /** Fraction OF PRICE. Required for TARGET_GROSS_MARGIN_V1. */
-  targetGrossMarginRate?: MoneyDecimalValue;
-  /** Fraction OF COST. Required for MARKUP_ON_COST_V1. */
-  targetMarkupRate?: MoneyDecimalValue;
   revenueRate: MoneyDecimalValue;
   revenueFixedMinorUnits: MoneyDecimalValue;
-  minDollarProfitMinorUnits: MoneyDecimalValue;
+  profile: PricingProfileInputs;
+}
+
+export interface MarginModel {
+  readonly id: MarginModelId;
+  /** The EXACT target price in minor units, unrounded. */
+  readonly targetPrice: (ctx: MarginModelContext) => MoneyDecimalValue;
+}
+
+/**
+ * The margin-model registry (§5.3, D14).
+ *
+ * Same versioning contract as the rounding, price-ending and credit-card
+ * registries: an id referenced by a stored calculation may NEVER change
+ * behaviour, because the stored calculation must stay reproducible. A change to
+ * how a model prices is a new id and a migration, not an edit here.
+ *
+ * Adding a third model touches this registry, the id union in types.ts, the
+ * profile rate it reads, and a migration extending the CHECK constraint. It
+ * does NOT touch engine.ts — that was the seam this registry exists to fix.
+ */
+const MARGIN_MODELS: Record<MarginModelId, MarginModel> = {
+  /**
+   * MVP1 default, owner-resolved 2026-09-17: price = cost x (1 + markupRate),
+   * markupRate = 0.40.
+   *
+   * NOT the same as a 40% gross margin, and the gap is large: 40% markup on a
+   * $100 cost is $140, a 28.6% gross margin. A 40% gross margin on that cost is
+   * $166.67. Using one for the other under-prices by roughly 16%.
+   *
+   * Revenue-side deductions are deliberately NOT solved into this. They reduce
+   * realised margin, and the minimum-margin floor is what catches that. The
+   * separation is the owner's stated design: markup sets the target, the floors
+   * are a separate safety net.
+   */
+  MARKUP_ON_COST_V1: {
+    id: "MARKUP_ON_COST_V1",
+    targetPrice: ({ landedCostMinorUnits, profile }) => {
+      const k = profile.targetMarkupRate;
+      if (!k) {
+        throw new UnreachableMarginError("undefined", "MARKUP_ON_COST_V1 requires targetMarkupRate");
+      }
+      return landedCostMinorUnits.times(new MoneyDecimal(1).plus(new MoneyDecimal(k)));
+    },
+  },
+
+  /**
+   * Gross margin as a fraction OF PRICE, which makes the price depend on fees
+   * that depend on the price. Solved algebraically rather than iteratively:
+   * revenue-side rates go into the denominator.
+   */
+  TARGET_GROSS_MARGIN_V1: {
+    id: "TARGET_GROSS_MARGIN_V1",
+    targetPrice: ({ landedCostMinorUnits, revenueRate, revenueFixedMinorUnits, profile }) => {
+      const rate = profile.targetGrossMarginRate;
+      if (!rate) {
+        throw new UnreachableMarginError(
+          "undefined",
+          "TARGET_GROSS_MARGIN_V1 requires targetGrossMarginRate"
+        );
+      }
+      const m = new MoneyDecimal(rate);
+      const denominator = new MoneyDecimal(1).minus(m).minus(revenueRate);
+      if (denominator.lessThanOrEqualTo(0)) {
+        throw new UnreachableMarginError(
+          denominator.toString(),
+          `1 − targetGrossMargin(${m.toString()}) − revenueRate(${revenueRate.toString()})`
+        );
+      }
+      return landedCostMinorUnits.plus(revenueFixedMinorUnits).dividedBy(denominator);
+    },
+  },
+};
+
+export class UnknownMarginModelError extends Error {
+  constructor(readonly id: string) {
+    super(`Unknown margin model id "${id}". Ids are versioned and must be registered.`);
+    this.name = "UnknownMarginModelError";
+  }
+}
+
+export function getMarginModel(id: MarginModelId): MarginModel {
+  const model = MARGIN_MODELS[id];
+  if (!model) throw new UnknownMarginModelError(id);
+  return model;
+}
+
+export interface SolveInput {
+  /**
+   * Passed whole rather than destructured into named rates, so that a new
+   * margin model's parameters never appear in this signature or in any caller.
+   */
+  profile: PricingProfileInputs;
+  landedCostMinorUnits: MoneyDecimalValue;
+  revenueRate: MoneyDecimalValue;
+  revenueFixedMinorUnits: MoneyDecimalValue;
   variantFloorMinorUnits: MoneyDecimalValue;
 }
 
@@ -60,38 +148,15 @@ export function solveExactPrice(input: SolveInput): {
     throw new UnreachableMarginError(profitDenominator.toString(), `1 − revenueRate(${r.toString()})`);
   }
 
-  let pTarget: MoneyDecimalValue;
+  const pTarget = getMarginModel(input.profile.marginModel).targetPrice({
+    landedCostMinorUnits: C,
+    revenueRate: r,
+    revenueFixedMinorUnits: f,
+    profile: input.profile,
+  });
 
-  if (input.marginModel === "MARKUP_ON_COST_V1") {
-    const k = input.targetMarkupRate;
-    if (!k) {
-      throw new UnreachableMarginError("undefined", "MARKUP_ON_COST_V1 requires targetMarkupRate");
-    }
-    // Directly expressed, per D14: price = cost x (1 + markup). Revenue-side
-    // deductions are NOT solved into this — they reduce realised margin, and
-    // the minimum-margin floor below is what catches that. That separation is
-    // the owner's stated design: markup sets the target, the floors are a
-    // separate safety net.
-    pTarget = C.times(new MoneyDecimal(1).plus(k));
-  } else {
-    const m = input.targetGrossMarginRate;
-    if (!m) {
-      throw new UnreachableMarginError(
-        "undefined",
-        "TARGET_GROSS_MARGIN_V1 requires targetGrossMarginRate"
-      );
-    }
-    const marginDenominator = new MoneyDecimal(1).minus(m).minus(r);
-    if (marginDenominator.lessThanOrEqualTo(0)) {
-      throw new UnreachableMarginError(
-        marginDenominator.toString(),
-        `1 − targetGrossMargin(${m.toString()}) − revenueRate(${r.toString()})`
-      );
-    }
-    pTarget = C.plus(f).dividedBy(marginDenominator);
-  }
-
-  const pMinProfit = C.plus(f).plus(input.minDollarProfitMinorUnits).dividedBy(profitDenominator);
+  const minDollarProfit = new MoneyDecimal(input.profile.minDollarProfit.amountMinorUnits);
+  const pMinProfit = C.plus(f).plus(minDollarProfit).dividedBy(profitDenominator);
   const pFloor = input.variantFloorMinorUnits;
 
   let exact = pTarget;
