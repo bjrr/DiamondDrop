@@ -15,6 +15,30 @@
 // The Prisma schema cannot express a trigger, so this comment is the only
 // place that fact is visible from the schema file itself; the migration SQL
 // is authoritative.
+//
+// ---------------------------------------------------------------------------
+// MONEY COLUMN CONVENTION (F-16). Every monetary amount is stored as two
+// columns: BIGINT minor units + CHAR(3) ISO-4217 currency. Never NUMERIC,
+// never DOUBLE PRECISION, never a bare integer without its currency.
+//
+//   computedPriceMinorUnits BigInt  @map("computed_price_minor_units")
+//   currency                String  @db.Char(3)
+//
+// Prisma maps BIGINT to a JS `bigint`. `JSON.stringify` THROWS on a bigint —
+// "Do not know how to serialize a BigInt". Never return a raw row across a
+// JSON boundary. Repositories convert at their edge:
+//
+//   Money.fromMinorUnits(row.computedPriceMinorUnits, row.currency)
+//
+// and Money.toJSON() yields { amountMinorUnits: string, currency } — lossless
+// and JSON-safe. See app/app/domain/money/money.ts.
+//
+// RATE COLUMNS are different and are NOT money: a price per gram, a price per
+// carat, a percentage, a gram weight or a ring size is NUMERIC(p,s) with the
+// scale fixed below. Prisma returns these as Prisma.Decimal. Cross into the
+// domain with `new MoneyDecimal(d.toString())`. `.toNumber()` is banned —
+// the money-safety scan fails on it.
+// ---------------------------------------------------------------------------
 
 generator client {
   provider = "prisma-client-js"

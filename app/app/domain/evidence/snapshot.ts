@@ -1,5 +1,25 @@
 import { hashCanonicalJson } from "./hash";
 
+/**
+ * Evidence payload contract (Slice 0 finding F-10, docs/specs/
+ * SLICE-0-FINDINGS.md; discharged by docs/specs/SLICE-1-PRICING.md §5.6,
+ * §6, §8.3).
+ *
+ * Any decimal quantity in a `SnapshotInput.payload` is a `Money`
+ * (serializing to `MoneyJSON`) or a decimal **string** — never a JS
+ * `number`. Only counts, indices and enumerated integers may be JSON
+ * numbers.
+ *
+ * This matters because a snapshot is append-only and is the evidence a
+ * later dispute, refund or reproducibility check relies on. A gram weight
+ * or a price-per-gram stored as a JSON `number` reintroduces binary
+ * floating point into that row — and neither the money-safety scan
+ * (`check-money-safety.mjs`, which only watches known lexical hazards)
+ * nor the `Money` type boundary (which only guards values that actually
+ * pass through the `Money` class) can see a plain `number` sitting in a
+ * payload object literal. The boundary has to be enforced here, in the
+ * payload's shape, not assumed from either of those defenses.
+ */
 export interface SnapshotInput {
   kind: string;
   /**
