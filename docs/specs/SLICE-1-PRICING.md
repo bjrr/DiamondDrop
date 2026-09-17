@@ -4,6 +4,7 @@
 
 **ARCHITECT-APPROVED. CLEARED FOR IMPLEMENTATION.**
 Author: Principal Architect / Tech Lead. Date: 2026-09-15.
+**Amended 2026-09-16** against owner constraints issued the same day: added **§4.0** (the six-layer separation), **§4.7** (extension seams for automated metal-price feeds and supplier-specific overrides), **§5.0** (function-level decomposition, anti-monolith rule) and acceptance criteria **34–37**. The amendment makes explicit what the spec already required in substance; it changes no business rule, no existing criterion 1–33, and not the approval below. Implementation branch: `slice-1-pricing` (owner directive — slice 1 is not developed on `main`).
 Controlling architecture: `docs/ARCHITECTURE-MVP1.md` (owner-approved 2026-09-13; D13 amendment 2026-09-15).
 Depends on: Slice 0 (`docs/specs/SLICE-0-FOUNDATION.md`), merged to `main` at `50ff90d`.
 Owner (implementation): **Backend & Pricing Engineer (`sonnet`)** with **Test Engineer (`haiku`)**.
@@ -113,6 +114,30 @@ No cost, margin, supplier, component-breakdown or `price_calculation` field may 
 
 ## 4. The cost model
 
+### 4.0 Layering — the six domains that stay separated
+
+Six concerns are kept in separate modules with a one-way dependency direction. Point at any file this slice adds and it must be obvious which layer it belongs to; if it is not, the file is doing two jobs.
+
+```
+L1 raw inputs ──► L2 normalized libraries ──┐
+                                            ├──► [composition] ──► L3 cost ──► L5 price ──► L6 record
+L4 profiles / policy ───────────────────────┘                          ▲
+                                                                       └── L4 registries (rounding, price ending)
+```
+
+| # | Layer | Modules | Tables | May depend on | Must never |
+|---|---|---|---|---|---|
+| **L1** | **Raw supplier/market cost inputs** — values exactly as entered or received, with author, source and effective date | `prisma/seed.ts`; the ingestion port in §4.7 | `metal_price`, `stone_cost`, `cost_component`, `pricing_profile` (as written) | — | be edited in place (all four are append-only); be normalised, converted or "cleaned" on the way in |
+| **L2** | **Normalized cost libraries** — effective-dated resolution: which row applies to this key at this instant, specificity ordering, provenance tagging | `app/app/db/repositories/{metalPrice,stoneCost,costComponent,pricingProfile}Repository.server.ts` | reads L1 | L1 | compute a cost, apply a margin, round, or return a `Prisma.Decimal` or a JS `number` — it returns decimal strings / `Money` with `{ sourceTable, sourceId, effectiveFrom }` provenance (§5.6) |
+| **L3** | **Product cost calculation** — weight, and landed cost `C` for one variant at one size | `app/app/domain/pricing/weight.ts`, `cost.ts` | none | nothing; every input arrives as an argument | know that a selling price exists; touch a repository, a clock or the environment |
+| **L4** | **Pricing profiles / policy** — margin objective, hard floors, tolerance, rounding rule id, price-ending rule id, margin model | `pricing_profile` row; registries `app/app/domain/money/rounding.ts`, `app/app/domain/pricing/priceEnding.ts`, `version.ts` | `pricing_profile` | L2 for retrieval only | hold product-, variant- or supplier-specific logic. A rule that applies to one product is not a policy; it is a cost input or a variant floor |
+| **L5** | **Final customer selling price** — the solve, the floors, the single rounding boundary, band selection | `app/app/domain/pricing/solve.ts`, `bands.ts`, `engine.ts` | none | L3 and L4, as arguments | reach back to L2 or L6 for anything; read a previous `price_calculation` |
+| **L6** | **Historical / versioned pricing record** — what was computed, from which inputs, under which versions | `app/app/domain/evidence/snapshot.ts` (slice 0), `priceCalculationRepository.server.ts` | `snapshot`, `price_calculation`, `price_sync_intent`, `audit_event` | L5's output | be read back as an input to a new calculation. A recalculation resolves inputs afresh from L1/L2 — it never falls back to the last price (§4.5) and never reaches a refund (§12 C-S4) |
+
+**Exactly one module composes the layers.** `app/app/jobs/pricing/resolveInputs.server.ts` is the only place permitted to hold a reference to both an L2 repository and an L3/L5 pure function. It resolves every input (including `resolveAssumedPaymentCost`, §4.6), assembles the JSON-safe `BuyNowPricingInputs`, calls the engine and hands the result to L6. If a second module starts doing that, the layering is gone regardless of what this table says.
+
+**The one mechanically enforceable rule.** L3, L5 and L4's registries all live under `app/app/domain/pricing/**`, which must contain **no import** of `app/app/db/**`, `@prisma/client`, any `*.server.ts` module, `node:*` or `process.env`, and no call to `Date.now()` or `new Date()`. Criterion 34 asserts this by reading the imports of every file in the directory. Everything else in the table above is checked at architect review; that one is checked by the test suite, which is why it is the boundary worth stating first.
+
 ### 4.1 Units and types — the single most important table in this spec
 
 There are exactly three numeric representations in this slice. Every value belongs to exactly one of them, and the boundaries between them are named functions.
@@ -193,9 +218,81 @@ interface AssumedPaymentCost {
 
 produced by one function, `resolveAssumedPaymentCost(asOf): AssumedPaymentCost`, which in slice 1 reads the single active `payment_processing` component. When D9 resolves, that function's body becomes a weighted blend across a method mix (a new `payment_method_mix` table, if the owner's answer needs one) and **nothing in the engine, its tests, its stored snapshots or its acceptance criteria changes**. Implementers must not anticipate the blend: build the single-component version, and keep the seam at that one function.
 
+### 4.7 Extension seams — feeds and supplier overrides must not rewrite the engine
+
+Two extensions are known to be coming. Each is specified the way §4.6 handles D9: name the seam, name what changes, and name what must not.
+
+#### Seam A — an automated metal-price feed (D2, R16)
+
+**Pre-provisioned now:** `metal_price.source` (`manual` | `feed`); a **nullable** `entered_by` (a feed row has no human author — the column is nullable for that reason, not by oversight); and an ingestion-side port in `app/app/jobs/pricing/ports.ts`:
+
+```ts
+interface MetalPriceIngestionSource {
+  /** Quotes in MAJOR units per gram as decimal strings, with the source's own timestamp. */
+  fetchQuotes(asOf: string): Promise<readonly MetalQuote[]>;
+}
+```
+
+Slice 1 ships `ManualEntryMetalPriceSource`, which returns an empty list and carries a comment stating that staff write `metal_price` rows directly (seed data now, admin UI later).
+
+**When the feed arrives, what changes:** one new implementation of `MetalPriceIngestionSource`; a scheduled caller that writes `metal_price` rows with `source = 'feed'`; a feed credential as an environment variable; possibly the scheduler cadence (D15).
+
+**What must not change:** the `metal_price` schema, the repository's resolution rule, the engine, its tests, its stored snapshots, its acceptance criteria, or `BuyNowPricingInputs`.
+
+**The rule that keeps it that way:** `source` is **provenance — recorded and displayed, never selected on**. Resolution for a `(metal, purity)` key is exactly "the row with the greatest `effective_from ≤ asOf`", regardless of source. Do not write "prefer feed over manual", do not add a priority column, and do not branch on `source` anywhere under `app/app/domain/pricing/**` or in any resolver. Feed-preferred-with-manual-override, if the owner ever wants it, is then a change to one ordering expression in one repository function — but only if slice 1 declines to pre-empt it with a half-guess. (Criterion 36.)
+
+#### Seam B — supplier-specific cost overrides
+
+**Pre-provisioned now:** `stone_cost.supplier_ref` is part of the lookup key (§4.3), and the specificity ordering already ranks a matched qualifier above a wildcard.
+
+**What is genuinely undefined today, stated plainly:** slice 1 has **no supplier dimension on a product**. `master_variant_stone` records no supplier, so every lookup is issued with `supplier_ref = null`, only supplier-agnostic rows are applicable, and a `stone_cost` row carrying a non-null `supplier_ref` is **inert** — it must not be seeded as though it were live pricing. Precedence between a supplier-specific row and a *more qualified* supplier-agnostic row (supplier X with clarity wildcard, versus any supplier with clarity VS1) is **deliberately undecided**. Deciding it now would be inventing a supplier hierarchy with no requirement behind it.
+
+**The minimum slice 1 must do:**
+
+1. Keep `supplier_ref` in the key and in the stored provenance.
+2. Implement effective-dating and specificity **once**, as a single shared helper used by every effective-dated resolver:
+   ```ts
+   selectMostSpecific<TRow>(rows, query, qualifierKeys): TRow  // ties -> latest effective_from; remaining tie -> throw
+   ```
+   so that a second table gaining a supplier dimension reuses it instead of growing a second copy of the rule.
+3. Add no supplier column to `cost_component`, no supplier table and no sourcing model.
+
+**When supplier overrides arrive, what changes:** a nullable supplier reference on `master_variant_stone` (or a sourcing table — owner's call), passed into the stone-cost query; an answer to the precedence question above, expressed as the `qualifierKeys` ordering handed to `selectMostSpecific`; seed data.
+
+**What must not change:** the engine, `BuyNowPricingInputs`, stored snapshots, the rounding/versioning design, or any criterion in §10. The engine receives each stone cost as an already-resolved value with provenance and cannot tell how it was chosen — which is the whole point. (Criterion 37.)
+
 ---
 
 ## 5. The pricing calculation — deterministic specification
+
+### 5.0 Function-level decomposition — there is no single pricing function
+
+§5.1–§5.7 give the semantics; this gives the shape. Every function below is pure, receives resolved values as arguments (a function that needs a cost **is handed it**, never fetches it), returns a value, and is unit-testable with no database, no repository and no stub except where noted. `Dec` is `MoneyDecimalValue`; `DecimalString` is a decimal as a string (§4.1).
+
+| File | Function | Signature | Implements |
+|---|---|---|---|
+| `weight.ts` | `validateSize` | `(spec: SizeSpec, size: DecimalString) => void` | §5.1 rule 4; throws `InvalidSizeError` |
+| `weight.ts` | `calculateWeightGrams` | `(spec: WeightSpec, size: DecimalString) => DecimalString` | §5.1 rules 1–3, 5 |
+| `cost.ts` | `calculateMetalCost` | `({ pricePerGramMinorUnits, weightGrams, metalLossRate }) => Dec` | §5.2 steps 1–2 |
+| `cost.ts` | `calculateStoneCost` | `(positions: readonly ResolvedStonePosition[]) => { totalMinorUnits: Dec; stoneCount: number }` | §5.2 step 3 |
+| `cost.ts` | `orderCostSideComponents` | `(components: readonly ResolvedCostComponent[]) => readonly ResolvedCostComponent[]` | the load-bearing order of §5.2 steps 4–5, as one named function instead of an implicit array order |
+| `cost.ts` | `applyCostSideComponents` | `(subtotal: Dec, ordered: readonly ResolvedCostComponent[], stoneCount: number) => { total: Dec; perComponent: readonly { componentId: string; amount: Dec }[] }` | §5.2 steps 4–5, all three value kinds |
+| `cost.ts` | `calculateLandedCost` | `(input: LandedCostInput) => LandedCostBreakdown` | §5.2 end to end; composes the four above; returns exact unrounded decimals |
+| `cost.ts` | `partitionRevenueSide` | `(components: readonly ResolvedCostComponent[]) => { rate: Dec; fixedMinorUnits: Dec }` | the `r` and `f` of §5.3 |
+| `solve.ts` | `solveExactPrice` | `({ landedCostMinorUnits, targetGrossMarginRate, revenueRate, revenueFixedMinorUnits, minDollarProfitMinorUnits, variantFloorMinorUnits }) => { exact: Dec; binding: "margin" \| "min_profit" \| "variant_floor" }` | §5.3; throws `UnreachableMarginError` |
+| `solve.ts` | `evaluateFloors` | `({ priceMinorUnits: bigint, landedCostMinorUnits, revenueRate, revenueFixedMinorUnits, minGrossMarginRate, minDollarProfitMinorUnits, variantFloorMinorUnits }) => { satisfied: boolean; contribution: Dec; grossMargin: Dec; failing: readonly FloorId[] }` | §5.5 **predicate only — no loop** |
+| `solve.ts` | `enforceFloors` | `(input: same, maxBumps: number) => { priceMinorUnits: bigint; bumps: number; final: FloorEvaluation }` | §5.5 bounded loop; throws `MarginFloorUnreachableError` |
+| `priceEnding.ts` | `applyPriceEnding` | `(priceMinorUnits: bigint, ruleId: PriceEndingRuleId) => bigint` | §5.4 registry; `NONE_V1` only in slice 1 |
+| `bands.ts` | `validateBandCoverage` | `(bands: readonly BandSpec[], spec: SizeSpec) => void` | §5.7 gapless, non-overlapping |
+| `bands.ts` | `enumerateBandSizes` | `(band: BandSpec, spec: SizeSpec) => readonly DecimalString[]` | §5.7; throws `InvalidBandError` when empty |
+| `bands.ts` | `selectBandPrice` | `(candidates: readonly DecimalString[], priceAtSize: (size: DecimalString) => BuyNowPriceResult) => { bandPrice: Money; costBasisSize: DecimalString; perSize: readonly …[] }` | §5.7 max-and-tie. **The per-size evaluation is injected**, so the max/tie logic is tested against a three-line stub and `bands.ts` never imports `engine.ts` |
+| `engine.ts` | `computeBuyNowPrice` | `(inputs: BuyNowPricingInputs) => BuyNowPriceResult` | §5.6 — composition only |
+| `engine.ts` | `computeBuyNowBandPrice` | `(inputs: BuyNowBandPricingInputs) => BuyNowBandPriceResult` | binds `computeBuyNowPrice` into `selectBandPrice` |
+| `types.ts`, `errors.ts`, `version.ts` | — | — | shared types; the named errors; `PRICING_ENGINE_VERSION` |
+
+Splitting `evaluateFloors` (predicate) from `enforceFloors` (loop) is what turns criterion 18's subtle requirement — *not* bumped merely for falling a fraction below the **target** — into a one-line test.
+
+**The anti-monolith rule.** `engine.ts` performs **no money or rate arithmetic of its own**: every `+ − × ÷` on a `Money` or decimal quantity lives in `cost.ts`, `solve.ts`, `weight.ts` or `Money` itself. `computeBuyNowPrice` is a sequence of named calls — validate size → weight → landed cost → revenue-side partition → solve → round once (§5.4) → price ending → enforce floors → assemble the breakdown. If it contains a formula, the formula is in the wrong file. An implementer tempted to inline "just this one subtraction" adds a named function instead. Checked at architect review and by criterion 35.
 
 ### 5.1 Weight (R8, R9)
 
@@ -311,6 +408,8 @@ priceBand(variant, band):
   bandPrice     = max over s of p_s
   costBasisSize = the s attaining that max (lowest such s on a tie)
 ```
+
+Decomposed per §5.0 this is `enumerateBandSizes` followed by `selectBandPrice(candidates, priceAtSize)`, with the per-size evaluation injected as a function argument.
 
 **Evaluate the full price at every size in the band; do not shortcut to `band.max`.** The shortcut is correct only while weight increases monotonically with size, and an exact finished-weight override (R8) or a size-specific labour component can break monotonicity — which is precisely the case where the shortcut sells below floor. Bands contain at most ~20 candidate sizes; the cost of being right is negligible.
 
@@ -467,7 +566,7 @@ Because it is a resource route it is exempt from React Router 7's `throwIfPotent
 For each active `master_variant` with `status = active`:
 
 1. Skip if excluded. Exclusions come from `OpenCampaignExclusionSource.excludedMasterVariantIds(asOf)` — an interface defined in `app/app/jobs/pricing/ports.ts`. Slice 1 ships `LuxuryStealExclusionSource` (reads `master_product.isLuxurySteal`) and `NoOpOpenCampaignExclusionSource`, which returns empty and carries a comment naming slice 6 as its implementer. Skipped variants are recorded with a reason, not silently dropped (R17).
-2. Resolve inputs as of the run timestamp; a missing required input fails **that variant only** (§4.5).
+2. Resolve inputs as of the run timestamp, in `app/app/jobs/pricing/resolveInputs.server.ts` — the single composition module of §4.0, and the only place that touches both a repository and the engine. A missing required input fails **that variant only** (§4.5).
 3. For a banded product, run §5.7; otherwise run §5.2–§5.5 at the variant's own weight.
 4. Write the `snapshot` (reusing by content hash) and the `price_calculation` row.
 5. Compute the sync decision (§9.3) and upsert the `price_sync_intent`.
@@ -580,6 +679,13 @@ Numbered, testable. 1–8 are the inherited slice 0 findings and must be satisfi
 
 33. `npm run typecheck`, `lint`, `check:money-safety`, unit tests, `prisma migrate deploy`, integration tests and `build` all pass in CI on a clean checkout. Any claim that they pass must be accompanied by the actual output.
 
+**Layering, decomposition and seams**
+
+34. No file under `app/app/domain/pricing/**` imports `app/app/db/**`, `@prisma/client`, any `*.server.ts` module, `node:*` or `process.env`, and none calls `Date.now()` or `new Date()`. Asserted by a test that reads every file in the directory and inspects its imports — not left to convention. (§4.0)
+35. The §5.0 functions exist in the named files with the named responsibilities, and the split is real: `evaluateFloors` is tested without `enforceFloors`, `selectBandPrice` is tested against a stub `priceAtSize` with no engine and no database, and `orderCostSideComponents` is tested as a function in its own right. `engine.ts` contains no money or rate arithmetic of its own. (§5.0)
+36. Two `metal_price` rows differing only in `source` resolve identically — the later `effective_from` wins regardless of source — and `source` appears in no selection predicate and nowhere under `app/app/domain/pricing/**`. (§4.7 Seam A)
+37. A `stone_cost` row with a non-null `supplier_ref` is never selected by slice 1's supplier-agnostic lookup, and every effective-dated resolver goes through the one shared `selectMostSpecific` helper — its ambiguous-tie throw is tested once, at the helper, not re-tested per table. (§4.7 Seam B)
+
 ---
 
 ## 11. Test plan
@@ -641,9 +747,11 @@ To be folded into `docs/specs/SLICE-0-FINDINGS.md` as new register entries when 
 
 ### Already-open decisions this slice is specified around
 
-**D9 — payment methods to encourage (open).** Handled by §4.6: the engine consumes one resolved `(rate, fixedFee)` pair from one function, so D9's answer is a data and one-function change. Do not block on it, and do not build the method-mix model in anticipation.
+**D9 — payment methods to encourage (open).** Seamed at one function per §4.6. Does not block; do not build the method-mix model in anticipation.
 
-**D1 — development store and credentials (open).** Irrelevant to slice 1: nothing here touches a live store. It blocks slice 2's port implementation, not this slice.
+**D2 — automated metal-price feed (resolved as staff-entered).** Seamed per §4.7 Seam A. Does not block.
+
+**D1 — development store and credentials (open).** Irrelevant here — nothing in slice 1 touches a live store. Blocks slice 2's port implementation only.
 
 ### Locked-policy conflicts found
 
@@ -651,8 +759,8 @@ To be folded into `docs/specs/SLICE-0-FINDINGS.md` as new register entries when 
 
 Two near-conflicts, resolved here rather than escalated because neither changes a business rule:
 
-- **`docs/ARCHITECTURE-MVP1.md` §4 describes `price_calculation` as an immutable row that nonetheless carries `approved-by` and `synced-at`.** Internally inconsistent. Resolved by the split in §7 — an architect ruling on an architect-owned document.
-- **Insurance at "full order value" (`README.md` §Shipping) is a percentage of price, not of cost**, which is circular. Resolved by the `cost_side` / `revenue_side` classification and the closed-form solve in §5.3 — a modelling decision, not a policy change. The business rule (insurance must be represented in pricing so it does not erode margin, R12) is satisfied either way.
+- **`docs/ARCHITECTURE-MVP1.md` §4 makes `price_calculation` immutable yet gives it `approved-by` and `synced-at`.** Internally inconsistent; resolved by the split ruling recorded in §7.
+- **Insurance at "full order value" (`README.md` §Shipping) is a percentage of price, not of cost**, which is circular. Resolved by the `cost_side` / `revenue_side` classification and the closed-form solve in §5.3 — a modelling decision, not a policy change. R12 is satisfied either way.
 
 ---
 
@@ -670,6 +778,8 @@ Two near-conflicts, resolved here rather than escalated because neither changes 
 | `price_calculation` append-only treated as enforced when F-7's role split is still outstanding | Recorded in the migration and in §6; F-7 remains a slice-2 deploy task |
 | Test authors inventing expected values instead of deriving them | §5.8 supplies ground truth with every intermediate; the engine tests are written against it |
 | A later "cleanup" changes a rounding rule id's behaviour, invalidating historical calculations | The registry's existing rule stands and is restated in §5.4; ids are append-only |
+| The layering collapses — the engine gains a repository import, or the solve, floors and band sweep all land in one large function in `engine.ts` | §4.0's one-way dependency rule and §5.0's named decomposition; criteria 34 and 35 are automated checks, not advisory notes |
+| A metal-price feed or a supplier override arrives and the engine is rewritten to accommodate it | §4.7 names exactly what changes and what may not; criteria 36 and 37 keep `source` and `supplier_ref` inert so the seam stays a data-and-one-function change |
 
 ---
 
@@ -683,10 +793,10 @@ Serial where files overlap. Slices 0 and 1 are serial overall per `docs/ARCHITEC
 | T2 | `Money.fromDecimalMinorUnits`; F-10 doc on `snapshot.ts`; F-16 schema comment | Backend & Pricing (`sonnet`) | `app/app/domain/money/money.ts`, `app/app/domain/evidence/snapshot.ts`, `app/prisma/schema.prisma` (comment only) | T1 |
 | T3 | F-9 money tests + `fromDecimalMinorUnits` tests | Test Engineer (`haiku`) | `app/app/domain/money/money.test.ts` | T2 |
 | T4 | Prisma models + migration + append-only trigger extension + seed data | Backend & Pricing (`sonnet`) | `app/prisma/**` | T2 |
-| T5 | Cost-library repositories and effective-dated resolution | Backend & Pricing (`sonnet`) | `app/app/db/repositories/*` (new files only) | T4 |
-| T6 | Pure pricing domain: `weight.ts`, `bands.ts`, `priceEnding.ts`, `version.ts`, `types.ts`, `engine.ts` | Backend & Pricing (`sonnet`) | `app/app/domain/pricing/**` | T2 |
-| T7 | Engine, weight and band unit tests against §5.8 | Test Engineer (`haiku`) | `app/app/domain/pricing/*.test.ts` | T6 |
-| T8 | Job orchestration, ports, sync decision, cron route, CLI | Backend & Pricing (`sonnet`) | `app/app/jobs/pricing/**`, `app/app/routes/internal.jobs.price-recalculation.tsx`, `app/scripts/price-review.mjs` | T5, T6 |
+| T5 | Cost-library repositories (L2) and effective-dated resolution, including the one shared `selectMostSpecific` helper (§4.7 Seam B) | Backend & Pricing (`sonnet`) | `app/app/db/repositories/*` (new files only) | T4 |
+| T6 | Pure pricing domain (L3–L5) decomposed per §5.0: `weight.ts`, `cost.ts`, `solve.ts`, `bands.ts`, `priceEnding.ts`, `version.ts`, `types.ts`, `errors.ts`, `engine.ts` | Backend & Pricing (`sonnet`) | `app/app/domain/pricing/**` | T2 |
+| T7 | Engine, weight, cost, solve and band unit tests against §5.8, plus the §4.0 import-direction test (criterion 34) | Test Engineer (`haiku`) | `app/app/domain/pricing/*.test.ts` | T6 |
+| T8 | Job orchestration, the `resolveInputs.server.ts` composition module (§4.0), ports (including `MetalPriceIngestionSource`), sync decision, cron route, CLI | Backend & Pricing (`sonnet`) | `app/app/jobs/pricing/**`, `app/app/routes/internal.jobs.price-recalculation.tsx`, `app/scripts/price-review.mjs` | T5, T6 |
 | T9 | Integration tests | Test Engineer (`haiku`) | `app/tests/integration/pricing/**` | T8 |
 | T10 | QA and security review (`/security-review`, `/review-code`) | QA & Security Reviewer (`sonnet`) | review only | T9 |
 | T11 | Architect review of the engine, rounding/versioning, guard, and the slice-2 scope fence; final acceptance | Principal Architect (`opus`) | review only | T10 |
@@ -702,6 +812,6 @@ Every delegated task closes with `/handoff`: files changed, behaviour, tests act
 This specification is **approved for implementation** as written, subject to the two conditions below.
 
 1. **T1 (F-1 guard hardening) lands before any pricing code.** The whole reason F-1 is gated here is that slice 1 is the first code whose arithmetic becomes a price; hardening the guard afterwards inspects the code with the guard that let it through.
-2. **Architect review is required, not optional, on:** the engine's closed-form solve and floor handling, the rounding/versioning design, the F-1 guard changes, the `price_calculation` / `price_sync_intent` split, and the slice-2 scope fence. High-risk diffs are inspected with test evidence before acceptance; "done" without output is not accepted.
+2. **Architect review is required, not optional, on:** the engine's closed-form solve and floor handling, the rounding/versioning design, the F-1 guard changes, the `price_calculation` / `price_sync_intent` split, the slice-2 scope fence, and — added by the 2026-09-16 amendment — the §4.0 layer boundaries and the §5.0 decomposition as actually implemented. High-risk diffs are inspected with test evidence before acceptance; "done" without output is not accepted.
 
 D14 and D15 are requested from the owner. Neither blocks the start of implementation; D14 blocks approving or syncing a real price, which is slice 2 work regardless.
