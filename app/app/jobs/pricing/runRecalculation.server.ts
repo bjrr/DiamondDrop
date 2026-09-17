@@ -120,11 +120,20 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
       // The snapshot payload is the reproducibility contract (§5.6): the
       // inputs plus the engine version are enough to recompute this price
       // with no database at all.
-      const payload = {
-        engineVersion: result.engineVersion,
-        inputs: resolved.inputs,
-        result,
-      } as unknown as JsonValue;
+      // Normalise through JSON before hashing and storing. The inputs carry
+      // optional fields (an absent variant floor, a component with no rate),
+      // which are `undefined` in memory — and the canonicalizer rejects
+      // `undefined` outright rather than guessing whether it means "absent"
+      // or "null". That refusal is correct: this payload is the reproducibility
+      // contract (§5.6), so what is hashed must be exactly what survives a JSON
+      // round-trip into jsonb and back out again.
+      const payload = JSON.parse(
+        JSON.stringify({
+          engineVersion: result.engineVersion,
+          inputs: resolved.inputs,
+          result,
+        })
+      ) as JsonValue;
       const contentHash = hashCanonicalJson(payload);
 
       const snapshot =

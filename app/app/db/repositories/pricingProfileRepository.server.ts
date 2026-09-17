@@ -5,7 +5,6 @@ import { Money } from "~/domain/money/money";
 import { prisma } from "../client.server";
 import {
   MissingCostInputError,
-  selectMostSpecific,
   provenanceOf,
   type CostInputProvenance,
 } from "./effectiveDated.server";
@@ -59,7 +58,23 @@ export async function resolveActivePricingProfile(
     throw new MissingCostInputError("pricing_profile", asOf, `code=${code}`);
   }
 
-  const row = selectMostSpecific(rows, { code }, [], { asOf, component: "pricing_profile" });
+  // Resolution is by effective date, with VERSION as the tie-break.
+  //
+  // pricing_profile is unique on (code, version), NOT on (code, effectiveFrom),
+  // so two versions may legitimately share an effective date — an operator
+  // correcting a profile the same day they created it is the obvious case.
+  // selectMostSpecific would treat that as an unresolvable tie and refuse to
+  // price anything, which is the wrong answer here: unlike a cost row, a
+  // profile version is a deliberate monotonic sequence, so at the same
+  // effective date the higher version is unambiguously the later intent.
+  //
+  // Rows arrive ordered (effectiveFrom desc, version desc), so the first
+  // eligible row is already the winner.
+  const eligible = rows.filter((row) => row.effectiveFrom.getTime() <= asOf.getTime());
+  const row = eligible[0];
+  if (!row) {
+    throw new MissingCostInputError("pricing_profile", asOf, `code=${code}`);
+  }
 
   return {
     id: row.id,
