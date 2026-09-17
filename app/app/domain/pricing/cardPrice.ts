@@ -56,15 +56,25 @@ const REGISTRY: Record<CardPriceRuleId, CardPriceRule> = {
    * asked for, and on a thin item could erode the very processing cost the
    * uplift exists to cover. Rounding up can only ever widen the gap.
    *
-   * A CONSEQUENCE WORTH KNOWING, because it affects what may honestly be
-   * advertised: "card is 5% higher" and "5% off for cash" are not the same 5%.
-   * A $400 cash price gives a $420 card price, and $400 is a 4.76% discount off
-   * $420 — the reciprocal, not the rate. With whole-dollar rounding the
-   * realised discount lands between roughly 4.76% and 4.95%. Advertising a flat
-   * "5% cash discount" on that basis would overstate it. Either advertise the
-   * saving in dollars, say "up to 5%", or set the uplift to 1/0.95 - 1
-   * (0.052632) so the discount off the displayed price is exactly 5%. The rate
-   * is configurable precisely so that is a data change, not a code change.
+   * NO DISCOUNT PERCENTAGE MAY EVER BE ADVERTISED. Owner decision,
+   * 2026-09-17: the storefront shows the card price and the cash price, and
+   * states no percentage.
+   *
+   * That decision closes a real trap rather than merely picking a wording. A
+   * 5% UPLIFT is not a 5% DISCOUNT — it is the reciprocal. $400 cash gives a
+   * $420 card price, and $400 is 4.76% off $420. With whole-dollar rounding the
+   * realised saving lands between roughly 4.76% and 4.95% and varies per item,
+   * so ANY fixed percentage claim would be wrong on most of the catalogue.
+   *
+   * Two absolute prices are always exactly right, need no caveat, and cannot
+   * drift out of step with the rate. Nothing in this module or in
+   * BuyNowPriceResult exposes a percentage, and nothing should start to: if a
+   * storefront needs a saving to display, use the dollar difference between the
+   * two prices, which is exact by construction.
+   *
+   * (Were a clean 5%-off-displayed ever wanted instead, the uplift would be
+   * 1/0.95 - 1 = 0.052632 rather than 0.05. Recorded because the rate is
+   * configurable, so it is a data change — not because it is planned.)
    */
   CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1: {
     id: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",

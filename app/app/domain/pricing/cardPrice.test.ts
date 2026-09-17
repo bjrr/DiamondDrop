@@ -38,10 +38,13 @@ describe("deriveCardPrice", () => {
     }
   });
 
-  it("a 5% UPLIFT is not a 5% DISCOUNT — the reciprocal, and it matters", () => {
-    // The arithmetic behind the advertising caveat. $400 cash -> $420 card, and
-    // $400 is 4.76% off $420, not 5%. Advertising a flat "5% cash discount" on
-    // a 5% uplift would overstate the saving on every item.
+  it("a 5% UPLIFT is not a 5% DISCOUNT — the reciprocal, and it is why no percentage is shown", () => {
+    // $400 cash -> $420 card, and $400 is 4.76% off $420, not 5%. The realised
+    // saving also varies per item once whole-dollar rounding is applied, so no
+    // single percentage would be correct across the catalogue. That is the
+    // reason the owner's decision is to display two absolute prices and state
+    // no percentage — this test pins the arithmetic that makes the alternative
+    // untenable.
     const cash = 40000n;
     const card = deriveCardPrice(cash, RATE, RULE);
     const discountOffCard = new MoneyDecimal((card - cash).toString()).dividedBy(
@@ -52,9 +55,12 @@ describe("deriveCardPrice", () => {
     expect(discountOffCard.lessThan("0.05")).toBe(true);
   });
 
-  it("an uplift of 1/0.95 - 1 DOES yield exactly 5% off the displayed price", () => {
-    // Recorded so the alternative is concrete if the owner wants the advertised
-    // discount to be a clean 5%: it is a rate change, not a code change.
+  it("an uplift of 1/0.95 - 1 would yield exactly 5% off, if a clean 5% were ever wanted", () => {
+    // NOT the configured behaviour. The owner's decision is that no percentage
+    // is advertised at all — the storefront shows both prices — so the
+    // reciprocal gap never reaches a customer. Kept because it makes the
+    // arithmetic concrete and shows the fix is a rate change rather than a code
+    // change, should that decision ever be revisited.
     const card = deriveCardPrice(40000n, new MoneyDecimal("0.052632"), RULE);
     const discountOffCard = new MoneyDecimal((card - 40000n).toString()).dividedBy(
       new MoneyDecimal(card.toString())
