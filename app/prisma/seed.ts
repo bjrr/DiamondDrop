@@ -50,6 +50,12 @@ const SEED_CURRENCY = "USD";
  * picks v2 over the v1 placeholder for any as-of date from this point on.
  */
 const D14_EFFECTIVE_FROM = new Date("2026-09-17T00:00:00.000Z");
+/**
+ * When the owner's auto-apply tolerance and the inverted cash-discount model
+ * took effect. Later than D14_EFFECTIVE_FROM so effective-dated resolution
+ * picks v3 over v2.
+ */
+const D9_REVISION_EFFECTIVE_FROM = new Date("2026-09-17T18:00:00.000Z");
 const SEED_ENTERED_BY = "seed-script";
 
 // Fixed, deterministic ids for the mutable design/definition rows, so
@@ -396,8 +402,8 @@ async function seedPricingProfile(): Promise<void> {
           minDollarProfitMinorUnits: 999999900n,
           currency: SEED_CURRENCY,
           roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
-          creditCardPriceRuleId: "MULTIPLY_BASE_V1",
-          creditCardUpliftRate: "0.050000",
+          cashPriceRuleId: "CASH_DISCOUNT_FLOOR_WHOLE_DOLLAR_V1",
+          cashDiscountRate: "0.050000",
           priceEndingRuleId: "NONE_V1",
           autoApplyToleranceBps: 0,
           effectiveFrom: SEED_EFFECTIVE_FROM,
@@ -444,12 +450,57 @@ async function seedPricingProfile(): Promise<void> {
           minDollarProfitMinorUnits: 10000n,
           currency: SEED_CURRENCY,
           roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
-          creditCardPriceRuleId: "MULTIPLY_BASE_V1",
-          creditCardUpliftRate: "0.050000",
+          cashPriceRuleId: "CASH_DISCOUNT_FLOOR_WHOLE_DOLLAR_V1",
+          cashDiscountRate: "0.050000",
           priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
           autoApplyToleranceBps: null,
           effectiveFrom: D14_EFFECTIVE_FROM,
           createdBy: "seed-script (owner decision D14, resolved 2026-09-17)",
+          isPlaceholder: false,
+        },
+      })
+  );
+
+  // v3 — the owner's two remaining decisions, 2026-09-17.
+  //
+  //   auto-apply tolerance   200 bps (2%)
+  //   cash discount          5% OFF THE LIST PRICE
+  //
+  // The tolerance closes D14: price changes within 2% of the last published
+  // price may publish automatically, and anything larger queues for approval.
+  // A 1% move in landed cost produces a 100 bps move in price, so 2% absorbs
+  // ordinary daily metal movement while still catching a mistyped metal price.
+  // It is symmetric: a 3% DROP queues exactly as a 3% rise does.
+  //
+  // The cash discount INVERTS D9. The calculated price is now the LIST price,
+  // which is the card price and carries card processing; cash-equivalent
+  // customers pay 5% less. Per the owner, this discount OVERRIDES the profit
+  // minimums — the floors bind the list price, and the cash price may fall
+  // below the $100 minimum. With these numbers that happens under $303.03 of
+  // landed cost. Deliberate, and recorded on every calculation.
+  await createIfAbsent(
+    "pricing_profile buy_now v3 (tolerance 200 bps; 5% cash discount)",
+    () =>
+      prisma.pricingProfile.findUnique({
+        where: { code_version: { code: PricingProfileCode.buy_now, version: 3 } },
+      }),
+    () =>
+      prisma.pricingProfile.create({
+        data: {
+          code: PricingProfileCode.buy_now,
+          version: 3,
+          marginModel: "MARKUP_ON_COST_V1",
+          targetMarkupRate: "0.400000",
+          minGrossMarginRate: "0.200000",
+          minDollarProfitMinorUnits: 10000n,
+          currency: SEED_CURRENCY,
+          roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
+          priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
+          autoApplyToleranceBps: 200,
+          cashPriceRuleId: "CASH_DISCOUNT_FLOOR_WHOLE_DOLLAR_V1",
+          cashDiscountRate: "0.050000",
+          effectiveFrom: D9_REVISION_EFFECTIVE_FROM,
+          createdBy: "seed-script (owner decisions D14 tolerance + D9 revision, 2026-09-17)",
           isPlaceholder: false,
         },
       })

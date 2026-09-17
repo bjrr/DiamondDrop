@@ -61,8 +61,8 @@ async function intentWith(isPlaceholder: boolean) {
       minDollarProfitMinorUnits: 15000n,
       currency: "USD",
       roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
-      creditCardPriceRuleId: "MULTIPLY_BASE_V1",
-      creditCardUpliftRate: "0.050000",
+      cashPriceRuleId: "CASH_DISCOUNT_FLOOR_WHOLE_DOLLAR_V1",
+      cashDiscountRate: "0.050000",
       priceEndingRuleId: "NONE_V1",
       autoApplyToleranceBps: 50,
       // Far in the past so it never wins resolution against the seeded rows.

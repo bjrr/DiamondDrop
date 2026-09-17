@@ -32,8 +32,8 @@ export type PriceEndingRuleId = "NONE_V1" | "WHOLE_DOLLAR_UP_V1";
  */
 export type MarginModelId = "MARKUP_ON_COST_V1" | "TARGET_GROSS_MARGIN_V1";
 
-/** D9. Versions the FORMULA deriving the card price from the cash base. */
-export type CreditCardPriceRuleId = "MULTIPLY_BASE_V1";
+/** D9. Versions the FORMULA deriving the cash price from the list price. */
+export type CashPriceRuleId = "CASH_DISCOUNT_FLOOR_WHOLE_DOLLAR_V1";
 
 export type ComponentBasis = "cost_side" | "revenue_side";
 export type ComponentValueKind = "fixed" | "per_stone" | "percentage";
@@ -99,9 +99,9 @@ export interface PricingProfileInputs {
    * legitimate answer meaning any change at all needs approval.
    */
   autoApplyToleranceBps: number | null;
-  /** D9. Formula id and rate for deriving the card price from the cash base. */
-  creditCardPriceRuleId: CreditCardPriceRuleId;
-  creditCardUpliftRate: DecimalString;
+  /** D9. Formula id and rate for deriving the cash price from the list price. */
+  cashPriceRuleId: CashPriceRuleId;
+  cashDiscountRate: DecimalString;
   isPlaceholder: boolean;
 }
 
@@ -158,18 +158,27 @@ export interface BuyNowPriceResult {
   exactPriceMinorUnits: DecimalString;
   binding: BindingConstraint;
   /**
-   * The CASH-EQUIVALENT price (D9): ACH, wire, Zelle, cheque. This is the one
-   * stored price and the basis for everything below.
+   * The LIST price (D9), which is also the CARD price: it carries the card
+   * processing cost, it is what the floors bind, and it is what gets published.
+   * This is the one stored price.
    */
   price: MoneyJSON;
   /**
-   * DERIVED from the cash price, never stored independently (D9). It is
-   * recomputable at any time from price + rate + rule id, all three of which
-   * are recorded on this result.
+   * The cash-equivalent price (ACH, wire, Zelle, cheque), DERIVED from the list
+   * price and never stored independently. Re-derivable at any time from price +
+   * rate + rule id, all three recorded here.
    */
-  creditCardPrice: MoneyJSON;
-  creditCardPriceRuleId: CreditCardPriceRuleId;
-  creditCardUpliftRate: DecimalString;
+  cashPrice: MoneyJSON;
+  cashPriceRuleId: CashPriceRuleId;
+  cashDiscountRate: DecimalString;
+  /**
+   * Floors evaluated against the CASH price, for visibility only — never
+   * enforced. The owner's instruction is that the discount overrides the profit
+   * minimums, so a failing evaluation here is an approved outcome, not a defect.
+   * Recorded so that "how often does the discount go under the minimum?" is an
+   * answerable question rather than a guess.
+   */
+  cashFloors: FloorEvaluation;
   floors: FloorEvaluation;
   bumps: number;
   roundingRuleId: RoundingRuleId;

@@ -523,20 +523,28 @@ model PricingProfile {
   /// change at all requires approval".
   autoApplyToleranceBps     Int?               @map("auto_apply_tolerance_bps")
 
-  /// D9 (owner-resolved 2026-09-17). The calculated price is the CASH-EQUIVALENT
-  /// base (ACH, wire, Zelle, cheque). The credit-card price is DERIVED from it,
-  /// never stored as a second independently editable number — that was the
-  /// explicit owner instruction, because two hand-maintained prices drift.
+  /// D9, owner-REVISED 2026-09-17. The calculated price is the LIST price, which
+  /// is the CARD price: it carries the card-processing cost and it is what gets
+  /// published. Cash-equivalent customers (ACH, wire, Zelle, cheque) pay
+  /// list x (1 - cashDiscountRate), because they do not incur that cost.
+  ///
+  /// This INVERTS the first implementation, which made cash the base and added
+  /// an uplift for card. The two are not equivalent: 5% off list is a 5.26%
+  /// card-to-cash spread, not 5%.
+  ///
+  /// The discount OVERRIDES the profit minimums by owner instruction: the floors
+  /// bind the LIST price, and the cash price may fall below them. See
+  /// app/domain/pricing/cashPrice.ts.
   ///
   /// The rule id versions the FORMULA; the rate makes the number configurable
   /// without a code change. Same split as marginModel/targetMarkupRate above.
-  creditCardPriceRuleId String   @map("credit_card_price_rule_id")
-  creditCardUpliftRate  Decimal  @map("credit_card_uplift_rate") @db.Decimal(9, 6)
-  effectiveFrom         DateTime @map("effective_from")
-  createdBy             String   @map("created_by")
+  cashPriceRuleId  String   @map("cash_price_rule_id")
+  cashDiscountRate Decimal  @map("cash_discount_rate") @db.Decimal(9, 6)
+  effectiveFrom    DateTime @map("effective_from")
+  createdBy        String   @map("created_by")
   /// See model doc comment. D14 placeholder marker.
-  isPlaceholder         Boolean  @default(false) @map("is_placeholder")
-  createdAt             DateTime @default(now()) @map("created_at")
+  isPlaceholder    Boolean  @default(false) @map("is_placeholder")
+  createdAt        DateTime @default(now()) @map("created_at")
 
   priceCalculations PriceCalculation[]
 
