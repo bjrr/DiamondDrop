@@ -12,6 +12,7 @@
  *   verify  --calculation <id>
  *   override --variant <id> --price <minor-units> --actor <staff-id>
  *            --reason <text> [--calculation <id>] [--confirm-breach]
+ *   revoke   --variant <id> --actor <staff-id> --reason <text>
  *
  * `--actor` is mandatory on approve, reject and override. There is no anonymous
  * approval: an unattributable sign-off on a price change is not a sign-off.
@@ -31,7 +32,12 @@ import "dotenv/config";
 import { prisma } from "~/db/client.server";
 import { MoneyDecimal } from "~/domain/money/decimal";
 import { decideIntent } from "~/jobs/pricing/intentTransitions.server";
-import { applyPriceOverride, previewPriceOverride } from "~/jobs/pricing/priceOverride.server";
+import {
+  applyPriceOverride,
+  previewPriceOverride,
+  resolveActiveOverride,
+  revokePriceOverride,
+} from "~/jobs/pricing/priceOverride.server";
 import { verifyPriceCalculation } from "~/jobs/pricing/verify.server";
 
 function arg(name: string): string | undefined {
@@ -142,6 +148,17 @@ async function override(): Promise<void> {
     confirmBreach: process.argv.includes("--confirm-breach"),
   };
 
+  const active = await resolveActiveOverride(masterVariantId);
+  if (active) {
+    // Shown because "override" after an existing override REPLACES it, and an
+    // operator who does not know one is in force cannot judge whether that is
+    // what they meant.
+    console.log(
+      `currently in effect: ${formatMinorUnits(active.overridePriceMinorUnits ?? 0n, active.currency)} ` +
+        `(set by ${active.overriddenBy}: ${active.reason}) — this will supersede it`
+    );
+  }
+
   const preview = await previewPriceOverride(request);
 
   console.log(`calculation:    ${preview.priceCalculationId}`);
@@ -180,6 +197,36 @@ async function override(): Promise<void> {
   );
 }
 
+/**
+ * D14 / N3. Returns a variant to its calculated price by appending a
+ * revocation. The override being withdrawn stays on the record.
+ */
+async function revoke(): Promise<void> {
+  const masterVariantId = arg("variant");
+  const actor = arg("actor");
+  const reason = arg("reason");
+
+  if (!masterVariantId) return fail("--variant <id> is required");
+  if (!actor) return fail("--actor <staff-id> is required");
+  if (!reason) return fail("--reason <text> is required (D14)");
+
+  const active = await resolveActiveOverride(masterVariantId);
+  if (!active) {
+    return fail("no override is in effect for that variant — nothing to revoke");
+  }
+
+  console.log(
+    `revoking override ${active.id}: ${formatMinorUnits(active.overridePriceMinorUnits ?? 0n, active.currency)}`
+  );
+
+  const result = await revokePriceOverride({ masterVariantId, reason, revokedBy: actor });
+  console.log(`revocation ${result.id} recorded by ${actor}.`);
+  console.log(
+    "The variant returns to its CALCULATED price. The revoked override remains " +
+      "on the record; nothing was deleted."
+  );
+}
+
 async function verify(): Promise<void> {
   const calculationId = arg("calculation");
   if (!calculationId) return fail("--calculation <id> is required");
@@ -198,10 +245,12 @@ const run =
           ? verify
           : verb === "override"
             ? override
-            : null;
+            : verb === "revoke"
+              ? revoke
+              : null;
 
 if (!run) {
-  console.log("usage: price-review <list|approve|reject|verify|override> [options]");
+  console.log("usage: price-review <list|approve|reject|verify|override|revoke> [options]");
   process.exitCode = 1;
 } else {
   run()

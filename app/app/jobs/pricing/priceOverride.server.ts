@@ -30,6 +30,84 @@ import { logger } from "~/lib/logger.server";
  * when the question gets asked.
  */
 
+/**
+ * The override currently in effect for a variant, resolved by NAME rather than
+ * by an unstated "latest row wins" convention (architect follow-up N3).
+ *
+ * Returns null when there is no override, and — importantly — also when the
+ * most recent entry is a revocation. Both mean the calculated price applies,
+ * and callers should not have to know that a revoke row exists in order to get
+ * that right.
+ */
+export async function resolveActiveOverride(masterVariantId: string) {
+  // The head of the chain is the row nothing supersedes. Using that rather than
+  // ORDER BY created_at means two rows written in the same millisecond cannot
+  // silently swap places, and the unique index on supersedes_id guarantees
+  // there is at most one head.
+  const head = await prisma.priceOverride.findFirst({
+    where: { masterVariantId, supersededBy: null },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!head || head.kind === "revoke") return null;
+  return head;
+}
+
+export class NothingToRevokeError extends Error {
+  constructor(readonly masterVariantId: string) {
+    super(`Variant ${masterVariantId} has no override in effect, so there is nothing to revoke.`);
+    this.name = "NothingToRevokeError";
+  }
+}
+
+/**
+ * Returns a variant to its calculated price by APPENDING a revocation, never by
+ * deleting the override it revokes. The override that was in force stays on the
+ * record, along with who withdrew it and why — a price that was charged and
+ * then withdrawn is exactly the history a dispute asks about.
+ */
+export async function revokePriceOverride(request: {
+  masterVariantId: string;
+  reason: string;
+  revokedBy: string;
+}): Promise<{ id: string; revokedOverrideId: string }> {
+  if (!request.reason || request.reason.trim() === "") {
+    throw new PriceOverrideReasonRequiredError();
+  }
+  if (!request.revokedBy || request.revokedBy.trim() === "") {
+    throw new PriceOverrideActorRequiredError();
+  }
+
+  const active = await resolveActiveOverride(request.masterVariantId);
+  if (!active) throw new NothingToRevokeError(request.masterVariantId);
+
+  const revocation = await prisma.priceOverride.create({
+    data: {
+      masterVariantId: request.masterVariantId,
+      kind: "revoke",
+      supersedesId: active.id,
+      priceCalculationId: active.priceCalculationId,
+      // No price: a revocation restores the calculated one. The CHECK
+      // constraint refuses a revoke row that carries a price.
+      overridePriceMinorUnits: null,
+      currency: active.currency,
+      breachedFloors: [],
+      warningShown: null,
+      reason: request.reason.trim(),
+      overriddenBy: request.revokedBy.trim(),
+    },
+  });
+
+  logger.warn("pricing.override_revoked", {
+    overrideId: revocation.id,
+    revokedOverrideId: active.id,
+    masterVariantId: request.masterVariantId,
+    revokedBy: request.revokedBy,
+  });
+
+  return { id: revocation.id, revokedOverrideId: active.id };
+}
+
 export interface PriceOverrideRequest {
   masterVariantId: string;
   overridePriceMinorUnits: bigint;
@@ -227,9 +305,20 @@ export async function applyPriceOverride(request: PriceOverrideRequest): Promise
     throw new PriceOverrideConfirmationRequiredError(preview.breaches, preview.warning ?? "");
   }
 
+  // Chains onto the override currently in effect, so the history is a single
+  // ordered sequence per variant rather than a pile of rows with an implicit
+  // winner. Note this reads the HEAD of the chain, including a revoke row —
+  // a new override after a revocation supersedes the revocation.
+  const head = await prisma.priceOverride.findFirst({
+    where: { masterVariantId: request.masterVariantId, supersededBy: null },
+    orderBy: { createdAt: "desc" },
+  });
+
   const override = await prisma.priceOverride.create({
     data: {
       masterVariantId: request.masterVariantId,
+      kind: "set",
+      supersedesId: head?.id ?? null,
       // The calculation the preview evaluated against, not the caller's
       // optional hint: the audit row must name the basis actually used.
       priceCalculationId: preview.priceCalculationId,

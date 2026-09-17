@@ -735,6 +735,19 @@ model PriceRecalculationRun {
 /// remains on the record exactly as computed; this sits alongside it. That
 /// separation is what lets "what did the engine say?" and "what did we
 /// actually charge?" both be answered later.
+/// D14 / architect follow-up N3. An override history is append-only, so
+/// "this override replaces the previous one" and "go back to the calculated
+/// price" both have to be expressed by APPENDING a row rather than by editing
+/// or deleting one.
+enum PriceOverrideKind {
+  /// Sets a manual price, superseding any override currently in effect.
+  set
+  /// Returns the variant to its calculated price. Carries no price of its own.
+  revoke
+
+  @@map("price_override_kind")
+}
+
 model PriceOverride {
   id              String        @id @default(uuid()) @db.Uuid
   masterVariantId String        @map("master_variant_id") @db.Uuid
@@ -744,8 +757,21 @@ model PriceOverride {
   priceCalculationId String?           @map("price_calculation_id") @db.Uuid
   priceCalculation   PriceCalculation? @relation(fields: [priceCalculationId], references: [id])
 
-  overridePriceMinorUnits BigInt @map("override_price_minor_units")
-  currency                String @db.Char(3)
+  kind PriceOverrideKind @default(set)
+
+  /// The override this one replaces, forming a single chain per variant. NULL
+  /// on the first override for a variant. A partial unique index stops two rows
+  /// superseding the same predecessor, which would fork the history and make
+  /// "the override in effect" ambiguous.
+  supersedesId String?        @unique @map("supersedes_id") @db.Uuid
+  supersedes   PriceOverride? @relation("PriceOverrideChain", fields: [supersedesId], references: [id])
+  supersededBy PriceOverride? @relation("PriceOverrideChain")
+
+  /// NULL exactly when kind is `revoke` — a revocation restores the calculated
+  /// price and therefore has no price of its own. Enforced by a CHECK, so the
+  /// two fields cannot disagree.
+  overridePriceMinorUnits BigInt? @map("override_price_minor_units")
+  currency                String  @db.Char(3)
 
   /// Which floors the override breaches, if any. An EMPTY array is meaningful:
   /// it records that the system checked and found none, as distinct from never
