@@ -89,7 +89,9 @@ const ALLOW_LIST = [
     // and stored in an INTEGER column, converted once at the persistence edge.
     // The tolerance decision itself is made on the exact MoneyDecimal BEFORE
     // this conversion, so no pricing comparison depends on the JS number.
-    // Reviewed and accepted by the architect, 2026-09-17.
+    // Reviewed by the QA & security reviewer during Slice 1 T10 and found
+    // substantively justified: this is the "plain integer" category §4.1
+    // permits as a JSON number.
     path: "app/jobs/pricing/decideSync.ts",
     pattern: "Number(",
     reason: "basis-point integer for an INTEGER column; the tolerance decision is made on the exact decimal first",

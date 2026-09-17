@@ -23,7 +23,14 @@ export interface UpsertIntentInput {
   masterVariantId: string;
   priceCalculationId: string;
   decision: "auto_apply" | "needs_approval";
-  status: "pending_approval" | "synced";
+  /**
+   * "synced" is ONLY for a genuine no-op — a price that did not change. A
+   * CHANGED price that auto-applies becomes "approved": cleared for sync but
+   * not yet synced, because slice 1 never calls ShopifyPriceSyncPort. Writing
+   * "synced" for work that never happened would be a false audit record
+   * claiming a price reached Shopify.
+   */
+  status: "pending_approval" | "approved" | "synced";
   previousPriceMinorUnits?: bigint | null;
   previousPriceCurrency?: string | null;
   deltaBps?: number | null;

@@ -108,14 +108,32 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
 
       const resolved = await resolveInputsForVariant(variant.id, asOf);
 
-      const banded = resolved.bands.length > 0 && variant.bandId !== null;
-      const band = banded ? resolved.bands.find((b) => b.label !== undefined) : undefined;
+      // Select the variant's OWN band by id. An earlier version matched on
+      // `b.label !== undefined`, which is true for every band, so every
+      // variant was priced off the first band by sortOrder — and because
+      // weight grows with size, every band past the first was systematically
+      // under-priced. Matching by id is the only correct correlation.
+      //
+      // A variant carrying a bandId that does not resolve to one of its
+      // product's bands is a data-integrity error, not a "use whatever is
+      // first" case: failing this variant is strictly safer than pricing it
+      // off a band it does not belong to.
+      const band =
+        variant.bandId === null
+          ? undefined
+          : (resolved.bands.find((b) => b.id === variant.bandId) ??
+             (() => {
+               throw new Error(
+                 `master_variant ${variant.id} references bandId ${variant.bandId}, ` +
+                   "which is not a band of its product"
+               );
+             })());
 
-      const result = band
-        ? computeBuyNowBandPrice({ ...resolved.inputs, band }).winning
-        : computeBuyNowPrice(resolved.inputs);
-
-      const costBasisSize = band ? computeBuyNowBandPrice({ ...resolved.inputs, band }).costBasisSize : null;
+      // Computed once: computeBuyNowBandPrice is pure, but calling it twice
+      // for the same inputs is waste, and two call sites could drift.
+      const bandResult = band ? computeBuyNowBandPrice({ ...resolved.inputs, band }) : null;
+      const result = bandResult ? bandResult.winning : computeBuyNowPrice(resolved.inputs);
+      const costBasisSize = bandResult ? bandResult.costBasisSize : null;
 
       // The snapshot payload is the reproducibility contract (§5.6): the
       // inputs plus the engine version are enough to recompute this price
@@ -173,13 +191,34 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
         toleranceBps: resolved.inputs.profile.autoApplyToleranceBps,
       });
 
+      // D14 GUARD — enforced here in the job, not only in the review CLI.
+      //
+      // While the active profile is a placeholder its margins are invented, so
+      // no price derived from them may clear review by ANY route. The CLI
+      // refuses to approve such a price, but an auto-apply decision never
+      // passes through the CLI at all — so without this check a
+      // within-tolerance change computed from a 99.99% placeholder margin
+      // would bypass the only guard that exists.
+      const requiresHuman = resolved.isPlaceholderProfile || decision.decision === "needs_approval";
+
       await supersedeAndCreateIntent({
         masterVariantId: variant.id,
         priceCalculationId: calculation.id,
         decision: decision.decision,
-        // An unchanged price is terminal immediately: a no-change run must not
-        // fill the approval queue with nothing to approve (§9.3).
-        status: decision.unchanged ? "synced" : decision.decision === "auto_apply" ? "synced" : "pending_approval",
+        // Three deliberately distinct states:
+        //   unchanged           -> synced    genuinely nothing to do; §9.3
+        //                                    requires a no-change run not to
+        //                                    fill the approval queue
+        //   auto_apply, changed -> approved  cleared for sync but NOT synced.
+        //                                    Slice 1 never calls the Shopify
+        //                                    port, so "synced" would be a
+        //                                    false record of work never done
+        //   needs_approval      -> pending_approval
+        status: requiresHuman
+          ? "pending_approval"
+          : decision.unchanged
+            ? "synced"
+            : "approved",
         previousPriceMinorUnits: lastSynced ? BigInt(lastSynced.amountMinorUnits) : null,
         previousPriceCurrency: lastSynced?.currency ?? null,
         deltaBps: decision.deltaBps,
@@ -187,9 +226,9 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
       });
 
       summary.computed += 1;
-      if (decision.unchanged) summary.unchanged += 1;
-      else if (decision.decision === "auto_apply") summary.autoApply += 1;
-      else summary.needsApproval += 1;
+      if (requiresHuman) summary.needsApproval += 1;
+      else if (decision.unchanged) summary.unchanged += 1;
+      else summary.autoApply += 1;
     } catch (error) {
       // One variant's failure never aborts the run.
       summary.failed += 1;

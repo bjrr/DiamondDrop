@@ -42,7 +42,7 @@ export interface ResolveInputsResult {
   inputs: BuyNowPricingInputs;
   pricingProfileId: string;
   isPlaceholderProfile: boolean;
-  bands: { label: string; sizeMin: string; sizeMax: string }[];
+  bands: { id: string; label: string; sizeMin: string; sizeMax: string }[];
 }
 
 export async function resolveInputsForVariant(
@@ -184,6 +184,7 @@ export async function resolveInputsForVariant(
     pricingProfileId: profile.id,
     isPlaceholderProfile: profile.isPlaceholder,
     bands: product.bands.map((band) => ({
+      id: band.id,
       label: band.label,
       sizeMin: band.sizeMin.toString(),
       sizeMax: band.sizeMax.toString(),
