@@ -170,6 +170,14 @@ async function override(): Promise<void> {
 
   const result = await applyPriceOverride(request);
   console.log(`override ${result.id} recorded by ${actor}.`);
+  // Says plainly what did NOT happen. An operator reading "recorded" will
+  // otherwise assume the price changed — the same class of false claim as a
+  // sync status reported without a sync having occurred.
+  console.log(
+    "NOTE: this is an AUDIT RECORD ONLY. It does not change any calculated, " +
+      "approved or published price, and the next recalculation will not consult it. " +
+      "Wiring overrides into price sync is Slice 2 work."
+  );
 }
 
 async function verify(): Promise<void> {

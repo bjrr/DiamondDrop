@@ -37,7 +37,23 @@ import type {
  * Keep in step with the `CostComponentType` enum in schema.prisma. A type
  * present in the enum and absent here is silently free.
  */
-const ALL_COMPONENT_TYPES: readonly CostComponentType[] = [
+/**
+ * Cost component types that exist in the enum but are deliberately NOT cost
+ * inputs. Declaring them explicitly is what lets componentCoverage.test.ts
+ * distinguish "decided not to load this" from "forgot to load this" — the two
+ * look identical in a price, and the second one silently under-prices.
+ *
+ * `payment_adjustment` is reserved, not live. It was added while implementing
+ * D9 and left unused once the credit-card uplift moved onto the pricing profile
+ * as a derived, versioned rate. It is kept because Postgres cannot drop an enum
+ * value cheaply, and because it is the natural home for the open question
+ * flagged with D9 (whether the cash-equivalent base should carry a cash
+ * processing cost distinct from card processing). Nothing reads it today, and
+ * data recorded under it would have no effect on any price.
+ */
+export const INERT_COMPONENT_TYPES: readonly CostComponentType[] = ["payment_adjustment"];
+
+export const ALL_COMPONENT_TYPES: readonly CostComponentType[] = [
   "metal_loss",
   "cad",
   "casting",

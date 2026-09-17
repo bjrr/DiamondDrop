@@ -27,8 +27,6 @@ const ALLOWED_WRITE_MODELS = new Set([
   "PriceSyncIntent",
   "PriceRecalculationRun",
   "Snapshot",
-  // The compare-and-set anchor for "last synced price".
-  "MasterVariant",
   // The audit trail the run itself writes. Append-only and Buy Now scoped.
   "AuditEvent",
 ]);

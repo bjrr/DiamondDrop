@@ -293,6 +293,24 @@ enum CostComponentType {
   /// cash-equivalent base price. NOT a cost component in the landed-cost sense
   /// — it derives a second customer-facing price from the first, so the engine
   /// must never fold it into C.
+  /// RESERVED, not yet loaded by the pricing job.
+  ///
+  /// Added while implementing D9 and deliberately left unused once the
+  /// credit-card price moved onto the pricing profile as a derived rate. It is
+  /// kept — rather than removed — because Postgres cannot drop an enum value
+  /// without rewriting the type, and because it is the natural home for the
+  /// open question flagged with D9:
+  ///
+  ///   payment_processing (2.9% + $0.30) is currently solved into the base
+  ///   price as a revenue-side deduction. If that base is genuinely
+  ///   cash-equivalent (ACH, wire, Zelle, cheque), card fees are not incurred
+  ///   on it and the 5% card uplift may cover them a second time. The correct
+  ///   cash-equivalent processing cost is an owner number, not one to invent.
+  ///
+  /// If that is resolved by splitting cash-equivalent processing cost from card
+  /// processing cost, this is the component type for it. Until then nothing
+  /// reads it, and adding data under it would have no effect on any price —
+  /// resolveInputs.server.ts loads an explicit list that does not include it.
   payment_adjustment
 
   @@map("cost_component_type")
