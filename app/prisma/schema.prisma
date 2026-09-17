@@ -128,6 +128,8 @@ model Snapshot {
   contentHash String   @map("content_hash")
   createdAt   DateTime @default(now()) @map("created_at")
 
+  priceCalculations PriceCalculation[]
+
   @@index([kind])
   @@index([contentHash])
   @@map("snapshot")
@@ -193,4 +195,495 @@ model IdempotencyKey {
   @@index([operationType])
   @@index([status])
   @@map("idempotency_key")
+}
+
+// =============================================================================
+// Slice 1 — Cost Libraries, Buy Now Pricing Engine, Price Review & Sync Job
+// (docs/specs/SLICE-1-PRICING.md). Layering per §4.0: metal_price, stone_cost,
+// cost_component and pricing_profile are L1 raw inputs (append-only, staff-
+// or feed-entered, effective-dated). master_product/master_variant/
+// ring_size_band/variant_weight_override/master_variant_stone are the design
+// definition the engine reads. price_calculation is the L6 immutable record
+// of one computed price; price_sync_intent is the mutable review/sync state
+// machine layered on top of it (architect ruling, §7.2, amending
+// docs/ARCHITECTURE-MVP1.md §4: immutable calculation vs. mutable review).
+//
+// NULL-in-UNIQUE-INDEX CAVEAT (judgement call, flagged for architect
+// review): several natural-key uniqueness rules below include nullable
+// columns (e.g. master_variant's bandId, stone_cost's color/clarity/
+// cutGrade/labStatus/supplierRef wildcards). Postgres treats each NULL in a
+// UNIQUE index as distinct from every other NULL, so a plain multi-column
+// `@@unique` does NOT reject two rows that are "duplicates" only because
+// they share the same NULL(s) — e.g. two stone_cost rows with an identical
+// non-null key prefix and every wildcard column NULL. Spec §7.2 states each
+// of these constraints in plain natural-key form without asking for a
+// COALESCE/partial-index workaround (unlike price_sync_intent, where the
+// spec explicitly calls for a partial index), so this migration implements
+// them as literal multi-column `@@unique`s and relies on effective-dating
+// application logic (§4.3 specificity ordering; `selectMostSpecific`, T5)
+// to keep wildcard rows from being written as accidental exact duplicates.
+// Flagging rather than silently "fixing" this with an uninstructed COALESCE
+// index, per the instruction not to invent scope beyond the approved spec.
+
+enum Metal {
+  sterling_silver
+  gold
+  platinum
+
+  @@map("metal")
+}
+
+/// Value names are not valid bare Prisma identifiers (leading digits), so
+/// each is mapped to the spec's literal string (§7.2: "925", "10k", "14k",
+/// "18k", "pt950").
+enum Purity {
+  SILVER_925   @map("925")
+  GOLD_10K     @map("10k")
+  GOLD_14K     @map("14k")
+  GOLD_18K     @map("18k")
+  PLATINUM_950 @map("pt950")
+
+  @@map("purity")
+}
+
+enum MetalPriceSource {
+  manual
+  feed
+
+  @@map("metal_price_source")
+}
+
+/// §4.3: fixed list, controlling.
+enum StoneType {
+  natural_diamond
+  lab_diamond
+  moissanite
+  colored_gemstone
+  accent_melee
+
+  @@map("stone_type")
+}
+
+enum StoneCostKind {
+  per_stone
+  per_carat
+
+  @@map("stone_cost_kind")
+}
+
+/// §4.2 input inventory, one value per cost input row. `metal_loss` is
+/// seeded explicitly as a zero-rate `cost_component` (§4.5) rather than
+/// treated as absent.
+enum CostComponentType {
+  metal_loss
+  cad
+  casting
+  setting
+  polishing
+  assembly
+  qc
+  packaging
+  shipping
+  insurance
+  warranty_reserve
+  supplier_fee
+  other
+  payment_processing
+
+  @@map("cost_component_type")
+}
+
+/// §4.4 — the circularity resolution. cost_side enters the landed cost;
+/// revenue_side enters the closed-form solve's denominator/numerator.
+enum CostComponentBasis {
+  cost_side
+  revenue_side
+
+  @@map("cost_component_basis")
+}
+
+/// §5.0/§5.2: every cost_component type supports all three kinds rather
+/// than special-casing (e.g. setting is normally per_stone, but the engine
+/// does not hard-code that).
+enum CostComponentValueKind {
+  fixed
+  per_stone
+  percentage
+
+  @@map("cost_component_value_kind")
+}
+
+/// README §Pricing Profiles. Slice 1 seeds and exercises buy_now only
+/// (§1 "What is NOT in this slice").
+enum PricingProfileCode {
+  buy_now
+  group_buy
+  custom
+  wholesale
+  friends_family
+  marketplace
+
+  @@map("pricing_profile_code")
+}
+
+/// §5.1 R8: generalises the base-plus-increment weight model to rings,
+/// chains/bracelets/necklaces (length_inches) and unsized products (none).
+enum SizeAxis {
+  ring_size_us
+  length_inches
+  none
+
+  @@map("size_axis")
+}
+
+enum MasterProductStatus {
+  draft
+  active
+  archived
+
+  @@map("master_product_status")
+}
+
+enum MasterVariantStatus {
+  draft
+  active
+  archived
+
+  @@map("master_variant_status")
+}
+
+enum PriceCalculationStatus {
+  computed
+  failed
+
+  @@map("price_calculation_status")
+}
+
+/// §9.3 decideSync.
+enum PriceSyncDecision {
+  auto_apply
+  needs_approval
+
+  @@map("price_sync_decision")
+}
+
+/// §9.4/§7.2: terminal statuses are synced, rejected, failed, superseded —
+/// the partial unique index in this migration's raw SQL depends on exactly
+/// this terminal set.
+enum PriceSyncIntentStatus {
+  pending_approval
+  approved
+  rejected
+  syncing
+  synced
+  failed
+  superseded
+
+  @@map("price_sync_intent_status")
+}
+
+/// L1 raw input (§4.0). Append-only — see this migration's trigger
+/// extension. Keyed on (metal, purity, effectiveFrom); resolution (L2) picks
+/// the greatest effectiveFrom <= asOf regardless of `source` (§4.7 Seam A —
+/// `source` is provenance only, never selected on).
+model MetalPrice {
+  id            String           @id @default(uuid()) @db.Uuid
+  metal         Metal
+  purity        Purity
+  pricePerGram  Decimal          @map("price_per_gram") @db.Decimal(18, 6)
+  currency      String           @db.Char(3)
+  effectiveFrom DateTime         @map("effective_from")
+  source        MetalPriceSource
+  /// Nullable because a feed-sourced row has no human author (§4.7 Seam A) —
+  /// not an oversight.
+  enteredBy     String?          @map("entered_by")
+  note          String?
+  createdAt     DateTime         @default(now()) @map("created_at")
+
+  @@unique([metal, purity, effectiveFrom])
+  @@index([metal, purity])
+  @@map("metal_price")
+}
+
+/// L1 raw input. Append-only. Key tuple per §4.3, including `shape` (R4)
+/// and `supplierRef` (§4.7 Seam B — always null in slice 1's lookups; a
+/// non-null-supplierRef row is inert until a product gains a supplier
+/// dimension). CHECK (this migration's raw SQL): currency is always
+/// present, and exactly one of costMinorUnits/costPerCarat is populated,
+/// matching costKind.
+model StoneCost {
+  id             String        @id @default(uuid()) @db.Uuid
+  stoneType      StoneType     @map("stone_type")
+  shape          String
+  caratMin       Decimal       @map("carat_min") @db.Decimal(8, 3)
+  caratMax       Decimal       @map("carat_max") @db.Decimal(8, 3)
+  /// Nullable qualifiers act as wildcards in the specificity ordering
+  /// (§4.3). Not enums: grading vocabularies differ by stone type and are
+  /// not specified as a fixed list by README/spec.
+  color          String?
+  clarity        String?
+  cutGrade       String?       @map("cut_grade")
+  labStatus      String?       @map("lab_status")
+  supplierRef    String?       @map("supplier_ref")
+  costKind       StoneCostKind @map("cost_kind")
+  costMinorUnits BigInt?       @map("cost_minor_units")
+  costPerCarat   Decimal?      @map("cost_per_carat") @db.Decimal(18, 6)
+  currency       String        @db.Char(3)
+  effectiveFrom  DateTime      @map("effective_from")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  @@unique([stoneType, shape, caratMin, caratMax, color, clarity, cutGrade, labStatus, supplierRef, effectiveFrom], name: "stone_cost_natural_key")
+  @@index([stoneType, shape])
+  @@map("stone_cost")
+}
+
+/// L1 raw input. Append-only. Natural key includes `valueKind` (not just
+/// `componentType`) because a type such as payment_processing legitimately
+/// carries two concurrently-effective rows of the same type — a
+/// `percentage` rate and a `fixed` fee (§4.2, §4.6) — which the engine sums
+/// separately as `r` and `f` (§5.3). CHECK (this migration's raw SQL): the
+/// populated column (amount+currency vs. rate) matches valueKind.
+model CostComponent {
+  id               String                 @id @default(uuid()) @db.Uuid
+  componentType    CostComponentType      @map("component_type")
+  basis            CostComponentBasis
+  valueKind        CostComponentValueKind @map("value_kind")
+  amountMinorUnits BigInt?                @map("amount_minor_units")
+  currency         String?                @db.Char(3)
+  rate             Decimal?               @db.Decimal(9, 6)
+  effectiveFrom    DateTime               @map("effective_from")
+  enteredBy        String?                @map("entered_by")
+  note             String?
+  createdAt        DateTime               @default(now()) @map("created_at")
+
+  @@unique([componentType, valueKind, effectiveFrom])
+  @@index([componentType])
+  @@map("cost_component")
+}
+
+/// L1 raw input / L4 policy row (§4.0). Append-only — a change is a new
+/// version, never an edit (`@@unique([code, version])`). CHECK (this
+/// migration's raw SQL): minGrossMarginRate <= targetGrossMarginRate.
+/// `isPlaceholder` is a judgement-call addition beyond the literal §7.2
+/// column list: D14 (§13) requires the review CLI (T8) to refuse to approve
+/// an intent computed from a still-placeholder profile, which needs a
+/// queryable flag rather than an inference from the (deliberately
+/// nonsensical) numeric values alone.
+model PricingProfile {
+  id                        String             @id @default(uuid()) @db.Uuid
+  code                      PricingProfileCode
+  version                   Int
+  /// Registry id (app/domain/pricing/solve.ts, §5.3) — a plain string, not
+  /// an enum, so a new model is a registry addition, not a schema
+  /// migration, matching the rounding/price-ending rule ids below.
+  marginModel               String             @map("margin_model")
+  targetGrossMarginRate     Decimal            @map("target_gross_margin_rate") @db.Decimal(9, 6)
+  minGrossMarginRate        Decimal            @map("min_gross_margin_rate") @db.Decimal(9, 6)
+  minDollarProfitMinorUnits BigInt             @map("min_dollar_profit_minor_units")
+  currency                  String             @db.Char(3)
+  roundingRuleId            String             @map("rounding_rule_id")
+  priceEndingRuleId         String             @map("price_ending_rule_id")
+  autoApplyToleranceBps     Int                @map("auto_apply_tolerance_bps")
+  effectiveFrom             DateTime           @map("effective_from")
+  createdBy                 String             @map("created_by")
+  /// See model doc comment. D14 placeholder marker.
+  isPlaceholder             Boolean            @default(false) @map("is_placeholder")
+  createdAt                 DateTime           @default(now()) @map("created_at")
+
+  priceCalculations PriceCalculation[]
+
+  @@unique([code, version])
+  @@map("pricing_profile")
+}
+
+/// The design/cost definition Shopify's product record is joined to via
+/// `shopifyProductGid` (§3 — Shopify owns the purchasable record; this is
+/// ours). Mutable: not evidence, and edits here do not rewrite history
+/// (history lives in price_calculation's snapshot).
+model MasterProduct {
+  id                String              @id @default(uuid()) @db.Uuid
+  name              String
+  category          String
+  description       String?
+  sizeAxis          SizeAxis            @map("size_axis")
+  allowedSizeMin    Decimal             @map("allowed_size_min") @db.Decimal(6, 2)
+  allowedSizeMax    Decimal             @map("allowed_size_max") @db.Decimal(6, 2)
+  sizeIncrement     Decimal             @map("size_increment") @db.Decimal(6, 2)
+  baseSize          Decimal             @map("base_size") @db.Decimal(6, 2)
+  /// Explicit per R10 — product creators choose which offered metals apply.
+  offeredMetals     Metal[]             @map("offered_metals")
+  shopifyProductGid String?             @unique @map("shopify_product_gid")
+  /// Read by the recalculation job's LuxuryStealExclusionSource (§9.2).
+  /// Slice 3 owns the semantics; this slice only gives the exclusion port
+  /// something to read.
+  isLuxurySteal     Boolean             @default(false) @map("is_luxury_steal")
+  status            MasterProductStatus @default(draft)
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  variants MasterVariant[]
+  bands    RingSizeBand[]
+
+  @@index([status])
+  @@map("master_product")
+}
+
+/// A Shopify variant is metal × band (R18, §7.2). Joined to the actual
+/// Shopify variant via `shopifyVariantGid` (§3 — Shopify owns the
+/// purchasable record; this is the design/cost definition).
+model MasterVariant {
+  id                           String              @id @default(uuid()) @db.Uuid
+  masterProductId              String              @map("master_product_id") @db.Uuid
+  masterProduct                MasterProduct       @relation(fields: [masterProductId], references: [id])
+  metal                        Metal
+  purity                       Purity
+  bandId                       String?             @map("band_id") @db.Uuid
+  band                         RingSizeBand?       @relation(fields: [bandId], references: [id])
+  baseWeightGrams              Decimal             @map("base_weight_grams") @db.Decimal(10, 4)
+  weightPerFullSizeGrams       Decimal             @map("weight_per_full_size_grams") @db.Decimal(10, 4)
+  minPriceMinorUnits           BigInt?             @map("min_price_minor_units")
+  minPriceCurrency             String?             @map("min_price_currency") @db.Char(3)
+  shopifyVariantGid            String?             @unique @map("shopify_variant_gid")
+  status                       MasterVariantStatus @default(draft)
+  /// Compare-and-set anchor for slice 2's sync (§9.4): the sync executes
+  /// only if the intent's priceCalculationId is still the newest computed
+  /// calculation for this variant.
+  lastSyncedPriceCalculationId String?             @unique @map("last_synced_price_calculation_id") @db.Uuid
+  lastSyncedPriceCalculation   PriceCalculation?   @relation("LastSyncedCalculation", fields: [lastSyncedPriceCalculationId], references: [id])
+  createdAt                    DateTime            @default(now()) @map("created_at")
+  updatedAt                    DateTime            @updatedAt @map("updated_at")
+
+  weightOverrides   VariantWeightOverride[]
+  stones            MasterVariantStone[]
+  priceCalculations PriceCalculation[]      @relation("VariantCalculations")
+  syncIntents       PriceSyncIntent[]
+
+  @@unique([masterProductId, metal, purity, bandId])
+  @@index([status])
+  @@map("master_variant")
+}
+
+/// Per-product configurable bands (R9), seeded with the 2–6 / 6.5–8 / 8.5–11
+/// defaults but not hard-coded. Gapless/non-overlapping coverage is
+/// validated at write time by the repository layer (T5), not by a DB
+/// constraint — criterion 12.
+model RingSizeBand {
+  id              String        @id @default(uuid()) @db.Uuid
+  masterProductId String        @map("master_product_id") @db.Uuid
+  masterProduct   MasterProduct @relation(fields: [masterProductId], references: [id])
+  label           String
+  sizeMin         Decimal       @map("size_min") @db.Decimal(6, 2)
+  sizeMax         Decimal       @map("size_max") @db.Decimal(6, 2)
+  sortOrder       Int           @map("sort_order")
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  variants MasterVariant[]
+
+  @@index([masterProductId])
+  @@map("ring_size_band")
+}
+
+/// Exact finished-weight override (R8) — wins unconditionally over the
+/// linear model at the given size.
+model VariantWeightOverride {
+  id              String        @id @default(uuid()) @db.Uuid
+  masterVariantId String        @map("master_variant_id") @db.Uuid
+  masterVariant   MasterVariant @relation(fields: [masterVariantId], references: [id])
+  size            Decimal       @db.Decimal(6, 2)
+  weightGrams     Decimal       @map("weight_grams") @db.Decimal(10, 4)
+  reason          String?
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  @@unique([masterVariantId, size])
+  @@map("variant_weight_override")
+}
+
+/// The stone composition the engine sums in §5.2 step 3. `position`
+/// distinguishes multiple stones of the same spec on one variant (e.g. two
+/// side stones) without relying on row order.
+model MasterVariantStone {
+  id              String        @id @default(uuid()) @db.Uuid
+  masterVariantId String        @map("master_variant_id") @db.Uuid
+  masterVariant   MasterVariant @relation(fields: [masterVariantId], references: [id])
+  position        Int
+  stoneType       StoneType     @map("stone_type")
+  shape           String
+  carat           Decimal       @db.Decimal(8, 3)
+  color           String?
+  clarity         String?
+  cutGrade        String?       @map("cut_grade")
+  labStatus       String?       @map("lab_status")
+  quantity        Int
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  @@unique([masterVariantId, position])
+  @@map("master_variant_stone")
+}
+
+/// L6 immutable pricing record (§5.6, §6). Append-only — see this
+/// migration's trigger extension. `@@unique([runId, masterVariantId])` is
+/// what makes re-running a job idempotent (§9.4, criterion 23): a repeat of
+/// the same runId is a no-op, not a duplicate row. F-7 caveat (recorded per
+/// §6): enforcement depends on the slice-2 deploy task splitting the
+/// migration role from the runtime role — until then, the runtime role
+/// could DROP TRIGGER and this is documentation, not a guarantee.
+model PriceCalculation {
+  id                      String                 @id @default(uuid()) @db.Uuid
+  runId                   String                 @map("run_id") @db.Uuid
+  masterVariantId         String                 @map("master_variant_id") @db.Uuid
+  masterVariant           MasterVariant          @relation("VariantCalculations", fields: [masterVariantId], references: [id])
+  pricingProfileId        String                 @map("pricing_profile_id") @db.Uuid
+  pricingProfile          PricingProfile         @relation(fields: [pricingProfileId], references: [id])
+  profileVersion          Int                    @map("profile_version")
+  engineVersion           String                 @map("engine_version")
+  roundingRuleId          String                 @map("rounding_rule_id")
+  priceEndingRuleId       String                 @map("price_ending_rule_id")
+  asOf                    DateTime               @map("as_of")
+  snapshotId              String                 @map("snapshot_id") @db.Uuid
+  snapshot                Snapshot               @relation(fields: [snapshotId], references: [id])
+  costBasisSize           Decimal?               @map("cost_basis_size") @db.Decimal(6, 2)
+  landedCostMinorUnits    BigInt                 @map("landed_cost_minor_units")
+  computedPriceMinorUnits BigInt                 @map("computed_price_minor_units")
+  currency                String                 @db.Char(3)
+  status                  PriceCalculationStatus
+  failureReason           String?                @map("failure_reason")
+  createdAt               DateTime               @default(now()) @map("created_at")
+
+  syncIntents         PriceSyncIntent[]
+  lastSyncedByVariant MasterVariant?    @relation("LastSyncedCalculation")
+
+  @@unique([runId, masterVariantId])
+  @@index([masterVariantId, createdAt])
+  @@index([status])
+  @@map("price_calculation")
+}
+
+/// Mutable review/sync state machine (§7.2, §9.3, §9.4) — deliberately NOT
+/// append-only; this is what the architect ruling in §7.2 splits away from
+/// the immutable price_calculation. Partial unique index (this migration's
+/// raw SQL, Prisma cannot express it): at most one non-terminal intent
+/// (status NOT IN synced/rejected/failed/superseded) per masterVariantId.
+model PriceSyncIntent {
+  id                      String                @id @default(uuid()) @db.Uuid
+  masterVariantId         String                @map("master_variant_id") @db.Uuid
+  masterVariant           MasterVariant         @relation(fields: [masterVariantId], references: [id])
+  priceCalculationId      String                @map("price_calculation_id") @db.Uuid
+  priceCalculation        PriceCalculation      @relation(fields: [priceCalculationId], references: [id])
+  decision                PriceSyncDecision
+  status                  PriceSyncIntentStatus
+  previousPriceMinorUnits BigInt?               @map("previous_price_minor_units")
+  previousPriceCurrency   String?               @map("previous_price_currency") @db.Char(3)
+  deltaBps                Int?                  @map("delta_bps")
+  decidedBy               String?               @map("decided_by")
+  decidedAt               DateTime?             @map("decided_at")
+  reason                  String?
+  syncedAt                DateTime?             @map("synced_at")
+  shopifyVariantGid       String?               @map("shopify_variant_gid")
+  attemptCount            Int                   @default(0) @map("attempt_count")
+  createdAt               DateTime              @default(now()) @map("created_at")
+  updatedAt               DateTime              @updatedAt @map("updated_at")
+
+  @@index([masterVariantId])
+  @@index([status])
+  @@map("price_sync_intent")
 }
