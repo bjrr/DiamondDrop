@@ -147,12 +147,17 @@ export function evaluateFloors(input: FloorInput): FloorEvaluation {
 }
 
 /**
- * §5.5's bounded loop. Rounding to the cent can land marginally below a hard
- * floor; this nudges up by one minor unit until every floor is satisfied.
+ * §5.5's bounded loop. Rounding can land a price marginally below a hard floor;
+ * this nudges it up by `stepMinorUnits` until every floor is satisfied.
  *
  * Bounded because an unsatisfiable configuration must fail loudly rather than
- * spin: if 100 cents of headroom does not clear the floors, the profile and
- * the cost are inconsistent and that needs a human.
+ * spin. Note that the CAP IS IN BUMPS, NOT IN MONEY, so the headroom it allows
+ * scales with the step: 100 bumps of one minor unit is $1.00, but 100 bumps of
+ * a whole dollar is $100.00. That is intentional — a whole-dollar price needs
+ * whole-dollar room to clear the same floor — but it means the ceiling is
+ * generous under WHOLE_DOLLAR_UP_V1, and a price that climbs anywhere near it
+ * indicates a profile and a cost that disagree, which needs a human rather than
+ * a larger cap.
  */
 export function enforceFloors(
   input: FloorInput,
