@@ -5,16 +5,20 @@ import {
   createPriceCalculation,
   findCalculationForRun,
   findSnapshotByContentHash,
-  getLatestComputedCalculation,
+  getLastSyncedCalculation,
 } from "~/db/repositories/priceCalculationRepository.server";
 import { supersedeAndCreateIntent } from "~/db/repositories/priceSyncIntentRepository.server";
+import { resolveActivePricingProfile } from "~/db/repositories/pricingProfileRepository.server";
 import { hashCanonicalJson } from "~/domain/evidence/hash";
 import type { JsonValue } from "~/domain/evidence";
+import { Money } from "~/domain/money/money";
 import { computeBuyNowBandPrice, computeBuyNowPrice } from "~/domain/pricing/engine";
+import { PRICING_ENGINE_VERSION } from "~/domain/pricing/version";
 import { logger } from "~/lib/logger.server";
 
 import { decideSync } from "./decideSync";
 import {
+  BandResolutionError,
   NoOpOpenCampaignExclusionSource,
   type OpenCampaignExclusionSource,
 } from "./ports";
@@ -74,6 +78,27 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
 
   const campaignExcluded = await openCampaigns.excludedMasterVariantIds(asOf);
 
+  // Resolved once per run. A failed price_calculation still needs its required
+  // FKs, and if the profile itself cannot resolve there is no run to have.
+  const runProfile = await resolveActivePricingProfile("buy_now", asOf);
+
+  // Created lazily, and only if something actually fails, so a clean run adds
+  // no rows. Shared by every failure in the run: the payload carries no inputs
+  // because there were none to record.
+  let failureSnapshotId: string | null = null;
+  const getFailureSnapshotId = async (): Promise<string> => {
+    if (failureSnapshotId) return failureSnapshotId;
+    const hash = hashCanonicalJson({ kind: "pricing.failure", runId } as JsonValue);
+    const existing = await findSnapshotByContentHash(hash);
+    const snap =
+      existing ??
+      (await prisma.snapshot.create({
+        data: { kind: "pricing.failure", payload: { runId } as never, contentHash: hash },
+      }));
+    failureSnapshotId = snap.id;
+    return snap.id;
+  };
+
   for (const variant of variants) {
     // Skipped variants are RECORDED with a reason, never silently dropped
     // (R17) — a product missing from a pricing run must be explicable.
@@ -123,10 +148,7 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
           ? undefined
           : (resolved.bands.find((b) => b.id === variant.bandId) ??
              (() => {
-               throw new Error(
-                 `master_variant ${variant.id} references bandId ${variant.bandId}, ` +
-                   "which is not a band of its product"
-               );
+               throw new BandResolutionError(variant.id, variant.bandId);
              })());
 
       // Computed once: computeBuyNowBandPrice is pure, but calling it twice
@@ -157,7 +179,7 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
       const snapshot =
         (await findSnapshotByContentHash(contentHash)) ??
         (await prisma.snapshot.create({
-          data: { kind: "pricing.buy_now_calculation", payload: payload as never, contentHash },
+          data: { kind: "pricing.buy_now_calculation.v1", payload: payload as never, contentHash },
         }));
 
       const calculation = await createPriceCalculation({
@@ -171,19 +193,32 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
         asOf,
         snapshotId: snapshot.id,
         costBasisSize,
-        landedCostMinorUnits: BigInt(
-          result.breakdown.landedCostMinorUnits.split(".")[0] ?? "0"
-        ),
+        // Audit projection only — never re-entered into a calculation (§4.1
+        // rule 3). Routed through the named rounding registry anyway: this was
+        // the one place in the slice that rounded a money value by string
+        // surgery, outside the registry §5.4 exists to centralise.
+        landedCostMinorUnits: Money.fromDecimalMinorUnits(
+          result.breakdown.landedCostMinorUnits,
+          result.currency,
+          result.roundingRuleId
+        ).amountMinorUnits,
         computedPriceMinorUnits: BigInt(result.price.amountMinorUnits),
         currency: result.currency,
         status: "computed",
       });
 
-      const previous = await getLatestComputedCalculation(variant.id);
-      const lastSynced =
-        variant.lastSyncedPriceCalculationId && previous
-          ? { amountMinorUnits: previous.computedPriceMinorUnits.toString(), currency: previous.currency }
-          : null;
+      // Resolved through the compare-and-set anchor, which names the specific
+      // calculation that was synced — never "the latest computed", which after
+      // the write above is this run's own row. Reading that made every price
+      // look unchanged and be marked terminally `synced` no matter how far it
+      // had moved.
+      const lastSyncedCalculation = await getLastSyncedCalculation(variant.id);
+      const lastSynced = lastSyncedCalculation
+        ? {
+            amountMinorUnits: lastSyncedCalculation.computedPriceMinorUnits.toString(),
+            currency: lastSyncedCalculation.currency,
+          }
+        : null;
 
       const decision = decideSync({
         newPrice: result.price,
@@ -232,14 +267,50 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
     } catch (error) {
       // One variant's failure never aborts the run.
       summary.failed += 1;
+      const errorName = error instanceof Error ? error.name : "UnknownError";
+
       logger.error("pricing.variant_failed", {
         runId,
         masterVariantId: variant.id,
         // The error NAME only. A MissingCostInputError message can name a
         // component and its qualifiers; the message itself stays out of the
         // log to keep cost structure unlogged (criterion 30).
-        error: error instanceof Error ? error.name : "UnknownError",
+        error: errorName,
       });
+
+      // Write the DURABLE failure record §4.5 and criterion 15 require.
+      //
+      // Without this a failing variant leaves only a counter and one log line:
+      // nothing queryable, nothing an operator or a later admin UI can list,
+      // and no way to tell "this variant has been failing every run for a
+      // week" from "this variant was skipped". The reason is stored here
+      // rather than logged, because the row is access-controlled and the log
+      // is not.
+      try {
+        await createPriceCalculation({
+          runId,
+          masterVariantId: variant.id,
+          pricingProfileId: runProfile.id,
+          profileVersion: runProfile.version,
+          engineVersion: PRICING_ENGINE_VERSION,
+          roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
+          priceEndingRuleId: "NONE_V1",
+          asOf,
+          snapshotId: await getFailureSnapshotId(),
+          landedCostMinorUnits: 0n,
+          computedPriceMinorUnits: 0n,
+          currency: runProfile.minDollarProfit.toJSON().currency,
+          status: "failed",
+          failureReason: `${errorName}: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      } catch (recordError) {
+        // Recording the failure must never itself abort the run.
+        logger.error("pricing.failure_record_failed", {
+          runId,
+          masterVariantId: variant.id,
+          error: recordError instanceof Error ? recordError.name : "UnknownError",
+        });
+      }
     }
   }
 

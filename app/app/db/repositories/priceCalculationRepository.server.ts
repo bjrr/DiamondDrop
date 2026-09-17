@@ -72,6 +72,33 @@ export async function getLatestComputedCalculation(masterVariantId: string) {
   });
 }
 
+/**
+ * The price that is actually live on Shopify for this variant, resolved
+ * through the compare-and-set anchor.
+ *
+ * This is what `decideSync` must compare against — NOT "the latest computed
+ * calculation". An earlier version used the latter and called it *after*
+ * writing the current run's row, so it read back the row it had just written:
+ * every price then looked unchanged and was terminally marked `synced`,
+ * however far it had actually moved. Resolving through the anchor makes that
+ * mistake impossible, because the anchor names a specific calculation that
+ * was synced rather than whatever happens to be newest.
+ *
+ * Returns null when the variant has never been synced, which is the correct
+ * input for "first-ever price" (§9.3).
+ */
+export async function getLastSyncedCalculation(masterVariantId: string) {
+  const variant = await prisma.masterVariant.findUnique({
+    where: { id: masterVariantId },
+    select: { lastSyncedPriceCalculationId: true },
+  });
+  if (!variant?.lastSyncedPriceCalculationId) return null;
+
+  return prisma.priceCalculation.findUnique({
+    where: { id: variant.lastSyncedPriceCalculationId },
+  });
+}
+
 /** Whether this run already produced a row for this variant (§9.4 idempotency). */
 export async function findCalculationForRun(runId: string, masterVariantId: string) {
   return prisma.priceCalculation.findUnique({

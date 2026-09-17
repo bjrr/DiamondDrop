@@ -93,3 +93,22 @@ export class RecordingPriceSyncPort implements ShopifyPriceSyncPort {
     return { appliedAt: new Date(0) };
   }
 }
+
+/**
+ * A variant references a band that is not one of its product's bands.
+ *
+ * Named rather than a bare Error because the job logs `error.name` only
+ * (criterion 30 keeps cost structure out of logs), so an anonymous throw
+ * appears in the log as "Error" and tells an operator nothing.
+ */
+export class BandResolutionError extends Error {
+  constructor(
+    readonly masterVariantId: string,
+    readonly bandId: string
+  ) {
+    super(
+      `master_variant ${masterVariantId} references bandId ${bandId}, which is not a band of its product`
+    );
+    this.name = "BandResolutionError";
+  }
+}

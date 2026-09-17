@@ -24,7 +24,42 @@ import type {
  * what the layer table says — so keep composition here.
  */
 
-/** Every component type the engine expects to find (§4.5: absent is an error). */
+/**
+ * EVERY component type, loaded on every calculation.
+ *
+ * This list previously did two jobs at once — "which types must exist" and
+ * "which types to load" — and omitted four enum members (`cad`, `assembly`,
+ * `supplier_fee`, `other`). The engine handles all four correctly; they simply
+ * never arrived, so $30.00 of configured CAD and assembly labour was missing
+ * from every price, invisibly. The two jobs are now separate: load all of
+ * these, then assert the required subset below.
+ *
+ * Keep in step with the `CostComponentType` enum in schema.prisma. A type
+ * present in the enum and absent here is silently free.
+ */
+const ALL_COMPONENT_TYPES: readonly CostComponentType[] = [
+  "metal_loss",
+  "cad",
+  "casting",
+  "setting",
+  "polishing",
+  "assembly",
+  "qc",
+  "packaging",
+  "shipping",
+  "insurance",
+  "warranty_reserve",
+  "supplier_fee",
+  "other",
+  "payment_processing",
+];
+
+/**
+ * The subset whose absence is an ERROR rather than a zero (§4.5). A type not
+ * listed here may legitimately have no row — the product simply does not incur
+ * it — but one that is listed and missing means the cost library is incomplete
+ * and the price would be silently too low.
+ */
 const REQUIRED_COMPONENT_TYPES: readonly CostComponentType[] = [
   "metal_loss",
   "casting",
@@ -68,9 +103,7 @@ export async function resolveInputsForVariant(
   // Metal price is quoted per gram in MAJOR units; the engine works in minor
   // units (§4.1 rule 2). Converted exactly once, here, at ingestion.
   const metal = await resolveMetalPrice(variant.metal, variant.purity, asOf);
-  const pricePerGramMinorUnits = new MoneyDecimal(metal.pricePerGramMajorUnits)
-    .times(100)
-    .toString();
+  const pricePerGramMinorUnits = toMinorUnits(metal.pricePerGramMajorUnits);
 
   const stones: ResolvedStonePosition[] = [];
   for (const stone of variant.stones) {
@@ -92,23 +125,37 @@ export async function resolveInputsForVariant(
 
     stones.push(
       cost.kind === "per_stone"
-        ? { position: stone.position, quantity: stone.quantity, unitCost: cost.cost.toJSON() }
+        ? {
+            position: stone.position,
+            quantity: stone.quantity,
+            unitCost: cost.cost.toJSON(),
+            provenance: toInputProvenance(cost.provenance),
+          }
         : {
             position: stone.position,
             quantity: stone.quantity,
-            perCaratCost: cost.costPerCaratMajorUnits,
+            // MAJOR -> MINOR, exactly as the metal price above. The repository
+            // returns per-carat cost in major units (dollars per carat) because
+            // that is how it is quoted and stored; the engine works entirely in
+            // minor units. Omitting this conversion under-priced every
+            // per-carat stone by a factor of 100 — a $150/ct gem costing $1.50.
+            perCaratCost: toMinorUnits(cost.costPerCaratMajorUnits),
             carat: stone.carat.toString(),
+            provenance: toInputProvenance(cost.provenance),
           }
     );
   }
 
   const components: ResolvedCostComponent[] = [];
-  for (const componentType of REQUIRED_COMPONENT_TYPES) {
+  for (const componentType of ALL_COMPONENT_TYPES) {
     const resolved = await resolveCostComponentsOfType(componentType, asOf);
     if (resolved.length === 0) {
-      // §4.5: absent is an error, never zero. The difference between "we
-      // decided this is free" and "we silently under-priced the product".
-      throw new MissingCostInputError(`cost_component.${componentType}`, asOf);
+      if (REQUIRED_COMPONENT_TYPES.includes(componentType)) {
+        // §4.5: absent is an error, never zero. The difference between "we
+        // decided this is free" and "we silently under-priced the product".
+        throw new MissingCostInputError(`cost_component.${componentType}`, asOf);
+      }
+      continue;
     }
     for (const component of resolved) {
       components.push({
@@ -189,5 +236,37 @@ export async function resolveInputsForVariant(
       sizeMin: band.sizeMin.toString(),
       sizeMax: band.sizeMax.toString(),
     })),
+  };
+}
+
+/**
+ * MAJOR -> MINOR units, the single conversion used by every rate this module
+ * resolves.
+ *
+ * Cost libraries quote rates the way the market does — dollars per gram,
+ * dollars per carat — while the engine works entirely in minor units (§4.1
+ * rule 2). Doing that conversion inline at each call site is how the per-carat
+ * stone cost came to be under-priced by a factor of 100 while the metal price
+ * beside it was correct: same conversion, two sites, one of them missing.
+ *
+ * 100 is hard-coded because slice 1 is USD-only. A non-2-decimal currency
+ * (JPY, or a 3-decimal currency) needs this to take the profile's
+ * minorUnitsPerMajorUnit instead — Money.fromDecimalMajorUnits already models
+ * that and is tested at 1 and 1000.
+ */
+function toMinorUnits(majorUnits: string): string {
+  return new MoneyDecimal(majorUnits).times(100).toString();
+}
+
+/** Repository provenance (Date) -> engine provenance (ISO string, JSON-safe). */
+function toInputProvenance(provenance: {
+  sourceTable: string;
+  sourceId: string;
+  effectiveFrom: Date;
+}) {
+  return {
+    sourceTable: provenance.sourceTable,
+    sourceId: provenance.sourceId,
+    effectiveFrom: provenance.effectiveFrom.toISOString(),
   };
 }
