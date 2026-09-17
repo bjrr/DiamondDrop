@@ -151,20 +151,18 @@ describe("criterion 28 — approval requires an explicit actor", () => {
       },
     });
 
-    const { recordIntentDecision } = await import(
-      "~/db/repositories/priceSyncIntentRepository.server"
-    );
+    const { decideIntent } = await import("~/jobs/pricing/intentTransitions.server");
 
     // No anonymous approval: an unattributable sign-off is not a sign-off.
     await expect(
-      recordIntentDecision({ intentId: intent.id, status: "approved", actor: "" })
+      decideIntent({ intentId: intent.id, status: "approved", actor: "" })
     ).rejects.toThrow(/actor is required/i);
 
     // Still pending after the refused attempt.
     const stillPending = await prisma.priceSyncIntent.findUnique({ where: { id: intent.id } });
     expect(stillPending?.status).toBe("pending_approval");
 
-    await recordIntentDecision({
+    await decideIntent({
       intentId: intent.id,
       status: "approved",
       actor: "staff-42",

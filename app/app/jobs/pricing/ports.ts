@@ -112,3 +112,49 @@ export class BandResolutionError extends Error {
     this.name = "BandResolutionError";
   }
 }
+
+/**
+ * SEAM A (spec §4.7) — the ingestion side of metal prices.
+ *
+ * D2 settled on staff-entered prices for MVP1, with an automated feed as a
+ * post-launch fast-follow. This port exists now so that arrival is an
+ * additive change: a new implementation plus a scheduled caller that writes
+ * `metal_price` rows with `source = 'feed'`.
+ *
+ * What must NOT change when the feed lands: the `metal_price` schema, the
+ * repository's resolution rule, the engine, its tests, its stored snapshots,
+ * its acceptance criteria, or `BuyNowPricingInputs`.
+ *
+ * The rule that keeps it that way: `source` is PROVENANCE — recorded and
+ * displayed, never selected on. Resolution for a (metal, purity) key is
+ * exactly "the row with the greatest effective_from <= asOf", regardless of
+ * source. Do not add a priority column, do not prefer feed over manual, and
+ * do not branch on `source` in any resolver.
+ */
+export interface MetalQuote {
+  metal: string;
+  purity: string;
+  /** MAJOR units per gram, as a decimal string. Never a JS number. */
+  pricePerGramMajorUnits: string;
+  currency: string;
+  /** The source's own timestamp, ISO-8601. */
+  quotedAt: string;
+}
+
+export interface MetalPriceIngestionSource {
+  fetchQuotes(asOf: string): Promise<readonly MetalQuote[]>;
+}
+
+/**
+ * Slice 1's implementation: staff write `metal_price` rows directly, so there
+ * is nothing to fetch.
+ *
+ * Returns empty rather than throwing because an empty quote list is the
+ * truthful answer for manual entry — unlike `UnimplementedPriceSyncPort`,
+ * where silence would misrepresent work as done. Nothing is claimed here.
+ */
+export class ManualEntryMetalPriceSource implements MetalPriceIngestionSource {
+  async fetchQuotes(): Promise<readonly MetalQuote[]> {
+    return [];
+  }
+}

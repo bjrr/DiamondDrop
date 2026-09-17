@@ -82,3 +82,30 @@ scripts/             Repository-wide checks (money safety)
 
 Tests are colocated as `*.test.ts` next to the code they cover (unit) or
 under `/tests/integration` (require Postgres).
+
+
+## Integration tests and your dev database
+
+`npm run test:integration` creates a **disposable** database per run
+(`carat_it_<pid>_<ts>`), migrates and seeds it, and drops it afterwards. Your
+`carat_dev` is never written to by the suite.
+
+That matters because several pricing tables are append-only at the database
+level, so a row a test writes can never be deleted. The suite previously ran
+against `carat_dev` and left 60+ non-placeholder pricing profiles behind,
+several of which outranked the real seeded D14 placeholder — which meant the
+placeholder guard could no longer be demonstrated there.
+
+- `KEEP_TEST_DATABASE=1 npm run test:integration` retains the database for
+  post-mortem inspection after a failure.
+- `INTEGRATION_DATABASE_URL` overrides the server the disposable database is
+  created on.
+
+If your `carat_dev` already carries that historical pollution, the only way to
+clear it is to recreate the database — the append-only triggers correctly
+refuse DELETE and TRUNCATE:
+
+```sh
+dropdb -h localhost -U carat carat_dev && createdb -h localhost -U carat carat_dev
+npm run db:migrate && npm run db:seed
+```

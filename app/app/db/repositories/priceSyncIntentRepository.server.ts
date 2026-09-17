@@ -1,7 +1,4 @@
-import { createAuditEvent } from "./auditEventRepository.server";
-
 import { prisma } from "../client.server";
-
 /**
  * L6 — the mutable review and sync state machine (spec §7.2, §9.4).
  *
@@ -16,9 +13,7 @@ import { prisma } from "../client.server";
  * deliberately NOT routed through executeIdempotent (§9.4) — that wrapper is
  * for outbound money movement and carries defects gated at slice 4.
  */
-
 const TERMINAL_STATUSES = ["synced", "rejected", "failed", "superseded"] as const;
-
 export interface UpsertIntentInput {
   masterVariantId: string;
   priceCalculationId: string;
@@ -36,7 +31,6 @@ export interface UpsertIntentInput {
   deltaBps?: number | null;
   reason?: string | null;
 }
-
 /**
  * Supersedes any open intent for the variant, then creates the new one.
  *
@@ -48,7 +42,6 @@ export async function supersedeAndCreateIntent(input: UpsertIntentInput) {
     const open = await tx.priceSyncIntent.findFirst({
       where: { masterVariantId: input.masterVariantId, status: { notIn: [...TERMINAL_STATUSES] } },
     });
-
     if (open) {
       await tx.priceSyncIntent.update({
         where: { id: open.id },
@@ -65,7 +58,6 @@ export async function supersedeAndCreateIntent(input: UpsertIntentInput) {
         },
       });
     }
-
     return tx.priceSyncIntent.create({
       data: {
         masterVariantId: input.masterVariantId,
@@ -81,7 +73,6 @@ export async function supersedeAndCreateIntent(input: UpsertIntentInput) {
     });
   });
 }
-
 export async function listPendingIntents() {
   return prisma.priceSyncIntent.findMany({
     where: { status: "pending_approval" },
@@ -92,47 +83,22 @@ export async function listPendingIntents() {
     },
   });
 }
-
 export async function getIntentById(id: string) {
   return prisma.priceSyncIntent.findUnique({
     where: { id },
     include: { priceCalculation: { include: { pricingProfile: true } } },
   });
 }
-
 /**
- * Approval and rejection both REQUIRE an actor (§9.5, criterion 28). There is
- * no code path here that records a decision without one — an unattributable
- * approval of a price change is not an approval.
+ * Approval and rejection live in ONE place:
+ * `app/app/jobs/pricing/intentTransitions.server.ts`.
+ *
+ * This repository deliberately exposes no decision function. It previously had
+ * one, and the CLI had a second, divergent implementation — only the CLI
+ * carried the D14 placeholder guard, so the exported repository version would
+ * approve a price computed from invented margins. Two writers, one guard.
+ *
+ * Import `decideIntent` instead. It enforces the actor, the allowed
+ * transition, the D14 guard and the audit event together, so a future caller
+ * cannot acquire some of those and miss the rest.
  */
-export async function recordIntentDecision(input: {
-  intentId: string;
-  status: "approved" | "rejected";
-  actor: string;
-  reason?: string;
-}) {
-  if (!input.actor || input.actor.trim() === "") {
-    throw new Error("An actor is required to approve or reject a price sync intent.");
-  }
-
-  const updated = await prisma.priceSyncIntent.update({
-    where: { id: input.intentId },
-    data: {
-      status: input.status,
-      decidedBy: input.actor,
-      decidedAt: new Date(),
-      reason: input.reason ?? null,
-    },
-  });
-
-  await createAuditEvent({
-    actorType: "staff",
-    actorRef: input.actor,
-    action: `price_sync_intent.${input.status}`,
-    entityType: "price_sync_intent",
-    entityId: input.intentId,
-    reason: input.reason ?? `Intent ${input.status} by ${input.actor}`,
-  });
-
-  return updated;
-}

@@ -96,6 +96,7 @@ module.exports = {
       // redacting structured logger.
       files: [
         "scripts/**/*.mjs",
+        "scripts/**/*.ts",
         "prisma/seed.ts",
         "app/entry.server.tsx",
         "tests/integration/globalSetup.ts",
