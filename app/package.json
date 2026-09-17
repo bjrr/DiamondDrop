@@ -24,9 +24,11 @@
     "price-review": "tsx scripts/price-review.ts"
   },
   "dependencies": {
-    "@prisma/client": "^5.20.0",
+    "@prisma/client": "6.19.3",
     "@react-router/node": "7.18.3",
     "@react-router/serve": "7.18.3",
+    "@shopify/shopify-app-react-router": "3.0.0",
+    "@shopify/shopify-app-session-storage-prisma": "11.0.0",
     "decimal.js": "^10.4.3",
     "dotenv": "^16.4.5",
     "isbot": "^5.1.17",
@@ -46,10 +48,10 @@
     "@typescript-eslint/eslint-plugin": "^7.18.0",
     "@typescript-eslint/parser": "^7.18.0",
     "eslint": "^8.57.0",
-    "express": "^4.18.2",
     "eslint-plugin-react": "^7.35.0",
     "eslint-plugin-react-hooks": "^4.6.2",
-    "prisma": "^5.20.0",
+    "express": "^4.18.2",
+    "prisma": "6.19.3",
     "tsx": "^4.19.1",
     "typescript": "^5.6.2",
     "vite": "^5.4.6",
@@ -57,11 +59,11 @@
     "vitest": "^2.1.1"
   },
   "allowScripts": {
-    "prisma@5.22.0": true,
-    "@prisma/client@5.22.0": true,
-    "@prisma/engines@5.22.0": true,
     "esbuild@0.17.6": true,
     "esbuild@0.28.2": true,
-    "esbuild@0.21.5": true
+    "esbuild@0.21.5": true,
+    "prisma@6.19.3": true,
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true
   }
 }

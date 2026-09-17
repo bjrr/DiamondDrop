@@ -780,7 +780,7 @@ model PriceOverride {
   /// superseding the same predecessor, which would fork the history and make
   /// "the override in effect" ambiguous.
   supersedesId String?        @unique @map("supersedes_id") @db.Uuid
-  supersedes   PriceOverride? @relation("PriceOverrideChain", fields: [supersedesId], references: [id])
+  supersedes   PriceOverride? @relation("PriceOverrideChain", fields: [supersedesId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   supersededBy PriceOverride? @relation("PriceOverrideChain")
 
   /// NULL exactly when kind is `revoke` — a revocation restores the calculated
@@ -874,4 +874,44 @@ model PriceSyncIntent {
   @@index([masterVariantId])
   @@index([status])
   @@map("price_sync_intent")
+}
+
+/// Shopify OAuth session storage (D13).
+///
+/// Shape is dictated by @shopify/shopify-app-session-storage-prisma@11 — field
+/// names and types must match what the adapter reads and writes, so this model
+/// does NOT follow our usual naming conventions and must not be "tidied".
+///
+/// DELIBERATELY MUTABLE, and the only pricing-adjacent table that is. Sessions
+/// are live credentials, not evidence: they are updated on token refresh and
+/// deleted on uninstall. The append-only triggers that protect the evidence
+/// tables are intentionally NOT applied here — applying them would break
+/// reinstall and token rotation.
+///
+/// CONTAINS SECRETS. `accessToken` and `refreshToken` are live Shopify
+/// credentials. Never log a Session, never include one in a snapshot payload,
+/// and never return one to a storefront client.
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean?
+  locale        String?
+  collaborator  Boolean?
+  emailVerified Boolean?
+
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+
+  /// Uninstall and reinstall both operate per shop.
+  @@index([shop])
+  @@map("session")
 }

@@ -21,42 +21,74 @@ import { MissingTriggerActorError, runPriceRecalculation } from "~/jobs/pricing/
  * exist into a guarantee that holds the moment it does.
  */
 
-const ALLOWED_WRITE_MODELS = new Set([
+const ALLOWED_WRITE_TABLES = new Set([
   // The Buy Now pricing history and its evidence.
-  "PriceCalculation",
-  "PriceSyncIntent",
-  "PriceRecalculationRun",
-  "Snapshot",
+  "price_calculation",
+  "price_sync_intent",
+  "price_recalculation_run",
+  "snapshot",
   // The audit trail the run itself writes. Append-only and Buy Now scoped.
-  "AuditEvent",
+  "audit_event",
 ]);
 
-const WRITE_ACTIONS = new Set([
-  "create",
-  "createMany",
-  "createManyAndReturn",
-  "update",
-  "updateMany",
-  "upsert",
-  "delete",
-  "deleteMany",
-  "executeRaw",
-  "queryRaw",
-]);
+/** INSERT INTO "t" / UPDATE "t" / DELETE FROM "t", quoted or bare. */
+const WRITE_SQL =
+  /\b(?:insert\s+into|update|delete\s+from)\s+(?:"?public"?\.)?"?([a-z_][a-z0-9_]*)"?/gi;
+
+function tablesWrittenBy(sql: string): string[] {
+  const found: string[] = [];
+  for (const m of sql.matchAll(WRITE_SQL)) if (m[1]) found.push(m[1].toLowerCase());
+  return found;
+}
 
 /**
- * The recorder must sit on the SHARED client — the one the job actually uses.
- * An extension on a fresh PrismaClient would observe nothing, and the test
- * would pass by seeing no writes at all rather than by seeing only allowed
- * ones: green for the wrong reason, on every future violation too.
+ * Observes the SHARED client — the one the job actually uses. A `$extends`
+ * wrapper would return a NEW client and see nothing, so the test would pass by
+ * observing no writes at all rather than only allowed ones: green for the wrong
+ * reason, and green on every future violation too.
+ *
+ * Prisma 6 removed `$use` middleware, so this listens to query events instead
+ * (enabled by PRISMA_EMIT_QUERY_EVENTS in tests/integration/setupEnv.ts).
+ * Reading the real SQL is strictly better evidence than the Prisma model names
+ * the previous version matched on: it also catches a raw `$executeRaw` write,
+ * which a model-name check reports only as "raw" and cannot attribute.
  */
 const observed = new Set<string>();
-prisma.$use(async (params, next) => {
-  if (params.action && WRITE_ACTIONS.has(params.action)) {
-    observed.add(`${params.model ?? "raw"}.${params.action}`);
-  }
-  return next(params);
+type QueryEventEmitter = {
+  $on: (event: "query", listener: (payload: { query: string }) => void) => void;
+};
+
+(prisma as unknown as QueryEventEmitter).$on("query", (event) => {
+  for (const table of tablesWrittenBy(event.query)) observed.add(table);
 });
+
+/**
+ * Query events arrive ASYNCHRONOUSLY — they are not delivered by the time the
+ * awaited Prisma call resolves. Asserting immediately after the run saw an
+ * empty set and failed, which is the "guard the guard" assertion earning its
+ * keep: without it this would have reported a clean, compliant, entirely
+ * imaginary write surface.
+ *
+ * Waits for the set to stop growing rather than sleeping a fixed interval, so
+ * it is neither flaky on a slow machine nor needlessly slow on a fast one.
+ */
+async function settle(): Promise<void> {
+  // Two conditions, and the first is the one that bit: keep waiting while the
+  // set is still EMPTY, because "nothing yet" and "nothing at all" look
+  // identical after 20ms. Only once something has arrived does it make sense to
+  // wait for the count to stop growing.
+  let stableFor = 0;
+  let previous = -1;
+  for (let i = 0; i < 100; i++) {
+    if (observed.size > 0 && observed.size === previous) {
+      if (++stableFor >= 3) return;
+    } else {
+      stableFor = 0;
+    }
+    previous = observed.size;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
 
 describe("D15 — the Buy Now recalculation job's write surface", () => {
   it("writes only to Buy Now pricing tables, never to anything else", async () => {
@@ -68,22 +100,23 @@ describe("D15 — the Buy Now recalculation job's write surface", () => {
       triggeredBy: "integration-test",
       reason: "D15 write-surface check",
     });
+    await settle();
 
-    const writtenModels = [...observed].map((entry) => entry.split(".")[0] ?? "");
+    const written = [...observed];
 
     // Guards the guard: if the recorder ever stops seeing writes, this test
     // must fail loudly rather than quietly reporting an empty, compliant set.
     // The job writes price calculations on every run, so zero observed writes
     // means the instrumentation broke, not that the job became read-only.
-    expect(writtenModels.length).toBeGreaterThan(0);
-    expect(writtenModels).toContain("PriceCalculation");
+    expect(written.length).toBeGreaterThan(0);
+    expect(written).toContain("price_calculation");
 
-    for (const model of new Set(writtenModels)) {
+    for (const table of written) {
       expect(
-        ALLOWED_WRITE_MODELS.has(model),
-        `The recalculation job wrote to ${model}, which is not in the D15 allowlist. ` +
+        ALLOWED_WRITE_TABLES.has(table),
+        `The recalculation job wrote to "${table}", which is not in the D15 allowlist. ` +
           `If this is a Group Buy table, that is the violation D15 forbids outright. ` +
-          `If it is a new Buy Now table, add it to ALLOWED_WRITE_MODELS deliberately.`
+          `If it is a new Buy Now table, add it to ALLOWED_WRITE_TABLES deliberately.`
       ).toBe(true);
     }
   });
