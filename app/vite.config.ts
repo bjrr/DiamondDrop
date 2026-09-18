@@ -40,6 +40,14 @@ const TUNNEL_HOST_SUFFIXES = [
 export default defineConfig({
   plugins: [reactRouter(), tsconfigPaths()],
   server: {
+    // `shopify app dev` assigns a port and expects the process it launches to
+    // listen on it. Vite does not read PORT on its own, so without this the CLI
+    // tunnels to a port nothing is serving — the dev session comes up and every
+    // request fails, which reads as a tunnel fault rather than a config one.
+    //
+    // `undefined` rather than a hard-coded fallback: outside a CLI session Vite
+    // should keep choosing its own port exactly as before.
+    port: Number(process.env.PORT) || undefined,
     allowedHosts: TUNNEL_HOST_SUFFIXES,
   },
 });

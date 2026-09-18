@@ -1,0 +1,42 @@
+# Declares the local web process for `shopify app dev`.
+#
+# WHY THIS FILE EXISTS. Without it the Shopify CLI has no local server to
+# tunnel to, so it creates no tunnel and falls back to the configured
+# application_url — which is why a dev session resolved to
+# https://example.com despite [build] automatically_update_urls_on_dev = true
+# being set correctly. The CLI gates URL substitution on a frontend or backend
+# web config being present; with none, there is nothing for it to substitute.
+#
+# The CLI RUNS the dev command below itself. Do not also start `npm run dev`
+# separately during a dev session — two servers would contend for the port.
+name = "carat-for-us-app"
+
+# Valid roles are frontend, backend and background. This app is a single
+# React Router 7 server rendering the embedded admin and serving resource
+# routes, so it is both.
+roles = ["backend", "frontend"]
+
+# The CLI builds the development redirect URL from this, against whatever
+# tunnel origin it mints for the session.
+#
+# Matches AUTH_PATHS.callback in app/shopify.server.ts, which is DERIVED from
+# the library's authPathPrefix rather than chosen independently. If the library
+# ever changes that path, shopify.server.test.ts fails first — before this file
+# has a chance to send Shopify to a route that no longer exists.
+auth_callback_path = "/auth/callback"
+
+# NO webhooks_path, and that omission is deliberate.
+#
+# The key is valid and the CLI would use it to generate webhook subscription
+# URIs pointing at a path it manages. Our inbound webhooks stay OURS: the HMAC
+# is verified over the raw body before any parsing, deliveries are deduplicated
+# by event id, and processing is idempotent with a durable evidence record —
+# guarantees the returns, warranty and dispute requirements depend on.
+#
+# The mandatory compliance topics remain declared as relative paths under
+# [webhooks.privacy_compliance] in shopify.app.caratforus-development.toml, and
+# app/shopify/webhooks/boundaryPreserved.test.ts fails the build if any route
+# starts routing around our receiver.
+
+[commands]
+dev = "npm run dev"
