@@ -1,5 +1,7 @@
 import type { Config } from "@react-router/dev/config";
 
+import { resolveAllowedActionOrigins } from "./app/lib/devActionOrigins";
+
 // Defaults (appDirectory: "app", ssr: true) match the existing layout, so
 // there is nothing to override yet. The file is optional in React Router 7
 // (@react-router/dev treats a missing config as `{}`); it is committed so
@@ -23,4 +25,15 @@ import type { Config } from "@react-router/dev/config";
 // Shopify's retry budget — with the fault in framework plumbing rather than in
 // our code. Full contract in docs/ARCHITECTURE-MVP1.md §2.1. The other four
 // v8_* flags are inert for us and are assessed in the same place.
-export default {} satisfies Config;
+export default {
+  // RESOLVED HERE, applied by slice 2. The guard described above rejected the
+  // first form POST from the embedded app with "Bad Request" before the action
+  // ran, because behind the CLI tunnel the Origin header and request.url origin
+  // disagree by both scheme and host.
+  //
+  // Scoped to exactly the origin currently serving the app, taken from the env
+  // the Shopify CLI provides, and empty in production. Not a wildcard, not a
+  // global disable — the guard stays fully active for every other origin. See
+  // app/lib/devActionOrigins.ts for why a version bump does not fix this.
+  allowedActionOrigins: resolveAllowedActionOrigins(process.env),
+} satisfies Config;

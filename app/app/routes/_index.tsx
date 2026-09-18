@@ -1,6 +1,13 @@
+// `boundary` comes straight from the library, NOT re-exported through
+// ~/shopify.server. ErrorBoundary renders on the CLIENT, so importing it via
+// a .server module drags server-only code into the client bundle and the
+// build fails with "Server-only module referenced by client" — an error that
+// names neither this import nor this file. Shopify's own template imports it
+// directly for the same reason.
+import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { Form, useActionData, useLoaderData, useNavigation } from "react-router";
+import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
+import { Form, useActionData, useLoaderData, useNavigation, useRouteError } from "react-router";
 
 import { getEnv } from "~/lib/env.server";
 import {
@@ -12,6 +19,7 @@ import {
   renameProduct,
   type ShopifyProduct,
 } from "~/shopify/admin/productClient.server";
+import { logger } from "~/lib/logger.server";
 import { authenticate } from "~/shopify.server";
 
 /**
@@ -97,6 +105,13 @@ export async function action({ request }: ActionFunctionArgs) {
 
   const form = await request.formData();
   const intent = form.get("intent");
+
+  // Proves the action was REACHED. The CSRF origin guard rejects a forwarded
+  // POST inside React Router's single-fetch handler, before any route code
+  // runs, so its absence in the log distinguishes "our action failed" from
+  // "our action never executed". Records the intent only — no form values, no
+  // session, no tokens.
+  logger.info("shopify.probe.action_entered", { intent: String(intent ?? "none") });
 
   try {
     if (intent === "write-probe") {
@@ -255,4 +270,22 @@ export default function AppHome() {
       </main>
     </AppProvider>
   );
+}
+
+/**
+ * Re-emits Shopify's document headers on data and error responses. Without
+ * this, a single-fetch action response loses frame-ancestors and the embedded
+ * frame breaks — the same failure mode as the blank page, arriving later and
+ * looking unrelated.
+ */
+export const headers: HeadersFunction = (args) => boundary.headers(args);
+
+/**
+ * The library drives re-authentication by THROWING redirect Responses. A plain
+ * error boundary would catch those and render an error page, turning a routine
+ * session refresh into a dead end; boundary.error re-throws them and renders
+ * only genuine errors.
+ */
+export function ErrorBoundary() {
+  return boundary.error(useRouteError());
 }

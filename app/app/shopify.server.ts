@@ -125,6 +125,18 @@ export const login = shopify.login;
 export const sessionStorage = shopify.sessionStorage;
 
 /**
+ * NOTE: the library's `boundary` helpers are deliberately NOT re-exported from
+ * here. Routes import them straight from
+ * "@shopify/shopify-app-react-router/server".
+ *
+ * ErrorBoundary renders on the client, so reaching it through this .server
+ * module pulls server-only code into the client bundle and the build fails
+ * with "Server-only module referenced by client" — an error naming neither the
+ * import nor the route. Convenient re-exports from a .server file are a trap
+ * for anything a component touches.
+ */
+
+/**
  * The auth routes this configuration actually produces, derived from
  * `authPathPrefix` above rather than assumed. Exported so the config check in
  * shopify.server.test.ts asserts against one definition instead of restating
