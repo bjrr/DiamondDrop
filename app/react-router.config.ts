@@ -1,6 +1,9 @@
 import type { Config } from "@react-router/dev/config";
 
-import { resolveAllowedActionOrigins } from "./app/lib/devActionOrigins";
+import {
+  formatOriginDiagnostic,
+  resolveAllowedActionOrigins,
+} from "./app/lib/devActionOrigins";
 
 // Defaults (appDirectory: "app", ssr: true) match the existing layout, so
 // there is nothing to override yet. The file is optional in React Router 7
@@ -25,6 +28,22 @@ import { resolveAllowedActionOrigins } from "./app/lib/devActionOrigins";
 // Shopify's retry budget — with the fault in framework plumbing rather than in
 // our code. Full contract in docs/ARCHITECTURE-MVP1.md §2.1. The other four
 // v8_* flags are inert for us and are assessed in the same place.
+// Startup diagnostic. Hosts only — never a token, never a secret. Printed
+// because the failure it reports is otherwise invisible: an allowlist holding
+// the WRONG host behaves exactly like a correct one until a form is submitted,
+// and then produces a framework error naming neither the allowlist nor the
+// host. That is precisely how the first attempt at this fix appeared to work.
+// Development only. A production build has nothing to diagnose — the answer is
+// always [] — and the config is evaluated several times per build, so leaving
+// it unguarded printed the same line four times during `npm run build`.
+if (process.env.NODE_ENV !== "production" && process.env.APP_ENV !== "production") {
+  // A build-time developer diagnostic printed to the terminal, not application
+  // logging: the app's structured logger is server-runtime only and cannot be
+  // loaded from a config file.
+  // eslint-disable-next-line no-console
+  console.log(formatOriginDiagnostic(process.env));
+}
+
 export default {
   // RESOLVED HERE, applied by slice 2. The guard described above rejected the
   // first form POST from the embedded app with "Bad Request" before the action

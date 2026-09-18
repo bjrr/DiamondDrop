@@ -1,61 +1,100 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveAllowedActionOrigins } from "./devActionOrigins";
+import {
+  describeAllowedActionOrigins,
+  formatOriginDiagnostic,
+  resolveAllowedActionOrigins,
+} from "./devActionOrigins";
 
 /**
  * This function decides which cross-origin submissions React Router will
  * accept, so the tests that matter most are the ones asserting it allows
- * NOTHING. A permissive bug here would not break anything visibly — it would
- * quietly widen what the app trusts.
+ * nothing — and the ones asserting it does not stop at a placeholder.
+ *
+ * THE BUG THESE WERE WRITTEN AGAINST. The first version evaluated
+ * `SHOPIFY_APP_URL ?? APP_URL ?? HOST` and stopped at the first value present.
+ * `.env` sets SHOPIFY_APP_URL to a placeholder and vite.config.ts loads `.env`
+ * into process.env, so the placeholder always won. It did not return [] — it
+ * returned ["example.ngrok-free.app"], an allowlist that looked configured
+ * while trusting a host that serves nothing.
  */
 
-describe("production", () => {
-  it("allows no origins when NODE_ENV is production", () => {
+const REAL_TUNNEL = "https://abc-def-123.trycloudflare.com";
+
+describe("falls through placeholders to the real tunnel", () => {
+  it("prefers the CLI tunnel in APP_URL over a placeholder SHOPIFY_APP_URL", () => {
+    // The exact reported failure.
     expect(
       resolveAllowedActionOrigins({
-        NODE_ENV: "production",
+        SHOPIFY_APP_URL: "https://example.com",
         APP_URL: "https://real-tunnel.trycloudflare.com",
       })
-    ).toEqual([]);
+    ).toEqual(["real-tunnel.trycloudflare.com"]);
   });
 
-  it("allows no origins when APP_ENV is production, even in a dev NODE_ENV", () => {
-    // Belt and braces: a build could plausibly run with NODE_ENV unset while
-    // APP_ENV says production. Either one alone closes the allowlist.
+  it("skips the ngrok-shaped placeholder that actually sits in .env", () => {
+    // example.ngrok-free.app is not example.com, which is why the first
+    // implementation sailed past it. Its first label is "example".
     expect(
-      resolveAllowedActionOrigins({ APP_ENV: "production", HOST: "https://x.trycloudflare.com" })
-    ).toEqual([]);
+      resolveAllowedActionOrigins({
+        SHOPIFY_APP_URL: "https://example.ngrok-free.app",
+        APP_URL: REAL_TUNNEL,
+      })
+    ).toEqual(["abc-def-123.trycloudflare.com"]);
+  });
+
+  it("falls through a MALFORMED first candidate instead of giving up", () => {
+    expect(
+      resolveAllowedActionOrigins({ APP_URL: "not a url at all", HOST: REAL_TUNNEL })
+    ).toEqual(["abc-def-123.trycloudflare.com"]);
+  });
+
+  it("falls through an EMPTY first candidate", () => {
+    expect(resolveAllowedActionOrigins({ APP_URL: "", HOST: REAL_TUNNEL })).toEqual([
+      "abc-def-123.trycloudflare.com",
+    ]);
+  });
+
+  it("falls through several unusable candidates in a row", () => {
+    expect(
+      resolveAllowedActionOrigins({
+        APP_URL: "",
+        HOST: "https://example.com",
+        SHOPIFY_APP_URL: REAL_TUNNEL,
+      })
+    ).toEqual(["abc-def-123.trycloudflare.com"]);
   });
 });
 
-describe("development behind the Shopify CLI tunnel", () => {
-  it("allows exactly the tunnel host, not a wildcard", () => {
-    const origins = resolveAllowedActionOrigins({
-      APP_ENV: "development",
-      APP_URL: "https://abc-def-123.trycloudflare.com",
+describe("source preference", () => {
+  it("prefers the CLI runtime values over the static .env one", () => {
+    // APP_URL and HOST are injected by the Shopify CLI at runtime and are the
+    // live tunnel; SHOPIFY_APP_URL is hand-edited and usually stale.
+    const r = describeAllowedActionOrigins({
+      SHOPIFY_APP_URL: "https://stale-but-valid.example.net",
+      APP_URL: REAL_TUNNEL,
+      HOST: "https://host-value.trycloudflare.com",
     });
-
-    expect(origins).toEqual(["abc-def-123.trycloudflare.com"]);
-    // The distinction that matters: a pattern would trust every quick tunnel
-    // on the internet, not just the one serving this app.
-    expect(origins.some((o) => o.includes("*"))).toBe(false);
+    expect(r.source).toBe("APP_URL");
+    expect(r.host).toBe("abc-def-123.trycloudflare.com");
   });
 
-  it("prefers SHOPIFY_APP_URL, then APP_URL, then HOST", () => {
-    expect(
-      resolveAllowedActionOrigins({
-        SHOPIFY_APP_URL: "https://ours.example.net",
-        APP_URL: "https://cli.trycloudflare.com",
-        HOST: "https://host.trycloudflare.com",
-      })
-    ).toEqual(["ours.example.net"]);
+  it("uses HOST when APP_URL is absent", () => {
+    const r = describeAllowedActionOrigins({ HOST: REAL_TUNNEL });
+    expect(r.source).toBe("HOST");
+  });
 
-    expect(
-      resolveAllowedActionOrigins({ APP_URL: "https://cli.trycloudflare.com", HOST: "https://h.io" })
-    ).toEqual(["cli.trycloudflare.com"]);
+  it("uses SHOPIFY_APP_URL only when it is a real host and nothing else is set", () => {
+    const r = describeAllowedActionOrigins({ SHOPIFY_APP_URL: "https://staging.caratforus.com" });
+    expect(r.source).toBe("SHOPIFY_APP_URL");
+    expect(r.host).toBe("staging.caratforus.com");
+  });
+});
 
-    expect(resolveAllowedActionOrigins({ HOST: "https://h.trycloudflare.com" })).toEqual([
-      "h.trycloudflare.com",
+describe("returns a bare host, never a pattern", () => {
+  it("strips the scheme", () => {
+    expect(resolveAllowedActionOrigins({ APP_URL: REAL_TUNNEL })).toEqual([
+      "abc-def-123.trycloudflare.com",
     ]);
   });
 
@@ -65,30 +104,82 @@ describe("development behind the Shopify CLI tunnel", () => {
     ]);
   });
 
-  it("accepts a bare host with no scheme", () => {
-    expect(resolveAllowedActionOrigins({ APP_URL: "abc.trycloudflare.com" })).toEqual([
-      "abc.trycloudflare.com",
-    ]);
+  it("NEVER returns a wildcard, whatever the input", () => {
+    for (const value of [REAL_TUNNEL, "https://*.trycloudflare.com", "**.example.com", "x.io"]) {
+      for (const origin of resolveAllowedActionOrigins({ APP_URL: value })) {
+        expect(origin).not.toMatch(/\*/);
+      }
+    }
+  });
+
+  it("returns at most one origin", () => {
+    expect(
+      resolveAllowedActionOrigins({ APP_URL: REAL_TUNNEL, HOST: "https://other.trycloudflare.com" })
+    ).toHaveLength(1);
+  });
+});
+
+describe("production returns nothing", () => {
+  it("is empty when NODE_ENV is production, even with a live tunnel", () => {
+    expect(
+      resolveAllowedActionOrigins({ NODE_ENV: "production", APP_URL: REAL_TUNNEL })
+    ).toEqual([]);
+  });
+
+  it("is empty when APP_ENV is production", () => {
+    expect(resolveAllowedActionOrigins({ APP_ENV: "production", HOST: REAL_TUNNEL })).toEqual([]);
   });
 });
 
 describe("fails closed", () => {
-  it("allows nothing when no tunnel is configured", () => {
+  it("allows nothing when no source is set", () => {
     expect(resolveAllowedActionOrigins({ APP_ENV: "development" })).toEqual([]);
   });
 
-  it("allows nothing for an unparseable value", () => {
-    // A broken tunnel must make form posts fail loudly in development, not
-    // silently widen what is trusted.
-    expect(resolveAllowedActionOrigins({ APP_URL: "not a url at all" })).toEqual([]);
-    expect(resolveAllowedActionOrigins({ APP_URL: "" })).toEqual([]);
+  it("allows nothing when every source is a placeholder", () => {
+    expect(
+      resolveAllowedActionOrigins({
+        SHOPIFY_APP_URL: "https://example.ngrok-free.app",
+        APP_URL: "https://example.com",
+        HOST: "https://sub.example.org",
+      })
+    ).toEqual([]);
   });
 
-  it("REFUSES the example.com placeholder", () => {
-    // application_url is still "https://example.com" in the app .toml until a
-    // real deployment exists. Trusting it would mean shipping a config that
-    // allows a domain we do not own.
-    expect(resolveAllowedActionOrigins({ APP_URL: "https://example.com" })).toEqual([]);
-    expect(resolveAllowedActionOrigins({ APP_URL: "https://sub.example.com" })).toEqual([]);
+  it("allows nothing for an unreplaced template value", () => {
+    expect(
+      resolveAllowedActionOrigins({ APP_URL: "https://REPLACE_WITH_APP_URL.example.com" })
+    ).toEqual([]);
+  });
+});
+
+describe("the startup diagnostic", () => {
+  it("names the winning host and where it came from", () => {
+    // APP_URL is checked FIRST, so to see a skip in the trail the placeholder
+    // has to sit there; SHOPIFY_APP_URL is last and is never reached once a
+    // winner is found. An earlier version of this test asserted otherwise —
+    // it was written against the old, broken precedence order.
+    const line = formatOriginDiagnostic({
+      APP_URL: "https://example.ngrok-free.app",
+      HOST: REAL_TUNNEL,
+    });
+    expect(line).toMatch(/allowing abc-def-123.trycloudflare.com/);
+    expect(line).toMatch(/from HOST/);
+    // Shows the skip too, so "why was my value ignored?" is answerable.
+    expect(line).toMatch(/APP_URL: skipped — placeholder/);
+  });
+
+  it("says plainly when nothing usable was found", () => {
+    expect(formatOriginDiagnostic({ APP_ENV: "development" })).toMatch(/NO usable origin found/);
+  });
+
+  it("leaks nothing beyond hosts", () => {
+    const line = formatOriginDiagnostic({
+      APP_URL: REAL_TUNNEL,
+      // Not part of OriginEnv, but prove it cannot appear even if passed.
+      ...({ SHOPIFY_API_SECRET: "shpss_supersecret" } as Record<string, string>),
+    });
+    expect(line).not.toMatch(/shpss_/);
+    expect(line).not.toMatch(/SECRET/i);
   });
 });
