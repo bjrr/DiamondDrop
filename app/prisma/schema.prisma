@@ -1027,9 +1027,14 @@ model GroupBuyCampaign {
 
   /// The instant the inputs were resolved at. Recorded so a recomputation uses
   /// the same as-of the freeze did, rather than "now".
-  frozenAsOf DateTime? @map("frozen_as_of") @db.Timestamptz(6)
-  openedAt   DateTime? @map("opened_at") @db.Timestamptz(6)
-  closedAt   DateTime? @map("closed_at") @db.Timestamptz(6)
+  frozenAsOf       DateTime? @map("frozen_as_of") @db.Timestamptz(6)
+  openedAt         DateTime? @map("opened_at") @db.Timestamptz(6)
+  /// When the campaign is due to close. Drives the storefront countdown
+  /// (README "Live Savings / Progress"). Nullable: an open-ended campaign is
+  /// legitimate and simply shows no countdown, which is better than inventing
+  /// a deadline to satisfy a UI field.
+  scheduledCloseAt DateTime? @map("scheduled_close_at") @db.Timestamptz(6)
+  closedAt         DateTime? @map("closed_at") @db.Timestamptz(6)
 
   /// Set when a campaign was opened despite a tier breaching a floor. Null is
   /// the normal case; a value here is a deliberate, attributed exception.
