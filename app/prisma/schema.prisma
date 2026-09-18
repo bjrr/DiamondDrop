@@ -596,15 +596,21 @@ model MasterProduct {
 /// Shopify variant via `shopifyVariantGid` (§3 — Shopify owns the
 /// purchasable record; this is the design/cost definition).
 model MasterVariant {
-  id                           String              @id @default(uuid()) @db.Uuid
-  masterProductId              String              @map("master_product_id") @db.Uuid
-  masterProduct                MasterProduct       @relation(fields: [masterProductId], references: [id])
-  metal                        Metal
-  purity                       Purity
-  bandId                       String?             @map("band_id") @db.Uuid
-  band                         RingSizeBand?       @relation(fields: [bandId], references: [id])
-  baseWeightGrams              Decimal             @map("base_weight_grams") @db.Decimal(10, 4)
-  weightPerFullSizeGrams       Decimal             @map("weight_per_full_size_grams") @db.Decimal(10, 4)
+  id                     String        @id @default(uuid()) @db.Uuid
+  masterProductId        String        @map("master_product_id") @db.Uuid
+  masterProduct          MasterProduct @relation(fields: [masterProductId], references: [id])
+  metal                  Metal
+  purity                 Purity
+  bandId                 String?       @map("band_id") @db.Uuid
+  band                   RingSizeBand? @relation(fields: [bandId], references: [id])
+  baseWeightGrams        Decimal       @map("base_weight_grams") @db.Decimal(10, 4)
+  weightPerFullSizeGrams Decimal       @map("weight_per_full_size_grams") @db.Decimal(10, 4)
+
+  /// EXACTLY ONE per variant. Manufacturing labour is grams x the rate for
+  /// this source; a piece is made in one place, so this is required rather
+  /// than a list. The RATE is resolved effective-dated at calculation time and
+  /// snapshotted with the calculation — only the choice of source lives here.
+  laborSource                  LaborSource         @map("labor_source")
   minPriceMinorUnits           BigInt?             @map("min_price_minor_units")
   minPriceCurrency             String?             @map("min_price_currency") @db.Char(3)
   shopifyVariantGid            String?             @unique @map("shopify_variant_gid")
@@ -914,4 +920,44 @@ model Session {
   /// Uninstall and reinstall both operate per shop.
   @@index([shop])
   @@map("session")
+}
+
+/// Where an item is manufactured. Exactly one per variant (§ manufacturing
+/// labour): a piece is made in one place, and averaging two rates would
+/// produce a cost no supplier ever quoted.
+enum LaborSource {
+  india
+  china
+  usa
+
+  @@map("labor_source")
+}
+
+/// L1 raw input — staff-entered manufacturing labour rate, charged PER GRAM.
+///
+/// Append-only and effective-dated, exactly like metal_price and stone_cost:
+/// a price calculated last month must still be reproducible from the rate that
+/// applied then, not the rate in force today.
+///
+/// SEPARATE FROM STONE SETTING. Setting charges are per-stone or fixed and live
+/// in cost_component; this is the grams-based fabrication rate. Folding them
+/// together would make a heavy plain band and a light multi-stone piece
+/// indistinguishable in the breakdown.
+model LaborRate {
+  id            String      @id @default(uuid()) @db.Uuid
+  source        LaborSource
+  /// Cost per gram of finished weight, in MAJOR units (e.g. 4.500000 = $4.50/g).
+  /// Decimal, never float — this is multiplied by a gram weight.
+  ratePerGram   Decimal     @map("rate_per_gram") @db.Decimal(18, 6)
+  currency      String      @db.Char(3)
+  effectiveFrom DateTime    @map("effective_from") @db.Timestamptz(6)
+  enteredBy     String      @map("entered_by")
+  note          String?
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  /// One rate per source per instant; resolution takes the greatest
+  /// effectiveFrom <= asOf.
+  @@unique([source, effectiveFrom])
+  @@index([source, effectiveFrom])
+  @@map("labor_rate")
 }

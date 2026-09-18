@@ -67,6 +67,26 @@ function sortKeysDeep(value: unknown, seen: WeakSet<object> = new WeakSet()): Js
         `non-finite number ${String(value)} — JSON.stringify would silently turn this into null`
       );
     }
+
+    // F-10. A NON-INTEGER number in an evidence payload is a decimal quantity —
+    // a weight, a carat, a rate, a price — and those must never be JS numbers.
+    //
+    // Evidence payloads are the reproducibility contract: a stored calculation
+    // has to recompute to the same answer years later. A binary double cannot
+    // represent 0.1, 2.9% or 3.45 grams exactly, so a payload carrying one has
+    // already lost the input it claims to preserve, and the loss is invisible —
+    // the value round-trips through JSON looking entirely reasonable.
+    //
+    // Integers are allowed and are not the hazard: counts, positions, versions
+    // and basis points are exact in a double up to 2^53 and are meaningless as
+    // strings. The rule is specifically about FRACTIONS.
+    if (!Number.isInteger(value)) {
+      throw new NonCanonicalizableValueError(
+        `non-integer number ${String(value)} — decimal quantities must be exact strings ` +
+          `(e.g. "3.4500") or Money, never JS numbers, or the stored evidence cannot be ` +
+          `reproduced exactly (F-10)`
+      );
+    }
     return value as number;
   }
 

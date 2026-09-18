@@ -59,6 +59,7 @@ describe("units survive the L2 -> engine boundary", () => {
         baseWeightGrams: "3.0000",
         weightPerFullSizeGrams: "0.0000",
         status: "active",
+        laborSource: "india",
       },
     });
     await prisma.masterVariantStone.create({

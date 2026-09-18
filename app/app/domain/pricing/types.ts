@@ -113,6 +113,10 @@ export interface BuyNowPricingInputs {
   weight: WeightSpec;
   /** Metal price per gram in MINOR units, as a decimal string (§4.1 rule 2). */
   metalPricePerGramMinorUnits: DecimalString;
+  /** Where this item is manufactured. Exactly one source per item. */
+  laborSource?: string;
+  /** Manufacturing labour rate per gram, MINOR units, for that source. */
+  laborRatePerGramMinorUnits?: DecimalString;
   stones: readonly ResolvedStonePosition[];
   components: readonly ResolvedCostComponent[];
   profile: PricingProfileInputs;
@@ -143,6 +147,11 @@ export interface CostBreakdown {
   metalMinorUnits: DecimalString;
   stonesMinorUnits: DecimalString;
   labourMinorUnits: DecimalString;
+  /**
+   * The grams-based manufacturing rate alone, separate from per-stone setting
+   * and the other labour components that make up `labourMinorUnits`.
+   */
+  manufacturingLabourMinorUnits: DecimalString;
   overheadMinorUnits: DecimalString;
   landedCostMinorUnits: DecimalString;
   perComponent: readonly { componentType: string; amountMinorUnits: DecimalString }[];

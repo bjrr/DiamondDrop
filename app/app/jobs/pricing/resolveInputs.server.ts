@@ -3,6 +3,7 @@ import type { CostComponentType } from "@prisma/client";
 import { prisma } from "~/db/client.server";
 import { resolveCostComponentsOfType } from "~/db/repositories/costComponentRepository.server";
 import { MissingCostInputError } from "~/db/repositories/effectiveDated.server";
+import { resolveLaborRate } from "~/db/repositories/laborRateRepository.server";
 import { resolveMetalPrice } from "~/db/repositories/metalPriceRepository.server";
 import { resolveActivePricingProfile } from "~/db/repositories/pricingProfileRepository.server";
 import { resolveStoneCost } from "~/db/repositories/stoneCostRepository.server";
@@ -121,6 +122,12 @@ export async function resolveInputsForVariant(
   const metal = await resolveMetalPrice(variant.metal, variant.purity, asOf);
   const pricePerGramMinorUnits = toMinorUnits(metal.pricePerGramMajorUnits);
 
+  // Manufacturing labour: grams x the rate for THIS variant's source. Resolved
+  // effective-dated like every other cost input, and routed through the same
+  // single major-to-minor conversion so it cannot drift from the metal path.
+  const labor = await resolveLaborRate(variant.laborSource, asOf);
+  const laborRatePerGramMinorUnits = toMinorUnits(labor.ratePerGramMajorUnits);
+
   const stones: ResolvedStonePosition[] = [];
   for (const stone of variant.stones) {
     const cost = await resolveStoneCost(
@@ -209,6 +216,8 @@ export async function resolveInputsForVariant(
       overrides,
     },
     metalPricePerGramMinorUnits: pricePerGramMinorUnits,
+    laborSource: variant.laborSource,
+    laborRatePerGramMinorUnits,
     stones,
     components,
     profile: {

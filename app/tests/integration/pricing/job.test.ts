@@ -79,6 +79,7 @@ describe("criterion 25/26 — the run", () => {
         baseWeightGrams: "3.0000",
         weightPerFullSizeGrams: "0.0000",
         status: "active",
+        laborSource: "india",
       },
     });
 

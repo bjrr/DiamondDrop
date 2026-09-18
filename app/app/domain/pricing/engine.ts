@@ -41,6 +41,7 @@ export function computeBuyNowPrice(inputs: BuyNowPricingInputs): BuyNowPriceResu
     weightGrams,
     stones: inputs.stones,
     components: inputs.components,
+    laborRatePerGramMinorUnits: inputs.laborRatePerGramMinorUnits,
   });
 
   const revenueSide = partitionRevenueSide(inputs.components);

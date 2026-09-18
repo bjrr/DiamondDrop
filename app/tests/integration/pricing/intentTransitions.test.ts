@@ -47,6 +47,7 @@ async function intentWith(isPlaceholder: boolean) {
       baseWeightGrams: "3.0000",
       weightPerFullSizeGrams: "0.0000",
       status: "active",
+      laborSource: "india",
     },
   });
   const profile = await prisma.pricingProfile.create({

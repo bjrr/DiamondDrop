@@ -27,6 +27,7 @@ import {
   CostComponentType,
   CostComponentValueKind,
   MasterProductStatus,
+  LaborSource,
   MasterVariantStatus,
   Metal,
   MetalPriceSource,
@@ -515,6 +516,43 @@ async function seedPricingProfile(): Promise<void> {
   );
 }
 
+async function seedLaborRates(): Promise<void> {
+  console.log("Seeding labor_rate...");
+
+  // FIXTURE VALUES, not business data. The real per-gram rates are supplier
+  // quotes the owner has not yet supplied, so these are plausible-but-invented
+  // and are here only so the engine has something to resolve. They are NOT
+  // marked placeholder the way the pricing profile was, because a labour rate
+  // has no "obviously absurd" form — a wrong-but-reasonable number is exactly
+  // the hazard, which is why this comment exists instead.
+  const rates: { source: "india" | "china" | "usa"; ratePerGram: string }[] = [
+    { source: "india", ratePerGram: "4.500000" },
+    { source: "china", ratePerGram: "5.250000" },
+    { source: "usa", ratePerGram: "12.000000" },
+  ];
+
+  for (const { source, ratePerGram } of rates) {
+    await createIfAbsent(
+      `labor_rate ${source}`,
+      () =>
+        prisma.laborRate.findFirst({
+          where: { source, effectiveFrom: SEED_EFFECTIVE_FROM },
+        }),
+      () =>
+        prisma.laborRate.create({
+          data: {
+            source,
+            ratePerGram,
+            currency: SEED_CURRENCY,
+            effectiveFrom: SEED_EFFECTIVE_FROM,
+            enteredBy: SEED_ENTERED_BY,
+            note: "Seed fixture rate — not a real supplier quote.",
+          },
+        })
+    );
+  }
+}
+
 async function seedRingFixture(): Promise<void> {
   console.log("Seeding master_product/master_variant fixture (Buy Now ring)...");
 
@@ -567,6 +605,7 @@ async function seedRingFixture(): Promise<void> {
       baseWeightGrams: "3.2000",
       weightPerFullSizeGrams: "0.1500",
       status: MasterVariantStatus.active,
+      laborSource: LaborSource.india,
     },
   });
   await prisma.masterVariant.upsert({
@@ -581,6 +620,7 @@ async function seedRingFixture(): Promise<void> {
       baseWeightGrams: "3.2000",
       weightPerFullSizeGrams: "0.1500",
       status: MasterVariantStatus.active,
+      laborSource: LaborSource.india,
     },
   });
   await prisma.masterVariant.upsert({
@@ -595,6 +635,7 @@ async function seedRingFixture(): Promise<void> {
       baseWeightGrams: "3.2000",
       weightPerFullSizeGrams: "0.1500",
       status: MasterVariantStatus.active,
+      laborSource: LaborSource.india,
     },
   });
   await prisma.masterVariant.upsert({
@@ -609,6 +650,7 @@ async function seedRingFixture(): Promise<void> {
       baseWeightGrams: "5.5000",
       weightPerFullSizeGrams: "0.2500",
       status: MasterVariantStatus.active,
+      laborSource: LaborSource.india,
     },
   });
 
@@ -663,6 +705,7 @@ async function main() {
   await seedStoneCosts();
   await seedCostComponents();
   await seedPricingProfile();
+  await seedLaborRates();
   await seedRingFixture();
   console.log("\nSeed complete.");
 }

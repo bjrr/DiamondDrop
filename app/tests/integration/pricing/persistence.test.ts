@@ -52,6 +52,7 @@ async function fixture() {
       baseWeightGrams: "3.2000",
       weightPerFullSizeGrams: "0.1500",
       status: "active",
+      laborSource: "india",
     },
   });
 
