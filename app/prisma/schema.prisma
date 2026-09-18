@@ -129,6 +129,7 @@ model Snapshot {
   createdAt   DateTime @default(now()) @map("created_at")
 
   priceCalculations PriceCalculation[]
+  groupBuyCampaigns GroupBuyCampaign[]
 
   @@index([kind])
   @@index([contentHash])
@@ -567,6 +568,7 @@ model PricingProfile {
   createdAt       DateTime @default(now()) @map("created_at")
 
   priceCalculations PriceCalculation[]
+  groupBuyCampaigns GroupBuyCampaign[]
 
   @@unique([code, version])
   @@map("pricing_profile")
@@ -635,11 +637,12 @@ model MasterVariant {
   createdAt                    DateTime            @default(now()) @map("created_at")
   updatedAt                    DateTime            @updatedAt @map("updated_at")
 
-  weightOverrides   VariantWeightOverride[]
-  stones            MasterVariantStone[]
-  priceCalculations PriceCalculation[]      @relation("VariantCalculations")
-  syncIntents       PriceSyncIntent[]
-  priceOverrides    PriceOverride[]
+  weightOverrides          VariantWeightOverride[]
+  stones                   MasterVariantStone[]
+  priceCalculations        PriceCalculation[]        @relation("VariantCalculations")
+  syncIntents              PriceSyncIntent[]
+  priceOverrides           PriceOverride[]
+  groupBuyCampaignVariants GroupBuyCampaignVariant[]
 
   @@unique([masterProductId, metal, purity, bandId])
   @@index([status])
@@ -972,4 +975,117 @@ model LaborRate {
   @@unique([source, effectiveFrom])
   @@index([source, effectiveFrom])
   @@map("labor_rate")
+}
+
+/// Group Buy campaign lifecycle. Only `draft` is editable; everything about the
+/// pricing is frozen the moment it opens.
+enum GroupBuyCampaignStatus {
+  /// Being configured. Tiers and eligible variants may still change.
+  draft
+  /// Live. Pricing is FROZEN — see the triggers in this migration.
+  open
+  /// Ended normally. Frozen pricing stays exactly as it was.
+  closed
+  /// Ended without proceeding. Frozen pricing is retained as evidence.
+  cancelled
+
+  @@map("group_buy_campaign_status")
+}
+
+/// A Group Buy campaign (README, "Group Buy — Locked MVP1 Direction").
+///
+/// FREEZE AT OPEN is the whole point of this table. The README: "When a
+/// campaign opens, freeze/version its applicable cost inputs, pricing
+/// assumptions, tier thresholds/percentages, and eligible-variant prices.
+/// Market changes after opening must not retroactively alter campaign tier
+/// prices."
+///
+/// So `snapshotId` holds the resolved INPUTS, not just the resulting prices.
+/// Storing only the prices would make a campaign unauditable the moment anyone
+/// asked why a variant was priced as it was — and "the metal price moved since"
+/// is not an answer a dispute accepts.
+model GroupBuyCampaign {
+  id     String                 @id @default(uuid()) @db.Uuid
+  code   String                 @unique
+  name   String
+  status GroupBuyCampaignStatus @default(draft)
+
+  /// Frozen at open: which profile's floors and rules this campaign was
+  /// validated against. Never re-resolved afterwards.
+  pricingProfileId String?         @map("pricing_profile_id") @db.Uuid
+  pricingProfile   PricingProfile? @relation(fields: [pricingProfileId], references: [id])
+  profileVersion   Int?            @map("profile_version")
+
+  /// Frozen at open: every resolved cost input behind the prices below, so the
+  /// campaign can be RECOMPUTED rather than merely re-read.
+  snapshotId String?   @map("snapshot_id") @db.Uuid
+  snapshot   Snapshot? @relation(fields: [snapshotId], references: [id])
+
+  currency String @db.Char(3)
+
+  /// The instant the inputs were resolved at. Recorded so a recomputation uses
+  /// the same as-of the freeze did, rather than "now".
+  frozenAsOf DateTime? @map("frozen_as_of") @db.Timestamptz(6)
+  openedAt   DateTime? @map("opened_at") @db.Timestamptz(6)
+  closedAt   DateTime? @map("closed_at") @db.Timestamptz(6)
+
+  /// Set when a campaign was opened despite a tier breaching a floor. Null is
+  /// the normal case; a value here is a deliberate, attributed exception.
+  unsafeOverrideBy     String?   @map("unsafe_override_by")
+  unsafeOverrideReason String?   @map("unsafe_override_reason")
+  unsafeOverrideAt     DateTime? @map("unsafe_override_at") @db.Timestamptz(6)
+
+  createdBy String   @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tiers    GroupBuyCampaignTier[]
+  variants GroupBuyCampaignVariant[]
+
+  @@index([status])
+  @@map("group_buy_campaign")
+}
+
+/// One tier of a campaign. Thresholds and multipliers are per-campaign DATA —
+/// see app/domain/groupbuy/tiers.ts for why no boundary is hard-coded.
+model GroupBuyCampaignTier {
+  id         String           @id @default(uuid()) @db.Uuid
+  campaignId String           @map("campaign_id") @db.Uuid
+  campaign   GroupBuyCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  tierNumber         Int     @map("tier_number")
+  /// Qualifying units sold, not unique buyers.
+  minQualifyingUnits Int     @map("min_qualifying_units")
+  /// Fraction OF BASE, e.g. 0.900000 = 90% of base = 10% off. A MULTIPLIER,
+  /// not a discount rate.
+  priceMultiplier    Decimal @map("price_multiplier") @db.Decimal(9, 6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([campaignId, tierNumber])
+  @@unique([campaignId, minQualifyingUnits])
+  @@map("group_buy_campaign_tier")
+}
+
+/// An eligible variant and its FROZEN base price for this campaign.
+///
+/// The frozen landed cost is stored alongside the price because tier safety has
+/// to be re-checkable later: without the cost, "was tier 3 above the margin
+/// floor?" can only be answered by re-resolving today's costs, which is exactly
+/// what freezing exists to prevent.
+model GroupBuyCampaignVariant {
+  id         String           @id @default(uuid()) @db.Uuid
+  campaignId String           @map("campaign_id") @db.Uuid
+  campaign   GroupBuyCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  masterVariantId String        @map("master_variant_id") @db.Uuid
+  masterVariant   MasterVariant @relation(fields: [masterVariantId], references: [id])
+
+  frozenBasePriceMinorUnits  BigInt @map("frozen_base_price_minor_units")
+  frozenLandedCostMinorUnits BigInt @map("frozen_landed_cost_minor_units")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([campaignId, masterVariantId])
+  @@map("group_buy_campaign_variant")
 }
