@@ -644,6 +644,7 @@ model MasterVariant {
   priceOverrides           PriceOverride[]
   groupBuyCampaignVariants GroupBuyCampaignVariant[]
   groupBuyUnitEvents       GroupBuyUnitEvent[]
+  groupBuyRefunds          GroupBuyRefund[]
 
   @@unique([masterProductId, metal, purity, bandId])
   @@index([status])
@@ -1050,6 +1051,7 @@ model GroupBuyCampaign {
   tiers      GroupBuyCampaignTier[]
   variants   GroupBuyCampaignVariant[]
   unitEvents GroupBuyUnitEvent[]
+  refunds    GroupBuyRefund[]
 
   @@index([status])
   @@map("group_buy_campaign")
@@ -1151,4 +1153,111 @@ model GroupBuyUnitEvent {
   @@index([campaignId, lineRef])
   @@index([campaignId, createdAt])
   @@map("group_buy_unit_event")
+}
+
+enum GroupBuyRefundStatus {
+  /// Computed and owed, HELD through production/QC. Not payable yet.
+  pending
+  /// Item shipped; the refund may now be processed.
+  releasable
+  /// Handed to the processor, awaiting its answer.
+  processing
+  /// Money returned to the original payment method. TERMINAL.
+  issued
+  /// Processor rejected it. Retryable.
+  failed
+  /// Nothing owed, or the line was cancelled outright. TERMINAL.
+  not_owed
+
+  @@map("group_buy_refund_status")
+}
+
+/// Tier-adjustment refund ledger (README §173).
+///
+/// "Calculate/store refund due at order/line-item/variant level, hold it
+/// through production/QC, and process at shipping. Maintain an auditable,
+/// idempotent refund ledger with campaign/order/customer/payment references,
+/// original and final prices, refund amount/status, processor references,
+/// failures, overrides, and history."
+///
+/// ONE ROW PER LINE ITEM, enforced by a unique key. That uniqueness IS the
+/// duplicate-payment guard required by §371 ("Duplicate/retried refund ... must
+/// not create duplicate customer value"): a second attempt to create a refund
+/// for the same line cannot produce a second payable row.
+///
+/// Both prices are stored, not just the difference. The difference alone cannot
+/// be audited — "why was this customer refunded $40?" needs what they paid and
+/// what the campaign finally settled at, and those are exactly the two numbers
+/// a dispute asks for.
+model GroupBuyRefund {
+  id         String           @id @default(uuid()) @db.Uuid
+  campaignId String           @map("campaign_id") @db.Uuid
+  campaign   GroupBuyCampaign @relation(fields: [campaignId], references: [id])
+
+  masterVariantId String        @map("master_variant_id") @db.Uuid
+  masterVariant   MasterVariant @relation(fields: [masterVariantId], references: [id])
+
+  orderRef    String  @map("order_ref")
+  lineRef     String  @map("line_ref")
+  /// Shopify customer id — an identifier, never a name or email. PII stays in
+  /// Shopify (README security: minimise PII).
+  customerRef String? @map("customer_ref")
+
+  /// What the customer actually paid, per unit.
+  paidPerUnitMinorUnits  BigInt @map("paid_per_unit_minor_units")
+  /// The campaign's final tier price, per unit.
+  finalPerUnitMinorUnits BigInt @map("final_per_unit_minor_units")
+  /// Units still qualifying on this line at close.
+  qualifyingUnits        Int    @map("qualifying_units")
+  /// (paid - final) x units, floored at zero — a refund never becomes a charge.
+  refundAmountMinorUnits BigInt @map("refund_amount_minor_units")
+  currency               String @db.Char(3)
+
+  status GroupBuyRefundStatus @default(pending)
+
+  /// Processor reference and failure text, per §173.
+  processorReference String? @map("processor_reference")
+  failureReason      String? @map("failure_reason")
+
+  /// Manual intervention, per §173 ("overrides") and §189 ("retain manual
+  /// override with audit history").
+  overrideBy     String?   @map("override_by")
+  overrideReason String?   @map("override_reason")
+  overrideAt     DateTime? @map("override_at") @db.Timestamptz(6)
+
+  computedAt DateTime  @default(now()) @map("computed_at") @db.Timestamptz(6)
+  /// When shipping released the hold. Null while held through production/QC.
+  releasedAt DateTime? @map("released_at") @db.Timestamptz(6)
+  issuedAt   DateTime? @map("issued_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  events GroupBuyRefundEvent[]
+
+  @@unique([campaignId, lineRef])
+  @@index([campaignId, status])
+  @@map("group_buy_refund")
+}
+
+/// Append-only history of every refund status change (§173 "history").
+///
+/// The refund row carries the CURRENT state; this carries how it got there.
+/// Without it, a refund that failed twice and then succeeded is
+/// indistinguishable from one that succeeded first time — and the difference
+/// matters when a customer asks why their money took three weeks.
+model GroupBuyRefundEvent {
+  id       String         @id @default(uuid()) @db.Uuid
+  refundId String         @map("refund_id") @db.Uuid
+  refund   GroupBuyRefund @relation(fields: [refundId], references: [id], onDelete: Cascade)
+
+  fromStatus GroupBuyRefundStatus? @map("from_status")
+  toStatus   GroupBuyRefundStatus  @map("to_status")
+  reason     String?
+  actor      String
+  /// Processor reference or failure text captured at this transition.
+  detail     String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([refundId, createdAt])
+  @@map("group_buy_refund_event")
 }
