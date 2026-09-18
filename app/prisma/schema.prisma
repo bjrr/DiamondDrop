@@ -643,6 +643,7 @@ model MasterVariant {
   syncIntents              PriceSyncIntent[]
   priceOverrides           PriceOverride[]
   groupBuyCampaignVariants GroupBuyCampaignVariant[]
+  groupBuyUnitEvents       GroupBuyUnitEvent[]
 
   @@unique([masterProductId, metal, purity, bandId])
   @@index([status])
@@ -1039,8 +1040,16 @@ model GroupBuyCampaign {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tiers    GroupBuyCampaignTier[]
-  variants GroupBuyCampaignVariant[]
+  /// LOCKED AT CLOSE. README: "At close, final unit count/tier lock and the
+  /// order becomes committed." Null while open — the live count is a fold over
+  /// the unit ledger, and reading a stale cached number instead is how a
+  /// campaign ends up quoting a tier it never actually reached.
+  finalQualifyingUnits Int? @map("final_qualifying_units")
+  finalTierNumber      Int? @map("final_tier_number")
+
+  tiers      GroupBuyCampaignTier[]
+  variants   GroupBuyCampaignVariant[]
+  unitEvents GroupBuyUnitEvent[]
 
   @@index([status])
   @@map("group_buy_campaign")
@@ -1088,4 +1097,58 @@ model GroupBuyCampaignVariant {
 
   @@unique([campaignId, masterVariantId])
   @@map("group_buy_campaign_variant")
+}
+
+enum GroupBuyUnitEventKind {
+  purchased
+  /// Cancelled before close — README allows this and it moves the tier back.
+  cancelled
+  /// Refunded such that the unit no longer qualifies.
+  refunded
+
+  @@map("group_buy_unit_event_kind")
+}
+
+/// Append-only ledger of qualifying-unit movements (README §430: retain
+/// "qualifying-unit history, cancellations, and tier history").
+///
+/// AN EVENT LEDGER RATHER THAN A COUNTER. Cancellations move the count DOWN and
+/// "can move the live campaign back to a prior tier before close", so the tier
+/// is not a high-water mark. And a single integer would remember none of the
+/// history the README requires retaining. The live count is a fold over these
+/// rows — see app/domain/groupbuy/qualifyingUnits.ts.
+///
+/// COUNTED PER LINE ITEM, per the README: "Tier qualification and
+/// cancellation/refund calculations operate at line-item/unit level."
+model GroupBuyUnitEvent {
+  id         String           @id @default(uuid()) @db.Uuid
+  campaignId String           @map("campaign_id") @db.Uuid
+  campaign   GroupBuyCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  masterVariantId String        @map("master_variant_id") @db.Uuid
+  masterVariant   MasterVariant @relation(fields: [masterVariantId], references: [id])
+
+  kind     GroupBuyUnitEventKind
+  /// Always POSITIVE. Direction comes from `kind`, never from the sign — a
+  /// ledger that encodes direction twice can disagree with itself.
+  quantity Int
+
+  /// Shopify order and line references. Counting happens per LINE.
+  orderRef String @map("order_ref")
+  lineRef  String @map("line_ref")
+
+  /// IDEMPOTENCY KEY. A webhook redelivery must not count a unit twice, and
+  /// Shopify retries are routine — our own boundary deduplicates deliveries,
+  /// but this makes double-counting impossible even if something else writes.
+  externalRef String @map("external_ref")
+
+  /// When it happened at Shopify, which is not when we recorded it.
+  occurredAt DateTime @map("occurred_at") @db.Timestamptz(6)
+  recordedBy String   @map("recorded_by")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([campaignId, externalRef])
+  @@index([campaignId, lineRef])
+  @@index([campaignId, createdAt])
+  @@map("group_buy_unit_event")
 }
