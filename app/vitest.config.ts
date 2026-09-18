@@ -8,7 +8,11 @@ export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
     environment: "node",
-    include: ["app/**/*.test.ts"],
+    // Both extensions. Previously .ts only, which meant a .tsx test — any test
+    // that renders a component — was silently skipped rather than failing to
+    // run. A test suite that quietly ignores a file is worse than one that
+    // errors on it.
+    include: ["app/**/*.test.{ts,tsx}"],
     exclude: ["node_modules", "build", ".cache", "tests/integration/**"],
     coverage: {
       provider: "v8",
