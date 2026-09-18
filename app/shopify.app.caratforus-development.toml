@@ -16,17 +16,22 @@
 name = "caratforus-development"
 client_id = "f54993df6c413ea67db6fc065a2ebe88"
 
-# PLACEHOLDER, AND INTENTIONALLY SO FOR DEVELOPMENT.
+# THE CURRENT DEV TUNNEL, baked in for this deploy.
 #
-# There is no stable development URL to put here. `shopify app dev` mints a
-# fresh tunnel hostname on every run and — because
-# automatically_update_urls_on_dev is true below — rewrites this field and
-# redirect_urls to match, for the duration of that session. Hard-coding a
-# tunnel hostname would be stale within one run.
+# EXPECT THIS TO GO STALE. The Shopify CLI mints a fresh tunnel hostname on
+# every `shopify app dev` run, so this value is correct only for the session it
+# was captured from. That is tolerable because
+# automatically_update_urls_on_dev = true means each dev run overwrites the
+# app record's URLs with its own tunnel — the stale value here never reaches a
+# running session.
 #
-# A real value is needed only for a deployed staging/production install, at
-# which point it becomes that deployment's origin.
-application_url = "https://example.com"
+# It is written down rather than left as https://example.com so that this
+# deploy does not overwrite the live session's URLs and break the embedded app
+# that is currently working.
+#
+# A deployed staging/production install needs a real hosted origin here, and
+# that replaces this line rather than living alongside it.
+application_url = "https://heat-mpegs-profit-certain.trycloudflare.com"
 
 embedded = true
 
@@ -65,9 +70,9 @@ use_legacy_install_flow = false
 # Only the CALLBACK is registered. /auth/login, /auth/session-token and
 # /auth/exit-iframe are app-internal navigation, not OAuth redirect targets.
 #
-# The host below is the placeholder application_url. `shopify app dev` replaces
-# both with the live tunnel while a dev session is running.
-redirect_urls = [ "https://example.com/auth/callback" ]
+# Matches application_url above. `shopify app dev` replaces both with whatever
+# tunnel that session mints.
+redirect_urls = [ "https://heat-mpegs-profit-certain.trycloudflare.com/auth/callback" ]
 
 [webhooks]
 # The CLI reported 2026-07 from the app record. Architecture, .env.example and
@@ -107,7 +112,7 @@ api_version = "2026-07"
 # The host tracks application_url and is therefore also a development
 # placeholder, updated by `shopify app dev`. `subpath` must stay equal to
 # SHOPIFY_APP_PROXY_SUBPATH in app/.env, which the signature check reads.
-url = "https://example.com/apps/carat"
+url = "https://heat-mpegs-profit-certain.trycloudflare.com/apps/carat"
 subpath = "carat"
 prefix = "apps"
 
