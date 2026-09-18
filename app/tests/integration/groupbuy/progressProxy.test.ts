@@ -199,3 +199,46 @@ describe("campaigns a shopper may not see", () => {
     expect(await response.json()).toEqual({ error: "not_found" });
   });
 });
+
+describe("the theme passes Shopify variant ids, not ours", () => {
+  it("resolves a bare Shopify variant id to the campaign's variant", async () => {
+    // A theme knows Shopify ids and nothing about our master variants.
+    // Requiring the internal id would have made the storefront block
+    // unimplementable — the kind of gap only found when wiring it up.
+    const { code, variantId } = await openCampaign({ units: 2 });
+    await prisma.masterVariant.update({
+      where: { id: variantId },
+      data: { shopifyVariantGid: "gid://shopify/ProductVariant/987654" },
+    });
+
+    const body = (await (await call(code, { shopify_variant: "987654" })).json()) as {
+      variantId: string;
+    };
+    expect(body.variantId).toBe(variantId);
+  });
+
+  it("accepts a full gid too", async () => {
+    const { code, variantId } = await openCampaign({ units: 1 });
+    await prisma.masterVariant.update({
+      where: { id: variantId },
+      data: { shopifyVariantGid: "gid://shopify/ProductVariant/112233" },
+    });
+
+    const body = (await (
+      await call(code, { shopify_variant: "gid://shopify/ProductVariant/112233" })
+    ).json()) as { variantId: string };
+    expect(body.variantId).toBe(variantId);
+  });
+
+  it("still renders when the Shopify id is unknown, rather than 404ing", async () => {
+    // Shopify ids are null until sync happens, so an unmatched id must fall
+    // back to the first eligible variant. Failing here would leave the block
+    // permanently broken until Slice 2 finishes.
+    const { code, variantId } = await openCampaign({ units: 1 });
+
+    const body = (await (await call(code, { shopify_variant: "does-not-exist" })).json()) as {
+      variantId: string;
+    };
+    expect(body.variantId).toBe(variantId);
+  });
+});

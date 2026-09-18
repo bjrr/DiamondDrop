@@ -65,11 +65,38 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   if (!campaign || campaign.status !== "open") return notFound();
 
   // The selected variant, per "selected variant's current Group Buy price".
-  // Falls back to the first eligible one so the page renders before a shopper
-  // has chosen a size.
+  //
+  // ACCEPTS EITHER IDENTIFIER, because the two callers have different ones. A
+  // theme knows Shopify variant ids and nothing about our master variants; an
+  // admin or a test has the master variant id directly. Requiring the internal
+  // id would have made the storefront block unimplementable, which is the sort
+  // of thing only discovered when someone tries to wire it up.
+  //
+  // Shopify ids arrive either bare ("4455") or as a gid; both are normalised.
   const requested = url.searchParams.get("variant");
-  const selected =
-    campaign.variants.find((v) => v.masterVariantId === requested) ?? campaign.variants[0];
+  const shopifyVariant = url.searchParams.get("shopify_variant");
+
+  let selected = requested
+    ? campaign.variants.find((v) => v.masterVariantId === requested)
+    : undefined;
+
+  if (!selected && shopifyVariant) {
+    const gid = shopifyVariant.startsWith("gid://")
+      ? shopifyVariant
+      : `gid://shopify/ProductVariant/${shopifyVariant}`;
+
+    const mapped = await prisma.masterVariant.findFirst({
+      where: { shopifyVariantGid: gid },
+      select: { id: true },
+    });
+    if (mapped) {
+      selected = campaign.variants.find((v) => v.masterVariantId === mapped.id);
+    }
+  }
+
+  // Falls back to the first eligible variant so the block renders before a
+  // shopper has chosen a size, and before Shopify ids have been synced at all.
+  selected = selected ?? campaign.variants[0];
   if (!selected) return notFound();
 
   const tiers: TierDefinition[] = campaign.tiers.map((t) => ({

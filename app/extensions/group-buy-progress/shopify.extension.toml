@@ -1,0 +1,13 @@
+# Theme app extension: the live Group Buy progress block.
+#
+# AN APP EXTENSION RATHER THAN A THEME EDIT, deliberately. An app block is
+# versioned and deployed with this app, and a merchant adds it from the theme
+# editor without anyone forking or hand-editing their theme. Editing theme
+# files directly would put our markup somewhere a theme update can silently
+# overwrite, and would make "which version of the block is live?" unanswerable.
+api_version = "2026-07"
+
+[[extensions]]
+type = "theme"
+name = "Group Buy progress"
+handle = "group-buy-progress"

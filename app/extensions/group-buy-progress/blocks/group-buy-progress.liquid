@@ -1,0 +1,84 @@
+{%- comment -%}
+  Live Group Buy progress (README "Live Savings / Progress").
+
+  WHAT THIS BLOCK DOES NOT DO, and why that is the interesting part:
+
+  - It shows NO crowdfunding-style "% funded" bar. A percentage-of-goal reads
+    as money raised towards a target that must be met, and a Group Buy has no
+    target. The README forbids it outright. The progress indicator here marks
+    TIER THRESHOLDS on a track, which communicates "the price drops at 10" —
+    not "we are 40% of the way to being allowed to proceed".
+  - It never implies a minimum. One qualifying unit already buys at Tier 1, so
+    the copy is always "the price drops at N" and never "N more needed to
+    unlock this campaign".
+
+  RENDERS NOTHING UNTIL IT HAS REAL DATA. No placeholder prices, no skeleton
+  numbers. A price that appears and then changes is worse than one that appears
+  a moment later, because the first version is a claim we cannot honour.
+
+  All values come from the app's App Proxy endpoint, which is the single source
+  of the campaign's live state. Nothing about tiers or prices is computed here:
+  a template that did its own arithmetic would be a second place a
+  customer-facing price is decided.
+{%- endcomment -%}
+
+{%- liquid
+  assign campaign_code = block.settings.campaign_code | strip
+  assign selected_variant = product.selected_or_first_available_variant
+-%}
+
+{%- if campaign_code != blank -%}
+  <div
+    class="carat-gb"
+    data-carat-group-buy
+    data-campaign-code="{{ campaign_code | escape }}"
+    data-variant-id="{{ selected_variant.id }}"
+    data-money-format="{{ shop.money_format | escape }}"
+    {{ block.shopify_attributes }}
+  >
+    {%- comment -%}
+      aria-live so a shopper using a screen reader hears the price when it
+      arrives, and hears it again when the tier changes — this region updates
+      without a page load, which is otherwise silent.
+      `polite` rather than `assertive`: a price update should not interrupt.
+    {%- endcomment -%}
+    <div
+      class="carat-gb__body"
+      data-carat-gb-body
+      aria-live="polite"
+      aria-busy="true"
+      hidden
+    ></div>
+
+    <p class="carat-gb__loading" data-carat-gb-loading>
+      {{ 'group_buy.loading' | t }}
+    </p>
+
+    {%- comment -%}
+      No-JS and failure both land here. Saying plainly that group pricing is
+      unavailable is better than leaving an empty box that looks broken, or —
+      far worse — showing the Buy Now price as if it were the group price.
+    {%- endcomment -%}
+    <noscript>
+      <p class="carat-gb__unavailable">{{ 'group_buy.unavailable' | t }}</p>
+    </noscript>
+  </div>
+{%- endif -%}
+
+{{ 'group-buy-progress.css' | asset_url | stylesheet_tag }}
+<script src="{{ 'group-buy-progress.js' | asset_url }}" defer></script>
+
+{% schema %}
+{
+  "name": "Group Buy progress",
+  "target": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "campaign_code",
+      "label": "Campaign code",
+      "info": "The Group Buy campaign code from the CaratForUs admin. Leave blank to hide this block."
+    }
+  ]
+}
+{% endschema %}

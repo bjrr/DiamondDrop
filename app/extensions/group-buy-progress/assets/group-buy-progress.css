@@ -1,0 +1,157 @@
+/*
+ * Group Buy progress block.
+ *
+ * MOBILE-FIRST, per CLAUDE.md: the base rules are the narrow layout and the
+ * only media query widens it. Most jewellery browsing happens on a phone, so
+ * the small screen is the design rather than the fallback.
+ *
+ * Inherits the theme's typography and colour deliberately — `currentColor` and
+ * `inherit` throughout, with no font stack of its own. A block that imposed its
+ * own palette would look bolted on in every theme except the one it was built
+ * against, and merchants change themes.
+ */
+
+.carat-gb {
+  margin: 1rem 0;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: inherit;
+}
+
+.carat-gb__loading,
+.carat-gb__unavailable {
+  margin: 0;
+  opacity: 0.7;
+}
+
+.carat-gb__units {
+  margin: 0 0 0.5rem;
+}
+
+.carat-gb__prices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  align-items: baseline;
+  margin-bottom: 0.25rem;
+}
+
+.carat-gb__price {
+  display: flex;
+  flex-direction: column;
+}
+
+.carat-gb__label {
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.carat-gb__amount {
+  font-size: 1.375rem;
+  font-weight: 600;
+}
+
+.carat-gb__amount--struck {
+  font-size: 1rem;
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+.carat-gb__savings {
+  margin: 0 0 0.75rem;
+  font-weight: 600;
+}
+
+/*
+ * Tier markers as a TRACK OF THRESHOLDS, not a progress bar.
+ *
+ * A filled bar reads as "percent of the way to a goal", which is the
+ * crowdfunding framing the README forbids. Discrete markers each carrying their
+ * own price read as "the price drops here, and here" — an opportunity rather
+ * than a shortfall.
+ */
+.carat-gb__tiers {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+}
+
+.carat-gb__tier {
+  flex: 1 0 auto;
+  min-width: 5.5rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid currentColor;
+  border-radius: 0.375rem;
+  opacity: 0.45;
+}
+
+.carat-gb__tier.is-unlocked {
+  opacity: 1;
+}
+
+/*
+ * The current tier is marked by WEIGHT and a border, and the JS also writes the
+ * word "current" into it. Never colour alone: a shopper who cannot distinguish
+ * the colours must still be able to tell which price applies to them.
+ */
+.carat-gb__tier.is-current {
+  opacity: 1;
+  border-width: 2px;
+  font-weight: 600;
+}
+
+.carat-gb__tier-units,
+.carat-gb__tier-price,
+.carat-gb__tier-state {
+  display: block;
+}
+
+.carat-gb__tier-units {
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+
+.carat-gb__tier-state {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.carat-gb__best {
+  margin: 0 0 0.5rem;
+  font-weight: 700;
+}
+
+.carat-gb__next,
+.carat-gb__countdown {
+  margin: 0 0 0.375rem;
+}
+
+.carat-gb__message {
+  margin: 0.75rem 0 0;
+  font-size: 0.875rem;
+  opacity: 0.85;
+}
+
+@media (min-width: 40em) {
+  .carat-gb__tiers {
+    overflow-x: visible;
+  }
+
+  .carat-gb__amount {
+    font-size: 1.5rem;
+  }
+}
+
+/* Respect a shopper's reduced-motion preference if transitions are added. */
+@media (prefers-reduced-motion: reduce) {
+  .carat-gb * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

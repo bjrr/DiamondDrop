@@ -105,5 +105,15 @@ module.exports = {
         "no-console": "off",
       },
     },
+    {
+      // Theme app extension assets run in a SHOPPER'S BROWSER, not in Node.
+      // Without this they are linted against Node globals and every DOM
+      // reference is reported as undefined — which would push someone towards
+      // disabling no-undef repo-wide rather than telling ESLint where the code
+      // actually runs.
+      files: ["extensions/**/assets/*.js"],
+      env: { browser: true, node: false },
+      parserOptions: { ecmaVersion: 2019, sourceType: "script" },
+    },
   ],
 };
