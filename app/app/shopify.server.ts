@@ -93,7 +93,17 @@ const shopify = shopifyApp({
   // the install flow in a way that looks like a Shopify problem.
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
-  distribution: AppDistribution.AppStore,
+  // Owner decision 2026-09-17: this app is built for CaratForUs's own store.
+  // It is not listed on the Shopify App Store and no unrelated merchant
+  // installs it.
+  //
+  // Behaviourally this is identical to AppStore in this library — both
+  // branches attach `shopify.login`, and only AppDistribution.ShopifyAdmin
+  // differs (see isSingleMerchantApp in shopify-app.js). The value matters
+  // because it must agree with the distribution set on the app record: the
+  // library would otherwise be modelling an install flow Shopify is not
+  // running.
+  distribution: AppDistribution.SingleMerchant,
   // No `isEmbeddedApp` key: this library rejects it outright — React Router
   // apps are embedded by default, and passing it throws at startup. The app
   // record's `embedded = true` in the .toml is what declares it to Shopify.

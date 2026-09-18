@@ -26,6 +26,9 @@ const APP_DIR = join(process.cwd(), "app");
 /** Matches the library's webhook authenticator, however it is spaced. */
 const LIBRARY_WEBHOOK_AUTH = /authenticate\s*\.\s*webhook/;
 
+/** Matches a CALL to the library's webhook registration helper. */
+const LIBRARY_REGISTER_WEBHOOKS = /registerWebhooks\s*\(/;
+
 /** Block and line comments removed, so prose about a rule cannot violate it. */
 function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
@@ -99,6 +102,18 @@ describe("the custom inbound webhook boundary survives the library adoption", ()
     }
   });
 
+  it("never calls the library's registerWebhooks", () => {
+    // The library attaches registerWebhooks whether or not we configure
+    // webhooks, so its existence proves nothing. Calling it would subscribe
+    // topics to the library's dispatcher and route deliveries around our
+    // receiver — that is the thing to forbid.
+    const offenders = readAllSources(APP_DIR)
+      .filter(({ source }) => LIBRARY_REGISTER_WEBHOOKS.test(stripComments(source)))
+      .map(({ path }) => path);
+
+    expect(offenders, "registerWebhooks would bypass our webhook boundary.").toEqual([]);
+  });
+
   it("would actually catch a violation", () => {
     // Proves the detector works, rather than trusting that an empty result
     // means compliance. Without this, a broken regex reads as a clean codebase.
@@ -107,6 +122,10 @@ describe("the custom inbound webhook boundary survives the library adoption", ()
 
     const documented = `// We never call authenticate.webhook here.`;
     expect(LIBRARY_WEBHOOK_AUTH.test(stripComments(documented))).toBe(false);
+
+    // Same proof for the registration detector.
+    expect(LIBRARY_REGISTER_WEBHOOKS.test("await shopify.registerWebhooks({session});")).toBe(true);
+    expect(LIBRARY_REGISTER_WEBHOOKS.test("const x = registerWebhooksFactory;")).toBe(false);
   });
 });
 

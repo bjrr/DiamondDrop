@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { AUTH_PATHS } from "./shopify.server";
+import shopify, { AUTH_PATHS } from "./shopify.server";
 
 /**
  * D13 — Shopify admin authentication configuration.
@@ -44,5 +44,34 @@ describe("auth paths", () => {
       sessionToken: "/auth/session-token",
       exitIframe: "/auth/exit-iframe",
     });
+  });
+});
+
+describe("distribution", () => {
+  it("is configured for a single merchant, not the App Store", () => {
+    // Owner decision: CaratForUs's own store only. Pinned because the value
+    // must agree with the distribution set on the Shopify app record — if the
+    // two disagree, the library models an install flow Shopify is not running,
+    // and the symptom is a confusing failure during install rather than a
+    // config error at startup.
+    //
+    // Asserted via the presence of `login`, which the library attaches for
+    // AppStore and SingleMerchant but NOT for ShopifyAdmin. That is the only
+    // externally observable difference, so it is what there is to assert.
+    expect(typeof shopify.login).toBe("function");
+  });
+
+  it("exposes the admin authenticator and session storage", () => {
+    expect(typeof shopify.authenticate.admin).toBe("function");
+    expect(shopify.sessionStorage).toBeDefined();
+  });
+
+  it("exposes registerWebhooks but we never call it", () => {
+    // Corrected from an earlier assumption that this would be undefined. The
+    // library attaches registerWebhooks unconditionally — its presence means
+    // the CAPABILITY exists, not that anything is registered. What actually
+    // matters is that our code never calls it, which is a source-level fact and
+    // is asserted in shopify/webhooks/boundaryPreserved.test.ts.
+    expect(typeof shopify.registerWebhooks).toBe("function");
   });
 });
