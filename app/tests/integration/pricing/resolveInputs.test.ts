@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { prisma } from "~/db/client.server";
 import { MoneyDecimal } from "~/domain/money/decimal";
+import { alloyedPricePerGram } from "~/domain/pricing/purity";
 import { resolveInputsForVariant } from "~/jobs/pricing/resolveInputs.server";
 
 /**
@@ -24,12 +25,17 @@ describe("units survive the L2 -> engine boundary", () => {
   it("converts the metal price from major units per gram to MINOR units", async () => {
     const resolved = await resolveInputsForVariant(SEEDED_MID_VARIANT, ASOF);
 
-    const row = await prisma.metalPrice.findFirst({
-      where: { metal: "gold", purity: "GOLD_14K", effectiveFrom: { lte: ASOF } },
+    const row = await prisma.metalReferencePrice.findFirst({
+      where: { metal: "gold", effectiveFrom: { lte: ASOF } },
       orderBy: { effectiveFrom: "desc" },
     });
 
-    const expected = new MoneyDecimal(row!.pricePerGram.toString()).times(100);
+    // pure reference x fineness, then major -> minor. Using the raw reference
+    // here would assert a 14k piece costs the same per gram as pure gold.
+    const expected = alloyedPricePerGram(
+      new MoneyDecimal(row!.pricePerGram.toString()),
+      "GOLD_14K"
+    ).times(100);
     expect(new MoneyDecimal(resolved.inputs.metalPricePerGramMinorUnits).equals(expected)).toBe(true);
   });
 
@@ -123,11 +129,16 @@ describe("inputs are correlated to the right variant", () => {
     const variant = await prisma.masterVariant.findUnique({ where: { id: SEEDED_MID_VARIANT } });
     const resolved = await resolveInputsForVariant(SEEDED_MID_VARIANT, ASOF);
 
-    const row = await prisma.metalPrice.findFirst({
-      where: { metal: variant!.metal, purity: variant!.purity, effectiveFrom: { lte: ASOF } },
+    const row = await prisma.metalReferencePrice.findFirst({
+      where: { metal: variant!.metal, effectiveFrom: { lte: ASOF } },
       orderBy: { effectiveFrom: "desc" },
     });
-    const expected = new MoneyDecimal(row!.pricePerGram.toString()).times(100);
+    // pure reference x fineness, then major -> minor. Using the raw reference
+    // here would assert a 14k piece costs the same per gram as pure gold.
+    const expected = alloyedPricePerGram(
+      new MoneyDecimal(row!.pricePerGram.toString()),
+      "GOLD_14K"
+    ).times(100);
     expect(new MoneyDecimal(resolved.inputs.metalPricePerGramMinorUnits).equals(expected)).toBe(true);
   });
 

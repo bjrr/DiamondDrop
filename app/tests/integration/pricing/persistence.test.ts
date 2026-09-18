@@ -217,10 +217,10 @@ describe("criterion 24 — at most one non-terminal sync intent per variant", ()
 
 describe("L1 cost inputs are append-only", () => {
   it("rejects an UPDATE to a metal_price row", async () => {
-    const row = await prisma.metalPrice.create({
+    const row = await prisma.metalReferencePrice.create({
       data: {
         metal: "gold",
-        purity: "GOLD_18K",
+
         pricePerGram: "60.000000",
         currency: "USD",
         effectiveFrom: uniqueDate(),
@@ -229,7 +229,7 @@ describe("L1 cost inputs are append-only", () => {
       },
     });
     await expect(
-      prisma.metalPrice.update({ where: { id: row.id }, data: { pricePerGram: "1.000000" } })
+      prisma.metalReferencePrice.update({ where: { id: row.id }, data: { pricePerGram: "1.000000" } })
     ).rejects.toThrow(/append-only/i);
   });
 });

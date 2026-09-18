@@ -8,6 +8,8 @@ import {
   MissingCostInputError,
   selectMostSpecific,
 } from "~/db/repositories/effectiveDated.server";
+import { MoneyDecimal } from "~/domain/money/decimal";
+import { alloyedPricePerGram } from "~/domain/pricing/purity";
 import { resolveMetalPrice } from "~/db/repositories/metalPriceRepository.server";
 import { resolveStoneCost } from "~/db/repositories/stoneCostRepository.server";
 
@@ -66,17 +68,17 @@ describe("criterion 14 — shape is part of the stone key (R4)", () => {
   });
 });
 
-describe("criterion 36 — Seam A: metal_price.source is provenance, never selected on", () => {
+describe("criterion 36 — Seam A: metal reference source is provenance, never selected on", () => {
   it("resolves the later row regardless of which source wrote it", async () => {
     // Two rows differing only in source. The later effectiveFrom must win in
     // BOTH directions, or something is branching on source.
     const early = uniqueDate();
     const late = new Date(early.getTime() + 86_400_000);
 
-    await prisma.metalPrice.create({
+    await prisma.metalReferencePrice.create({
       data: {
         metal: "platinum",
-        purity: "PLATINUM_950",
+
         pricePerGram: "10.000000",
         currency: "USD",
         effectiveFrom: early,
@@ -84,10 +86,9 @@ describe("criterion 36 — Seam A: metal_price.source is provenance, never selec
         enteredBy: null,
       },
     });
-    await prisma.metalPrice.create({
+    await prisma.metalReferencePrice.create({
       data: {
         metal: "platinum",
-        purity: "PLATINUM_950",
         pricePerGram: "20.000000",
         currency: "USD",
         effectiveFrom: late,
@@ -98,7 +99,13 @@ describe("criterion 36 — Seam A: metal_price.source is provenance, never selec
 
     const resolved = await resolveMetalPrice("platinum", "PLATINUM_950", new Date(late.getTime() + 1000));
     // manual wins here only because it is LATER — not because it is manual.
-    expect(resolved.pricePerGramMajorUnits).toBe("20");
+    // The RAW reference is what the row carries; pricePerGramMajorUnits is now
+    // the DERIVED alloyed price (pure x fineness), so both are checked. The
+    // later row wins regardless of which source wrote it — that is Seam A.
+    expect(resolved.pureReferencePerGramMajorUnits).toBe("20");
+    expect(resolved.pricePerGramMajorUnits).toBe(
+      alloyedPricePerGram(new MoneyDecimal("20"), "PLATINUM_950").toString()
+    );
     expect(resolved.source).toBe("manual");
 
     // As of a moment before the later row, the feed row wins on the same rule.
@@ -107,14 +114,14 @@ describe("criterion 36 — Seam A: metal_price.source is provenance, never selec
       "PLATINUM_950",
       new Date(late.getTime() - 1000)
     );
-    expect(earlier.pricePerGramMajorUnits).toBe("10");
+    expect(earlier.pureReferencePerGramMajorUnits).toBe("10");
     expect(earlier.source).toBe("feed");
   });
 
   it("returns source as provenance on the resolved value", async () => {
     const resolved = await resolveMetalPrice("gold", "GOLD_14K", ASOF);
     expect(["manual", "feed"]).toContain(resolved.source);
-    expect(resolved.provenance.sourceTable).toBe("metal_price");
+    expect(resolved.provenance.sourceTable).toBe("metal_reference_price");
     expect(resolved.provenance.sourceId).toBeTruthy();
   });
 });

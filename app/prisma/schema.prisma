@@ -405,27 +405,39 @@ enum PriceSyncIntentStatus {
   @@map("price_sync_intent_status")
 }
 
-/// L1 raw input (§4.0). Append-only — see this migration's trigger
-/// extension. Keyed on (metal, purity, effectiveFrom); resolution (L2) picks
-/// the greatest effectiveFrom <= asOf regardless of `source` (§4.7 Seam A —
-/// `source` is provenance only, never selected on).
-model MetalPrice {
+/// L1 raw input (§4.0) — the PURE metal reference price per gram.
+///
+/// ONE price per metal, not one per karat. The cost of an alloyed piece is
+/// derived: pure x fineness x grams, with fineness from the versioned registry
+/// in app/domain/pricing/purity.ts.
+///
+/// WHY THIS REPLACED per-purity prices. Separate prices per karat drift out of
+/// step silently. The seeded data showed it: 14k and 18k both implied pure gold
+/// near $82.7/g while 10k implied $70.80/g — three karats, two underlying gold
+/// prices, and nothing able to detect the 17% error. One reference makes that
+/// unrepresentable.
+///
+/// Append-only and effective-dated. SEAM A (§4.7): `source` is PROVENANCE —
+/// recorded and returned, never selected on. Resolution is purely "greatest
+/// effectiveFrom <= asOf", so an automated feed writes source='feed' rows and
+/// nothing downstream changes.
+model MetalReferencePrice {
   id            String           @id @default(uuid()) @db.Uuid
   metal         Metal
-  purity        Purity
+  /// PURE metal, MAJOR units per gram (e.g. 82.700000 = $82.70/g of pure gold).
+  /// Decimal, never float — it is multiplied by a fineness and a gram weight.
   pricePerGram  Decimal          @map("price_per_gram") @db.Decimal(18, 6)
   currency      String           @db.Char(3)
   effectiveFrom DateTime         @map("effective_from")
   source        MetalPriceSource
-  /// Nullable because a feed-sourced row has no human author (§4.7 Seam A) —
-  /// not an oversight.
+  /// Nullable because a feed-sourced row has no human author (§4.7 Seam A).
   enteredBy     String?          @map("entered_by")
   note          String?
   createdAt     DateTime         @default(now()) @map("created_at")
 
-  @@unique([metal, purity, effectiveFrom])
-  @@index([metal, purity])
-  @@map("metal_price")
+  @@unique([metal, effectiveFrom])
+  @@index([metal, effectiveFrom])
+  @@map("metal_reference_price")
 }
 
 /// L1 raw input. Append-only. Key tuple per §4.3, including `shape` (R4)

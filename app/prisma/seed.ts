@@ -106,46 +106,44 @@ async function seedPolicyVersion(): Promise<void> {
 }
 
 async function seedMetalPrices(): Promise<void> {
-  console.log("Seeding metal_price...");
-  const rows: { metal: Metal; purity: Purity; pricePerGram: string }[] = [
-    // 14k gold matches the §5.8 worked example exactly ($48.250000/g).
-    { metal: Metal.gold, purity: Purity.GOLD_14K, pricePerGram: "48.250000" },
-    { metal: Metal.gold, purity: Purity.GOLD_18K, pricePerGram: "62.000000" },
-    { metal: Metal.gold, purity: Purity.GOLD_10K, pricePerGram: "29.500000" },
-    { metal: Metal.platinum, purity: Purity.PLATINUM_950, pricePerGram: "34.750000" },
-    { metal: Metal.sterling_silver, purity: Purity.SILVER_925, pricePerGram: "0.850000" },
+  console.log("Seeding metal_reference_price...");
+
+  // PURE metal, per gram. The alloyed price is derived as pure x fineness (see
+  // app/domain/pricing/purity.ts) — do NOT add per-karat rows here.
+  //
+  // These are back-derived from the previous per-karat fixtures so prices stay
+  // in the same region: 14k was $48.25/g, and 48.25 / 0.583333 = 82.70. Doing
+  // that arithmetic exposed exactly the drift this model prevents — 10k had
+  // been seeded at $29.50/g, implying $70.80/g pure, a 17% disagreement with
+  // the other two karats that nothing could detect.
+  const references: { metal: Metal; pricePerGram: string }[] = [
+    { metal: Metal.gold, pricePerGram: "82.700000" },
+    { metal: Metal.platinum, pricePerGram: "36.580000" },
+    { metal: Metal.sterling_silver, pricePerGram: "0.918900" },
   ];
 
-  for (const row of rows) {
+  for (const { metal, pricePerGram } of references) {
     await createIfAbsent(
-      `metal_price ${row.metal}/${row.purity} @ ${row.pricePerGram}`,
+      `metal_reference_price ${metal}`,
       () =>
-        prisma.metalPrice.findUnique({
-          where: {
-            metal_purity_effectiveFrom: {
-              metal: row.metal,
-              purity: row.purity,
-              effectiveFrom: SEED_EFFECTIVE_FROM,
-            },
-          },
+        prisma.metalReferencePrice.findFirst({
+          where: { metal, effectiveFrom: SEED_EFFECTIVE_FROM },
         }),
       () =>
-        prisma.metalPrice.create({
+        prisma.metalReferencePrice.create({
           data: {
-            metal: row.metal,
-            purity: row.purity,
-            pricePerGram: row.pricePerGram,
+            metal,
+            pricePerGram,
             currency: SEED_CURRENCY,
             effectiveFrom: SEED_EFFECTIVE_FROM,
             source: MetalPriceSource.manual,
             enteredBy: SEED_ENTERED_BY,
-            note: "Seed fixture value — not a real market quote.",
+            note: "Seed fixture reference — not a real market quote.",
           },
         })
     );
   }
 }
-
 async function seedStoneCosts(): Promise<void> {
   console.log("Seeding stone_cost...");
 
