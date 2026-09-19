@@ -134,7 +134,7 @@ each becomes live the moment its gate slice starts.
 | C-S3 | **Slice 6** | A Group Buy `campaign_snapshot` must record `engineVersion`, `pricingProfileVersion`, `roundingRuleId`, `priceEndingRuleId` and `regularCardPriceRuleId` alongside the frozen prices, or a frozen price stops being reproducible — which defeats freezing it (`CLAUDE.md` #7). **No consumer may substitute today's active profile or a hardcoded rule id** | Contract |
 | C-S4 | **Slices 4 and 8** | Refunds, restocking and merchandise credit are computed from **what the customer actually paid** — the Shopify order line and its purchase snapshot — never from `price_calculation`. `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md` §4's "eligible merchandise amount" is a historical fact about a transaction, not a current computation. A recalculated price must never reach a refund path | Contract |
 | C-S5 | **Standing — every slice adding a price-bearing route** | No cost, margin, supplier or breakdown field on any metafield, Liquid, App Proxy JSON or log (R14). The card **tier rate** and the **rule id** are internal for the same reason (`docs/BANK-CARD-PRICING.md` §6): the storefront receives the two prices they produced, never the rule that produced them | Contract |
-| C-S6 | **Standing — every slice adding a customer-facing price surface** | **Every surface showing a price shows BOTH prices, or neither.** Slice 1 ships this for the Group Buy block only; the Buy Now product page, cart, email and admin preview are unbuilt and are where it is easiest to regress | Contract |
+| C-S6 | **Standing — every slice adding a customer-facing price surface** | Follow the surface-specific display rules in `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md`: Buy Now collection/search leads with `As low as` Bank Payment Price; detailed Buy Now product/cart show exact Regular/Card + Bank Payment pricing; Group Buy defaults to one Regular/Card price with a lower-Bank-Payment note and switches the active price only after required Payment Type selection | Contract |
 
 **C-S2 note 1 — publish the card price, not the stored price.** `price_calculation`
 stores the **Bank Payment Price**, the lower of the two. Publishing it would
@@ -151,33 +151,27 @@ Taking the rate or rule id from **today's active profile** would re-price a
 historical calculation under a rule that did not exist when it was made — the
 same failure C-S3 forbids for campaigns, on the Buy Now path.
 
-**C-S2 note 3 — the bank-basis tolerance can publish an inverted move.** The
-auto-apply delta is measured **bank-to-bank** (comparing a new bank price to a
-previously published card price would read as a ~4% fall on every variant on
-every run, routing the whole catalogue to manual approval and making each
-approval a real price cut). But the uplift schedule is deliberately
-non-monotonic at its tier boundaries, so a tiny rise in the bank price can make
-the published card price **fall**. Worked case: bank `$4,999.99 → $5,000.00` is
-**+0.0002%**, far inside the 200 bps tolerance, so it auto-applies unreviewed —
-while the published Regular/Card Price falls `$5,175 → $5,150`, a 0.48% cut
-nobody approved. Bounded (it cannot exceed the gap between two adjacent tier
-rates) and confined to one tier-width of a boundary, so it is a known small leak
-rather than an open-ended one. Slice 2 must choose explicitly: measure the
-published card delta against `toleranceBps` as well, **or** record an
-owner-accepted decision that sub-1% inverted moves at tier boundaries may
-auto-apply. Silently inheriting the bank-only measurement is not an option — the
-card price is the figure the customer sees.
+**C-S2 note 3 — RESOLVED BY OWNER 2026-09-19.** The auto-apply delta remains
+measured **bank-to-bank**. The owner explicitly accepts the small inverted
+Regular/Card Price movement that can occur when a Bank Payment Price crosses one
+of the locked tier thresholds. Example: bank `$999.99 -> $1,000.00` while
+Regular/Card moves `$1,045 -> $1,040`. The Bank Payment Price is still below
+its own card price; only the direction of change differs across versions.
+Do **not** force manual approval solely because Bank Payment and Regular/Card
+prices moved in opposite directions at a tier boundary. This is intentional
+behavior of the locked tier schedule, not a defect.
 
-**C-S6 note — the contact line is part of the contract.** Each surface needs the
-Regular/Card Price visually dominant, the **Bank Payment Price** alongside it,
-the exact dollar saving, and an accurate statement of how the bank price is
-obtained. For MVP1 that statement is *"Available with Zelle, bank transfer, ACH,
-or wire. Contact us to arrange payment."* — owner-approved wording, reproduced
-verbatim. Showing the Bank Payment Price **without** it advertises a price the
-checkout will not honour, because Shopify cannot vary the payable total by
-payment method (`docs/BANK-PAYMENT-CHECKOUT-FINDINGS.md`). That is the outcome
-`docs/BANK-CARD-PRICING.md` §8 prohibits and the hidden-material-terms rule in
-`CLAUDE.md` forbids.
+**C-S6 note — owner-updated 2026-09-19.** Price presentation is now
+surface-specific. Buy Now collection/search cards may lead with the lowest
+currently purchasable **Bank Payment Price** as `As low as $X` without showing
+the card price on the card. Detailed Buy Now product/cart views show the exact
+Regular/Card Price, Bank Payment Price, and merchandise-only savings. Group Buy
+comparison/options tables show Regular/Card prices only plus a concise note that
+lower pricing is available with Bank Payment; after product options are chosen,
+Payment Type is required and the active displayed price switches to Bank Payment
+Price only when Bank Payment is selected. Eligible methods are Zelle, ACH, bank
+transfer and wire; no paper payments qualify. See
+`docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md`.
 
 ## Gate: next migration that touches `webhook_event`
 
