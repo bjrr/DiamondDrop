@@ -165,6 +165,14 @@ const TIER2_DIR_PREFIXES = [
   "app/jobs/pricing/",
   "app/domain/groupbuy/",
   "app/jobs/groupbuy/",
+  // Added as the FIRST commit of Slice 2 stage 2A (spec criterion 54 / review
+  // condition C3), deliberately ahead of any code in these paths. Prefix checks
+  // cover directories that do not exist yet, so the guard is in place before
+  // the money-moving code it guards — the opposite of how the groupbuy hole
+  // above was found.
+  "app/domain/bankpayment/",
+  "app/jobs/bankpayment/",
+  "app/shopify/admin/",
 ];
 
 /** Any file anywhere in the repo whose FILENAME (not path) matches this is money-adjacent too. */
