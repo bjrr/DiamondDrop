@@ -174,6 +174,33 @@ export class ShopifyPriceSyncAdapter implements ShopifyPriceSyncPort {
       ]);
     }
 
+    // THE EXPECTED VARIANT, NOT MERELY A VARIANT. This is a BULK mutation:
+    // `productVariants` is an array, and nothing in the schema promises the
+    // element we get back is the one we asked about. We send exactly one
+    // variant, so a response naming a different id means the call did not do
+    // what this function is about to claim it did — and the caller is about
+    // to write `synced` plus a compare-and-set anchor on the strength of
+    // that claim.
+    if (updated.id !== input.shopifyVariantGid) {
+      throw new AdminApiError("productVariantsBulkUpdate", [
+        `expected variant ${input.shopifyVariantGid} but the response named ${updated.id}`,
+      ]);
+    }
+
+    // AND AT THE PRICE WE ASKED FOR. Shopify echoes the stored price back as a
+    // decimal string. If it differs from what we sent, something between our
+    // intent and their storage changed the number — currency handling, a
+    // rounding rule of theirs, a truncated decimal — and publishing a price
+    // different from the approved one is the single worst outcome this whole
+    // slice exists to prevent. Compared as strings because that is the form
+    // both sides use; parsing either side into a number here would reintroduce
+    // the float hazard the money rules forbid.
+    if (updated.price !== priceDecimalString) {
+      throw new AdminApiError("productVariantsBulkUpdate", [
+        `published price mismatch: sent ${priceDecimalString} but Shopify returned ${updated.price}`,
+      ]);
+    }
+
     return { appliedAt: new Date() };
   }
 }

@@ -193,20 +193,119 @@ describe("ShopifyPriceSyncAdapter — the Admin API's 200-with-userErrors hazard
   });
 
   /**
-   * CONTRACT TESTS AGAINST REAL OBSERVED RESPONSES (criterion 60).
+   * ══════════════════════════════════════════════════════════════════════
+   * CRITERION 60 — CONTRACT TESTS AGAINST REAL OBSERVED RESPONSES
+   * ══════════════════════════════════════════════════════════════════════
    *
-   * The three payloads below are not invented. They were captured on
-   * 2026-09-19 from caratforus-dev.myshopify.com, Admin API 2026-07, using a
-   * throwaway product created and deleted within the verification run. If a
-   * future API version changes these shapes, these are the tests that should
-   * fail first — before a real price sync discovers it.
+   * The payloads below are not invented. They were captured 2026-09-19 from
+   * caratforus-dev.myshopify.com, Admin API 2026-07, using a THROWAWAY
+   * product created and deleted inside the verification run. A follow-up
+   * query for the verification title returned [] — the dev store was left
+   * clean and no existing data was touched. No token or secret material was
+   * printed, logged or committed: the run read the stored offline session
+   * token directly and never emitted it.
+   *
+   * THE ORDER OF CHECKS IS ITSELF THE CONTRACT, because every failure mode
+   * this API has arrives on HTTP 200:
+   *
+   *   1. HTTP 200 is NEVER sufficient for success.
+   *   2. Top-level GraphQL `errors` fail FIRST. A coercion failure never
+   *      populates `userErrors`, so checking userErrors first would let a
+   *      malformed price through entirely unreported.
+   *   3. Then `userErrors`.
+   *   4. Then the EXPECTED variant must be present, at the price we sent.
+   *   5. Only after all four may the caller mark the intent `synced`.
+   *
+   * If a future API version changes any of this, these are the tests that
+   * should fail — before a real price sync discovers it.
    */
-  it("REAL SHAPE — a rejected mutation returns productVariants NULL, not an empty array", async () => {
-    // Captured verbatim. The null is the point: code written against an
-    // assumed [] would read productVariants?.[0] on an array that does not
-    // exist, and the optional chain would swallow it into a generic
-    // "no updated variant" rather than reporting the actual reason.
-    const { client } = fakeClient({
+  describe("criterion 60 — case 1: SUCCESS", () => {
+    it("accepts the live success payload: userErrors empty, expected variant, price echoed exactly", async () => {
+      // 2080.00 is the policy Example D final rounded Regular/Card Price. The
+      // live read-back query returned this same string independently of the
+      // mutation response, which is what makes it a verified round trip
+      // rather than a self-report.
+      const { client, calls } = fakeClient({
+        data: {
+          productVariantsBulkUpdate: {
+            productVariants: [
+              { id: "gid://shopify/ProductVariant/52378659586349", price: "2080.00" },
+            ],
+            userErrors: [],
+          },
+        },
+      });
+
+      const result = await new ShopifyPriceSyncAdapter(client).applyVariantPrice({
+        shopifyProductGid: "gid://shopify/Product/1",
+        shopifyVariantGid: "gid://shopify/ProductVariant/52378659586349",
+        regularCardPrice: Money.fromMinorUnits(208_000n, "USD"),
+        priceCalculationId: "calc-1",
+      });
+
+      expect(result.appliedAt).toBeInstanceOf(Date);
+      expect(calls[0]!.variables).toMatchObject({
+        variants: [{ id: "gid://shopify/ProductVariant/52378659586349", price: "2080.00" }],
+      });
+    });
+
+    it("rejects a success-shaped response naming a DIFFERENT variant than requested", async () => {
+      // This is a BULK mutation returning an array; nothing in the schema
+      // promises the element back is the one asked about. Empty userErrors
+      // plus a variant present would otherwise read as success, and the
+      // caller would write synced and a compare-and-set anchor on it.
+      const { client } = fakeClient({
+        data: {
+          productVariantsBulkUpdate: {
+            productVariants: [{ id: "gid://shopify/ProductVariant/999999", price: "2080.00" }],
+            userErrors: [],
+          },
+        },
+      });
+
+      await expect(
+        new ShopifyPriceSyncAdapter(client).applyVariantPrice({
+        shopifyProductGid: "gid://shopify/Product/1",
+        shopifyVariantGid: "gid://shopify/ProductVariant/52378659586349",
+        regularCardPrice: Money.fromMinorUnits(208_000n, "USD"),
+        priceCalculationId: "calc-1",
+      })
+      ).rejects.toThrow(/expected variant .* but the response named/);
+    });
+
+    it("rejects a success-shaped response echoing a DIFFERENT price than sent", async () => {
+      // Publishing a price other than the approved one is the worst outcome
+      // this slice can produce. If Shopify stores something different from
+      // what we sent, that is a sync failure, not a silent success.
+      const { client } = fakeClient({
+        data: {
+          productVariantsBulkUpdate: {
+            productVariants: [
+              { id: "gid://shopify/ProductVariant/52378659586349", price: "2079.00" },
+            ],
+            userErrors: [],
+          },
+        },
+      });
+
+      await expect(
+        new ShopifyPriceSyncAdapter(client).applyVariantPrice({
+        shopifyProductGid: "gid://shopify/Product/1",
+        shopifyVariantGid: "gid://shopify/ProductVariant/52378659586349",
+        regularCardPrice: Money.fromMinorUnits(208_000n, "USD"),
+        priceCalculationId: "calc-1",
+      })
+      ).rejects.toThrow(/published price mismatch/);
+    });
+  });
+
+  describe("criterion 60 — case 2: MUTATION-LEVEL REJECTION", () => {
+    // Captured verbatim from a bad variant id: HTTP 200, non-empty
+    // userErrors, productVariants NULL — not an empty array. Code written
+    // against an assumed [] reads ?.[0] on something that is not an array and
+    // folds a real "variant does not exist" into a generic "no updated
+    // variant", losing the actual reason.
+    const LIVE_REJECTION = {
       data: {
         productVariantsBulkUpdate: {
           productVariants: null,
@@ -215,66 +314,84 @@ describe("ShopifyPriceSyncAdapter — the Admin API's 200-with-userErrors hazard
           ],
         },
       },
-    });
+    };
 
-    await expect(
-      new ShopifyPriceSyncAdapter(client).applyVariantPrice({
+    it("treats a 200 carrying userErrors as a SYNC FAILURE and surfaces the real reason", async () => {
+      const { client } = fakeClient(LIVE_REJECTION);
+      await expect(
+        new ShopifyPriceSyncAdapter(client).applyVariantPrice({
         shopifyProductGid: "gid://shopify/Product/1",
-        shopifyVariantGid: "gid://shopify/ProductVariant/1",
+        shopifyVariantGid: "gid://shopify/ProductVariant/52378659586349",
         regularCardPrice: Money.fromMinorUnits(208_000n, "USD"),
         priceCalculationId: "calc-1",
       })
-    ).rejects.toThrow(AdminApiError);
-  });
-
-  it("REAL SHAPE — a malformed price surfaces in TOP-LEVEL errors, never in userErrors", async () => {
-    // Captured verbatim. Shopify rejects this at GraphQL variable coercion,
-    // so there is no productVariantsBulkUpdate payload at all — which is why
-    // body.errors must be checked BEFORE the userErrors branch. Reversing
-    // that order lets a malformed price through unreported.
-    const { client } = fakeClient({
-      errors: [
-        {
-          message:
-            "Variable $variants of type [ProductVariantsBulkInput!]! was provided invalid value for 0.price (invalid money 'not-a-price')",
-        },
-      ],
+      ).rejects.toThrow(/Product variant does not exist/);
     });
 
-    await expect(
-      new ShopifyPriceSyncAdapter(client).applyVariantPrice({
+    it("throws AdminApiError specifically, so the caller leaves the intent unsynced", async () => {
+      const { client } = fakeClient(LIVE_REJECTION);
+      await expect(
+        new ShopifyPriceSyncAdapter(client).applyVariantPrice({
         shopifyProductGid: "gid://shopify/Product/1",
-        shopifyVariantGid: "gid://shopify/ProductVariant/1",
+        shopifyVariantGid: "gid://shopify/ProductVariant/52378659586349",
         regularCardPrice: Money.fromMinorUnits(208_000n, "USD"),
         priceCalculationId: "calc-1",
       })
-    ).rejects.toThrow(/invalid money/);
+      ).rejects.toBeInstanceOf(AdminApiError);
+    });
   });
 
-  it("REAL SHAPE — the live success payload is accepted verbatim, price as a decimal string", async () => {
-    // Captured verbatim from the successful live publish of $2,080.00, the
-    // policy's Example D final rounded Regular/Card Price. Shopify returns the
-    // price as a STRING; anything here that started parsing it into a number
-    // would reintroduce exactly the float hazard the money rules forbid.
-    const { client } = fakeClient({
-      data: {
-        productVariantsBulkUpdate: {
-          productVariants: [
-            { id: "gid://shopify/ProductVariant/52378659586349", price: "2080.00" },
-          ],
-          userErrors: [],
+  describe("criterion 60 — case 3: GRAPHQL VARIABLE/COERCION FAILURE", () => {
+    it("treats top-level errors on a 200 as a SYNC FAILURE", async () => {
+      // Captured verbatim from a malformed price: HTTP 200, top-level errors,
+      // and NO productVariantsBulkUpdate payload at all, so userErrors never
+      // exists to be checked.
+      const { client } = fakeClient({
+        errors: [
+          {
+            message:
+              "Variable $variants of type [ProductVariantsBulkInput!]! was provided invalid value for 0.price (invalid money 'not-a-price')",
+          },
+        ],
+      });
+
+      await expect(
+        new ShopifyPriceSyncAdapter(client).applyVariantPrice({
+        shopifyProductGid: "gid://shopify/Product/1",
+        shopifyVariantGid: "gid://shopify/ProductVariant/52378659586349",
+        regularCardPrice: Money.fromMinorUnits(208_000n, "USD"),
+        priceCalculationId: "calc-1",
+      })
+      ).rejects.toThrow(/invalid money/);
+    });
+
+    it("checks top-level errors BEFORE userErrors — proven with a response carrying both", async () => {
+      // The ordering test. A payload with both must report the top-level
+      // error, because that is the one explaining why nothing happened.
+      // Reversing the order reports a downstream symptom and hides the cause,
+      // and for a pure coercion failure there is no userErrors to fall back
+      // on at all, so the wrong order loses the failure entirely.
+      const { client } = fakeClient({
+        errors: [{ message: "TOP LEVEL: invalid money" }],
+        data: {
+          productVariantsBulkUpdate: {
+            productVariants: null,
+            userErrors: [
+              { field: ["variants"], message: "USER ERROR: must not be reported first" },
+            ],
+          },
         },
-      },
-    });
+      });
 
-    const result = await new ShopifyPriceSyncAdapter(client).applyVariantPrice({
-      shopifyProductGid: "gid://shopify/Product/10358680027437",
-      shopifyVariantGid: "gid://shopify/ProductVariant/52378659586349",
-      regularCardPrice: Money.fromMinorUnits(208_000n, "USD"),
-      priceCalculationId: "calc-1",
+      await expect(
+        new ShopifyPriceSyncAdapter(client).applyVariantPrice({
+        shopifyProductGid: "gid://shopify/Product/1",
+        shopifyVariantGid: "gid://shopify/ProductVariant/52378659586349",
+        regularCardPrice: Money.fromMinorUnits(208_000n, "USD"),
+        priceCalculationId: "calc-1",
+      })
+      ).rejects.toThrow(/TOP LEVEL/);
     });
-
-    expect(result.appliedAt).toBeInstanceOf(Date);
   });
 
   it("returns an appliedAt timestamp on success", async () => {
