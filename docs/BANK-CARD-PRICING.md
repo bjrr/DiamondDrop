@@ -241,17 +241,39 @@ Customer sees:
 
 ## 6. Customer-Facing Display
 
-Both prices should be visible before checkout.
+Customer-facing treatment depends on surface.
 
-The **Regular/Card Price is the primary advertised price**.
+### Collection and search
 
-Example:
+The discovery price is the **Bank Payment Price**.
 
-**$2,080**
+Display conceptually:
+
+**As low as $2,000**
+
+*Bank Payment Price*
+
+Rules:
+
+- use the lowest Bank Payment Price among currently purchasable eligible variants;
+- do not use an unavailable configuration to advertise a lower "As low as" price;
+- collection/search cards do not need to show the Regular/Card Price alongside the discovery price.
+
+### Buy Now product page
+
+For the selected variant/configuration show:
+
+**Price: $2,080**
 
 **Bank Payment Price: $2,000**
 
 **Save $80 with Bank Payment**
+
+The Regular/Card Price is the primary detailed-product price.
+
+### Cart
+
+Show the exact Regular/Card Price and Bank Payment Price for each selected line/configuration. Cart totals are calculated per line item and then summed; never re-tier from the combined cart value.
 
 Do NOT display the internal percentage.
 
@@ -274,17 +296,19 @@ The Bank Payment Price applies only to approved bank/manual payment methods, inc
 - Bank transfer
 - ACH when designated as an eligible bank payment
 - Wire transfer
-- Other approved bank/manual payment methods added in the future
+- Other explicitly owner-approved electronic bank/manual payment methods added in the future
 
 Standard credit/debit cards and other payment methods designated as standard payments use the Regular/Card Price.
+
+No paper payment method is eligible for Bank Payment Price. This includes personal checks, cashier's checks, certified checks, money orders, and other paper instruments.
 
 A payment method is not eligible merely because it is lower-cost. Eligibility must come from approved configuration/policy.
 
 ## 8. Checkout Logic
 
-The product page and cart should use the **final rounded Regular/Card Price as the primary price**.
+Buy Now product pages and cart use the final rounded Regular/Card Price as the primary detailed-purchase price, while also showing the lower Bank Payment Price.
 
-The lower Bank Payment Price should also be clearly displayed.
+Collection/search discovery may instead lead with **As low as [Bank Payment Price]** under §6.
 
 When the customer selects an eligible Bank Payment method:
 
@@ -297,6 +321,18 @@ When the customer selects a standard/card payment method:
 The final amount due must be clearly shown before the customer completes the order.
 
 Implementation must verify what Shopify checkout/payment capabilities are available for the chosen plan and payment configuration. If Shopify cannot natively switch the payable amount at payment-method selection, the engineering design must provide a compliant supported mechanism or explicitly surface the platform limitation before release. Do not silently fake this behavior only on the product page/cart.
+
+### Merchandise-only scope
+
+Bank Payment savings apply to merchandise only. Do not include tax, shipping, separately charged insurance, duties, or other non-merchandise charges in "Save $X with Bank Payment."
+
+### Cart aggregation
+
+Bank/Card pricing is determined per line item/configuration. The cart does not choose a new tier from the combined subtotal.
+
+- Cart Bank Payment Merchandise Total = sum of Bank Payment line totals.
+- Cart Regular/Card Merchandise Total = sum of Regular/Card line totals.
+- Cart Bank Payment Savings = Regular/Card Merchandise Total - Bank Payment Merchandise Total.
 
 ## 9. Savings Calculation
 
@@ -389,3 +425,86 @@ Customer-facing DTOs should prefer explicit names such as:
 - `buyNowRegularCardPrice`
 
 Historical internal fields may be migrated safely rather than destructively renamed, but storefront and admin boundaries must not use ambiguous generic `price` or customer-facing "cash" terminology.
+
+
+## 13. Additional locked owner decisions — 2026-09-19
+
+The detailed owner decisions in `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` are authoritative for the following areas:
+
+- daily scheduled recalculation plus immediate recalculation when material pricing inputs change;
+- intentional Bank/Card tier-boundary inversions do not by themselves force manual approval;
+- 48-hour Buy Now recalculation-failure handling and affected-variant-only unavailability;
+- automatic variant recovery after a valid recalculation;
+- Group Buy public/default price is Regular/Card Price with a note that lower Bank Payment pricing is available;
+- required Group Buy Payment Type selection before ordering;
+- Group Buy comparison/options table shows Regular/Card prices only;
+- campaign-specific Group Buy option configuration through a future versioned JSON contract;
+- formal JSON Schema deferred until Group Buy campaign creation/upload tooling is built.
+
+
+## 14. Buy Now cart mode and Bank Payment Discount eligibility — owner locked 2026-09-19
+
+Bank Payment remains available as a payment method even when specific merchandise is not eligible for the lower Bank Payment Price.
+
+Use a per-product/per-variant **Bank Payment Discount Eligible** flag:
+
+- default ON for new products/variants;
+- eligible line + Bank Payment mode -> Bank Payment Price;
+- ineligible line + Bank Payment mode -> Regular/Card Price;
+- ineligible lines do not block Bank Payment for the order.
+
+A cart has one payment mode at a time: Card or Bank Payment.
+
+Buy Now product page actions:
+
+- **Add to Cart**
+- **Add to Cart with Bank Payment Discount**
+
+The Bank Payment action switches the entire cart to Bank Payment mode and reprices all eligible lines. Normal Add to Cart preserves the current cart mode.
+
+The cart presents:
+
+- **Card Checkout**
+- **Bank Payment Checkout**
+
+Switching modes must reprice all eligible lines and must never allow Card payment to complete at Bank Payment pricing.
+
+This path is money-critical and requires enhanced regression/integration/tamper-resistance testing.
+
+## 15. Buy Now Bank Payment order timing — owner locked 2026-09-19
+
+The Buy Now Bank Payment Price is guaranteed for 24 hours after order placement.
+
+Customer-facing disclosure must state that:
+
+- the price is locked for 24 hours;
+- after 24 hours pricing is subject to change and is not guaranteed;
+- the order is not committed and item availability is not guaranteed until Bank Payment is received and verified.
+
+After 24 hours:
+
+- if payment is still unreceived and the underlying price is unchanged, the order may remain open;
+- if payment is still unreceived and the underlying price changes by **any amount**, cancel the unpaid order and send a cancellation email.
+
+Do not reserve Buy Now inventory before payment receipt/verification.
+
+Bank Payment receipt is manually verified by admin. Record actual amount received, method, reference/confirmation number when available, verification timestamp, and verifying admin.
+
+## 16. Shopify publication safety — owner locked 2026-09-19
+
+After the real Shopify sync path passes money-critical integration testing, Bank Payment Price changes of 2% or less may auto-publish. Larger changes require human approval.
+
+If a valid approved price cannot be synced:
+
+- keep the last successfully published Shopify price authoritative and sellable for up to 48 hours;
+- retry automatically;
+- notify through email and persistent embedded-admin alert;
+- do not mark synced until Shopify confirms;
+- after 48 hours unresolved, make only the affected variant unavailable;
+- restore automatically after successful sync.
+
+Customers who purchase at the live price during the unresolved window are charged that valid published price. Do not automatically retro-refund if a lower price is published later.
+
+Bulk approval is allowed for many >2% changes caused by one pricing-input event. Bulk reject is not allowed; rejection is per item/variant with a replacement override price and reason.
+
+Temporary overrides expire on the next material pricing recalculation unless marked **Never Expire**.
