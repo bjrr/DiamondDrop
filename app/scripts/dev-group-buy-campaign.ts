@@ -54,18 +54,21 @@ const QUALIFYING_UNITS = (() => {
  * app/domain/groupbuy/tiers.ts — so changing these numbers changes this
  * campaign and nothing else.
  *
- * WHY 7% AND NOT THE 10% THAT READING ASSUMES. It will not open at 10%, and
- * that is arithmetic rather than a fixture problem:
+ * TEMPORARY 7% FIXTURE NOTE — NOT BUSINESS POLICY.
  *
- *   a 40% markup ON COST yields a ~28.6% gross margin before fees, and ~25.7%
- *   after payment processing. Taking 10% off the PRICE drops that to 17.8% —
- *   under the owner's 20% minimum — so evaluateTierSafety refuses to open the
- *   campaign.
+ * Owner clarification 2026-09-18 makes all Group Buy economics CASH based and
+ * explicitly excludes card-processing expense from the cash margin/profit
+ * floors. Under the locked 40% markup and 20% cash-margin floor, a 10% cash
+ * tier is mathematically viable before the separate $100/variant floors:
  *
- * Measured against this variant, the deepest tier that clears the floor is
- * x0.93 (20.30% margin); x0.92 already breaches. The constraint is structural,
- * not specific to this piece: with markup m and floor f, the deepest safe
- * multiplier is roughly 1 / ((1 + m) x (1 - f)).
+ *   1.40 x 0.90 = 1.26
+ *   cash gross margin = (1.26 - 1.00) / 1.26 = 20.6349%
+ *
+ * This fixture remains at x0.93 only so an already-open dev campaign is not
+ * silently rewritten. It MUST NOT be cited as the maximum safe business
+ * discount. New/recreated test campaigns should use the corrected cash-first
+ * tier-safety implementation and may use x0.90 when the $100 and variant floors
+ * also clear. See docs/CASH-CARD-PRICING.md.
  */
 const TIERS = [
   { tierNumber: 1, minQualifyingUnits: 1, priceMultiplier: "1.000000" },
