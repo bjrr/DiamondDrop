@@ -221,9 +221,11 @@ export function calculateLandedCost(input: LandedCostInput): LandedCostResult {
 }
 
 /**
- * §5.3's `r` and `f`. Revenue-side components are percentages OF THE SELLING
- * PRICE, so they cannot be added to cost — their rate goes into the solve's
- * denominator and their fixed part into its numerator (§4.4).
+ * §5.3's `r` and `f` for revenue-side costs that legitimately belong to the
+ * authoritative CASH-price economics. Card payment-processing expense is NOT
+ * one of those under the locked 2026-09-18 policy; callers constructing cash
+ * floor inputs must exclude `payment_processing`. The 5% card uplift is a
+ * separate derived display/payment layer. See docs/CASH-CARD-PRICING.md.
  */
 export function partitionRevenueSide(components: readonly ResolvedCostComponent[]): {
   rate: MoneyDecimalValue;
