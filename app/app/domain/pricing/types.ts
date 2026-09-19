@@ -167,7 +167,7 @@ export interface BuyNowPriceResult {
   exactPriceMinorUnits: DecimalString;
   binding: BindingConstraint;
   /**
-   * The CASH price (D9) — PayPal, Venmo, ACH, wire, Zelle. This is the internal
+   * The CASH-EQUIVALENT price (D9) — ACH, wire, Zelle, check. This is the authoritative
    * sale price: the floors bind it and profit is measured on it. It is the one
    * stored price.
    *
@@ -176,7 +176,7 @@ export interface BuyNowPriceResult {
    */
   price: MoneyJSON;
   /**
-   * The DISPLAYED price, derived as cash x (1 + uplift) and never stored
+   * The primary CUSTOMER-DISPLAYED/CARD price, derived as cash x (1 + uplift) and never stored
    * independently. This is what the customer sees and what the sync layer must
    * publish; the cash price is presented to them as a discount off it.
    *
