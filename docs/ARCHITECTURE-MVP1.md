@@ -200,7 +200,7 @@ Slice 0's React Router configuration is complete and correct **for slice 0**. Th
 | Storefront presentation, badges, disclosures | **Theme (custom code, Shopify-native mechanism)** | |
 | Cost component libraries + pricing engine | **Custom** | |
 | Buy Now price recalculation + approval + sync | **Custom** | |
-| Group Buy campaigns, freeze, tiers, qualifying units | **Custom** | |
+| Group Buy campaigns, freeze, tiers, monotonic participation units | **Custom** | |
 | Group Buy progress/savings UI data | **Custom API** → theme | |
 | Group Buy final price + refund ledger | **Custom** (executes via Shopify refunds) | |
 | Luxury Steals Final Sale acknowledgment + evidence | **Custom** | Shopify has no record of this. |
@@ -285,8 +285,12 @@ This makes the in-flight-cart race safe by construction: a stale cart can only h
 
 Refunds are held through production/QC and processed at shipping, per README — staff triggers a batch in admin; every call is guarded by `idempotency_key` plus a ledger state machine, and re-running is a no-op.
 
-### 6.2 Qualifying units and cancellation
-`orders/paid` creates `campaign_unit` rows (one per unit, not per line). `orders/cancelled` and `refunds/create` mark units non-qualifying, which can move a live campaign back to a prior tier before close — including raising the variant price back up, which is the correct and disclosed behavior. All transitions are idempotent on Shopify event id.
+### 6.2 Campaign participation units and cancellation
+A placed Group Buy order creates campaign participation units (one per unit, not per line) **at order placement**, including a pending Bank Payment order. Payment status is tracked separately.
+
+Public campaign progress and unlocked tiers are **monotonic**. A later cancellation, refund, or nonpayment may change internal order/settlement status, but it does **not** subtract from the displayed participation count, does **not** move the campaign back to a prior tier, and does **not** increase prices for other customers. Once a tier unlocks, it remains unlocked.
+
+All order/payment/cancellation transitions remain idempotent on the applicable Shopify event id or internal action id.
 
 Customer-initiated cancellation before close is a signed App Proxy request that creates a staff action; staff approves in admin and the app calls Shopify `refundCreate` + order cancel. Money always moves through Shopify. (See open decision D8 on whether self-serve auto-approval is required for MVP1.)
 
@@ -367,7 +371,7 @@ Shopify plan $39+/mo · app host $7–25/mo · Postgres $0–25/mo · object sto
 - LUXURY-STEALS §"MVP1 Acceptance Cases" 1–12.
 - WARRANTY-CLAIMS §11 cases 1–11.
 - LUBYQ **amendment** §4 cases 1–8 (the amendment's cases control; see §11).
-- Group Buy: tier thresholds, qualifying-unit counting, cancellation regression to a prior tier, final price, refund math, margin-floor validation, weight-by-ring-size, band cost basis, rounding.
+- Group Buy: tier thresholds, campaign participation counting, monotonic progress under nonpayment/cancellation/refund, final price, refund math, margin-floor validation, weight-by-ring-size, band cost basis, rounding.
 - Money: no floating point anywhere; property tests that round-trip and sum to exact cents.
 
 **Integration (Vitest + real Postgres).** Webhook HMAC + replay idempotency; refund ledger under duplicate/retried processing; evidence-row immutability; App Proxy signature rejection; magic-link expiry and single use.
