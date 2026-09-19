@@ -28,6 +28,16 @@ const envSchema = z.object({
   SHOPIFY_SCOPES: z.string().optional(), // embedded admin OAuth (slice 2+)
   SHOPIFY_APP_URL: z.string().optional(), // embedded admin OAuth (slice 2+)
   SHOPIFY_ADMIN_API_VERSION: z.string().optional(), // first Admin API call (slice 1+)
+  // Single-merchant app: the one shop's *.myshopify.com domain, used by
+  // background jobs (the pricing sync) to obtain an offline-session Admin API
+  // client via `unauthenticated.admin(shop)` — there is no incoming request to
+  // read it from outside a route (slice 2 T1).
+  SHOPIFY_SHOP_DOMAIN: z.string().optional(),
+  // D-owner requirement, slice 2 T1 (spec §4.1 criterion 8): auto-publish is
+  // OFF unless this is exactly "true". Any other value — unset, "1", "yes",
+  // wrong case — stays off. A silent typo defaulting to "on" is precisely the
+  // failure mode a default-off, allow-listed-value flag exists to prevent.
+  PRICE_AUTO_PUBLISH_ENABLED: z.string().optional(),
   STORAGE_ENDPOINT: z.string().optional(), // first upload (slice 4/5/9/10)
   STORAGE_BUCKET: z.string().optional(),
   STORAGE_ACCESS_KEY_ID: z.string().optional(),

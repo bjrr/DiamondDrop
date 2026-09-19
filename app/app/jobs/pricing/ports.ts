@@ -55,6 +55,14 @@ export interface LuxuryStealExclusionSource {
  */
 export interface ShopifyPriceSyncPort {
   applyVariantPrice(input: {
+    /**
+     * The PARENT PRODUCT's Shopify id. Added in slice 2 alongside the real
+     * adapter: the Admin API's `productVariantsBulkUpdate` mutation takes the
+     * product id plus an array of variant inputs — there is no
+     * single-variant price mutation — so a caller cannot resolve a variant
+     * price update from the variant id alone.
+     */
+    shopifyProductGid: string;
     shopifyVariantGid: string;
     regularCardPrice: Money;
     priceCalculationId: string;
@@ -89,6 +97,7 @@ export class UnimplementedPriceSyncPort implements ShopifyPriceSyncPort {
 /** Records calls instead of performing them. Tests and local development only. */
 export class RecordingPriceSyncPort implements ShopifyPriceSyncPort {
   readonly calls: {
+    shopifyProductGid: string;
     shopifyVariantGid: string;
     regularCardPriceMinorUnits: string;
     currency: string;
@@ -96,12 +105,14 @@ export class RecordingPriceSyncPort implements ShopifyPriceSyncPort {
   }[] = [];
 
   async applyVariantPrice(input: {
+    shopifyProductGid: string;
     shopifyVariantGid: string;
     regularCardPrice: Money;
     priceCalculationId: string;
   }): Promise<{ appliedAt: Date }> {
     const json = input.regularCardPrice.toJSON();
     this.calls.push({
+      shopifyProductGid: input.shopifyProductGid,
       shopifyVariantGid: input.shopifyVariantGid,
       regularCardPriceMinorUnits: json.amountMinorUnits,
       currency: json.currency,

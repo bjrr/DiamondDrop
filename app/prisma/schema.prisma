@@ -902,7 +902,30 @@ model PriceOverride {
   masterVariantId String        @map("master_variant_id") @db.Uuid
   masterVariant   MasterVariant @relation(fields: [masterVariantId], references: [id])
 
-  /// The calculation this override departs from, so the delta is reconstructible.
+  /// MEANS TWO DIFFERENT THINGS DEPENDING ON `kind` — read this before
+  /// querying or joining on it.
+  ///
+  ///   kind = set     -> the calculation this override DEPARTS FROM: the
+  ///                      engine's answer a human is choosing to override,
+  ///                      evaluated at the time the override was written.
+  ///   kind = expired  -> the calculation whose DIFFERING price CAUSED the
+  ///                      automatic expiry (owner §2.4; spec criteria 15/16;
+  ///                      app/app/domain/pricing/overrideExpiry.ts). This is
+  ///                      the NEW calculation the recalculation just
+  ///                      produced, not a copy of the retired override's own
+  ///                      reference.
+  ///   kind = revoke   -> carries forward the SAME calculation the revoked
+  ///                      override departed from (no new calculation caused
+  ///                      a revoke; a human decision did). See
+  ///                      revokePriceOverride in
+  ///                      app/app/jobs/pricing/priceOverride.server.ts.
+  ///
+  /// The asymmetry between `expired` and `revoke` is deliberate and correct:
+  /// an expiry has a genuine causal calculation worth naming (the delta is
+  /// then reconstructible from this row plus the one it supersedes); a
+  /// revoke does not. Both are legitimate; the point of this comment is that
+  /// a reader — including one reading this in a dispute years from now —
+  /// must check `kind` before interpreting what this column names.
   priceCalculationId String?           @map("price_calculation_id") @db.Uuid
   priceCalculation   PriceCalculation? @relation(fields: [priceCalculationId], references: [id])
 

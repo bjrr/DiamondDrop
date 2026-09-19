@@ -14,12 +14,19 @@ import { runPriceRecalculation } from "~/jobs/pricing/runRecalculation.server";
  * uses. A v4 profile created later with a different tolerance would change how
  * freely prices publish themselves, and without this test nothing would fail.
  *
- * WHAT THIS SUITE CANNOT PROVE, stated plainly. The tolerance comparison needs
- * a prior SYNCED price, and nothing ever reaches `synced` because no Shopify
- * sync port exists yet (D1 is open). So the comparison branch is unreachable
- * end to end and is covered only by decideSync.test.ts at the unit level. That
- * is a real limit, not an oversight, and these tests assert the reachable
- * consequences rather than pretending otherwise.
+ * UPDATED AT SLICE 2 T1 (F-26/F-27/C-S2 closed): a real Shopify sync port and
+ * an auto-publish path now exist (`app/jobs/pricing/syncApprovedIntent.server.ts`,
+ * wired into `runPriceRecalculation` behind `PRICE_AUTO_PUBLISH_ENABLED`,
+ * default OFF). This file's own calls never pass a port or enable
+ * auto-publish, so for THEM the tolerance comparison still cannot reach
+ * `synced` end to end — that reachable-with-a-real-anchor case is covered by
+ * `syncApprovedIntent.test.ts` and `autoPublishWiring.test.ts` instead. Every
+ * assertion below is scoped to this file's own runIds rather than to
+ * database-wide counts, because the database is no longer a place where
+ * `synced` never legitimately appears — it shares one disposable instance
+ * with every other integration test file in the run (see
+ * `tests/integration/globalSetup.ts`), and those other files correctly
+ * create synced intents as part of testing that this file does not own.
  */
 
 const ASOF = new Date("2026-09-18T12:00:00Z");
@@ -69,17 +76,32 @@ describe("D14 — the auto-apply tolerance the job actually resolves", () => {
     }
   });
 
-  it("never marks anything SYNCED, because nothing has been published", async () => {
+  it("never marks anything SYNCED, because nothing was told to publish", async () => {
     // The honest-claim guarantee, and the most important assertion in this file.
     // Supplying a tolerance cleared prices for publication; it did not publish
-    // them, and no Shopify port exists to do so. A `synced` row would be a
-    // claim that a price reached Shopify — the exact fabrication that had to be
-    // fixed earlier in this slice.
-    await runPriceRecalculation({ asOf: ASOF });
-    await runPriceRecalculation({ asOf: new Date("2026-09-19T12:00:00Z") });
+    // them by itself. Slice 2 T1 gave `runPriceRecalculation` a REAL sync port
+    // and an auto-publish path (spec §4.1 criteria 8-9), so a `synced` row
+    // elsewhere in this database is no longer evidence of anything wrong — it
+    // is what a variant with auto-publish genuinely enabled correctly looks
+    // like, exercised by its own suite (`syncApprovedIntent.test.ts`,
+    // `autoPublishWiring.test.ts`). What THIS test still must prove is
+    // narrower and still true: calling `runPriceRecalculation` with NEITHER a
+    // port NOR autoPublishEnabled — this file's calls, and D15's daily
+    // scheduled default — never syncs or claims to have synced ANY of the
+    // variants THESE TWO CALLS priced. Scoped to their own runIds, not a
+    // database-wide count, which would otherwise depend on what unrelated
+    // fixtures elsewhere in the shared integration database happen to contain.
+    const first = await runPriceRecalculation({ asOf: ASOF });
+    const second = await runPriceRecalculation({ asOf: new Date("2026-09-19T12:00:00Z") });
 
-    expect(await prisma.priceSyncIntent.count({ where: { status: "synced" } })).toBe(0);
-    expect(await prisma.priceSyncIntent.count({ where: { syncedAt: { not: null } } })).toBe(0);
+    const intents = await prisma.priceSyncIntent.findMany({
+      where: { priceCalculation: { runId: { in: [first.runId, second.runId] } } },
+    });
+    expect(intents.length).toBeGreaterThan(0);
+    for (const intent of intents) {
+      expect(intent.status).not.toBe("synced");
+      expect(intent.syncedAt).toBeNull();
+    }
   });
 
   it("never advances the sync anchor while nothing syncs", async () => {

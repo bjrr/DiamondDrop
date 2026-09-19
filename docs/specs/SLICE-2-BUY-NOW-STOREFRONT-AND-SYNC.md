@@ -842,3 +842,168 @@ M4 each split in two because Postgres refuses to compare a newly added enum valu
 inside the transaction that added it, and Prisma wraps each migration file in one
 transaction. Migration `20260917070507` already established this pattern in
 this repository. This is a platform constraint, not a deviation.
+
+### 16.6 Findings from T3-domain (2026-09-19)
+
+**R5 is SETTLED — no gap.** `PricingInputChangeKind` was audited model by model
+against the real schema and Slice 1 §4.2's input inventory: every price-affecting
+table has a value, and every excluded model is correctly excluded. Group Buy's
+frozen tables in particular stay out, per D15 and the existing
+`d15WriteSurface.test.ts`. **No migration needed.**
+
+**Criterion 58 (new, binding on T2) — trigger on the COLUMN, not the table.**
+`master_variant` and `master_product` each mix genuinely price-affecting
+columns (`baseWeightGrams`, `metal`, `bandId`, `laborSource`,
+`minBankPaymentPriceMinorUnits`, `sizeAxis`, `allowedSizeMin/Max`,
+`sizeIncrement`, `baseSize`) with columns that are not price inputs at all
+(`status`, `shopifyVariantGid`, `shopifyProductGid`,
+`lastSyncedPriceCalculationId`, `bankPaymentDiscountEligible`, timestamps).
+
+Criterion 17 requires a recalculation on a price-affecting **input** change.
+Firing on every UPDATE to those tables would recalculate the whole catalogue
+whenever a Shopify sync stamps `lastSyncedPriceCalculationId` — which the sync
+path does on **every successful publish**, making price publication trigger the
+next recalculation, which triggers the next publish. T2 must diff the changed
+columns against an explicit allow-list of price-affecting fields before writing
+a `pricing_input_change` row, and must have a test proving that toggling
+`bankPaymentDiscountEligible` or writing `lastSyncedPriceCalculationId`
+triggers **nothing**.
+
+**Follow-up F-30 (new) — two implementations of "the override in force".**
+`app/app/db/repositories/priceOverrideExpiryRepository.server.ts` resolves the
+head of the override chain with its own query rather than importing
+`resolveActiveOverride` from `app/app/jobs/pricing/priceOverride.server.ts`.
+That was the correct call at the time — a repository importing job code inverts
+the layering criterion 29 protects, and the job file was being edited
+concurrently — but it leaves two queries that must agree about which row is in
+force, with nothing making them agree. A divergence would be silent and would
+mean the price actually charged and the price the expiry logic reasoned about
+came from different overrides.
+
+**Owning slice: the remainder of Slice 2 stage 2A.** Resolution: move the
+canonical resolver into the domain/repository layer and have the job import it,
+never the reverse. Do not consolidate mid-task while both files are being
+edited; do it once T1, T2 and T4 have landed, and pin it with a test asserting
+exactly one implementation exists.
+
+**`price_override.price_calculation_id` means different things per kind —
+ACCEPTED, and it must be documented in the schema, not only in the repository.**
+For `set` it is the calculation the override departs from; for `expired` it
+is the calculation whose differing price caused the expiry. That asymmetry is
+deliberate and carries strictly more information (the retired override's own
+calculation stays reachable through `supersedes_id`), but a column whose
+meaning varies by row kind is exactly the kind of thing a dispute reader
+misinterprets years later. A schema comment stating both meanings is required
+before stage 2A is accepted.
+
+### 16.7 Retry backoff — engineering default, not owner policy
+
+Owner §4.2 requires retries be "automatic" and the spec says "bounded backoff",
+but no schedule is specified anywhere in the owner decisions or this spec. T4
+implemented 30s base, doubling, capped at 30 minutes, and **flagged it as its own
+default rather than presenting it as policy** — the correct call.
+
+Recorded here as **tunable, not locked**, on the same footing as
+`DEFAULT_STALE_CLAIM_MS`: three named constants, changeable without an owner
+decision.
+
+One property of the schedule is **not** tunable, because criterion 25 depends on
+it: **retrying must continue after suspension.** "Bounded" means the interval
+stops growing, never that attempts stop. The owner's auto-restore happens with no
+human action, and the only thing that can restore a suspended variant is a later
+sync succeeding — so a backoff that gave up would make a suspension permanent
+and silently convert an outage into a withdrawn product. Any future retune must
+preserve that.
+
+### 16.8 T1 findings — two gaps that must not be mistaken for done (2026-09-19)
+
+**Criterion 59 — F-27 is only HALF closed. A human approval currently publishes
+nothing.**
+
+T1 wired `runPriceRecalculation`'s auto-apply branch to
+`syncApprovedPriceSyncIntent`, so with `PRICE_AUTO_PUBLISH_ENABLED=true` a
+≤200 bps change publishes. It deliberately did **not** wire `decideIntent` (the
+human-approval transition) or `scripts/price-review.ts` (the CLI), on the
+grounds that `decideIntent` must stay a pure state transition and the CLI's own
+header says not to extend it. **That reasoning is accepted** — coupling an Admin
+API call into a state-transition function would be the wrong layering, and it
+would throw on every existing fixture lacking Shopify linkage.
+
+But the consequence must be stated plainly rather than left implicit:
+**today, a >2% change that an admin explicitly approves does not reach Shopify.**
+That is the exact path the owner's §1.6 requires for every large price move. An
+approval workflow that records an approval and publishes nothing is worse than
+no workflow, because it looks like it worked.
+
+Owning task: **T3's admin surface**, which must call
+`syncApprovedPriceSyncIntent` after a human approval and surface the result.
+**Stage 2A is not complete until this is wired**, and no one may report F-27 as
+closed before then.
+
+**Criterion 60 — the mutation shape is unverified against a real store, and
+gates auto-publish.**
+
+`productVariantsBulkUpdate`'s request shape was written from the documented
+Admin API schema, not confirmed by introspection against the development store —
+T1 said so explicitly rather than letting it pass, which is the right call. The
+existing `productClient.server.ts` was verified against a live store; this
+adapter has not been.
+
+**Enabling `PRICE_AUTO_PUBLISH_ENABLED` in any environment now requires two
+things, not one:** the money-critical suite green (§3's existing gate) **and** a
+successful real-store smoke publish confirming the mutation shape and that the
+resulting variant price on Shopify equals the final rounded Regular/Card Price to
+the cent. A schema-derived mutation that is subtly wrong fails at the moment it
+first touches real money.
+
+**Accepted without change:** the port widening to carry `shopifyProductGid`
+(the Admin API has no single-variant price mutation, so the parent id is
+required); the auto-apply sync running in its own try/catch so a sync failure
+cannot be miscounted as a calculation failure or collide with the unique
+`(runId, masterVariantId)` constraint; leaving an Admin API error uncaught so
+the intent rests in `syncing` for T4's failure path to claim; and the
+`autoApplyTolerance` rescope, which replaced a database-wide count that only
+held while nothing could ever sync with a run-scoped assertion plus a non-empty
+check, so it cannot pass vacuously.
+
+**Propagate to every agent writing integration fixtures:** T1 found that fixture
+variants left `active` pollute `where: { status: "active" }` for every later
+file in the run, because the whole integration suite shares one disposable
+database. Archive fixture variants in `afterEach`. This is a latent
+cross-file trap, not a T1-specific one.
+
+### 16.9 T2-domain rulings (2026-09-19)
+
+**R7 — `MasterProduct.isLuxurySteal` classified as price-affecting. CONFIRMED.**
+T2 flagged this for a second opinion. The classification is right, for a reason
+worth writing down: Luxury Steals are excluded from Buy Now recalculation by
+`LuxuryStealExclusionSource`, so toggling this column changes **whether the
+engine prices the product at all**. A product leaving Luxury Steals needs a Buy
+Now price immediately, not at the next daily run — until it has one it is on sale
+with a stale assigned price and no recalculation reaching it. There is also no
+loop risk, because nothing in the recalculation or sync path ever writes this
+column; that is the property that distinguishes it from
+`lastSyncedPriceCalculationId`, and it is the test worth keeping in mind for
+any future classification: *does anything in the publish path write this?*
+
+**R8 — the classifier throws on an unclassified column at RUNTIME, not only in
+the fence. CONFIRMED and important.** `UnclassifiedColumnError` means a column
+added by a future slice fails loudly the first time a write touches it, even if
+someone skipped the test suite. The fence catches it at build time; the throw
+catches it in the only other place it could matter. Neither guesses a default,
+which is the point — a silent default in either direction is a wrong price or an
+infinite republish loop.
+
+**Accepted as designed:** the allow-list per model rather than a deny-list (a
+deny-list fails open); DMMF-driven exhaustiveness with a non-zero-count guard so
+broken introspection cannot pass vacuously; classifying every real column on the
+append-only L1 tables even though they are only ever inserted, so a hypothetical
+future UPDATE path inherits a real answer rather than an omission;
+`MODEL_TO_PRICING_INPUT_CHANGE_KIND` as a single lookup so model and kind
+cannot be passed out of agreement; and `recordPricingInputChangeIfPriceAffecting`
+returning `null` rather than throwing when nothing price-affecting changed.
+
+**Noted, not a defect:** the bulk-approval resolver walks
+`pricing_input_change → price_recalculation_run → price_calculation → price_sync_intent`
+in three queries because the middle hop joins on `runId` with no Prisma
+relation. That is a pre-existing schema convention, not something T2 introduced.

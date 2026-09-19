@@ -88,10 +88,24 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   try {
+    // Slice 2 T1 (criteria 8-9, F-27). The real Shopify-backed port is
+    // constructed HERE, via a dynamic import, and only when auto-publish is
+    // actually on — never at module scope. See the header comment on
+    // app/shopify/admin/productionPriceSyncPort.server.ts for why: importing
+    // it unconditionally would make this route (and the whole nightly
+    // recalculation) fail to load without Shopify OAuth configured, even
+    // though auto-publish defaults off and the route works fine without it.
+    const autoPublishEnabled = getEnv().PRICE_AUTO_PUBLISH_ENABLED === "true";
+    const syncPort = autoPublishEnabled
+      ? await (await import("~/shopify/admin/productionPriceSyncPort.server")).createProductionPriceSyncPort()
+      : undefined;
+
     const summary = await runPriceRecalculation({
       trigger: options.trigger,
       triggeredBy: options.triggeredBy,
       reason: options.reason,
+      syncPort,
+      autoPublishEnabled,
     });
     // Counts and references only — no price, cost or margin values (criterion 30).
     return Response.json(summary, { status: 200 });

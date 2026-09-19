@@ -16,6 +16,7 @@ import type { JsonValue } from "~/domain/evidence";
 import { Money } from "~/domain/money/money";
 import { computeBuyNowBandPrice, computeBuyNowPrice } from "~/domain/pricing/engine";
 import { PRICING_ENGINE_VERSION } from "~/domain/pricing/version";
+import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
 
 import { decideSync } from "./decideSync";
@@ -23,8 +24,11 @@ import {
   BandResolutionError,
   NoOpOpenCampaignExclusionSource,
   type OpenCampaignExclusionSource,
+  type ShopifyPriceSyncPort,
+  UnimplementedPriceSyncPort,
 } from "./ports";
 import { resolveInputsForVariant } from "./resolveInputs.server";
+import { syncApprovedPriceSyncIntent } from "./syncApprovedIntent.server";
 
 /**
  * The recalculation run (spec §9.2).
@@ -64,6 +68,28 @@ export interface RunOptions {
   triggeredBy?: string;
   /** Free-text justification for an off-schedule run. */
   reason?: string;
+  /**
+   * Slice 2 T1 (spec §4.1 criteria 8-9). Where an auto-apply decision is
+   * actually published, immediately, from within this run.
+   *
+   * Defaults to `UnimplementedPriceSyncPort`, exactly as slice 1 left it —
+   * NOT to the real adapter. This file lives under app/jobs/pricing/, which
+   * criterion 29's fence (layering.test.ts) forbids from importing `@shopify/*`
+   * even transitively-by-default; constructing the real Shopify-backed port
+   * is therefore the CALLER's job (see app/routes/internal.jobs.price-recalculation.tsx),
+   * not this module's. If auto-publish is ever enabled without a real port
+   * wired in, a variant that would have auto-applied fails loudly for that
+   * variant alone (caught the same as any other per-variant error) rather
+   * than silently claiming a publish that never happened.
+   */
+  syncPort?: ShopifyPriceSyncPort;
+  /**
+   * Defaults to reading `PRICE_AUTO_PUBLISH_ENABLED` from the environment
+   * (criterion 8: unset or anything other than the literal string "true"
+   * means OFF). Overridable so a test can exercise the auto-publish branch
+   * without mutating process.env.
+   */
+  autoPublishEnabled?: boolean;
 }
 
 /**
@@ -99,6 +125,10 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
   const asOf = options.asOf ?? new Date();
   const openCampaigns = options.openCampaignExclusions ?? new NoOpOpenCampaignExclusionSource();
   const trigger = options.trigger ?? "scheduled";
+  const syncPort = options.syncPort ?? new UnimplementedPriceSyncPort();
+  // Criterion 8: default OFF. Only the literal string "true" turns it on — see
+  // the PRICE_AUTO_PUBLISH_ENABLED comment in app/lib/env.server.ts.
+  const autoPublishEnabled = options.autoPublishEnabled ?? getEnv().PRICE_AUTO_PUBLISH_ENABLED === "true";
 
   // Checked BEFORE any work, so an unattributable run never reaches the point
   // of writing prices.
@@ -318,30 +348,54 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
       // would bypass the only guard that exists.
       const requiresHuman = resolved.isPlaceholderProfile || decision.decision === "needs_approval";
 
-      await supersedeAndCreateIntent({
+      // Three deliberately distinct states:
+      //   unchanged           -> synced    genuinely nothing to do; §9.3
+      //                                    requires a no-change run not to
+      //                                    fill the approval queue
+      //   auto_apply, changed -> approved  cleared for sync — and, since
+      //                                    slice 2, actually synced below IF
+      //                                    auto-publish is enabled (criterion
+      //                                    8). With it disabled this stops
+      //                                    here exactly as slice 1 left it.
+      //   needs_approval      -> pending_approval
+      const intentStatus = requiresHuman ? "pending_approval" : decision.unchanged ? "synced" : "approved";
+
+      const newIntent = await supersedeAndCreateIntent({
         masterVariantId: variant.id,
         priceCalculationId: calculation.id,
         decision: decision.decision,
-        // Three deliberately distinct states:
-        //   unchanged           -> synced    genuinely nothing to do; §9.3
-        //                                    requires a no-change run not to
-        //                                    fill the approval queue
-        //   auto_apply, changed -> approved  cleared for sync but NOT synced.
-        //                                    Slice 1 never calls the Shopify
-        //                                    port, so "synced" would be a
-        //                                    false record of work never done
-        //   needs_approval      -> pending_approval
-        status: requiresHuman
-          ? "pending_approval"
-          : decision.unchanged
-            ? "synced"
-            : "approved",
+        status: intentStatus,
         previousBankPaymentPriceMinorUnits: lastSynced ? BigInt(lastSynced.amountMinorUnits) : null,
         previousBankPaymentPriceCurrency: lastSynced?.currency ?? null,
         deltaBps: decision.deltaBps,
         deltaMinorUnits: decision.deltaMinorUnits,
         reason: decision.reason,
       });
+
+      // AUTO-PUBLISH (criteria 8-9). Deliberately its OWN try/catch, separate
+      // from the one enclosing this whole variant: a sync failure here means
+      // the CALCULATION succeeded and the intent is correctly `approved` (or
+      // left `syncing` mid-attempt) — it must not be counted as a failed
+      // calculation, and must not attempt to write a second `price_calculation`
+      // row for this (runId, variant) pair, which would collide with the
+      // unique constraint on the row already written above.
+      //
+      // Failure handling beyond this log line (alerts, retry, 48h suspension)
+      // is T4's (spec §4.4, test plan cases 7-12) — this is only the wiring
+      // that makes an auto-apply decision actually reach the port at all,
+      // which before this slice it never did (F-27).
+      if (autoPublishEnabled && intentStatus === "approved") {
+        try {
+          await syncApprovedPriceSyncIntent(newIntent.id, { port: syncPort });
+        } catch (syncError) {
+          logger.error("pricing.auto_publish_failed", {
+            runId,
+            masterVariantId: variant.id,
+            intentId: newIntent.id,
+            error: syncError instanceof Error ? syncError.name : "UnknownError",
+          });
+        }
+      }
 
       summary.computed += 1;
       if (requiresHuman) summary.needsApproval += 1;

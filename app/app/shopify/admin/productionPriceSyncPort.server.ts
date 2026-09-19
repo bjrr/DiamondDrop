@@ -1,0 +1,67 @@
+import type { ShopifyPriceSyncPort } from "~/jobs/pricing/ports";
+import { getEnv } from "~/lib/env.server";
+
+import { ShopifyPriceSyncAdapter } from "./priceSyncAdapter.server";
+
+/**
+ * Production wiring for `ShopifyPriceSyncPort` — the one place this app
+ * constructs an Admin API client for a BACKGROUND job rather than a request.
+ *
+ * WHY THIS IS ITS OWN FILE, IMPORTED LAZILY BY ITS CALLER, NOT EAGERLY.
+ *
+ * `~/shopify.server` calls `requireShopifyConfig()` at MODULE SCOPE, which
+ * throws immediately if `SHOPIFY_API_KEY`/`SHOPIFY_API_SECRET`/`SHOPIFY_APP_URL`
+ * are not configured — and that module's own header comment states the
+ * pricing job "must be able to boot and run without any Shopify credentials
+ * at all". If this file (or anything that imports `~/shopify.server`) were
+ * imported at the TOP of `app/routes/internal.jobs.price-recalculation.tsx`,
+ * the cron route — and therefore the whole nightly recalculation — would fail
+ * to load whenever Shopify OAuth is not configured, even though auto-publish
+ * defaults OFF and the route would otherwise run perfectly well without it.
+ *
+ * So the route imports this module with a DYNAMIC `import()`, and only when
+ * `PRICE_AUTO_PUBLISH_ENABLED` is actually "true" — deferring the
+ * `requireShopifyConfig()` throw to exactly the moment it is relevant, not to
+ * every cold start.
+ *
+ * `app/jobs/pricing/runRecalculation.server.ts` itself never imports this
+ * file or anything Shopify-shaped, for the same reason criterion 29's fence
+ * (layering.test.ts) exists: app/jobs/pricing is forbidden from reaching the
+ * Admin API directly.
+ */
+export class MissingShopDomainError extends Error {
+  constructor() {
+    super(
+      "PRICE_AUTO_PUBLISH_ENABLED is \"true\" but SHOPIFY_SHOP_DOMAIN is not set. " +
+        "A single-merchant background job has no request to read the shop domain " +
+        "from, so it must be configured explicitly. Set it in app/.env — see .env.example."
+    );
+    this.name = "MissingShopDomainError";
+  }
+}
+
+/**
+ * Obtains an offline-session Admin API client for THE shop (this app is
+ * single-merchant — see shopify.server.ts) and wraps it in the real adapter.
+ *
+ * Throws `MissingShopDomainError` if unconfigured, and whatever
+ * `unauthenticated.admin` throws if OAuth has not yet been completed for that
+ * shop (no stored offline session) — both loudly, on purpose: auto-publish
+ * being enabled without a working Shopify connection is a fundamental
+ * misconfiguration, not a per-variant failure to degrade gracefully around.
+ */
+export async function createProductionPriceSyncPort(): Promise<ShopifyPriceSyncPort> {
+  const { SHOPIFY_SHOP_DOMAIN } = getEnv();
+  if (!SHOPIFY_SHOP_DOMAIN) {
+    throw new MissingShopDomainError();
+  }
+
+  // Dynamic import for the same reason this whole file is imported lazily by
+  // its caller: importing `~/shopify.server` at module scope would move the
+  // `requireShopifyConfig()` throw to whenever THIS file is first loaded,
+  // defeating the deferral its caller relies on.
+  const { unauthenticated } = await import("~/shopify.server");
+  const { admin } = await unauthenticated.admin(SHOPIFY_SHOP_DOMAIN);
+
+  return new ShopifyPriceSyncAdapter(admin);
+}
