@@ -792,3 +792,53 @@ Enforced by the machine-checked route fence T10 is adding, not by review
 attention. The failure it prevents is a 400 returned before validation, before
 any evidence row, and before any log line we emit — a customer's bank order
 vanishing with nothing to explain it.
+
+### 16.5 Schema rulings from T5 (2026-09-19) — binding on T2, T4 and T9
+
+T5 flagged six judgement calls rather than deciding them silently. Rulings:
+
+**R1 — `bank_payment_order_line` is WHOLE-ROW append-only. CONFIRMED, and it is
+better than what §6 M7 asked for.** The spec said "the quote columns"; T5 made
+the entire row immutable, on the grounds that verification, status, completion
+and cancellation all live on the mutable `bank_payment_order` header and
+nothing on the line legitimately mutates after insert. That is correct and
+strictly stronger: a whole-row-immutable table cannot have a quote column
+changed by any route, including one nobody thought of. **T9 must put every
+mutable per-order fact on the header.** If T9 finds it genuinely needs a mutable
+column on the line, that is a spec change requiring my approval, not a local
+swap to a column-level trigger.
+
+**R2 — `alert_state` distinguishing `dismissed` from `cleared` is
+CORRECT.** Dismissing the persistent alert silences the notification
+(criterion 22) and records who did it and why. It does **not** resolve the
+failure episode and does **not** restore a suspended variant. Only a genuinely
+successful later sync sets `resolved_at`, and that is the sole trigger for
+criterion 25's auto-restore, which the owner specified as happening with **no
+human action**. A human being able to un-suspend a variant by silencing an alert
+would let an unpublishable price go back on sale by clicking "dismiss". **T4
+must read availability from `suspended_at IS NOT NULL AND resolved_at IS
+NULL`, never from `alert_state`.**
+
+**R3 — the verification block belongs on `bank_payment_order` (header), not
+per line. CONFIRMED.** Owner §8.6/§8.7 describes verifying *a payment* —
+amount, method, reference, timestamp, admin — and a bank transfer settles an
+order, not a line. Per-line verification would invent a reconciliation problem
+the owner did not ask for.
+
+**R4 — `suspended_at` is never cleared back to NULL. CONFIRMED.** Restoration
+is expressed by `resolved_at`, so the fact that a variant was once withdrawn
+survives in the record. Nulling it would erase the only evidence that a
+48-hour outage happened.
+
+**R5 — `PricingInputChangeKind`'s value list is provisional.** T5 derived it
+from Slice 1 §4.2's input inventory. **T2 must verify it covers every persisted
+price-affecting input it actually triggers on** before relying on it; the enum is
+additive, so extending it is cheap. An input change that has no enum value is an
+input change that silently fails to trigger a recalculation, which is
+criterion 17's whole point.
+
+**R6 — eight migration folders for seven logical migrations is correct.** M2 and
+M4 each split in two because Postgres refuses to compare a newly added enum value
+inside the transaction that added it, and Prisma wraps each migration file in one
+transaction. Migration `20260917070507` already established this pattern in
+this repository. This is a platform constraint, not a deviation.

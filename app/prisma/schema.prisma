@@ -632,6 +632,13 @@ model MasterVariant {
   minBankPaymentPriceMinorUnits       BigInt?             @map("min_bank_payment_price_minor_units")
   minBankPaymentPriceCurrency         String?             @map("min_bank_payment_price_currency") @db.Char(3)
   shopifyVariantGid            String?             @unique @map("shopify_variant_gid")
+  /// Slice 2 M1 (owner §7.3). Per-variant escape hatch from the Bank Payment
+  /// Discount: a bank-mode cart still charges an ineligible line the Regular/
+  /// Card Price (owner §7.4, criterion 41). Defaults ON — most variants are
+  /// eligible, and the flag exists to turn a specific one OFF, not the other
+  /// way round. This is the SYSTEM OF RECORD (criterion 40); Shopify's own
+  /// metafield mirror of it is presentation cache only.
+  bankPaymentDiscountEligible  Boolean             @default(true) @map("bank_payment_discount_eligible")
   status                       MasterVariantStatus @default(draft)
   /// Compare-and-set anchor for slice 2's sync (§9.4): the sync executes
   /// only if the intent's priceCalculationId is still the newest computed
@@ -649,6 +656,8 @@ model MasterVariant {
   groupBuyCampaignVariants GroupBuyCampaignVariant[]
   groupBuyUnitEvents       GroupBuyUnitEvent[]
   groupBuyRefunds          GroupBuyRefund[]
+  priceSyncFailures        PriceSyncFailure[]
+  bankPaymentOrderLines    BankPaymentOrderLine[]
 
   @@unique([masterProductId, metal, purity, bandId])
   @@index([status])
@@ -730,10 +739,87 @@ enum PriceRecalculationTrigger {
   /// next scheduled one (D15).
   staff
   /// Entry of a new metal reference price, which makes every dependent price
-  /// stale immediately (D15).
+  /// stale immediately (D15). Superseded in intent by `input_change` below,
+  /// which generalises this to every price-affecting input rather than only
+  /// metal prices, but kept rather than removed: it is load-bearing on every
+  /// PriceRecalculationRun row already written under it, and Postgres cannot
+  /// drop an enum value without rewriting the type.
   metal_price_entry
+  /// Slice 2 stage 2A, M4 (docs/specs/SLICE-2-BUY-NOW-STOREFRONT-AND-SYNC.md
+  /// §6, owner §3.1, criteria 17-19). Any persisted change to a
+  /// price-affecting input -- not only a metal price -- triggers an
+  /// immediate recalculation. A run with this trigger always carries a
+  /// `pricingInputChangeId` (see the CHECK on price_recalculation_run added
+  /// in the M4 migration), which is also the grouping key that lets the
+  /// resulting intents be bulk-approved as one unit (criterion 11).
+  input_change
 
   @@map("price_recalculation_trigger")
+}
+
+/// Slice 2 stage 2A, M3 (docs/specs/SLICE-2-BUY-NOW-STOREFRONT-AND-SYNC.md §6,
+/// owner §3.1). WHICH category of price-affecting input changed, matching the
+/// input inventory in docs/specs/SLICE-1-PRICING.md §4.2 plus the
+/// design-definition tables §7.2 lists that also feed the engine (product/
+/// variant sizing and weight, ring-size bands, stone composition). `manual`
+/// is the staff-initiated catch-all for "recompute now" with no single
+/// input row behind it -- the input-change analogue of
+/// `PriceRecalculationTrigger.staff`.
+///
+/// A fixed list, like every other `*_kind`/`*_type` enum in this file:
+/// extending it is an additive migration, not a data edit, so a stored
+/// `pricing_input_change` row always names a real, reviewable category.
+enum PricingInputChangeKind {
+  metal_reference_price
+  stone_cost
+  cost_component
+  labor_rate
+  pricing_profile
+  ring_size_band
+  variant_weight_override
+  master_variant_stone
+  master_variant
+  master_product
+  manual
+
+  @@map("pricing_input_change_kind")
+}
+
+/// Slice 2 stage 2A, M3. Append-only -- see migration
+/// 20260919085402_pricing_input_change_and_bank_payment_line_append_only for
+/// the enforcing trigger -- the owner's immediate-recalculation trigger
+/// record (§3.1) AND
+/// the grouping key criterion 11's bulk approval resolves a set of intents
+/// from: every `price_recalculation_run` sharing one `pricingInputChangeId`
+/// was caused by the SAME underlying edit (e.g. one metal price entry), so
+/// every `price_sync_intent` descending from those runs can be approved in
+/// one action.
+///
+/// `entityId` is deliberately a plain string, not a typed/`@db.Uuid` foreign
+/// key, and carries no Prisma relation -- it is POLYMORPHIC (the row it
+/// names lives in whichever table `kind` names), which Prisma cannot express
+/// as a single relation. Same shape as `AuditEvent.entityId` for the same
+/// reason.
+model PricingInputChange {
+  id        String                 @id @default(uuid()) @db.Uuid
+  kind      PricingInputChangeKind
+  /// The id of the specific row that changed, in the table `kind` names.
+  /// Nullable: a `manual` recalculation names no single input row.
+  entityId  String?                @map("entity_id")
+  /// Nullable: a feed-sourced input change (Slice 1 §4.7 Seam A) has no
+  /// human author, matching `MetalReferencePrice.enteredBy`.
+  changedBy String?                @map("changed_by")
+  /// When the underlying input actually changed (e.g. the new row's
+  /// `effective_from`), which is not necessarily "now" -- distinct from
+  /// `createdAt`, when THIS record was written.
+  changedAt DateTime               @map("changed_at") @db.Timestamptz(6)
+  note      String?
+  createdAt DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  recalculationRuns PriceRecalculationRun[]
+
+  @@index([kind, changedAt])
+  @@map("pricing_input_change")
 }
 
 /// D15 run-level audit record. PriceCalculation already carries the per-variant
@@ -754,6 +840,17 @@ model PriceRecalculationRun {
   asOf        DateTime                  @map("as_of") @db.Timestamptz(6)
   startedAt   DateTime                  @default(now()) @map("started_at") @db.Timestamptz(6)
   finishedAt  DateTime?                 @map("finished_at") @db.Timestamptz(6)
+
+  /// Slice 2 stage 2A, M4. Set exactly when `trigger = input_change` (CHECK
+  /// added by that migration) -- the record of WHICH persisted input edit
+  /// caused this run, and the join criterion 11's bulk approval uses to group
+  /// the resulting intents. Unlike `PriceCalculation.runId` (a plain
+  /// correlating UUID with no Prisma relation, matching that model's existing
+  /// convention), this is a genuine FK: pricing_input_change is a fixed,
+  /// pre-existing row a run always points at, not a self-generated id a run
+  /// invents.
+  pricingInputChangeId String?              @map("pricing_input_change_id") @db.Uuid
+  pricingInputChange   PricingInputChange?  @relation(fields: [pricingInputChangeId], references: [id])
 
   computed      Int @default(0)
   skipped       Int @default(0)
@@ -787,6 +884,15 @@ enum PriceOverrideKind {
   set
   /// Returns the variant to its calculated price. Carries no price of its own.
   revoke
+  /// Slice 2 T3 (owner §2.4, criterion 15). A SYSTEM-detected retirement: the
+  /// next MATERIAL recalculation after this override was set (§13.1 of the
+  /// slice 2 spec -- materiality means the recalculation produced a
+  /// DIFFERENT Bank Payment Price) retires it automatically, unless
+  /// `neverExpire` is set. Distinct from `revoke` because "the system
+  /// noticed the price moved" and "a human explicitly reverted this" are
+  /// different facts for an audit. Carries no price of its own, exactly like
+  /// `revoke`.
+  expired
 
   @@map("price_override_kind")
 }
@@ -810,13 +916,19 @@ model PriceOverride {
   supersedes   PriceOverride? @relation("PriceOverrideChain", fields: [supersedesId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   supersededBy PriceOverride? @relation("PriceOverrideChain")
 
-  /// NULL exactly when kind is `revoke` — a revocation restores the calculated
-  /// price and therefore has no price of its own. Enforced by a CHECK, so the
-  /// two fields cannot disagree.
+  /// NULL exactly when kind is `revoke` or `expired` — neither carries a price
+  /// of its own; both mean "the calculated price applies again". Enforced by a
+  /// CHECK, so the two fields cannot disagree.
   /// An override sets the BANK PAYMENT price. The floors that warn about it are
   /// measured on it, and the advertised card price is re-derived from it.
   overrideBankPaymentPriceMinorUnits BigInt? @map("override_bank_payment_price_minor_units")
   currency                String  @db.Char(3)
+
+  /// Slice 2 T3 (owner §2.4, criterion 16). When true, this override chain is
+  /// exempt from automatic expiry on a material recalculation and is retired
+  /// only by an explicit human `revoke`. Meaningful on the CURRENT (not-yet-
+  /// superseded) row of a chain only -- T3's expiry job reads it there.
+  neverExpire Boolean @default(false) @map("never_expire")
 
   /// Which floors the override breaches, if any. An EMPTY array is meaningful:
   /// it records that the system checked and found none, as distinct from never
@@ -868,9 +980,10 @@ model PriceCalculation {
   failureReason           String?                @map("failure_reason")
   createdAt               DateTime               @default(now()) @map("created_at")
 
-  syncIntents         PriceSyncIntent[]
-  lastSyncedByVariant MasterVariant?    @relation("LastSyncedCalculation")
-  priceOverrides      PriceOverride[]
+  syncIntents           PriceSyncIntent[]
+  lastSyncedByVariant   MasterVariant?         @relation("LastSyncedCalculation")
+  priceOverrides        PriceOverride[]
+  bankPaymentOrderLines BankPaymentOrderLine[]
 
   @@unique([runId, masterVariantId])
   @@index([masterVariantId, createdAt])
@@ -910,6 +1023,208 @@ model PriceSyncIntent {
   @@index([masterVariantId])
   @@index([status])
   @@map("price_sync_intent")
+}
+
+/// Persistent admin alert state for a sync-failure episode (owner §4.3): it
+/// does not auto-clear. `active` throughout the episode; `cleared` when a
+/// later sync SUCCEEDS (criterion 22/25 -- also what drives auto-restore of a
+/// suspended variant); `dismissed` when a human silences it with a reason
+/// (criterion 22) WITHOUT the underlying sync necessarily having succeeded.
+/// Deliberately kept distinct from `cleared`: silencing the alert is not the
+/// same fact as the price being live and correct again, and a suspended
+/// variant (criterion 24) must not be read as un-suspended merely because
+/// staff stopped being notified about it.
+enum PriceSyncFailureAlertState {
+  active
+  cleared
+  dismissed
+
+  @@map("price_sync_failure_alert_state")
+}
+
+/// Slice 2 stage 2A, M5 (docs/specs/SLICE-2-BUY-NOW-STOREFRONT-AND-SYNC.md
+/// §6, owner §4). One row per FAILURE EPISODE for a variant, not per sync
+/// attempt -- `attemptCount`/`lastAttemptAt`/`lastError` accumulate across
+/// retries. THIS IS WHY IT IS A SEPARATE TABLE FROM price_sync_intent: the
+/// 48-hour timer (criterion 23) anchors on `firstFailedAt`, the moment of the
+/// FIRST failure, and retries span multiple intents -- a column on the
+/// intent would reset the clock every retry instead of running from the
+/// original failure.
+///
+/// DELIBERATELY MUTABLE (like `price_sync_intent`, unlike the evidence
+/// tables): `attemptCount`, `lastAttemptAt`, `lastError`, `alertState`,
+/// `suspendedAt` and the dismiss/resolve columns are all updated as the
+/// episode progresses. An episode CLOSES by setting `resolvedAt` (a later
+/// sync succeeded); a subsequent new failure for the same variant starts a
+/// FRESH row rather than reopening this one, which is what the partial
+/// unique index below enforces.
+///
+/// `suspendedAt`, once set, is retained as history even after the episode
+/// resolves — "is this variant suspended right now" is answered by the
+/// application as "does the variant's OPEN (resolvedAt IS NULL) failure row
+/// have suspendedAt set", per criterion 25's auto-restore.
+///
+/// `dismissedBy`/`dismissedReason`/`dismissedAt` are a judgement-call
+/// addition beyond the spec's literal M5 column list: owner §4.3 requires a
+/// human dismissal to carry "a reason", and this repository's established
+/// convention for every other attributed override/exception (price_override,
+/// group_buy_campaign's unsafe override, group_buy_refund's override) is
+/// actor + reason + timestamp, never a bare boolean. Flagged here for
+/// architect review rather than silently added.
+model PriceSyncFailure {
+  id              String        @id @default(uuid()) @db.Uuid
+  masterVariantId String        @map("master_variant_id") @db.Uuid
+  masterVariant   MasterVariant @relation(fields: [masterVariantId], references: [id])
+
+  firstFailedAt DateTime @map("first_failed_at") @db.Timestamptz(6)
+  lastAttemptAt DateTime @map("last_attempt_at") @db.Timestamptz(6)
+  attemptCount  Int      @default(1) @map("attempt_count")
+  lastError     String   @map("last_error")
+
+  alertState PriceSyncFailureAlertState @default(active) @map("alert_state")
+
+  /// Set when the 48-hour timer (criterion 23/24) expires unresolved. Never
+  /// cleared back to NULL -- see the model doc comment.
+  suspendedAt DateTime? @map("suspended_at") @db.Timestamptz(6)
+
+  /// A human silenced the persistent alert (criterion 22). Does NOT by
+  /// itself resolve the episode or restore a suspended variant -- see the
+  /// enum doc comment.
+  dismissedBy     String?   @map("dismissed_by")
+  dismissedReason String?   @map("dismissed_reason")
+  dismissedAt     DateTime? @map("dismissed_at") @db.Timestamptz(6)
+
+  /// A later sync succeeded. Closes the episode, clears the alert and is
+  /// what criterion 25's auto-restore reads (no human action).
+  resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  /// At most one OPEN episode per variant (partial unique index, this
+  /// migration's raw SQL -- Prisma cannot express it), mirroring
+  /// price_sync_intent_one_non_terminal_per_variant.
+  @@index([masterVariantId])
+  @@index([alertState])
+  @@map("price_sync_failure")
+}
+
+enum BankPaymentOrderStatus {
+  /// Quoted, awaiting payment. The order's normal resting state (owner
+  /// §8.2): unpaid with an unchanged price is not an error.
+  open
+  /// Unpaid at 24h with ANY line price changed (owner §8.3, criterion 46), or
+  /// cancelled for another reason recorded in `cancellationReason`.
+  cancelled
+  /// Payment verified and the draft converted to a real Shopify order
+  /// (criterion 51). Terminal.
+  completed
+
+  @@map("bank_payment_order_status")
+}
+
+/// Slice 2 stage 2C, M6 (docs/specs/SLICE-2-BUY-NOW-STOREFRONT-AND-SYNC.md §6,
+/// owner §8). The header/order-level record: one Shopify draft order, one
+/// 24-hour price guarantee, one manual payment verification, one eventual
+/// completed Shopify order. Per-line quotes live on `BankPaymentOrderLine`.
+///
+/// DELIBERATELY MUTABLE: status advances open -> cancelled | completed, and
+/// the verification/completion/cancellation blocks are populated as the
+/// lifecycle proceeds. `BankPaymentOrderLine`'s quote columns are what stays
+/// append-only (see the M7 migration) -- this header row is the workflow
+/// state machine layered on top of those frozen facts, the same architecture
+/// as `PriceSyncIntent` sitting atop the immutable `PriceCalculation`.
+///
+/// `completedAt`/`shopifyOrderGid` and `cancelledAt`/`cancellationReason` are
+/// judgement-call additions beyond the spec's literal M6 column list,
+/// structurally required to express criterion 46 (an attributed cancellation)
+/// and criterion 51 (completion names a REAL Shopify order distinct from the
+/// draft order it came from) -- flagged for architect review.
+model BankPaymentOrder {
+  id                   String                 @id @default(uuid()) @db.Uuid
+  shopifyDraftOrderGid String                 @unique @map("shopify_draft_order_gid")
+  status               BankPaymentOrderStatus @default(open)
+
+  /// The instant the 24-hour guarantee (criterion 44) starts counting from.
+  quotedAt           DateTime @map("quoted_at") @db.Timestamptz(6)
+  guaranteeExpiresAt DateTime @map("guarantee_expires_at") @db.Timestamptz(6)
+
+  /// Manual admin verification of payment receipt (owner §8.6/8.7, criteria
+  /// 49/50). Money paired with its own currency per the F-16 convention even
+  /// though it will ordinarily match the order's line currency, rather than
+  /// assuming that agreement implicitly.
+  verifiedPaymentAmountMinorUnits BigInt?   @map("verified_payment_amount_minor_units")
+  verifiedPaymentCurrency         String?   @map("verified_payment_currency") @db.Char(3)
+  verifiedPaymentMethod           String?   @map("verified_payment_method")
+  /// "Reference where available" (owner §8.7) -- the one verification field
+  /// that may legitimately stay NULL even once verified.
+  verifiedPaymentReference        String?   @map("verified_payment_reference")
+  verifiedAt                      DateTime? @map("verified_at") @db.Timestamptz(6)
+  verifiedBy                      String?   @map("verified_by")
+
+  /// Set on conversion to a real Shopify order (criterion 51). Distinct from
+  /// `shopifyDraftOrderGid`: the draft and the completed order are two
+  /// different Shopify records.
+  completedAt     DateTime? @map("completed_at") @db.Timestamptz(6)
+  shopifyOrderGid String?   @unique @map("shopify_order_gid")
+
+  cancelledAt        DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  cancellationReason String?   @map("cancellation_reason")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  lines BankPaymentOrderLine[]
+
+  @@index([status])
+  @@map("bank_payment_order")
+}
+
+/// The frozen per-line quote (criteria 18, 44). APPEND-ONLY -- see migration
+/// 20260919085402_pricing_input_change_and_bank_payment_line_append_only:
+/// once a line is quoted, what it quoted never changes -- a corrected quote
+/// is a new line on a new order, never an edit.
+model BankPaymentOrderLine {
+  id                 String           @id @default(uuid()) @db.Uuid
+  bankPaymentOrderId String           @map("bank_payment_order_id") @db.Uuid
+  bankPaymentOrder   BankPaymentOrder @relation(fields: [bankPaymentOrderId], references: [id], onDelete: Cascade)
+
+  masterVariantId String        @map("master_variant_id") @db.Uuid
+  masterVariant   MasterVariant @relation(fields: [masterVariantId], references: [id])
+
+  /// The calculation this quote was derived from (test 18: "quote stored per
+  /// line with the rule and profile that produced it") -- reproducibility,
+  /// exactly like `PriceOverride.priceCalculationId`.
+  priceCalculationId String           @map("price_calculation_id") @db.Uuid
+  priceCalculation   PriceCalculation @relation(fields: [priceCalculationId], references: [id])
+
+  quantity Int
+
+  /// The Bank Payment Price this line was quoted at, from the calculation's
+  /// own frozen rule. Not necessarily what the customer pays -- see
+  /// `eligibleAtQuoteTime`.
+  quotedBankPaymentPriceMinorUnits BigInt @map("quoted_bank_payment_price_minor_units")
+  /// HISTORICAL FACT, not a derivation -- the one exception the M6 spec entry
+  /// calls out to C-S2 note 2's "never store the Regular/Card Price a second
+  /// time" rule. Every other stored calculation re-derives the card price
+  /// live from the stored Bank Payment Price; this column is instead what a
+  /// specific customer was ACTUALLY quoted, frozen at quote time, independent
+  /// of whatever the live calculation says a moment later. Do not "clean
+  /// this up" into a derived read.
+  quotedRegularCardPriceMinorUnits BigInt @map("quoted_regular_card_price_minor_units")
+  currency                         String @db.Char(3)
+
+  /// Frozen copy of `MasterVariant.bankPaymentDiscountEligible` AT QUOTE TIME
+  /// (owner §7.4/§7.7 criterion 41): an ineligible line is charged the
+  /// Regular/Card Price even in a bank-mode order. Recorded here so a later
+  /// change to the live flag cannot rewrite what this line was actually
+  /// quoted and charged.
+  eligibleAtQuoteTime Boolean @map("eligible_at_quote_time")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([bankPaymentOrderId])
+  @@map("bank_payment_order_line")
 }
 
 /// Shopify OAuth session storage (D13).
