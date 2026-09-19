@@ -4,7 +4,9 @@
 
 **ARCHITECT-APPROVED. CLEARED FOR IMPLEMENTATION.**
 Author: Principal Architect / Tech Lead. Date: 2026-09-15.
-**Amended 2026-09-16** against owner constraints issued the same day: added **§4.0** (the six-layer separation), **§4.7** (extension seams for automated metal-price feeds and supplier-specific overrides), **§5.0** (function-level decomposition, anti-monolith rule) and acceptance criteria **34–37**. The amendment makes explicit what the spec already required in substance; it changes no business rule, no existing criterion 1–33, and not the approval below. Implementation branch: `slice-1-pricing` (owner directive — slice 1 is not developed on `main`).
+**Amended 2026-09-16** against owner constraints issued the same day: added **§4.0** (the six-layer separation), **§4.7** (extension seams for automated metal-price feeds and supplier-specific overrides), **§5.0** (function-level decomposition, anti-monolith rule) and acceptance criteria **34–37**. The amendment makes explicit what the spec already required in substance; it changes no business rule, no existing criterion 1–33, and not the approval below.
+
+**OWNER AMENDMENT 2026-09-18 — CASH-FIRST PRICING.** `docs/CASH-CARD-PRICING.md` now controls D9 and supersedes any earlier language in this spec that treats card-processing expense as part of the cash price solve or cash floor predicate. Markup, 20% gross-margin floor, $100 minimum-profit floor, Group Buy tiers/freeze/refunds, overrides, and recalculation operate on the authoritative cash price. Cash-equivalent methods are ACH, wire, Zelle, and check. The card price is derived only after cash is final at the versioned/configurable +5% MVP1 uplift and is the primary customer-facing/Shopify price; cash is shown as the discounted cash-equivalent price. Payment-processing assumptions may be retained as data for analytics/future rules but do not reduce current cash margin/profit floors. Implementation branch: `slice-1-pricing` (owner directive — slice 1 is not developed on `main`).
 Controlling architecture: `docs/ARCHITECTURE-MVP1.md` (owner-approved 2026-09-13; D13 amendment 2026-09-15).
 Depends on: Slice 0 (`docs/specs/SLICE-0-FOUNDATION.md`), merged to `main` at `50ff90d`.
 Owner (implementation): **Backend & Pricing Engineer (`sonnet`)** with **Test Engineer (`haiku`)**.
@@ -41,7 +43,7 @@ This is the slice that makes the phrase "transparent pricing" in `README.md` mea
 | # | Rule | Source (controlling) |
 |---|---|---|
 | R1 | Buy Now prices derive from current cost data, not permanent hard-coded prices | `README.md` §Buy Now Pricing |
-| R2 | Inputs may include metal, stones, labor/manufacturing, packaging, shipping/insurance, payment processing, warranty reserve, other allocated costs, required margin/minimum profit | `README.md` §Buy Now Pricing |
+| R2 | Cash-price inputs may include metal, stones, labor/manufacturing, packaging, shipping/insurance, warranty reserve, other allocated product costs, required margin/minimum profit. Card processing does not reduce the current cash floor calculation | `README.md` §Buy Now Pricing; `docs/CASH-CARD-PRICING.md` |
 | R3 | Independently configurable cost libraries for precious metals, lab/natural diamonds by specification **and shape**, moissanite, colored gemstones, accent stones, CAD, casting, setting, polishing, assembly, QC, packaging, shipping, insurance, warranty, supplier-specific costs | `README.md` §Cost Component Libraries |
 | R4 | **Diamond/gemstone pricing must not assume all shapes cost the same** | `README.md` §Cost Component Libraries |
 | R5 | Pricing profiles (Group Buy / Buy Now / Custom / Wholesale / F&F / marketplace) may have distinct margin, minimum-profit, fee and rounding rules | `README.md` §Pricing Profiles |
@@ -186,7 +188,9 @@ Three hard rules follow, and each has an acceptance criterion:
 
 ### 4.4 Cost-side vs revenue-side components — the circularity resolution
 
-Two configured costs are naturally expressed as a percentage of the **selling price**, not of cost: payment processing (R2) and full-value shipment insurance (R12 + `README.md` §Shipping: "every outbound customer shipment is insured for the full order value"). Both create a circular dependency — the price depends on a fee that depends on the price.
+Some configured costs can be expressed as a percentage of the **cash selling price** rather than of cost; full-value shipment insurance is the current example (R12 + `README.md` §Shipping). These can create a circular dependency — the cash price depends on a cost that depends on the cash price.
+
+**Payment processing is explicitly excluded from the current cash solve and cash floor predicate by the 2026-09-18 owner amendment.** A `payment_processing` row may remain in the cost library for audit/analytics/future use, but it must not be included in the `revenueRate`/`revenueFixedMinorUnits` supplied to the cash target, 20% cash margin floor, $100 cash minimum-profit floor, Group Buy tier safety, or manual cash-price override evaluation. The derived +5% card-price rule is the separate payment-pricing mechanism. See `docs/CASH-CARD-PRICING.md`.
 
 **Do not solve this iteratively.** Every `cost_component` carries an explicit `basis`:
 
@@ -201,22 +205,27 @@ If any cost component required by a master variant's cost recipe has **no applic
 
 A row that exists with value `0` is a legitimate, auditable statement that the cost is zero. This distinction is the difference between "we decided this is free" and "we silently under-priced the product".
 
-### 4.6 D9 (payment methods to encourage) — how the engine stays unblocked
+### 4.6 D9 — authoritative cash price and derived card display price
 
-`docs/ARCHITECTURE-MVP1.md` §12 D9 is **open**: which payment methods CaratForUs encourages as lower-cost is an owner decision, and payment cost is a pricing-engine input.
+D9 is **RESOLVED and clarified 2026-09-18** by `docs/CASH-CARD-PRICING.md`.
 
-The engine never learns about payment *methods*. It consumes a single resolved pair:
+The pricing engine's authoritative result is the **cash-equivalent price**. Current cash-equivalent methods are ACH, wire, Zelle, and check. The 40% target markup, 20% gross-margin floor, $100 minimum-profit floor, variant floors, manual overrides, Group Buy tier multipliers, Group Buy freeze/refund economics, and recalculation decisions all bind the cash price.
 
-```ts
-interface AssumedPaymentCost {
-  /** Revenue-side rate, decimal string, e.g. "0.029". */
-  rate: string;
-  /** Fixed per-order component. */
-  fixedFee: MoneyJSON;
-}
+After the final cash price has been rounded/ended and clears its floors, derive the credit-card price:
+
+```
+credit_card_price = cash_price × (1 + card_uplift_rate)
+MVP1 card_uplift_rate = 0.05
 ```
 
-produced by one function, `resolveAssumedPaymentCost(asOf): AssumedPaymentCost`, which in slice 1 reads the single active `payment_processing` component. When D9 resolves, that function's body becomes a weighted blend across a method mix (a new `payment_method_mix` table, if the owner's answer needs one) and **nothing in the engine, its tests, its stored snapshots or its acceptance criteria changes**. Implementers must not anticipate the blend: build the single-component version, and keep the seam at that one function.
+The card uplift/rule is configurable and versioned. Card price is the primary price displayed to the customer and the price published to Shopify; cash is shown as the discounted cash-equivalent price. Never advertise a fixed "5% cash discount" because a 5% uplift is not the same percentage when measured down from the displayed card price.
+
+**Payment-processing cost is not a cash-margin input.** Legacy `payment_processing` rows may exist for analytics/future policy, but the cash solve and floor evaluation must exclude them. Do not create a weighted payment-method blend and do not subtract card fees from cash margin/profit unless a later owner decision explicitly changes the controlling policy.
+
+For Group Buy, tier multipliers apply to the frozen **cash** base price. Validate the resulting Group Buy cash price against cash floors, then derive the Group Buy card price. Customer-facing comparison must be like-for-like: card vs card for headline savings, cash vs cash for cash-specific savings.
+
+A 10% Group Buy cash tier on a 40%-markup target is not inherently unsafe:
+`1.40 × 0.90 = 1.26`, giving a cash gross margin of approximately **20.6349%**, subject separately to the $100 minimum-profit and variant floors.
 
 ### 4.7 Extension seams — feeds and supplier overrides must not rewrite the engine
 
@@ -747,7 +756,7 @@ To be folded into `docs/specs/SLICE-0-FINDINGS.md` as new register entries when 
 
 ### Already-open decisions this slice is specified around
 
-**D9 — payment methods to encourage (open).** Seamed at one function per §4.6. Does not block; do not build the method-mix model in anticipation.
+**D9 — RESOLVED / CASH-FIRST.** See §4.6 and `docs/CASH-CARD-PRICING.md`. Do not build a payment-method-mix model. Cash methods are ACH, wire, Zelle, and check; derive card display price afterward at the versioned +5% MVP1 uplift.
 
 **D2 — automated metal-price feed (resolved as staff-entered).** Seamed per §4.7 Seam A. Does not block.
 
