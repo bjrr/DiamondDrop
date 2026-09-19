@@ -471,16 +471,17 @@ async function seedPricingProfile(): Promise<void> {
   // ordinary daily metal movement while still catching a mistyped metal price.
   // It is symmetric: a 3% DROP queues exactly as a 3% rise does.
   //
-  // D9 in its final shape. The CALCULATED price is the CASH price (PayPal,
-  // Venmo, ACH, wire, Zelle): it is the real sale price, the floors bind it,
+  // D9 in its final shape, clarified 2026-09-18. The CALCULATED price is the
+  // CASH-EQUIVALENT price (ACH, wire, Zelle, check): it is the authoritative
+  // business price, the floors bind it,
   // and profit is measured on it. The DISPLAYED price is cash x 1.05, and that
   // is what gets published; cash is presented to the customer as a discount
   // off it.
   //
-  // Because the floors bind the LOWER of the two prices, both clear them by
-  // construction. An earlier revision bound them to the displayed price
-  // instead, which left cash sales unprotected and put four of seven fixture
-  // prices under the $100 minimum.
+  // Because the floors bind the lower cash price, both displayed prices clear
+  // those floors by construction. Card-processing expense is NOT subtracted
+  // from the cash margin/profit floors; the 5% uplift is a separate derived
+  // payment/display layer. See docs/CASH-CARD-PRICING.md.
   //
   // Note a 5% UPLIFT is not a 5% DISCOUNT: $400 cash becomes $420 card, and
   // $400 is 4.76% off $420. Advertising a flat "5% cash discount" on this rate
