@@ -9,7 +9,7 @@ Build CaratForUs MVP1 as a lean Shopify-centered jewelry commerce business with 
 - `docs/LUXURY-STEALS.md` is authoritative for Luxury Steals inventory/scarcity, Final Sale, acknowledgment, claim/warranty separation and evidence.
 - `docs/LET-US-BEAT-YOUR-QUOTE.md` plus `docs/LET-US-BEAT-YOUR-QUOTE-AMENDMENT.md` govern competitor submissions. **The amendment controls any conflict:** only qualifying verified recent custom quotes receive the guarantee/fallback; active online listings and competing Group Buys are review-only with no guarantee/fallback; fallback expires 90 calendar days after issuance.
 - `docs/WARRANTY-CLAIMS.md` is authoritative for the 1-year limited manufacturing warranty claim workflow, customer-paid tracked/insured inbound warranty shipping, inspection, remedy selection and internal-only local-jeweler option.
-- `docs/CASH-CARD-PRICING.md` is authoritative for cash-first pricing, the derived +5% card price, cash-equivalent methods, Group Buy cash/card treatment, and customer-facing price display.
+- `docs/BANK-CARD-PRICING.md` is authoritative for Bank Payment Price vs Regular/Card Price behavior, tiered card-price increases, $5 card-price rounding, eligible bank-payment methods, checkout treatment, and customer-facing savings. `docs/CASH-CARD-PRICING.md` is superseded history only.
 - Locked policy documents override conflicting README summaries, assumptions and generic ecommerce conventions.
 - Do not silently change a locked business decision. Flag conflicts for owner approval.
 - Build MVP1 only unless explicitly asked to work on backlog/Post-MVP functionality.
@@ -25,9 +25,9 @@ Build CaratForUs MVP1 as a lean Shopify-centered jewelry commerce business with 
 8. Buy Now pricing may update from current costs according to approved rules.
 9. Preserve transaction evidence and material acknowledgments required by README and locked policies.
 10. Never expose secrets, supplier-private cost data, admin-only margins or credentials to storefront clients.
-11. **Cash-first pricing is mandatory.** Markup, gross-margin/minimum-profit floors, Group Buy tiers, overrides, recalculation, campaign freezes and refund economics operate on the authoritative cash-equivalent price. Only after that price is final may the card price be derived as cash × the versioned card-uplift rate (MVP1 5%).
-12. **Customer display is card-first.** Publish/show the derived credit-card price as the primary price and show the cash-equivalent price as the discounted price for ACH, wire, Zelle or check. Do not describe the cash discount as a fixed 5% percentage. PayPal/Venmo are not in the locked cash-equivalent list.
-13. Card-processing expense must not be folded into the current cash gross-margin or $100 minimum-profit floors unless a later explicit owner decision changes `docs/CASH-CARD-PRICING.md`.
+11. **Bank Payment Price is the authoritative underlying selling price.** The existing pricing engine produces it; the bank-vs-card feature must not discount, increase, or round it. Markup, gross-margin/minimum-profit floors, Group Buy tiers, overrides, recalculation, campaign freezes and refund economics continue from that underlying value unless a separate locked rule says otherwise.
+12. **Regular/Card Price is derived afterward from Bank Payment Price.** Select the card-pricing tier from Bank Payment Price only: < $500 +5.0%; $500–$999.99 +4.5%; $1,000–$2,499.99 +4.0%; $2,500–$4,999.99 +3.5%; $5,000+ +3.0%. Then round only the Regular/Card Price UP to the next $5 increment. The increase must never be below 3%.
+13. **Customer display is card-first.** Publish/show the final rounded Regular/Card Price as primary, show `Bank Payment Price` as the alternative, and show exact dollar savings = final rounded Card Price − Bank Payment Price. Never display the internal percentage or wording such as card fee/surcharge/cash discount. Eligible bank methods are Zelle, bank transfer, designated ACH, wire, and other explicitly approved bank/manual methods. See `docs/BANK-CARD-PRICING.md`.
 
 ## Architect-led development model
 The Tech Lead is the Principal Architect and should reserve the top-tier model for architecture, decomposition, ambiguity, cross-domain integration, high-risk policy/financial review, and final technical approval.
@@ -87,13 +87,13 @@ Require tests/review for:
 
 ## Product boundaries
 ### Buy Now
-Use current calculated pricing and native Shopify purchasing wherever practical. The authoritative calculated price is cash-equivalent; derive the customer-facing card price afterward under `docs/CASH-CARD-PRICING.md`. Implement discretionary returns/RMA exactly per `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md`.
+Use current calculated pricing and native Shopify purchasing wherever practical. The authoritative calculated selling price is the Bank Payment Price. Derive the customer-facing Regular/Card Price afterward under `docs/BANK-CARD-PRICING.md`, using the Bank Payment Price to select the tier and rounding only the card price up to the next $5. Implement discretionary returns/RMA exactly per `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md`.
 
 ### Luxury Steals
 Built on normal Shopify Buy Now checkout/inventory wherever practical. **All Luxury Steals are Final Sale: no discretionary returns, exchanges, cash refunds or merchandise-credit returns.** Follow `docs/LUXURY-STEALS.md`; Final Sale must not automatically deny legitimate covered claims.
 
 ### Group Buy
-Custom CaratForUs functionality. Freeze the campaign **cash** base price, apply/validate tier multipliers against cash floors, then derive the card price for display. Customer-facing Group Buy display is card-first with the discounted cash-equivalent price alongside it. Implement configurable tiers, unit qualification, selected-variant pricing, progress, cancellation-before-close, final-price determination, refund ledger and evidence per README and `docs/CASH-CARD-PRICING.md`.
+Custom CaratForUs functionality. Freeze the campaign **Bank Payment Price** base, apply/validate Group Buy tier multipliers against the underlying pricing floors, then derive the Regular/Card Price using `docs/BANK-CARD-PRICING.md`. Customer-facing Group Buy display is card-first with **Bank Payment Price** alongside it. Refunds must remain payment-basis aware so card-paid orders settle against card-basis prices and bank-paid orders against bank-basis prices. Implement configurable tiers, unit qualification, selected-variant pricing, progress, cancellation-before-close, final-price determination, refund ledger and evidence per README.
 
 ### Custom Jewelry / Let Us Beat Your Quote
 MVP1 consultation/revisions remain email-driven. Provide lightweight intake, $49 Design Deposit, reusable Shopify approval/purchase template and quote-acquisition flow. Read both quote documents; the amendment controls conflicts. Review remains manual; automate intake/evidence/eligibility calculations/acknowledgments/status but never auto-commit CaratForUs to competitor pricing.
