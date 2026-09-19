@@ -81,64 +81,111 @@ describe("prices come from the server, never from arithmetic here", () => {
     // can be wrong. Every figure is read from the response.
     const code = stripComments(js);
     expect(code).not.toMatch(/priceMultiplier/);
-    expect(code).toMatch(/data\.groupBuyCreditCardPriceMinorUnits/);
-    expect(code).toMatch(/data\.creditCardSavingsMinorUnits/);
+    expect(code).toMatch(/data\.groupBuyRegularCardPriceMinorUnits/);
+    expect(code).toMatch(/data\.groupSavingsCardBasisMinorUnits/);
   });
 
-  it("derives no card price and no uplift of its own", () => {
-    // The uplift rate is profile data and never crosses to a storefront. If it
-    // appeared here the block could compute a card price from a cash one, which
-    // would be a second derivation of a customer-facing price — and the one
-    // place a rounding rule could silently differ from the server's ceiling.
+  it("derives no card price, tier or uplift of its own", () => {
+    // The tier table and its rates are internal. If any of it appeared here the
+    // block could compute a card price from a bank one — a second derivation of
+    // a customer-facing price, and the one place a rounding rule could silently
+    // differ from the server's $5 ceiling.
     const code = stripComments(js);
     expect(code).not.toMatch(/uplift/i);
-    expect(code).not.toMatch(/1\.05|0\.05/);
+    expect(code).not.toMatch(/1\.0[345]|0\.0[345]/);
+    // The $5 increment must not be reimplemented client-side either.
+    expect(code).not.toMatch(/\b500\b|\bceil/i);
   });
 });
 
-describe("two prices, card first, and no cash-discount percentage", () => {
+describe("Bank Payment display (docs/BANK-CARD-PRICING.md §6)", () => {
   const code = stripComments(js);
 
-  it("leads with the CREDIT-CARD price and shows cash beneath it", () => {
-    // Owner-locked (docs/CASH-CARD-PRICING.md section 5): the primary displayed
-    // price is the card price; cash is the discounted payment option. The order
-    // is the policy, not a styling preference, so it is asserted structurally
-    // rather than left to whoever next edits the template.
-    const headline = code.indexOf("groupBuyCreditCardPriceMinorUnits");
-    const cash = code.indexOf("groupBuyCashPriceMinorUnits");
+  it("leads with the REGULAR/CARD price and shows Bank Payment beneath it", () => {
+    // The primary advertised price is the card price; the Bank Payment Price is
+    // secondary. The order is the policy, not a styling preference, so it is
+    // asserted structurally rather than left to whoever next edits the template.
+    const headline = code.indexOf("groupBuyRegularCardPriceMinorUnits");
+    const bank = code.indexOf("groupBuyBankPaymentPriceMinorUnits");
     expect(headline).toBeGreaterThan(-1);
-    expect(cash).toBeGreaterThan(-1);
-    expect(headline).toBeLessThan(cash);
+    expect(bank).toBeGreaterThan(-1);
+    expect(headline).toBeLessThan(bank);
   });
 
-  it("names the cash-equivalent methods rather than saying 'cash'", () => {
-    // "Cash" alone invites someone to turn up with banknotes. The accepted
-    // methods are listed instead.
-    expect(code).toMatch(/ACH/);
-    expect(code).toMatch(/Zelle/);
+  it("uses the words the owner specified, verbatim", () => {
+    // Customer-facing terminology is locked. "Bank Payment Price: $X" and
+    // "Save $Y with Bank Payment" are the approved strings.
+    expect(code).toMatch(/Bank Payment Price: /);
+    expect(code).toMatch(/with Bank Payment/);
+    expect(code).toMatch(/Group Buy Price/);
   });
 
-  it("states NO percentage for the cash discount", () => {
-    // A 5% uplift is a 4.76% discount, and whole-dollar rounding moves the
-    // realised figure per item — so any fixed percentage would be wrong on most
-    // of the catalogue. The two absolute prices are always exact.
-    //
-    // The percentage that IS rendered is the Group Buy saving against Buy Now,
-    // which is a different and legitimate figure; this checks that the only
-    // percentage in the file is that one.
-    const percentFields = code.match(/data\.\w*[Pp]ercent\w*/g) ?? [];
-    expect(percentFields.length).toBeGreaterThan(0);
-    for (const field of percentFields) {
-      expect(field).toBe("data.creditCardSavingsPercent");
+  it("uses NO superseded or forbidden payment wording", () => {
+    // The whole point of the terminology change. Checked on the rendered
+    // strings AND the comments, because a stale comment is how the old wording
+    // creeps back into the next edit.
+    const everything = (js + css + liquid).toLowerCase();
+    for (const forbidden of [
+      "cash price",
+      "cash-equivalent",
+      "cash discount",
+      "credit card fee",
+      "card fee",
+      "surcharge",
+    ]) {
+      expect(everything, `must not contain "${forbidden}"`).not.toContain(forbidden);
     }
   });
 
+  it("states NO bank/card percentage", () => {
+    // Policy §6: the tier rate is internal. The percentage that IS rendered is
+    // the Group Buy saving against Buy Now — a different, legitimate figure —
+    // so this asserts that the only percentage bound into the DOM is that one.
+    const percentFields = code.match(/data\.\w*[Pp]ercent\w*/g) ?? [];
+    expect(percentFields.length).toBeGreaterThan(0);
+    for (const field of percentFields) {
+      expect(field).toBe("data.groupSavingsCardBasisPercent");
+    }
+  });
+
+  it("names the eligible methods AND how to obtain the price", () => {
+    // Shopify cannot change the payable total at payment-method selection
+    // (docs/BANK-PAYMENT-CHECKOUT-FINDINGS.md), so a block that advertises a
+    // lower Bank Payment Price without saying how to get it is advertising a
+    // price the checkout will not honour. Both halves are asserted: which
+    // methods qualify, and that obtaining it is a REQUEST rather than a choice
+    // made at checkout.
+    expect(code).toMatch(/Zelle/);
+    expect(code).toMatch(/bank transfer/i);
+    expect(code).toMatch(/ACH/);
+    expect(code).toMatch(/wire/i);
+    expect(code).toMatch(/contact us to arrange/i);
+
+    // And must NOT promise a checkout behaviour the platform cannot deliver.
+    expect(code).not.toMatch(/select .{0,30}at checkout/i);
+    expect(code).not.toMatch(/choose .{0,30}at checkout/i);
+  });
+
+  it("shows the bank saving as an absolute amount from the server", () => {
+    // Policy §9: computed after the $5 ceiling, server-side. The block must
+    // render the figure it was given rather than subtract two prices itself —
+    // client arithmetic on money is the habit this whole file guards against.
+    expect(code).toMatch(/data\.groupBuyBankPaymentSavingsMinorUnits/);
+  });
+
+  it("keeps the two savings distinguishable in the copy", () => {
+    // "Save $111 with Bank Payment" and "You save $250 vs buying now" are
+    // different quantities. Rendered adjacently and worded alike they would
+    // read as one number, or be added together.
+    expect(code).toMatch(/with Bank Payment/);
+    expect(code).toMatch(/vs buying now/);
+  });
+
   it("compares like with like — card savings against the card Buy Now price", () => {
-    // Quoting a card group price against a cash Buy Now price would fold the
-    // payment-method spread into the advertised Group Buy saving and overstate
-    // it by roughly 5%.
-    expect(code).toMatch(/data\.buyNowCreditCardPriceMinorUnits/);
-    expect(code).not.toMatch(/data\.buyNowCashPriceMinorUnits/);
+    // Quoting a card group price against a bank Buy Now price would fold the
+    // bank/card spread into the advertised Group Buy saving and overstate it.
+    expect(code).toMatch(/data\.buyNowRegularCardPriceMinorUnits/);
+    expect(code).not.toMatch(/data\.buyNowBankPaymentPriceMinorUnits/);
   });
 
   it("renders Best Price Unlocked from the server's flag, not by guessing", () => {

@@ -57,7 +57,7 @@ async function openCampaign(options?: { units?: number; scheduledCloseAt?: Date 
       },
       variants: {
         create: [
-          { masterVariantId: variant.id, frozenBaseCashPriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
+          { masterVariantId: variant.id, frozenBaseBankPaymentPriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
         ],
       },
     },
@@ -136,47 +136,79 @@ describe("what a shopper is shown", () => {
     expect(body.qualifyingUnitsSold).toBe(5);
     expect(body.currentTierNumber).toBe(2);
     expect(body.bestPriceUnlocked).toBe(true);
-    expect(body.groupBuyCreditCardPriceMinorUnits).toBeTruthy();
-    expect(body.groupBuyCashPriceMinorUnits).toBeTruthy();
-    expect(body.buyNowCreditCardPriceMinorUnits).toBeTruthy();
-    expect(body.buyNowCashPriceMinorUnits).toBeTruthy();
+    expect(body.groupBuyRegularCardPriceMinorUnits).toBeTruthy();
+    expect(body.groupBuyBankPaymentPriceMinorUnits).toBeTruthy();
+    expect(body.buyNowRegularCardPriceMinorUnits).toBeTruthy();
+    expect(body.buyNowBankPaymentPriceMinorUnits).toBeTruthy();
     expect(body.tierMarkers).toHaveLength(2);
     expect(body.coreMessage).toMatch(/your final price drops too/);
   });
 
-  it("serves BOTH prices, with the card price derived from the cash one", () => {
-    // End to end through the real route, because the uplift is applied here
-    // from the campaign's FROZEN profile — not in the pure view model, which
-    // receives both prices already computed. A unit test cannot reach this.
+  it("serves BOTH prices, with the card price derived from the bank one", () => {
+    // End to end through the real route, because the tier is applied there from
+    // the campaign's FROZEN profile — not in the pure view model, which receives
+    // both prices already computed. A unit test cannot reach this.
     const check = async () => {
       const { code } = await openCampaign({ units: 5 });
       const body = (await (await call(code)).json()) as Record<string, string>;
 
-      const cash = BigInt(body.groupBuyCashPriceMinorUnits!);
-      const card = BigInt(body.groupBuyCreditCardPriceMinorUnits!);
+      const bank = BigInt(body.groupBuyBankPaymentPriceMinorUnits!);
+      const card = BigInt(body.groupBuyRegularCardPriceMinorUnits!);
 
-      // card = ceil_to_whole_dollar(cash x 1.05), recomputed here in integer
-      // arithmetic rather than trusted from the same helper the route used.
-      const exact = (cash * 105n) / 100n + ((cash * 105n) % 100n === 0n ? 0n : 1n);
-      const expected = exact % 100n === 0n ? exact : exact + (100n - (exact % 100n));
+      // Recomputed HERE in integer arithmetic, from the published tier table,
+      // rather than by calling the same helper the route used — a test that
+      // reuses the implementation only proves the route called it.
+      const rateNumerator =
+        bank >= 500_000n
+          ? 1030n
+          : bank >= 250_000n
+            ? 1035n
+            : bank >= 100_000n
+              ? 1040n
+              : bank >= 50_000n
+                ? 1045n
+                : 1050n;
+      // x rate, then ceiling to the next $5, both without leaving integers.
+      const scaled = bank * rateNumerator; // price x 1000
+      const prelimCeilCents = scaled / 1000n + (scaled % 1000n === 0n ? 0n : 1n);
+      const expected =
+        prelimCeilCents % 500n === 0n
+          ? prelimCeilCents
+          : prelimCeilCents + (500n - (prelimCeilCents % 500n));
 
       expect(card).toBe(expected);
-      expect(card).toBeGreaterThan(cash);
+      expect(card % 500n).toBe(0n);
+      expect(card).toBeGreaterThanOrEqual(bank);
     };
     return check();
   });
 
-  it("states no cash-discount percentage and no uplift rate", () => {
-    // The two absolute prices cross the boundary; the rate that relates them is
-    // pricing-profile data and stays on the server. A percentage would also be
-    // wrong per item — a 5% uplift is a 4.76% discount before rounding.
+  it("states no bank/card percentage and no tier rate", () => {
+    // Policy §6: the two absolute prices cross the boundary, the rate that
+    // relates them does not. Checked on the serialised body, because that is
+    // what actually reaches a shopper's browser.
     const check = async () => {
       const { code } = await openCampaign({ units: 3 });
       const text = JSON.stringify(await (await call(code)).json()).toLowerCase();
 
-      for (const leak of ["uplift", "cashdiscount", "0.05", "ruleid"]) {
+      for (const leak of ["uplift", "tierlabel", "0.05", "0.045", "0.04", "0.035", "ruleid"]) {
         expect(text, `response must not contain "${leak}"`).not.toContain(leak);
       }
+    };
+    return check();
+  });
+
+  it('serves the "Save $Y with Bank Payment" figure', () => {
+    // Policy §9, through the real route: the saving must equal the difference
+    // between the two prices the same response carries.
+    const check = async () => {
+      const { code } = await openCampaign({ units: 5 });
+      const body = (await (await call(code)).json()) as Record<string, string>;
+
+      expect(BigInt(body.groupBuyBankPaymentSavingsMinorUnits!)).toBe(
+        BigInt(body.groupBuyRegularCardPriceMinorUnits!) -
+          BigInt(body.groupBuyBankPaymentPriceMinorUnits!)
+      );
     };
     return check();
   });
@@ -227,7 +259,7 @@ describe("campaigns a shopper may not see", () => {
         },
         variants: {
           create: [
-            { masterVariantId: variant.id, frozenBaseCashPriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
+            { masterVariantId: variant.id, frozenBaseBankPaymentPriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
           ],
         },
       },

@@ -87,14 +87,18 @@ async function list(): Promise<void> {
       `  product  ${intent.masterVariant.masterProduct.name} (${intent.masterVariant.metal}/${intent.masterVariant.purity})`
     );
     console.log(`  variant  ${intent.masterVariantId}`);
+    // Labelled "bank" on both sides because the auto-apply delta is measured
+    // bank-to-bank. An unqualified "old/new" leaves an operator to assume these
+    // are the prices a customer sees, which they are not — the advertised price
+    // is the Regular/Card Price derived from the new one.
     console.log(
-      `  old      ${
-        intent.previousCashPriceMinorUnits === null
+      `  old bank ${
+        intent.previousBankPaymentPriceMinorUnits === null
           ? "(none — first price)"
-          : formatMinorUnits(intent.previousCashPriceMinorUnits, intent.previousCashPriceCurrency ?? "")
+          : formatMinorUnits(intent.previousBankPaymentPriceMinorUnits, intent.previousBankPaymentPriceCurrency ?? "")
       }`
     );
-    console.log(`  new      ${formatMinorUnits(calc.cashPriceMinorUnits, calc.currency)}`);
+    console.log(`  new bank ${formatMinorUnits(calc.bankPaymentPriceMinorUnits, calc.currency)}`);
     console.log(`  delta    ${intent.deltaBps === null ? "n/a" : `${intent.deltaBps} bps`}`);
     console.log(`  reason   ${intent.reason ?? ""}\n`);
   }
@@ -141,7 +145,7 @@ async function override(): Promise<void> {
   const request = {
     masterVariantId,
     priceCalculationId: arg("calculation"),
-    overrideCashPriceMinorUnits: BigInt(price),
+    overrideBankPaymentPriceMinorUnits: BigInt(price),
     currency: arg("currency") ?? "USD",
     reason,
     overriddenBy: actor,
@@ -154,23 +158,34 @@ async function override(): Promise<void> {
     // operator who does not know one is in force cannot judge whether that is
     // what they meant.
     console.log(
-      `currently in effect: ${formatMinorUnits(active.overrideCashPriceMinorUnits ?? 0n, active.currency)} ` +
+      `currently in effect: ${formatMinorUnits(active.overrideBankPaymentPriceMinorUnits ?? 0n, active.currency)} ` +
         `(set by ${active.overriddenBy}: ${active.reason}) — this will supersede it`
     );
   }
 
   const preview = await previewPriceOverride(request);
 
-  console.log(`calculation:    ${preview.priceCalculationId}`);
-  console.log(`override price: ${formatMinorUnits(request.overrideCashPriceMinorUnits, request.currency)}`);
+  // BOTH PRICES, because an operator typing a bank price is also setting the
+  // advertised card price, and reviewing one without the other means approving
+  // half the decision.
+  console.log(`calculation:        ${preview.priceCalculationId}`);
+  console.log(
+    `bank payment price: ${formatMinorUnits(request.overrideBankPaymentPriceMinorUnits, request.currency)}`
+  );
+  console.log(
+    `regular/card price: ${formatMinorUnits(BigInt(preview.resultingRegularCardPriceMinorUnits), request.currency)}`
+  );
+  console.log(
+    `customer saving:    ${formatMinorUnits(BigInt(preview.resultingBankPaymentSavingsMinorUnits), request.currency)}`
+  );
   // Truncated for DISPLAY only. The exact decimal is what the floor check
   // used; printing all 40 significant digits at an operator is noise they have
   // to squint past to see the number that matters.
   console.log(
-    `gross margin:   ${new MoneyDecimal(preview.cashGrossMarginRate).times(100).toDecimalPlaces(2).toString()}%`
+    `bank gross margin:  ${new MoneyDecimal(preview.bankPaymentGrossMarginRate).times(100).toDecimalPlaces(2).toString()}%`
   );
   console.log(
-    `contribution:   ${formatMinorUnits(BigInt(preview.cashContributionMinorUnits.split(".")[0] ?? "0"), request.currency)}`
+    `bank contribution:  ${formatMinorUnits(BigInt(preview.bankPaymentContributionMinorUnits.split(".")[0] ?? "0"), request.currency)}`
   );
 
   if (preview.warning) {
@@ -216,7 +231,7 @@ async function revoke(): Promise<void> {
   }
 
   console.log(
-    `revoking override ${active.id}: ${formatMinorUnits(active.overrideCashPriceMinorUnits ?? 0n, active.currency)}`
+    `revoking override ${active.id}: ${formatMinorUnits(active.overrideBankPaymentPriceMinorUnits ?? 0n, active.currency)}`
   );
 
   const result = await revokePriceOverride({ masterVariantId, reason, revokedBy: actor });

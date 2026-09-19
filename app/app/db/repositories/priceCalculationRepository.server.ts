@@ -27,7 +27,7 @@ export interface CreatePriceCalculationInput {
   snapshotId: string;
   costBasisSize?: string | null;
   landedCostMinorUnits: bigint;
-  cashPriceMinorUnits: bigint;
+  bankPaymentPriceMinorUnits: bigint;
   currency: string;
   status: "computed" | "failed";
   failureReason?: string | null;
@@ -47,7 +47,7 @@ export async function createPriceCalculation(input: CreatePriceCalculationInput)
       snapshotId: input.snapshotId,
       costBasisSize: input.costBasisSize ?? null,
       landedCostMinorUnits: input.landedCostMinorUnits,
-      cashPriceMinorUnits: input.cashPriceMinorUnits,
+      bankPaymentPriceMinorUnits: input.bankPaymentPriceMinorUnits,
       currency: input.currency,
       status: input.status,
       failureReason: input.failureReason ?? null,

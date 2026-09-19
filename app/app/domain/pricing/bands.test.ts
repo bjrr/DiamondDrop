@@ -145,19 +145,19 @@ describe("selectBandPrice (criterion 35 — tested against a stub priceAtSize)",
       "8": 120n,
     };
     const stub = (size: string) => ({
-      cashPriceMinorUnits: prices[size as keyof typeof prices]!,
+      bankPaymentPriceMinorUnits: prices[size as keyof typeof prices]!,
       result: { size },
     });
 
     const selection = selectBandPrice(candidates, stub);
-    expect(selection.bandCashPriceMinorUnits).toBe(125n);
+    expect(selection.bandBankPaymentPriceMinorUnits).toBe(125n);
     expect(selection.costBasisSize).toBe("7.5");
   });
 
   it("records prices for all sizes", () => {
     const candidates = ["6", "6.5", "7"];
     const stub = (size: string) => ({
-      cashPriceMinorUnits: BigInt(size.replace(".", "") as any),
+      bankPaymentPriceMinorUnits: BigInt(size.replace(".", "") as any),
       result: { size },
     });
 
@@ -170,7 +170,7 @@ describe("selectBandPrice (criterion 35 — tested against a stub priceAtSize)",
     const candidates = ["6"];
     const winningResult = { customData: "winner" };
     const stub = (_size: string) => ({
-      cashPriceMinorUnits: 100n,
+      bankPaymentPriceMinorUnits: 100n,
       result: winningResult,
     });
 
@@ -189,42 +189,42 @@ describe("selectBandPrice (criterion 35 — tested against a stub priceAtSize)",
       "8": 125n,
     };
     const stub = (size: string) => ({
-      cashPriceMinorUnits: prices[size as keyof typeof prices]!,
+      bankPaymentPriceMinorUnits: prices[size as keyof typeof prices]!,
       result: { size },
     });
 
     const selection = selectBandPrice(candidates, stub);
-    expect(selection.bandCashPriceMinorUnits).toBe(130n);
+    expect(selection.bandBankPaymentPriceMinorUnits).toBe(130n);
     expect(selection.costBasisSize).toBe("6.5"); // Tie broken to smallest
   });
 
   it("returns per-size prices as strings", () => {
     const candidates = ["6"];
     const stub = (size: string) => ({
-      cashPriceMinorUnits: 12345n,
+      bankPaymentPriceMinorUnits: 12345n,
       result: { size },
     });
 
     const selection = selectBandPrice(candidates, stub);
-    expect(typeof selection.perSize[0]!.cashPriceMinorUnits).toBe("string");
-    expect(selection.perSize[0]!.cashPriceMinorUnits).toBe("12345");
+    expect(typeof selection.perSize[0]!.bankPaymentPriceMinorUnits).toBe("string");
+    expect(selection.perSize[0]!.bankPaymentPriceMinorUnits).toBe("12345");
   });
 
   it("handles single-size bands", () => {
     const candidates = ["7"];
     const stub = (size: string) => ({
-      cashPriceMinorUnits: 150n,
+      bankPaymentPriceMinorUnits: 150n,
       result: { size },
     });
 
     const selection = selectBandPrice(candidates, stub);
-    expect(selection.bandCashPriceMinorUnits).toBe(150n);
+    expect(selection.bandBankPaymentPriceMinorUnits).toBe(150n);
     expect(selection.costBasisSize).toBe("7");
   });
 
   it("throws InvalidBandError for empty candidate list", () => {
     const stub = (_size: string) => ({
-      cashPriceMinorUnits: 0n,
+      bankPaymentPriceMinorUnits: 0n,
       result: {},
     });
     expect(() => selectBandPrice([], stub)).toThrow(/no candidate/);
@@ -244,13 +244,13 @@ describe("selectBandPrice (criterion 35 — tested against a stub priceAtSize)",
       "8": 10700n, // Model fallback: 8 would be max if no override
     };
     const stub = (size: string) => ({
-      cashPriceMinorUnits: prices[size as keyof typeof prices]!,
+      bankPaymentPriceMinorUnits: prices[size as keyof typeof prices]!,
       result: { size, price: prices[size as keyof typeof prices] },
     });
 
     const selection = selectBandPrice(candidates, stub);
     // Must be 7.5, not 8
-    expect(selection.bandCashPriceMinorUnits).toBe(10800n);
+    expect(selection.bandBankPaymentPriceMinorUnits).toBe(10800n);
     expect(selection.costBasisSize).toBe("7.5");
     // The winning result should include the 7.5 data
     expect((selection.winning as any).size).toBe("7.5");

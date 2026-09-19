@@ -78,9 +78,9 @@ export function enumerateBandSizes(band: BandSpec, spec: SizeSpec): DecimalStrin
 }
 
 export interface BandPriceSelection<TResult> {
-  bandCashPriceMinorUnits: bigint;
+  bandBankPaymentPriceMinorUnits: bigint;
   costBasisSize: DecimalString;
-  perSize: readonly { size: DecimalString; cashPriceMinorUnits: string }[];
+  perSize: readonly { size: DecimalString; bankPaymentPriceMinorUnits: string }[];
   winning: TResult;
 }
 
@@ -95,23 +95,23 @@ export interface BandPriceSelection<TResult> {
  */
 export function selectBandPrice<TResult>(
   candidates: readonly DecimalString[],
-  cashPriceAtSize: (size: DecimalString) => { cashPriceMinorUnits: bigint; result: TResult }
+  bankPaymentPriceAtSize: (size: DecimalString) => { bankPaymentPriceMinorUnits: bigint; result: TResult }
 ): BandPriceSelection<TResult> {
   if (candidates.length === 0) {
     throw new InvalidBandError("(unknown)", "no candidate sizes to evaluate");
   }
 
-  const perSize: { size: DecimalString; cashPriceMinorUnits: string }[] = [];
-  let bestCash: bigint | null = null;
+  const perSize: { size: DecimalString; bankPaymentPriceMinorUnits: string }[] = [];
+  let bestBankPayment: bigint | null = null;
   let bestSize: DecimalString | null = null;
   let bestResult: TResult | null = null;
 
   for (const size of candidates) {
-    const { cashPriceMinorUnits, result } = cashPriceAtSize(size);
-    perSize.push({ size, cashPriceMinorUnits: cashPriceMinorUnits.toString() });
+    const { bankPaymentPriceMinorUnits, result } = bankPaymentPriceAtSize(size);
+    perSize.push({ size, bankPaymentPriceMinorUnits: bankPaymentPriceMinorUnits.toString() });
 
-    if (bestCash === null || cashPriceMinorUnits > bestCash) {
-      bestCash = cashPriceMinorUnits;
+    if (bestBankPayment === null || bankPaymentPriceMinorUnits > bestBankPayment) {
+      bestBankPayment = bankPaymentPriceMinorUnits;
       bestSize = size;
       bestResult = result;
     }
@@ -120,7 +120,7 @@ export function selectBandPrice<TResult>(
   }
 
   return {
-    bandCashPriceMinorUnits: bestCash!,
+    bandBankPaymentPriceMinorUnits: bestBankPayment!,
     costBasisSize: bestSize!,
     perSize,
     winning: bestResult!,

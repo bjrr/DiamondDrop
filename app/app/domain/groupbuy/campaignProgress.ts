@@ -11,26 +11,38 @@ import { nextTier, selectTier, unitsToNextTier, type TierDefinition } from "./ti
  * forbids. Putting that in a pure function means the rules are testable and
  * cannot be quietly reinterpreted by whichever template renders them.
  *
- * TWO PRICES, AND WHICH IS THE HEADLINE (owner-locked 2026-09-18). Every price
- * here is carried in BOTH forms, explicitly named:
+ * TWO PRICES, AND WHICH IS THE HEADLINE (docs/BANK-CARD-PRICING.md §6,
+ * owner-locked 2026-09-18). Every price is carried in BOTH forms, explicitly
+ * named:
  *
- *   ...CreditCardPriceMinorUnits   the PRIMARY displayed price. This is the
- *                                  regular price a shopper sees.
- *   ...CashPriceMinorUnits         the cash-equivalent price, shown alongside
- *                                  as the discounted payment option (ACH, wire,
- *                                  Zelle, check).
+ *   ...RegularCardPriceMinorUnits   the PRIMARY ADVERTISED price.
+ *   ...BankPaymentPriceMinorUnits   the Bank Payment Price, shown alongside it
+ *                                   (Zelle, bank transfer, designated ACH,
+ *                                   wire, and approved bank/manual methods).
  *
- * So a $1,800 group cash price presents as "Group Buy price $1,890,
- * cash-equivalent price $1,800". There is deliberately no bare `price` field:
- * an ambiguous name is how a storefront ends up publishing the internal cash
- * figure as the headline and undercharging every card customer.
+ * So a $2,149 group bank price presents as "Group Buy Price $2,260 / Bank
+ * Payment Price: $2,149 / Save $111 with Bank Payment". There is deliberately
+ * no bare `price` field: an ambiguous name is how a storefront ends up
+ * publishing the internal figure as the headline and undercharging every card
+ * customer.
  *
- * THE CASH DISCOUNT IS NEVER EXPRESSED AS A PERCENTAGE. Two absolute prices,
- * no percentage, no "save 5%" — the uplift and the discount are reciprocals
- * (5% up is 4.76% off) and whole-dollar rounding makes the realised figure vary
- * per item, so any fixed claim would be wrong on most of the catalogue. The
- * savings percentages below are GROUP BUY savings against Buy Now, which is a
- * different and legitimate figure.
+ * TWO DIFFERENT SAVINGS, AND THEY MUST NOT BE CONFLATED:
+ *
+ *   groupBuyBankPaymentSavings  card − bank AT THE SAME TIER. This is the
+ *                               "Save $Y with Bank Payment" figure, and policy
+ *                               §9 requires it to be computed from the price
+ *                               AFTER the $5 ceiling, never from the rate.
+ *   groupSavingsCardBasis       Group Buy price vs BUY NOW price, card-to-card.
+ *                               What the Group Buy itself is worth.
+ *
+ * Adding them together would double-count, and quoting either as the other
+ * would misstate the offer. They are named so a template cannot pick the wrong
+ * one by accident.
+ *
+ * THE BANK/CARD PERCENTAGE IS NEVER EXPOSED (policy §6). The tier rate is
+ * internal; this type has no field for it and no field for a bank-payment
+ * savings percentage. The percentages that DO appear are Group Buy savings
+ * against Buy Now, which is a different and legitimate figure.
  *
  * THE TWO PROHIBITIONS, verbatim: "Do not use crowdfunding-funded percentages
  * or imply a minimum is required."
@@ -53,9 +65,9 @@ export interface TierMarker {
   tierNumber: number;
   minQualifyingUnits: number;
   /** Displayed price at this tier for the selected variant, whole minor units. */
-  creditCardPriceMinorUnits: string;
-  /** Cash-equivalent price at this tier, whole minor units. */
-  cashPriceMinorUnits: string;
+  regularCardPriceMinorUnits: string;
+  /** Bank Payment Price at this tier, whole minor units. */
+  bankPaymentPriceMinorUnits: string;
   /** Already reached at the current unit count. */
   unlocked: boolean;
   /** The tier currently in force. */
@@ -73,8 +85,8 @@ export interface CampaignProgressView {
   currentTierNumber: number;
   /**
    * The tier's share of base as a percentage OFF, e.g. "10.00" for 0.90.
-   * This is the GROUP BUY discount — not the cash-payment discount, which is
-   * never expressed as a percentage.
+   * This is the GROUP BUY tier discount — never the bank/card tier rate, which
+   * policy §6 keeps internal.
    */
   currentTierDiscountPercent: string;
 
@@ -83,30 +95,44 @@ export interface CampaignProgressView {
   unitsToNextTier: number | null;
 
   /** README: "selected variant's current Group Buy price", both forms. */
-  groupBuyCreditCardPriceMinorUnits: string;
-  groupBuyCashPriceMinorUnits: string;
+  groupBuyRegularCardPriceMinorUnits: string;
+  groupBuyBankPaymentPriceMinorUnits: string;
+
+  /**
+   * "Save $Y with Bank Payment" — the group card price minus the group bank
+   * price, AT THE SAME TIER.
+   *
+   * Policy §9: computed after the $5 ceiling, so it always equals the exact
+   * difference between the two prices displayed beside it. Derived from the
+   * tier rate instead it would be off by the rounding on most items — and a
+   * shopper can do this subtraction in their head, so being off is visible.
+   *
+   * DISTINCT FROM `groupSavingsCardBasis...` below, which measures the Group
+   * Buy against Buy Now. Conflating the two double-counts.
+   */
+  groupBuyBankPaymentSavingsMinorUnits: string;
 
   /** README: "selected variant's current Buy Now comparison price", both forms. */
-  buyNowCreditCardPriceMinorUnits: string;
-  buyNowCashPriceMinorUnits: string;
+  buyNowRegularCardPriceMinorUnits: string;
+  buyNowBankPaymentPriceMinorUnits: string;
 
   /**
    * README: "current dollar/percentage savings" against Buy Now.
    *
-   * COMPARED LIKE WITH LIKE: card against card, cash against cash. Mixing them
-   * would quote a saving that includes the payment-method spread and overstate
-   * what the Group Buy itself is worth.
+   * COMPARED LIKE WITH LIKE: card against card, bank against bank. Mixing them
+   * would fold the bank/card spread into the advertised Group Buy saving and
+   * overstate what the Group Buy itself is worth.
    */
-  creditCardSavingsMinorUnits: string;
-  creditCardSavingsPercent: string;
-  cashSavingsMinorUnits: string;
-  cashSavingsPercent: string;
+  groupSavingsCardBasisMinorUnits: string;
+  groupSavingsCardBasisPercent: string;
+  bankBasisSavingsMinorUnits: string;
+  bankBasisSavingsPercent: string;
 
   /** README: "next-tier price and additional savings". Null at the final tier. */
-  nextTierCreditCardPriceMinorUnits: string | null;
-  nextTierCashPriceMinorUnits: string | null;
-  additionalCreditCardSavingsMinorUnits: string | null;
-  additionalCashSavingsMinorUnits: string | null;
+  nextTierRegularCardPriceMinorUnits: string | null;
+  nextTierBankPaymentPriceMinorUnits: string | null;
+  additionalRegularCardSavingsMinorUnits: string | null;
+  additionalBankPaymentSavingsMinorUnits: string | null;
 
   /** README: "countdown/time remaining". Null for an open-ended campaign. */
   closesAt: string | null;
@@ -127,8 +153,8 @@ export const CORE_MESSAGE =
 
 /** A price in both forms, as produced by the server and never recomputed downstream. */
 export interface DualPrice {
-  cashMinorUnits: bigint;
-  creditCardMinorUnits: bigint;
+  bankPaymentMinorUnits: bigint;
+  regularCardMinorUnits: bigint;
 }
 
 export interface CampaignProgressInput {
@@ -194,8 +220,8 @@ export function buildCampaignProgress(input: CampaignProgressInput): CampaignPro
   // list, not against the campaign base. Those differ whenever Buy Now has
   // moved since the campaign froze, and the customer's actual alternative is
   // buying it now.
-  const creditCardSavings = saving(input.buyNowPrice.creditCardMinorUnits, groupBuy.creditCardMinorUnits);
-  const cashSavings = saving(input.buyNowPrice.cashMinorUnits, groupBuy.cashMinorUnits);
+  const groupSavingsCardBasis = saving(input.buyNowPrice.regularCardMinorUnits, groupBuy.regularCardMinorUnits);
+  const groupSavingsBankBasis = saving(input.buyNowPrice.bankPaymentMinorUnits, groupBuy.bankPaymentMinorUnits);
 
   // Integer arithmetic rather than Math.floor/Math.max, and not because this
   // is money — a countdown plainly is not. The repo-wide guard against ad-hoc
@@ -217,8 +243,8 @@ export function buildCampaignProgress(input: CampaignProgressInput): CampaignPro
       return {
         tierNumber: tier.tierNumber,
         minQualifyingUnits: tier.minQualifyingUnits,
-        creditCardPriceMinorUnits: price.creditCardMinorUnits.toString(),
-        cashPriceMinorUnits: price.cashMinorUnits.toString(),
+        regularCardPriceMinorUnits: price.regularCardMinorUnits.toString(),
+        bankPaymentPriceMinorUnits: price.bankPaymentMinorUnits.toString(),
         unlocked: input.qualifyingUnitsSold >= tier.minQualifyingUnits,
         current: tier.tierNumber === currentTier.tierNumber,
       };
@@ -240,25 +266,31 @@ export function buildCampaignProgress(input: CampaignProgressInput): CampaignPro
       .toString(),
     nextThresholdUnits: upcoming?.minQualifyingUnits ?? null,
     unitsToNextTier: unitsToNextTier(input.tiers, input.qualifyingUnitsSold),
-    groupBuyCreditCardPriceMinorUnits: groupBuy.creditCardMinorUnits.toString(),
-    groupBuyCashPriceMinorUnits: groupBuy.cashMinorUnits.toString(),
-    buyNowCreditCardPriceMinorUnits: input.buyNowPrice.creditCardMinorUnits.toString(),
-    buyNowCashPriceMinorUnits: input.buyNowPrice.cashMinorUnits.toString(),
-    creditCardSavingsMinorUnits: creditCardSavings.toString(),
-    creditCardSavingsPercent: percentString(
-      creditCardSavings,
-      input.buyNowPrice.creditCardMinorUnits
+    groupBuyRegularCardPriceMinorUnits: groupBuy.regularCardMinorUnits.toString(),
+    groupBuyBankPaymentPriceMinorUnits: groupBuy.bankPaymentMinorUnits.toString(),
+    // Policy §9, and note what is NOT here: no rate, no percentage. The two
+    // prices are already rounded, so this subtraction is exact and matches what
+    // the shopper can work out from the two figures beside it.
+    groupBuyBankPaymentSavingsMinorUnits: (
+      groupBuy.regularCardMinorUnits - groupBuy.bankPaymentMinorUnits
+    ).toString(),
+    buyNowRegularCardPriceMinorUnits: input.buyNowPrice.regularCardMinorUnits.toString(),
+    buyNowBankPaymentPriceMinorUnits: input.buyNowPrice.bankPaymentMinorUnits.toString(),
+    groupSavingsCardBasisMinorUnits: groupSavingsCardBasis.toString(),
+    groupSavingsCardBasisPercent: percentString(
+      groupSavingsCardBasis,
+      input.buyNowPrice.regularCardMinorUnits
     ),
-    cashSavingsMinorUnits: cashSavings.toString(),
-    cashSavingsPercent: percentString(cashSavings, input.buyNowPrice.cashMinorUnits),
-    nextTierCreditCardPriceMinorUnits: nextPrice?.creditCardMinorUnits.toString() ?? null,
-    nextTierCashPriceMinorUnits: nextPrice?.cashMinorUnits.toString() ?? null,
-    additionalCreditCardSavingsMinorUnits:
+    bankBasisSavingsMinorUnits: groupSavingsBankBasis.toString(),
+    bankBasisSavingsPercent: percentString(groupSavingsBankBasis, input.buyNowPrice.bankPaymentMinorUnits),
+    nextTierRegularCardPriceMinorUnits: nextPrice?.regularCardMinorUnits.toString() ?? null,
+    nextTierBankPaymentPriceMinorUnits: nextPrice?.bankPaymentMinorUnits.toString() ?? null,
+    additionalRegularCardSavingsMinorUnits:
       nextPrice === null
         ? null
-        : (groupBuy.creditCardMinorUnits - nextPrice.creditCardMinorUnits).toString(),
-    additionalCashSavingsMinorUnits:
-      nextPrice === null ? null : (groupBuy.cashMinorUnits - nextPrice.cashMinorUnits).toString(),
+        : (groupBuy.regularCardMinorUnits - nextPrice.regularCardMinorUnits).toString(),
+    additionalBankPaymentSavingsMinorUnits:
+      nextPrice === null ? null : (groupBuy.bankPaymentMinorUnits - nextPrice.bankPaymentMinorUnits).toString(),
     closesAt: input.scheduledCloseAt?.toISOString() ?? null,
     secondsRemaining,
     tierMarkers,

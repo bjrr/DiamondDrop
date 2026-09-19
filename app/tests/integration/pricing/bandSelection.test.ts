@@ -75,5 +75,5 @@ async function priceFor(variantId: string) {
   const resolved = await resolveInputsForVariant(variantId, ASOF);
   const band = resolved.bands.find((b) => b.id === variant!.bandId)!;
   const result = computeBuyNowBandPrice({ ...resolved.inputs, band });
-  return { price: result.bandCashPrice.amountMinorUnits, costBasisSize: result.costBasisSize };
+  return { price: result.bandBankPaymentPrice.amountMinorUnits, costBasisSize: result.costBasisSize };
 }

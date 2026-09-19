@@ -58,8 +58,8 @@ function workedExample(): BuyNowPricingInputs {
       minDollarProfit: usd("15000"),
       roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
       priceEndingRuleId: "NONE_V1",
-      creditCardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1" as const,
-      creditCardUpliftRate: "0.050000",
+      regularCardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1" as const,
+      fixedCardUpliftRate: "0.050000",
       autoApplyToleranceBps: 50,
       isPlaceholder: false,
     },
@@ -96,36 +96,36 @@ describe("computeBuyNowPrice — the worked example (criterion 13)", () => {
   it("P_exact = (75365.25 + 30) / 0.551", () => {
     // The spec shows this truncated with an ellipsis; the engine keeps full
     // precision, so the spec value is asserted as a prefix, not by equality.
-    expect(result.exactCashPriceMinorUnits.startsWith("136833.484573502722323")).toBe(true);
+    expect(result.exactBankPaymentPriceMinorUnits.startsWith("136833.484573502722323")).toBe(true);
   });
 
   it("rounds HALF_UP at the minor unit to 136833", () => {
-    expect(result.cashPrice.amountMinorUnits).toBe("136833");
-    expect(result.cashPrice.currency).toBe("USD");
+    expect(result.bankPaymentPrice.amountMinorUnits).toBe("136833");
+    expect(result.bankPaymentPrice.currency).toBe("USD");
   });
 
-  it("cash contribution = 136833 − 75365.25 = 61467.75", () => {
+  it("bank payment contribution = 136833 − 75365.25 = 61467.75", () => {
     // The PRICE still follows the spec's worked example — TARGET_GROSS_MARGIN_V1
     // is unchanged and still solves net of the revenue-side rate. What changed
     // is how the FLOORS measure the result: gross of payment expense, per the
     // owner's 2026-09-18 rule. The spec's 57469.593 was the fee-deducted figure.
-    expect(result.floors.cashContributionMinorUnits).toBe("61467.75");
-    expect(result.floors.basisId).toBe("CASH_PRICE_GROSS_OF_PAYMENT_EXPENSE_V1");
+    expect(result.floors.bankPaymentContributionMinorUnits).toBe("61467.75");
+    expect(result.floors.basisId).toBe("BANK_PAYMENT_PRICE_GROSS_OF_PAYMENT_EXPENSE_V1");
   });
 
-  it("cash gross margin 0.449217... clears the 0.35 floor", () => {
+  it("bank payment gross margin 0.449217... clears the 0.35 floor", () => {
     // 61467.75 / 136833. Three points above the 0.419998 the fee-deducting
     // definition reported for the identical price and cost.
-    expect(result.floors.cashGrossMarginRate.startsWith("0.449217")).toBe(true);
+    expect(result.floors.bankPaymentGrossMarginRate.startsWith("0.449217")).toBe(true);
     expect(result.floors.satisfied).toBe(true);
   });
 
   it("is NOT bumped for landing a fraction below the TARGET (criterion 18)", () => {
     // The subtle half of criterion 18: the solve aims at a 0.42 margin NET of
     // the 2.9% revenue-side rate, and rounding lands it a hair under. The floor
-    // it is checked against is 0.35, measured on cash. Comparing the rounded
-    // price against the target instead would bump nearly every price by a cent
-    // and still look like it was working.
+    // it is checked against is 0.35, measured on the bank price. Comparing the
+    // rounded price against the target instead would bump nearly every price by
+    // a cent and still look like it was working.
     expect(result.bumps).toBe(0);
   });
 
@@ -141,7 +141,7 @@ describe("computeBuyNowBandPrice (criterion 11)", () => {
       band: { label: "6.5-8", sizeMin: "6.5", sizeMax: "8" },
     });
     expect(band.perSize.map((p) => p.size)).toEqual(["6.5", "7", "7.5", "8"]);
-    expect(band.bandCashPrice.amountMinorUnits).toBe("136833");
+    expect(band.bandBankPaymentPrice.amountMinorUnits).toBe("136833");
     expect(band.costBasisSize).toBe("8");
   });
 
@@ -158,7 +158,7 @@ describe("computeBuyNowBandPrice (criterion 11)", () => {
     expect(band.costBasisSize).toBe("7.5");
 
     const atMax = band.perSize.find((p) => p.size === "8")!;
-    expect(BigInt(band.bandCashPrice.amountMinorUnits) > BigInt(atMax.cashPriceMinorUnits)).toBe(true);
+    expect(BigInt(band.bandBankPaymentPrice.amountMinorUnits) > BigInt(atMax.bankPaymentPriceMinorUnits)).toBe(true);
   });
 });
 
@@ -194,9 +194,9 @@ describe("engine guards", () => {
     const preRoundedC = new MoneyDecimal("75365.25").plus("0.5");
     const wouldBe = preRoundedC.plus("30").dividedBy("0.551");
 
-    expect(actual.exactCashPriceMinorUnits.startsWith("136833.4845")).toBe(true);
+    expect(actual.exactBankPaymentPriceMinorUnits.startsWith("136833.4845")).toBe(true);
     expect(wouldBe.toString().startsWith("136834")).toBe(true);
-    expect(actual.cashPrice.amountMinorUnits).toBe("136833");
+    expect(actual.bankPaymentPrice.amountMinorUnits).toBe("136833");
   });
 
   it("a component present with value 0 computes normally (criterion 15)", () => {

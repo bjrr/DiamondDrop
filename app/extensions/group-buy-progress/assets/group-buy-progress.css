@@ -60,18 +60,43 @@
 }
 
 /*
- * The cash-equivalent line. Quieter than the headline card price and heavier
- * than body copy: it is a real alternative price, not a footnote, but the card
- * price is what the page leads with.
+ * The Bank Payment lines. CLEARLY VISIBLE BUT SECONDARY, per the owner's
+ * requirement: body-copy size, no large numerals, so the Regular/Card Price
+ * above stays the visually dominant figure. The saving is bolder than the price
+ * it follows, because it is the line that makes the alternative worth reading.
  */
-.carat-gb__cash {
-  margin: 0 0 0.5rem;
-  font-size: 0.875rem;
+.carat-gb__bank {
+  margin: 0 0 0.125rem;
+  font-size: 0.9375rem;
 }
 
+.carat-gb__bank-savings {
+  margin: 0 0 0.125rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+/*
+ * How to obtain the Bank Payment Price. The smallest type in the block, but
+ * rendered unconditionally: a lower price advertised without a route to it is a
+ * hidden material term, not a detail to drop when space is tight.
+ */
+.carat-gb__bank-methods {
+  margin: 0 0 0.75rem;
+  font-size: 0.8125rem;
+  opacity: 0.8;
+}
+
+/*
+ * The Group-Buy-vs-Buy-Now saving. Deliberately lighter than the Bank Payment
+ * saving above it: two savings in a row invite being read as one number, and
+ * the visual hierarchy is what keeps them apart when the wording alone is
+ * skimmed.
+ */
 .carat-gb__savings {
   margin: 0 0 0.75rem;
-  font-weight: 600;
+  font-size: 0.875rem;
+  opacity: 0.85;
 }
 
 /*

@@ -14,14 +14,19 @@ export type { MarginModelId };
 /**
  * L5 — the price solve and the hard floors (spec §5.3, §5.5). Pure.
  *
- * EVERYTHING IN THIS FILE IS THE CASH PRICE (docs/CASH-CARD-PRICING.md,
- * owner-locked 2026-09-18).
+ * EVERYTHING IN THIS FILE IS THE BANK PAYMENT PRICE
+ * (docs/BANK-CARD-PRICING.md, owner-locked 2026-09-18).
  *
- * Cost, the target markup, the minimum gross-margin floor, the minimum dollar
- * profit and every variant floor are defined on the CASH-EQUIVALENT price — the
- * price paid by ACH, wire, Zelle or check. The credit-card price is derived
- * AFTER this module has finished, as cash x (1 + uplift), and never flows back
- * in. See creditCardPrice.ts.
+ * The Bank Payment Price is the authoritative calculated selling price. Cost,
+ * the target markup, the minimum gross-margin floor, the minimum dollar profit
+ * and every variant floor are defined on it. Eligible bank methods are Zelle,
+ * bank transfer, designated ACH, wire, and future explicitly approved
+ * bank/manual methods.
+ *
+ * THE BANK-VS-CARD FEATURE MUST NOT TOUCH WHAT THIS FILE PRODUCES. Policy §2:
+ * the Bank Payment Price is never discounted, increased or rounded by that
+ * feature. The Regular/Card Price is derived afterwards, by a tiered uplift and
+ * a $5 ceiling, and never flows back in. See regularCardPrice.ts.
  *
  * A card price entering here would inflate every margin by the uplift and let a
  * piece clear the floors on revenue it had not earned. Nothing in this module
@@ -30,18 +35,18 @@ export type { MarginModelId };
  * THE CIRCULARITY, AND WHY IT IS NOT A LOOP. A cost configured as a percentage
  * OF THE SELLING PRICE — full-value insurance, say — makes the price depend on
  * a cost that depends on the price. Where such a cost legitimately belongs to
- * cash economics it is solved algebraically rather than iteratively, by putting
- * its rate in the MARGIN MODEL's denominator. Card payment-processing expense
- * is not such a cost: the policy excludes it from cash profitability entirely,
- * and the floors below cannot see it at all.
+ * the underlying economics it is solved algebraically rather than iteratively,
+ * by putting its rate in the MARGIN MODEL's denominator. Card payment-processing
+ * expense is not such a cost: the policy excludes it from profitability
+ * entirely, and the floors below cannot see it at all.
  */
 
 /**
  * WHAT "PROFITABILITY" MEANS HERE — named and versioned, because it is a
  * business decision rather than an arithmetic detail (owner-locked 2026-09-18):
  *
- *     cash contribution = cash price − landed cost
- *     cash gross margin = cash contribution / cash price
+ *     contribution = bank payment price − landed cost
+ *     gross margin = contribution / bank payment price
  *
  * PAYMENT-PROCESSING EXPENSE IS NOT DEDUCTED. Card fees, and revenue-side
  * components generally, sit outside this definition. The owner's rule is that
@@ -53,20 +58,28 @@ export type { MarginModelId };
  * processing component from contribution before testing the floors, which
  * understated margin by roughly three points on every item. It had a visible
  * consequence: a 10% Group Buy tier measured 17.8% and was refused publication,
- * when on the cash basis the same tier is
+ * when on this basis the same tier is
  *
- *     cash base  = cost x 1.40
+ *     bank base  = cost x 1.40
  *     tier price = cost x 1.40 x 0.90 = cost x 1.26
  *     margin     = 0.26 / 1.26 = 20.63%
  *
  * which clears the 20% floor. The floor was rejecting campaigns it should have
  * allowed.
  *
+ * THE ID WAS RENAMED, NOT REVERSIONED. It read CASH_PRICE_... until the
+ * vocabulary changed on 2026-09-18. No arithmetic moved: the same subtraction
+ * on the same number, whose customer-facing NAME is now "Bank Payment Price".
+ * Renaming is safe here specifically because nothing dispatches on this id — it
+ * is descriptive metadata recorded alongside an evaluation, not a lookup key,
+ * so no stored row is orphaned by the change. Had anything keyed off it, the
+ * rename would have been a new id and a migration instead.
+ *
  * The id exists so that adding a fee-aware floor later is a NEW basis with a
- * new id and a migration, not an edit to this one — the same contract the
- * rounding, price-ending, margin-model and credit-card registries follow.
+ * new id, not an edit to this one — the same contract the rounding,
+ * price-ending, margin-model and card-price registries follow.
  */
-export const PROFITABILITY_BASIS_ID = "CASH_PRICE_GROSS_OF_PAYMENT_EXPENSE_V1" as const;
+export const PROFITABILITY_BASIS_ID = "BANK_PAYMENT_PRICE_GROSS_OF_PAYMENT_EXPENSE_V1" as const;
 
 /**
  * What a margin model is given. It receives the whole profile rather than a
@@ -89,8 +102,8 @@ export interface MarginModelContext {
 
 export interface MarginModel {
   readonly id: MarginModelId;
-  /** The EXACT target CASH price in minor units, unrounded. */
-  readonly targetCashPrice: (ctx: MarginModelContext) => MoneyDecimalValue;
+  /** The EXACT target BANK PAYMENT price in minor units, unrounded. */
+  readonly targetBankPaymentPrice: (ctx: MarginModelContext) => MoneyDecimalValue;
 }
 
 /**
@@ -108,7 +121,7 @@ export interface MarginModel {
 const MARGIN_MODELS: Record<MarginModelId, MarginModel> = {
   /**
    * MVP1 default, owner-resolved 2026-09-17:
-   * cash price = cost x (1 + markupRate), markupRate = 0.40.
+   * bank payment price = cost x (1 + markupRate), markupRate = 0.40.
    *
    * NOT the same as a 40% gross margin, and the gap is large: 40% markup on a
    * $100 cost is $140, a 28.6% gross margin. A 40% gross margin on that cost is
@@ -116,11 +129,12 @@ const MARGIN_MODELS: Record<MarginModelId, MarginModel> = {
    *
    * Revenue-side deductions are deliberately NOT solved into this, and — since
    * 2026-09-18 — they are not in the floors either. Markup sets the target on
-   * cash; the floors are a separate safety net measured on the same cash basis.
+   * the bank payment price; the floors are a separate safety net measured on
+   * that same number.
    */
   MARKUP_ON_COST_V1: {
     id: "MARKUP_ON_COST_V1",
-    targetCashPrice: ({ landedCostMinorUnits, profile }) => {
+    targetBankPaymentPrice: ({ landedCostMinorUnits, profile }) => {
       const k = profile.targetMarkupRate;
       if (!k) {
         throw new UnreachableMarginError("undefined", "MARKUP_ON_COST_V1 requires targetMarkupRate");
@@ -143,12 +157,13 @@ const MARGIN_MODELS: Record<MarginModelId, MarginModel> = {
    *
    * No profile uses it; MVP1 runs MARKUP_ON_COST_V1. It is left unchanged
    * rather than quietly redefined, because a versioned id may not change
-   * meaning. Moving it onto the cash basis is a new id
-   * (TARGET_GROSS_MARGIN_ON_CASH_V1) and an owner decision, not an edit here.
+   * meaning. Moving it onto the fee-free basis is a new id
+   * (TARGET_GROSS_MARGIN_ON_BANK_PAYMENT_V1) and an owner decision, not an
+   * edit here.
    */
   TARGET_GROSS_MARGIN_V1: {
     id: "TARGET_GROSS_MARGIN_V1",
-    targetCashPrice: ({ landedCostMinorUnits, revenueRate, revenueFixedMinorUnits, profile }) => {
+    targetBankPaymentPrice: ({ landedCostMinorUnits, revenueRate, revenueFixedMinorUnits, profile }) => {
       const rate = profile.targetGrossMarginRate;
       if (!rate) {
         throw new UnreachableMarginError(
@@ -199,22 +214,22 @@ export interface SolveInput {
   variantFloorMinorUnits: MoneyDecimalValue;
 }
 
-export function solveExactCashPrice(input: SolveInput): {
-  exactCash: MoneyDecimalValue;
+export function solveExactBankPaymentPrice(input: SolveInput): {
+  exactBankPayment: MoneyDecimalValue;
   binding: BindingConstraint;
 } {
   const { landedCostMinorUnits: C } = input;
 
-  const pTarget = getMarginModel(input.profile.marginModel).targetCashPrice({
+  const pTarget = getMarginModel(input.profile.marginModel).targetBankPaymentPrice({
     landedCostMinorUnits: C,
     revenueRate: input.revenueRate,
     revenueFixedMinorUnits: input.revenueFixedMinorUnits,
     profile: input.profile,
   });
 
-  // The minimum-dollar-profit price, on the SAME cash basis the floor uses:
+  // The minimum-dollar-profit price, on the SAME basis the floor uses:
   //
-  //     cash − cost >= minProfit   =>   cash >= cost + minProfit
+  //     bank − cost >= minProfit   =>   bank >= cost + minProfit
   //
   // Previously this was (cost + fixedFee + minProfit) / (1 − revenueRate),
   // which solved for a profit NET of payment expense while the floor that
@@ -224,29 +239,29 @@ export function solveExactCashPrice(input: SolveInput): {
   const pMinProfit = C.plus(minDollarProfit);
   const pFloor = input.variantFloorMinorUnits;
 
-  let exactCash = pTarget;
+  let exactBankPayment = pTarget;
   let binding: BindingConstraint = "margin";
-  if (pMinProfit.greaterThan(exactCash)) {
-    exactCash = pMinProfit;
+  if (pMinProfit.greaterThan(exactBankPayment)) {
+    exactBankPayment = pMinProfit;
     binding = "min_profit";
   }
-  if (pFloor.greaterThan(exactCash)) {
-    exactCash = pFloor;
+  if (pFloor.greaterThan(exactBankPayment)) {
+    exactBankPayment = pFloor;
     binding = "variant_floor";
   }
 
-  return { exactCash, binding };
+  return { exactBankPayment, binding };
 }
 
 /**
- * The floors take a CASH price, a landed cost, and nothing else that costs
- * money. There is deliberately no field here for a revenue-side rate or a fixed
+ * The floors take a BANK PAYMENT price, a landed cost, and nothing else that
+ * costs money. There is deliberately no field for a revenue-side rate or fixed
  * fee: their ABSENCE FROM THE TYPE is what stops payment expense re-entering
  * profitability through some future caller, which is how it got in the first
  * time. Re-admitting it means changing this interface, in the open.
  */
 export interface FloorInput {
-  cashPriceMinorUnits: bigint;
+  bankPaymentPriceMinorUnits: bigint;
   landedCostMinorUnits: MoneyDecimalValue;
   minGrossMarginRate: MoneyDecimalValue;
   minDollarProfitMinorUnits: MoneyDecimalValue;
@@ -255,7 +270,7 @@ export interface FloorInput {
 
 /**
  * §5.5, PREDICATE ONLY — no loop. Split from `enforceFloors` deliberately:
- * it makes "is this rounded cash price acceptable?" a one-line test.
+ * it makes "is this rounded bank payment price acceptable?" a one-line test.
  *
  * Checks `minGrossMarginRate`, the hard FLOOR — never `targetGrossMarginRate`,
  * the objective. The schema enforces min <= target; comparing the rounded
@@ -263,27 +278,27 @@ export interface FloorInput {
  * reason, and would look like it was working.
  */
 export function evaluateFloors(input: FloorInput): FloorEvaluation {
-  const cash = new MoneyDecimal(input.cashPriceMinorUnits.toString());
-  const cashContribution = cash.minus(input.landedCostMinorUnits);
-  const cashGrossMargin = cash.isZero() ? new MoneyDecimal(0) : cashContribution.dividedBy(cash);
+  const bank = new MoneyDecimal(input.bankPaymentPriceMinorUnits.toString());
+  const contribution = bank.minus(input.landedCostMinorUnits);
+  const grossMargin = bank.isZero() ? new MoneyDecimal(0) : contribution.dividedBy(bank);
 
   const failing: FloorId[] = [];
-  if (cashGrossMargin.lessThan(input.minGrossMarginRate)) failing.push("min_gross_margin");
-  if (cashContribution.lessThan(input.minDollarProfitMinorUnits)) failing.push("min_dollar_profit");
-  if (cash.lessThan(input.variantFloorMinorUnits)) failing.push("variant_floor");
+  if (grossMargin.lessThan(input.minGrossMarginRate)) failing.push("min_gross_margin");
+  if (contribution.lessThan(input.minDollarProfitMinorUnits)) failing.push("min_dollar_profit");
+  if (bank.lessThan(input.variantFloorMinorUnits)) failing.push("variant_floor");
 
   return {
     satisfied: failing.length === 0,
     basisId: PROFITABILITY_BASIS_ID,
-    cashContributionMinorUnits: cashContribution.toString(),
-    cashGrossMarginRate: cashGrossMargin.toString(),
+    bankPaymentContributionMinorUnits: contribution.toString(),
+    bankPaymentGrossMarginRate: grossMargin.toString(),
     failing,
   };
 }
 
 /**
- * §5.5's bounded loop. Rounding can land a cash price marginally below a hard
- * floor; this nudges it up by `stepMinorUnits` until every floor is satisfied.
+ * §5.5's bounded loop. Rounding can land a bank payment price marginally below
+ * a hard floor; this nudges it up by `stepMinorUnits` until every floor passes.
  *
  * Bounded because an unsatisfiable configuration must fail loudly rather than
  * spin. Note that the CAP IS IN BUMPS, NOT IN MONEY, so the headroom it allows
@@ -303,23 +318,23 @@ export function enforceFloors(
    * $140 into $140.01 and quietly undo the rounding rule just applied.
    */
   stepMinorUnits = 1n
-): { cashPriceMinorUnits: bigint; bumps: number; final: FloorEvaluation } {
-  let cash = input.cashPriceMinorUnits;
-  let evaluation = evaluateFloors({ ...input, cashPriceMinorUnits: cash });
+): { bankPaymentPriceMinorUnits: bigint; bumps: number; final: FloorEvaluation } {
+  let bank = input.bankPaymentPriceMinorUnits;
+  let evaluation = evaluateFloors({ ...input, bankPaymentPriceMinorUnits: bank });
   let bumps = 0;
 
   while (!evaluation.satisfied) {
     if (bumps >= maxBumps) {
       throw new MarginFloorUnreachableError(
         bumps,
-        cash.toString(),
+        bank.toString(),
         `still failing: ${evaluation.failing.join(", ")}`
       );
     }
-    cash += stepMinorUnits;
+    bank += stepMinorUnits;
     bumps += 1;
-    evaluation = evaluateFloors({ ...input, cashPriceMinorUnits: cash });
+    evaluation = evaluateFloors({ ...input, bankPaymentPriceMinorUnits: bank });
   }
 
-  return { cashPriceMinorUnits: cash, bumps, final: evaluation };
+  return { bankPaymentPriceMinorUnits: bank, bumps, final: evaluation };
 }

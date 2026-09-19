@@ -26,8 +26,8 @@ export interface UpsertIntentInput {
    * claiming a price reached Shopify.
    */
   status: "pending_approval" | "approved" | "synced";
-  previousCashPriceMinorUnits?: bigint | null;
-  previousCashPriceCurrency?: string | null;
+  previousBankPaymentPriceMinorUnits?: bigint | null;
+  previousBankPaymentPriceCurrency?: string | null;
   deltaBps?: number | null;
   deltaMinorUnits?: bigint | null;
   reason?: string | null;
@@ -65,8 +65,8 @@ export async function supersedeAndCreateIntent(input: UpsertIntentInput) {
         priceCalculationId: input.priceCalculationId,
         decision: input.decision,
         status: input.status,
-        previousCashPriceMinorUnits: input.previousCashPriceMinorUnits ?? null,
-        previousCashPriceCurrency: input.previousCashPriceCurrency ?? null,
+        previousBankPaymentPriceMinorUnits: input.previousBankPaymentPriceMinorUnits ?? null,
+        previousBankPaymentPriceCurrency: input.previousBankPaymentPriceCurrency ?? null,
         deltaBps: input.deltaBps ?? null,
         deltaMinorUnits: input.deltaMinorUnits ?? null,
         reason: input.reason ?? null,

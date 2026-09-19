@@ -76,10 +76,10 @@ const QUALIFYING_UNITS = (() => {
  * campaign and nothing else.
  *
  * TEN PERCENT, which is what that reading assumes and what the owner's rules
- * actually permit. Measured on the CASH price, as every pricing calculation now
+ * actually permit. Measured on the BANK PAYMENT price, as every pricing
  * is (owner-locked 2026-09-18):
  *
- *   cash base  = cost x 1.40
+ *   bank base  = cost x 1.40
  *   tier price = cost x 1.40 x 0.90 = cost x 1.26
  *   margin     = 0.26 / 1.26 = 20.63%   -> clears the 20% floor
  *
@@ -90,7 +90,7 @@ const QUALIFYING_UNITS = (() => {
  * The constraint is still real, just further out: with markup m and floor f the
  * deepest safe multiplier is roughly 1 / ((1 + m) x (1 - f)) = 0.8929 here, so
  * about 10.7% is the limit. The $100 minimum profit binds separately and bites
- * first on a light piece. See docs/CASH-CARD-PRICING.md §6.
+ * first on a light piece. See docs/BANK-CARD-PRICING.md §6.
  */
 const TIERS = [
   { tierNumber: 1, minQualifyingUnits: 1, priceMultiplier: "1.000000" },
@@ -169,7 +169,7 @@ async function main() {
               masterVariantId: variant.id,
               // Placeholders; the freeze at open replaces them with real
               // prices. They exist only to satisfy NOT NULL while drafting.
-              frozenBaseCashPriceMinorUnits: 1n,
+              frozenBaseBankPaymentPriceMinorUnits: 1n,
               frozenLandedCostMinorUnits: 0n,
             },
           ],
@@ -234,7 +234,7 @@ async function main() {
   console.log("  Shopify product    ", SHOPIFY_PRODUCT_TITLE);
   console.log("  Shopify variant    ", `${SHOPIFY_VARIANT_TITLE}  ${SHOPIFY_VARIANT_GID}`);
   console.log("  master variant     ", variant.id);
-  console.log("  frozen base price  ", dollars(frozen.frozenBaseCashPriceMinorUnits));
+  console.log("  frozen base price  ", dollars(frozen.frozenBaseBankPaymentPriceMinorUnits));
   console.log("  qualifying units   ", qualifyingUnits);
   console.log("  active tier        ", tier.tierNumber);
   console.log("  closes at          ", opened.scheduledCloseAt?.toISOString() ?? "(open-ended)");

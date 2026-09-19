@@ -21,6 +21,8 @@
 // every value below is a literal.
 import { createHash } from "node:crypto";
 
+import { resolveActivePricingProfile } from "../app/db/repositories/pricingProfileRepository.server";
+
 import "dotenv/config";
 import {
   CostComponentBasis,
@@ -52,11 +54,24 @@ const SEED_CURRENCY = "USD";
  */
 const D14_EFFECTIVE_FROM = new Date("2026-09-17T00:00:00.000Z");
 /**
- * When the owner's auto-apply tolerance and the inverted cash-discount model
+ * When the auto-apply tolerance and the superseded fixed card uplift
  * took effect. Later than D14_EFFECTIVE_FROM so effective-dated resolution
  * picks v3 over v2.
  */
 const D9_REVISION_EFFECTIVE_FROM = new Date("2026-09-17T18:00:00.000Z");
+
+/**
+ * When the tiered Bank/Card rule takes effect (docs/BANK-CARD-PRICING.md).
+ *
+ * Later than every earlier profile, so `resolveInputs` picks v5 for any
+ * calculation dated on or after the owner lock date and the older versions keep
+ * serving anything before it. Set to the START of 2026-09-18 rather than the
+ * hour the decision was written down: the fixtures date their as-of instants
+ * through that day, and a later timestamp would silently leave them resolving
+ * v3 — which is how the first run of this change tested the superseded rule and
+ * looked like it passed.
+ */
+const BANK_CARD_EFFECTIVE_FROM = new Date("2026-09-18T00:00:00.000Z");
 const SEED_ENTERED_BY = "seed-script";
 
 // Fixed, deterministic ids for the mutable design/definition rows, so
@@ -401,8 +416,8 @@ async function seedPricingProfile(): Promise<void> {
           minDollarProfitMinorUnits: 999999900n,
           currency: SEED_CURRENCY,
           roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
-          creditCardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
-          creditCardUpliftRate: "0.050000",
+          regularCardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
+          fixedCardUpliftRate: "0.050000",
           priceEndingRuleId: "NONE_V1",
           autoApplyToleranceBps: 0,
           effectiveFrom: SEED_EFFECTIVE_FROM,
@@ -449,8 +464,8 @@ async function seedPricingProfile(): Promise<void> {
           minDollarProfitMinorUnits: 10000n,
           currency: SEED_CURRENCY,
           roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
-          creditCardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
-          creditCardUpliftRate: "0.050000",
+          regularCardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
+          fixedCardUpliftRate: "0.050000",
           priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
           autoApplyToleranceBps: null,
           effectiveFrom: D14_EFFECTIVE_FROM,
@@ -463,7 +478,7 @@ async function seedPricingProfile(): Promise<void> {
   // v3 — the owner's two remaining decisions, 2026-09-17.
   //
   //   auto-apply tolerance   200 bps (2%)
-  //   card uplift            5% above the calculated cash price
+  //   card uplift            5% above the calculated price (SUPERSEDED)
   //
   // The tolerance closes D14: price changes within 2% of the last published
   // price may publish automatically, and anything larger queues for approval.
@@ -471,23 +486,12 @@ async function seedPricingProfile(): Promise<void> {
   // ordinary daily metal movement while still catching a mistyped metal price.
   // It is symmetric: a 3% DROP queues exactly as a 3% rise does.
   //
-  // D9 in its final shape, clarified 2026-09-18. The CALCULATED price is the
-  // CASH-EQUIVALENT price (ACH, wire, Zelle, check): it is the authoritative
-  // business price, the floors bind it,
-  // and profit is measured on it. The DISPLAYED price is cash x 1.05, and that
-  // is what gets published; cash is presented to the customer as a discount
-  // off it.
-  //
-  // Because the floors bind the lower cash price, both displayed prices clear
-  // those floors by construction. Card-processing expense is NOT subtracted
-  // from the cash margin/profit floors; the 5% uplift is a separate derived
-  // payment/display layer. See docs/CASH-CARD-PRICING.md.
-  //
-  // Note a 5% UPLIFT is not a 5% DISCOUNT: $400 cash becomes $420 card, and
-  // $400 is 4.76% off $420. Advertising a flat "5% cash discount" on this rate
-  // would overstate it — see cardPrice.ts.
+  // The card rule at this version is the SUPERSEDED fixed 5% uplift with a
+  // whole-dollar ceiling. Retained unedited because calculations exist against
+  // it; v5 below carries the current tiered rule. See docs/CASH-CARD-PRICING.md
+  // for the policy this version implemented, now superseded.
   await createIfAbsent(
-    "pricing_profile buy_now v3 (tolerance 200 bps; 5% cash discount)",
+    "pricing_profile buy_now v3 (tolerance 200 bps; superseded fixed 5% card uplift)",
     () =>
       prisma.pricingProfile.findUnique({
         where: { code_version: { code: PricingProfileCode.buy_now, version: 3 } },
@@ -505,10 +509,74 @@ async function seedPricingProfile(): Promise<void> {
           roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
           priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
           autoApplyToleranceBps: 200,
-          creditCardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
-          creditCardUpliftRate: "0.050000",
+          regularCardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
+          fixedCardUpliftRate: "0.050000",
           effectiveFrom: D9_REVISION_EFFECTIVE_FROM,
           createdBy: "seed-script (owner decisions D14 tolerance + D9 revision, 2026-09-17)",
+          isPlaceholder: false,
+        },
+      })
+  );
+
+  // v5 — THE CURRENT PROFILE. docs/BANK-CARD-PRICING.md, owner-locked
+  // 2026-09-18.
+  //
+  // WHY v5 AND NOT v4, leaving a gap. Development databases seeded during
+  // earlier iterations of this work already hold a v4 carrying a superseded
+  // card rule. pricing_profile is append-only, so that row can be neither
+  // edited nor removed, and `createIfAbsent` matches on (code, version) — a v4
+  // here would find the stale row, skip silently, and leave the environment
+  // pricing on the old rule while every test on a fresh database passed. That
+  // is exactly what happened on the first run of this change: the seed reported
+  // "(unchanged)" and the dev campaign kept quoting the fixed 5% uplift.
+  //
+  // A gap in the numbering is the visible cost of hand-assigned versions over
+  // an append-only table, and it is harmless: `version` orders,
+  // `effective_from` resolves.
+  //
+  // A NEW VERSION RATHER THAN AN EDIT TO v3, and that is the whole mechanism
+  // this table exists for. Every price_calculation names the profile version it
+  // used, so changing v3 in place would silently rewrite the basis of prices
+  // already computed, quoted and possibly sold. Adding v4 leaves those exactly
+  // reproducible and makes the switch a dated, attributable event.
+  //
+  // WHAT CHANGES: only the card rule. The underlying calculation — 40% markup
+  // on cost, 20% minimum gross margin, $100 minimum profit, whole-dollar price
+  // ending, 200 bps tolerance — is identical to v3, because the Bank Payment
+  // Price is the same number it always was. The bank-vs-card feature does not
+  // touch it (policy §2).
+  //
+  //   BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1 selects 5.0 / 4.5 / 4.0 / 3.5 /
+  //   3.0% from the Bank Payment Price and ceilings the result to the next $5.
+  //
+  // `fixedCardUpliftRate` is carried forward at 0.050000 and is NOT read by
+  // this rule. It stays because the column is NOT NULL and because the value is
+  // meaningful history: it is the rate v3 applied. The tiered rule holds its
+  // own table in code, so a tier change requires a new rule id and review
+  // rather than an UPDATE here that would re-price the past.
+  await createIfAbsent(
+    "pricing_profile buy_now v5 (tiered bank/card uplift, $5 ceiling)",
+    () =>
+      prisma.pricingProfile.findUnique({
+        where: { code_version: { code: PricingProfileCode.buy_now, version: 5 } },
+      }),
+    () =>
+      prisma.pricingProfile.create({
+        data: {
+          code: PricingProfileCode.buy_now,
+          version: 5,
+          marginModel: "MARKUP_ON_COST_V1",
+          targetMarkupRate: "0.400000",
+          minGrossMarginRate: "0.200000",
+          minDollarProfitMinorUnits: 10000n,
+          currency: SEED_CURRENCY,
+          roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
+          priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
+          autoApplyToleranceBps: 200,
+          regularCardPriceRuleId: "BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1",
+          fixedCardUpliftRate: "0.050000",
+          effectiveFrom: BANK_CARD_EFFECTIVE_FROM,
+          createdBy: "seed-script (owner decision, docs/BANK-CARD-PRICING.md, 2026-09-18)",
           isPlaceholder: false,
         },
       })
@@ -698,12 +766,44 @@ async function seedRingFixture(): Promise<void> {
   });
 }
 
+/**
+ * Asserts that the profile the ENGINE will actually resolve is the current one.
+ *
+ * Creating a row is not the same as that row winning. Resolution orders by
+ * `effective_from` then `version`, and a development database that accumulated
+ * a profile during an earlier iteration can outrank a newly seeded one — an
+ * append-only table offers no way to correct that, and `createIfAbsent`
+ * reports "(unchanged)" either way.
+ *
+ * That is not hypothetical: seeding the tiered card rule silently no-opped
+ * once, leaving the environment quoting the superseded fixed uplift while every
+ * test on a fresh database passed. This turns that class of drift into a loud
+ * seed failure instead of a mispriced storefront.
+ */
+async function assertActiveProfileIsCurrent(): Promise<void> {
+  const active = await resolveActivePricingProfile("buy_now", new Date());
+  const expected = "BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1";
+
+  if (active.regularCardPriceRuleId !== expected) {
+    throw new Error(
+      `Seed produced an environment whose ACTIVE buy_now profile is v${active.version}, ` +
+        `carrying card rule "${active.regularCardPriceRuleId}" rather than "${expected}".\n` +
+        `This database holds a profile that outranks the seeded one by effective date. ` +
+        `Prices here will not match docs/BANK-CARD-PRICING.md. Add a later profile ` +
+        `version rather than editing one — pricing_profile is append-only.`
+    );
+  }
+
+  console.log(`  active buy_now profile: v${active.version} (${active.regularCardPriceRuleId})`);
+}
+
 async function main() {
   await seedPolicyVersion();
   await seedMetalPrices();
   await seedStoneCosts();
   await seedCostComponents();
   await seedPricingProfile();
+  await assertActiveProfileIsCurrent();
   await seedLaborRates();
   await seedRingFixture();
   console.log("\nSeed complete.");

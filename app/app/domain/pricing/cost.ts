@@ -222,10 +222,11 @@ export function calculateLandedCost(input: LandedCostInput): LandedCostResult {
 
 /**
  * §5.3's `r` and `f` for revenue-side costs that legitimately belong to the
- * authoritative CASH-price economics. Card payment-processing expense is NOT
- * one of those under the locked 2026-09-18 policy; callers constructing cash
- * floor inputs must exclude `payment_processing`. The 5% card uplift is a
- * separate derived display/payment layer. See docs/CASH-CARD-PRICING.md.
+ * authoritative BANK PAYMENT PRICE economics. Card payment-processing expense
+ * is NOT one of those under docs/BANK-CARD-PRICING.md §4 — and `FloorInput` has
+ * no field for a revenue-side rate at all, so a caller cannot reintroduce it by
+ * accident rather than merely being told not to. The tiered card uplift is a
+ * separate derived display/payment layer.
  */
 export function partitionRevenueSide(components: readonly ResolvedCostComponent[]): {
   rate: MoneyDecimalValue;

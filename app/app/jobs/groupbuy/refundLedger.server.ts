@@ -6,12 +6,12 @@ import {
   computeTierRefund,
   type RefundStatus,
 } from "~/domain/groupbuy/refunds";
-import { selectTier, tierCashPriceExact, type TierDefinition } from "~/domain/groupbuy/tiers";
+import { selectTier, tierBankPaymentPriceExact, type TierDefinition } from "~/domain/groupbuy/tiers";
 import { MoneyDecimal } from "~/domain/money/decimal";
 import { Money } from "~/domain/money/money";
-import { deriveCreditCardPrice } from "~/domain/pricing/creditCardPrice";
+import { deriveRegularCardPrice } from "~/domain/pricing/regularCardPrice";
 import { applyPriceEnding } from "~/domain/pricing/priceEnding";
-import type { CreditCardPriceRuleId } from "~/domain/pricing/types";
+import type { RegularCardPriceRuleId } from "~/domain/pricing/types";
 import { logger } from "~/lib/logger.server";
 
 /**
@@ -59,7 +59,7 @@ export interface PaidLineInput {
   customerRef?: string;
   /**
    * WHICH PRICE THE CUSTOMER PAID. Required, with no default, because there is
-   * no safe guess: a card line and a cash line at the same tier were charged
+   * no safe guess: a card line and a bank line at the same tier were charged
    * amounts 5% apart, and the refund is computed against whichever it was.
    */
   paymentBasis: PaymentBasis;
@@ -136,33 +136,37 @@ export async function computeRefundsAtClose(options: {
     // rounding and price-ending path a customer would have been charged at.
     // Re-deriving it from today's costs would refund against a price that never
     // existed.
-    const exactCash = tierCashPriceExact(
-      new MoneyDecimal(eligible.frozenBaseCashPriceMinorUnits.toString()),
+    const exactBankPayment = tierBankPaymentPriceExact(
+      new MoneyDecimal(eligible.frozenBaseBankPaymentPriceMinorUnits.toString()),
       finalTier
     );
     const rounded = Money.fromDecimalMinorUnits(
-      exactCash,
+      exactBankPayment,
       campaign.currency,
       "HALF_UP_MINOR_UNIT_V1"
     );
-    const finalCashPerUnit = applyPriceEnding(rounded.amountMinorUnits, "WHOLE_DOLLAR_UP_V1");
+    const finalBankPaymentPerUnit = applyPriceEnding(
+      rounded.amountMinorUnits,
+      "WHOLE_DOLLAR_UP_V1"
+    );
 
-    // MATCHED TO THE BASIS THE CUSTOMER PAID IN. The tier price above is a cash
-    // price, because that is what the campaign froze. Subtracting it from what
-    // a CARD customer paid would treat the 5% uplift as an overcharge and hand
-    // it back — on every card line, at every tier drop.
+    // MATCHED TO THE BASIS THE CUSTOMER PAID IN. The tier price above is a Bank
+    // Payment Price, because that is what the campaign froze. Subtracting it
+    // from what a CARD customer paid would treat the whole uplift as an
+    // overcharge and hand it back — 3-5% of the order, on every card line, at
+    // every tier drop.
     //
-    // Derived through the same versioned rule Buy Now uses, from the campaign's
-    // frozen uplift rate, so the comparison is against the exact number that
-    // customer was shown.
+    // Derived through the same versioned rule the storefront used, from the
+    // campaign's FROZEN profile, so the comparison is against the exact number
+    // that customer was quoted rather than one today's rule would produce.
     const finalPerUnit =
-      line.paymentBasis === "credit_card"
-        ? deriveCreditCardPrice(
-            finalCashPerUnit,
-            new MoneyDecimal(frozenProfile.creditCardUpliftRate.toString()),
-            frozenProfile.creditCardPriceRuleId as CreditCardPriceRuleId
-          )
-        : finalCashPerUnit;
+      line.paymentBasis === "card"
+        ? deriveRegularCardPrice(
+            finalBankPaymentPerUnit,
+            new MoneyDecimal(frozenProfile.fixedCardUpliftRate.toString()),
+            frozenProfile.regularCardPriceRuleId as RegularCardPriceRuleId
+          ).regularCardPriceMinorUnits
+        : finalBankPaymentPerUnit;
 
     const computation = computeTierRefund({
       paidPerUnitMinorUnits: line.paidPerUnitMinorUnits,

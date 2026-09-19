@@ -26,7 +26,7 @@ const PROFILE = {
 function variant(overrides: Partial<TierSafetyVariantInput> = {}): TierSafetyVariantInput {
   return {
     masterVariantId: "v1",
-    frozenBaseCashMinorUnits: 100_000n, // $1,000
+    frozenBaseBankPaymentMinorUnits: 100_000n, // $1,000
     landedCostMinorUnits: new MoneyDecimal("50000"), // $500
     ...overrides,
   };
@@ -102,7 +102,7 @@ describe("floor breaches", () => {
     // profit. Checking margin alone would pass it.
     const report = run([
       variant({
-        frozenBaseCashMinorUnits: 20_000n, // $200
+        frozenBaseBankPaymentMinorUnits: 20_000n, // $200
         landedCostMinorUnits: new MoneyDecimal("14000"), // $140
       }),
     ]);
@@ -120,17 +120,17 @@ describe("it validates the price a customer would actually pay", () => {
     const report = run([variant()]);
     const tier2 = report.results.find((r) => r.tierNumber === 2)!;
 
-    expect(tier2.groupBuyCashPriceMinorUnits).toBe(90_000n);
-    expect(tier2.groupBuyCashPriceMinorUnits % 100n).toBe(0n);
+    expect(tier2.groupBuyBankPaymentPriceMinorUnits).toBe(90_000n);
+    expect(tier2.groupBuyBankPaymentPriceMinorUnits % 100n).toBe(0n);
   });
 
   it("rounds a fractional tier price up to a whole dollar", () => {
     // 33333 x 0.80 = 26666.4 -> $267.00 under WHOLE_DOLLAR_UP_V1.
     const report = run([
-      variant({ frozenBaseCashMinorUnits: 33_333n, landedCostMinorUnits: new MoneyDecimal("1000") }),
+      variant({ frozenBaseBankPaymentMinorUnits: 33_333n, landedCostMinorUnits: new MoneyDecimal("1000") }),
     ]);
     const tier3 = report.results.find((r) => r.tierNumber === 3)!;
-    expect(tier3.groupBuyCashPriceMinorUnits).toBe(26_700n);
+    expect(tier3.groupBuyBankPaymentPriceMinorUnits).toBe(26_700n);
   });
 });
 
@@ -145,13 +145,13 @@ describe("it reports rather than decides", () => {
   it("gives the margin and contribution for each tier, so a human can judge", () => {
     const report = run([variant()]);
     for (const result of report.results) {
-      expect(result.evaluation.cashGrossMarginRate).toMatch(/^-?[0-9.]+$/);
-      expect(result.evaluation.cashContributionMinorUnits).toMatch(/^-?[0-9.]+$/);
+      expect(result.evaluation.bankPaymentGrossMarginRate).toMatch(/^-?[0-9.]+$/);
+      expect(result.evaluation.bankPaymentContributionMinorUnits).toMatch(/^-?[0-9.]+$/);
     }
   });
 });
 
-describe("the 40% markup / 20% floor arithmetic, on cash (owner-locked 2026-09-18)", () => {
+describe("the 40% markup / 20% floor arithmetic, on the Bank Payment Price (owner-locked 2026-09-18)", () => {
   /**
    * The correction, asserted rather than described.
    *
@@ -160,7 +160,7 @@ describe("the 40% markup / 20% floor arithmetic, on cash (owner-locked 2026-09-1
    * that the arithmetic can be checked by hand.
    */
   const COST = 100_000n; // $1,000
-  const CASH_BASE = 140_000n; // $1,400 = cost x 1.40
+  const BANK_BASE = 140_000n; // $1,400 = cost x 1.40
   const OWNER_PROFILE = {
     minGrossMarginRate: "0.200000",
     minDollarProfit: { amountMinorUnits: "10000", currency: "USD" }, // $100
@@ -171,7 +171,7 @@ describe("the 40% markup / 20% floor arithmetic, on cash (owner-locked 2026-09-1
       variants: [
         {
           masterVariantId: "v1",
-          frozenBaseCashMinorUnits: CASH_BASE,
+          frozenBaseBankPaymentMinorUnits: BANK_BASE,
           landedCostMinorUnits: new MoneyDecimal(COST.toString()),
         },
       ],
@@ -184,7 +184,7 @@ describe("the 40% markup / 20% floor arithmetic, on cash (owner-locked 2026-09-1
   }
 
   it("PUBLISHES a 10% second tier — the case the old rule wrongly refused", () => {
-    // cash tier price = 1400 x 0.90 = 1260
+    // bank tier price = 1400 x 0.90 = 1260
     // margin          = (1260 − 1000) / 1260 = 20.63%  -> clears the 20% floor
     // profit          = 260                            -> clears the $100 floor
     //
@@ -199,13 +199,13 @@ describe("the 40% markup / 20% floor arithmetic, on cash (owner-locked 2026-09-1
     expect(report.unsafe).toHaveLength(0);
 
     const tier2 = report.results.find((r) => r.tierNumber === 2)!;
-    expect(tier2.groupBuyCashPriceMinorUnits).toBe(126_000n);
-    expect(tier2.evaluation.cashGrossMarginRate.startsWith("0.2063")).toBe(true);
+    expect(tier2.groupBuyBankPaymentPriceMinorUnits).toBe(126_000n);
+    expect(tier2.evaluation.bankPaymentGrossMarginRate.startsWith("0.2063")).toBe(true);
   });
 
   it("still REFUSES a tier that genuinely breaches the 20% floor", () => {
     // The rule was made less strict, not toothless. At 0.88 the margin is
-    // (1232 − 1000) / 1232 = 18.83%, which is a real breach on the cash basis
+    // (1232 − 1000) / 1232 = 18.83%, which is a real breach on this basis
     // and must still block.
     const report = ownerRun([
       { tierNumber: 1, minQualifyingUnits: 1, priceMultiplier: "1.000000" },
@@ -215,7 +215,7 @@ describe("the 40% markup / 20% floor arithmetic, on cash (owner-locked 2026-09-1
     expect(report.allSafe).toBe(false);
     const tier2 = report.unsafe.find((r) => r.tierNumber === 2)!;
     expect(tier2.evaluation.failing).toContain("min_gross_margin");
-    expect(tier2.evaluation.cashGrossMarginRate.startsWith("0.1883")).toBe(true);
+    expect(tier2.evaluation.bankPaymentGrossMarginRate.startsWith("0.1883")).toBe(true);
   });
 
   it("puts the deepest publishable discount near 1 / ((1 + markup) x (1 − floor))", () => {
@@ -244,14 +244,14 @@ describe("the 40% markup / 20% floor arithmetic, on cash (owner-locked 2026-09-1
   });
 
   it("lets the $100 profit floor bind before the margin floor on a light piece", () => {
-    // Margin is scale-free; the dollar floor is not. On a $300 cash base a 10%
+    // Margin is scale-free; the dollar floor is not. On a $300 bank base a 10%
     // tier still makes 20.6% but only $55.71 — so the two floors disagree, and
     // checking margin alone would publish it.
     const report = evaluateTierSafety({
       variants: [
         {
           masterVariantId: "light",
-          frozenBaseCashMinorUnits: 30_000n, // $300 = cost x 1.40
+          frozenBaseBankPaymentMinorUnits: 30_000n, // $300 = cost x 1.40
           landedCostMinorUnits: new MoneyDecimal("21429"), // ~$214.29
         },
       ],
@@ -272,7 +272,7 @@ describe("the 40% markup / 20% floor arithmetic, on cash (owner-locked 2026-09-1
 });
 
 describe("the credit-card uplift plays no part in tier safety", () => {
-  it("judges the CASH price, which is 5% below what the shopper is shown", () => {
+  it("judges the BANK PAYMENT price, which is below what the shopper is shown", () => {
     // If the uplift ever leaked into this check it would inflate every margin
     // by roughly five points and pass tiers that sell below the floor. The
     // clearest assertion is the number: safety is measured on 1400 x 0.90, not
@@ -281,7 +281,7 @@ describe("the credit-card uplift plays no part in tier safety", () => {
       variants: [
         {
           masterVariantId: "v1",
-          frozenBaseCashMinorUnits: 140_000n,
+          frozenBaseBankPaymentMinorUnits: 140_000n,
           landedCostMinorUnits: new MoneyDecimal("100000"),
         },
       ],
@@ -299,7 +299,7 @@ describe("the credit-card uplift plays no part in tier safety", () => {
     });
 
     const tier2 = report.results.find((r) => r.tierNumber === 2)!;
-    expect(tier2.groupBuyCashPriceMinorUnits).toBe(126_000n);
-    expect(tier2.groupBuyCashPriceMinorUnits).not.toBe(132_300n); // the card price
+    expect(tier2.groupBuyBankPaymentPriceMinorUnits).toBe(126_000n);
+    expect(tier2.groupBuyBankPaymentPriceMinorUnits).not.toBe(132_300n); // the card price
   });
 });

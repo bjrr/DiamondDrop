@@ -83,28 +83,28 @@
     body.appendChild(units);
 
     /*
-     * THE GROUP BUY PRICE IS THE CREDIT-CARD PRICE.
+     * THE GROUP BUY PRICE IS THE REGULAR/CARD PRICE.
      *
-     * Card is the primary displayed price and cash is shown beneath it as the
-     * discounted payment option — never the other way round. Owner decision,
-     * docs/CASH-CARD-PRICING.md section 5. Checkout, network and legal
+     * Card is the primary advertised price and the Bank Payment Price sits
+     * beneath it — never the other way round. Owner decision,
+     * docs/BANK-CARD-PRICING.md section 6. Checkout, network and legal
      * constraints are verified separately and do not change the display rule.
      */
     var prices = el("div", "carat-gb__prices");
     var group = el("div", "carat-gb__price");
-    group.appendChild(el("span", "carat-gb__label", "Group Buy price"));
+    group.appendChild(el("span", "carat-gb__label", "Group Buy Price"));
     group.appendChild(
-      el("span", "carat-gb__amount", formatMoney(data.groupBuyCreditCardPriceMinorUnits, moneyFormat))
+      el("span", "carat-gb__amount", formatMoney(data.groupBuyRegularCardPriceMinorUnits, moneyFormat))
     );
     prices.appendChild(group);
 
-    if (data.creditCardSavingsMinorUnits !== "0") {
+    if (data.groupSavingsCardBasisMinorUnits !== "0") {
       var compare = el("div", "carat-gb__price carat-gb__price--compare");
       compare.appendChild(el("span", "carat-gb__label", "Buy it now"));
       var was = el(
         "s",
         "carat-gb__amount carat-gb__amount--struck",
-        formatMoney(data.buyNowCreditCardPriceMinorUnits, moneyFormat)
+        formatMoney(data.buyNowRegularCardPriceMinorUnits, moneyFormat)
       );
       /* The strikethrough is decorative; the saving is stated in words below. */
       was.setAttribute("aria-hidden", "true");
@@ -114,39 +114,80 @@
     body.appendChild(prices);
 
     /*
-     * The cash-equivalent price, as an ABSOLUTE AMOUNT and never a percentage.
+     * The Bank Payment Price, and the saving against the card price — both as
+     * ABSOLUTE AMOUNTS, never a percentage (policy §6).
      *
-     * "Save 5% with cash" would be wrong: a 5% uplift is a 4.76% discount — the
-     * reciprocal — and whole-dollar rounding makes the realised figure vary per
-     * item, so any fixed percentage claim misstates most of the catalogue. Two
-     * exact prices need no caveat and cannot drift out of step with the rate.
+     * The saving arrives already computed from the two ROUNDED prices, so it is
+     * exactly what a shopper gets by subtracting the two figures on screen. A
+     * percentage would not be: the tier rate is applied before a $5 ceiling, so
+     * the realised saving varies item to item and no single figure is right.
      */
     body.appendChild(
       el(
         "p",
-        "carat-gb__cash",
-        "Cash-equivalent price " +
-          formatMoney(data.groupBuyCashPriceMinorUnits, moneyFormat) +
-          " — ACH, wire, Zelle or check"
+        "carat-gb__bank",
+        "Bank Payment Price: " + formatMoney(data.groupBuyBankPaymentPriceMinorUnits, moneyFormat)
       )
     );
 
-    if (data.creditCardSavingsMinorUnits !== "0") {
+    if (data.groupBuyBankPaymentSavingsMinorUnits !== "0") {
+      body.appendChild(
+        el(
+          "p",
+          "carat-gb__bank-savings",
+          "Save " +
+            formatMoney(data.groupBuyBankPaymentSavingsMinorUnits, moneyFormat) +
+            " with Bank Payment"
+        )
+      );
+    }
+
+    /*
+     * WHICH METHODS QUALIFY, AND HOW TO GET THE PRICE.
+     *
+     * Not decoration. "Bank Payment Price" alone tells a shopper a lower price
+     * exists without telling them how to obtain it — and standard Shopify
+     * checkout will collect the Regular/Card Price whatever they select there,
+     * because no Shopify mechanism changes the payable total at payment-method
+     * selection (docs/BANK-PAYMENT-CHECKOUT-FINDINGS.md).
+     *
+     * So the line says REQUEST, not "choose at checkout". Advertising a price
+     * the checkout cannot charge, with no route to it, is the outcome
+     * docs/BANK-CARD-PRICING.md §8 prohibits and the hidden-material-terms rule
+     * in CLAUDE.md forbids.
+     *
+     * The wording is PROVISIONAL and needs owner sign-off alongside the Phase 2
+     * draft-order flow; what is not provisional is that some accurate statement
+     * has to be here.
+     */
+    body.appendChild(
+      el(
+        "p",
+        "carat-gb__bank-methods",
+        "Available by Zelle, bank transfer, ACH or wire — contact us to arrange bank payment."
+      )
+    );
+
+    if (data.groupSavingsCardBasisMinorUnits !== "0") {
       /*
-       * The GROUP BUY saving against Buy Now — a different figure from the cash
-       * discount above, and a legitimate one to state as a percentage. Compared
-       * card-to-card so it measures the group discount alone and does not
-       * quietly fold in the payment-method spread.
+       * A DIFFERENT SAVING: the Group Buy against Buy Now, not the bank/card
+       * spread above. Labelled "vs buying now" so the two cannot be read as one
+       * number or added together.
+       *
+       * Compared card-to-card, so it measures the group discount alone and does
+       * not quietly fold in the bank/card spread. A percentage is fine here —
+       * the ban in policy §6 is on the bank/card rate, and this is the Group Buy
+       * discount the README asks to be shown.
        */
       body.appendChild(
         el(
           "p",
           "carat-gb__savings",
           "You save " +
-            formatMoney(data.creditCardSavingsMinorUnits, moneyFormat) +
+            formatMoney(data.groupSavingsCardBasisMinorUnits, moneyFormat) +
             " (" +
-            data.creditCardSavingsPercent +
-            "%)"
+            data.groupSavingsCardBasisPercent +
+            "%) vs buying now"
         )
       );
     }
@@ -161,7 +202,7 @@
       var item = el("li", "carat-gb__tier" + (marker.unlocked ? " is-unlocked" : "") + (marker.current ? " is-current" : ""));
       item.appendChild(el("span", "carat-gb__tier-units", marker.minQualifyingUnits + "+"));
       item.appendChild(
-        el("span", "carat-gb__tier-price", formatMoney(marker.creditCardPriceMinorUnits, moneyFormat))
+        el("span", "carat-gb__tier-price", formatMoney(marker.regularCardPriceMinorUnits, moneyFormat))
       );
       if (marker.current) {
         /* Conveyed in text, not by colour alone. */
@@ -173,14 +214,14 @@
 
     if (data.bestPriceUnlocked) {
       body.appendChild(el("p", "carat-gb__best", "Best Price Unlocked"));
-    } else if (data.unitsToNextTier !== null && data.nextTierCreditCardPriceMinorUnits !== null) {
+    } else if (data.unitsToNextTier !== null && data.nextTierRegularCardPriceMinorUnits !== null) {
       body.appendChild(
         el(
           "p",
           "carat-gb__next",
           data.unitsToNextTier +
             " more and the price drops to " +
-            formatMoney(data.nextTierCreditCardPriceMinorUnits, moneyFormat)
+            formatMoney(data.nextTierRegularCardPriceMinorUnits, moneyFormat)
         )
       );
     }

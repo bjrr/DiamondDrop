@@ -13,6 +13,8 @@ import {
   type PaidLineInput,
 } from "~/jobs/groupbuy/refundLedger.server";
 import { closeGroupBuyCampaign, recordUnitEvent } from "~/jobs/groupbuy/unitLedger.server";
+import { MoneyDecimal } from "~/domain/money/decimal";
+import { deriveRegularCardPrice } from "~/domain/pricing/regularCardPrice";
 
 /**
  * The tier-adjustment refund ledger, end to end (README §173).
@@ -48,7 +50,7 @@ async function closedCampaign(units: number) {
       },
       variants: {
         create: [
-          { masterVariantId: variant.id, frozenBaseCashPriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
+          { masterVariantId: variant.id, frozenBaseBankPaymentPriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
         ],
       },
     },
@@ -78,7 +80,7 @@ async function closedCampaign(units: number) {
   return {
     campaignId: draft.id,
     variantId: variant.id,
-    basePrice: frozen.frozenBaseCashPriceMinorUnits,
+    basePrice: frozen.frozenBaseBankPaymentPriceMinorUnits,
     finalTier: closed.finalTierNumber,
   };
 }
@@ -108,7 +110,7 @@ describe("refunds are computed at close", () => {
         },
         variants: {
           create: [
-            { masterVariantId: variant.id, frozenBaseCashPriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
+            { masterVariantId: variant.id, frozenBaseBankPaymentPriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
           ],
         },
       },
@@ -134,7 +136,7 @@ describe("refunds are computed at close", () => {
           masterVariantId: c.variantId,
           orderRef: "order-1",
           lineRef: "line-1",
-          paymentBasis: "cash",
+          paymentBasis: "bank_payment",
           paidPerUnitMinorUnits: c.basePrice,
           qualifyingUnits: 5,
         },
@@ -170,7 +172,7 @@ describe("refunds are computed at close", () => {
           masterVariantId: c.variantId,
           orderRef: "order-1",
           lineRef: "line-1",
-          paymentBasis: "cash",
+          paymentBasis: "bank_payment",
           paidPerUnitMinorUnits: c.basePrice,
           qualifyingUnits: 1,
         },
@@ -190,7 +192,7 @@ describe("refunds are computed at close", () => {
       masterVariantId: c.variantId,
       orderRef: "order-1",
       lineRef: "line-1",
-      paymentBasis: "cash",
+      paymentBasis: "bank_payment",
       paidPerUnitMinorUnits: c.basePrice,
       qualifyingUnits: 5,
     };
@@ -226,7 +228,7 @@ describe("the hold through production and QC", () => {
           masterVariantId: c.variantId,
           orderRef: "order-1",
           lineRef: "line-1",
-          paymentBasis: "cash",
+          paymentBasis: "bank_payment",
           paidPerUnitMinorUnits: c.basePrice,
           qualifyingUnits: 5,
         },
@@ -309,7 +311,7 @@ describe("no duplicate customer value", () => {
           masterVariantId: c.variantId,
           orderRef: "order-1",
           lineRef: "line-1",
-          paymentBasis: "cash",
+          paymentBasis: "bank_payment",
           paidPerUnitMinorUnits: c.basePrice,
           qualifyingUnits: 5,
         },
@@ -362,7 +364,7 @@ describe("no duplicate customer value", () => {
           masterVariantId: refund.masterVariantId,
           orderRef: refund.orderRef,
           lineRef: refund.lineRef,
-          paymentBasis: "cash",
+          paymentBasis: "bank_payment",
           paidPerUnitMinorUnits: 1000n,
           finalPerUnitMinorUnits: 0n,
           qualifyingUnits: 1,
@@ -385,7 +387,7 @@ describe("no duplicate customer value", () => {
           masterVariantId: c.variantId,
           orderRef: "order-1",
           lineRef: "line-1",
-          paymentBasis: "cash",
+          paymentBasis: "bank_payment",
           paidPerUnitMinorUnits: c.basePrice,
           qualifyingUnits: 5,
         },
@@ -414,7 +416,7 @@ describe("the history is evidence", () => {
           masterVariantId: c.variantId,
           orderRef: "order-1",
           lineRef: "line-1",
-          paymentBasis: "cash",
+          paymentBasis: "bank_payment",
           paidPerUnitMinorUnits: c.basePrice,
           qualifyingUnits: 5,
         },
@@ -433,5 +435,114 @@ describe("the history is evidence", () => {
     await expect(
       prisma.groupBuyRefundEvent.delete({ where: { id: event.id } })
     ).rejects.toThrow(/append-only/);
+  });
+});
+
+describe("refunds settle in the basis the money arrived in", () => {
+  /**
+   * THE BRANCH THAT MOVES THE MOST MONEY, and until this suite was extended it
+   * had no coverage at all.
+   *
+   * A campaign freezes a BANK PAYMENT base. A card customer paid that base
+   * uplifted by the tier schedule and ceilinged to $5. Comparing what they paid
+   * against a bank-basis tier price would treat the entire uplift as an
+   * overcharge and refund it — 3-5% of every card order, at every tier drop,
+   * looking like a perfectly ordinary refund.
+   */
+  const cardPriceOf = (bankMinorUnits: bigint): bigint =>
+    deriveRegularCardPrice(
+      bankMinorUnits,
+      new MoneyDecimal("0.050000"),
+      "BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1"
+    ).regularCardPriceMinorUnits;
+
+  it("refunds a CARD line against card-basis prices, not bank-basis ones", async () => {
+    const c = await closedCampaign(5);
+    expect(c.finalTier).toBe(2);
+
+    // What this customer was actually charged: the card price of the tier-1
+    // (full) bank price, because they bought before the campaign reached tier 2.
+    const paidCard = cardPriceOf(c.basePrice);
+
+    await computeRefundsAtClose({
+      campaignId: c.campaignId,
+      computedBy: "staff",
+      paidLines: [
+        {
+          masterVariantId: c.variantId,
+          orderRef: "order-card",
+          lineRef: "line-card",
+          paymentBasis: "card",
+          paidPerUnitMinorUnits: paidCard,
+          qualifyingUnits: 1,
+        },
+      ],
+    });
+
+    const refund = await prisma.groupBuyRefund.findFirstOrThrow({
+      where: { campaignId: c.campaignId, lineRef: "line-card" },
+    });
+
+    // The final tier price the customer is settled against must ALSO be a card
+    // price. Recomputed here from the frozen base rather than read back from
+    // the row being tested.
+    const finalBank = (c.basePrice * 99n) / 100n;
+    const finalBankRounded =
+      finalBank % 100n === 0n ? finalBank : finalBank + (100n - (finalBank % 100n));
+    expect(refund.finalPerUnitMinorUnits).toBe(cardPriceOf(finalBankRounded));
+    expect(refund.paymentBasis).toBe("card");
+
+    // And decisively NOT the bank-basis tier price, which is what the bug
+    // would have used.
+    expect(refund.finalPerUnitMinorUnits).not.toBe(finalBankRounded);
+  });
+
+  it("refunds a card line LESS than the same line would get on a bank basis", async () => {
+    // The size of the bug, stated as a comparison. Two lines, identical except
+    // for the basis and therefore the amount paid, settled in the same run.
+    const c = await closedCampaign(5);
+    const paidBank = c.basePrice;
+    const paidCard = cardPriceOf(c.basePrice);
+
+    await computeRefundsAtClose({
+      campaignId: c.campaignId,
+      computedBy: "staff",
+      paidLines: [
+        {
+          masterVariantId: c.variantId,
+          orderRef: "order-b",
+          lineRef: "line-bank",
+          paymentBasis: "bank_payment",
+          paidPerUnitMinorUnits: paidBank,
+          qualifyingUnits: 1,
+        },
+        {
+          masterVariantId: c.variantId,
+          orderRef: "order-c",
+          lineRef: "line-card",
+          paymentBasis: "card",
+          paidPerUnitMinorUnits: paidCard,
+          qualifyingUnits: 1,
+        },
+      ],
+    });
+
+    const bank = await prisma.groupBuyRefund.findFirstOrThrow({
+      where: { campaignId: c.campaignId, lineRef: "line-bank" },
+    });
+    const card = await prisma.groupBuyRefund.findFirstOrThrow({
+      where: { campaignId: c.campaignId, lineRef: "line-card" },
+    });
+
+    // Each is a genuine tier adjustment, and each is modest — roughly the 1%
+    // the tier moved. Neither is the ~5% a basis mismatch would produce.
+    expect(bank.refundAmountMinorUnits).toBeGreaterThan(0n);
+    expect(card.refundAmountMinorUnits).toBeGreaterThan(0n);
+
+    const upliftOnThisPiece = paidCard - paidBank;
+    expect(
+      card.refundAmountMinorUnits,
+      "a card refund anywhere near the uplift means the bases were crossed"
+    ).toBeLessThan(upliftOnThisPiece);
   });
 });

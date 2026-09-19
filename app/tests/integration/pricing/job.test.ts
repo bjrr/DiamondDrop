@@ -41,8 +41,8 @@ async function realisticProfile() {
       minDollarProfitMinorUnits: 15000n,
       currency: "USD",
       roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
-      creditCardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
-      creditCardUpliftRate: "0.050000",
+      regularCardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
+      fixedCardUpliftRate: "0.050000",
       priceEndingRuleId: "NONE_V1",
       autoApplyToleranceBps: 50,
       // Later than the seeded placeholder, so it is the one that resolves.

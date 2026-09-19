@@ -36,11 +36,19 @@ describe("D14 — the auto-apply tolerance the job actually resolves", () => {
     expect(profile.marginModel).toBe("MARKUP_ON_COST_V1");
   });
 
-  it("the ACTIVE profile carries the owner's 5% card uplift", async () => {
+  it("the ACTIVE profile carries the TIERED card rule, not the superseded one", async () => {
+    // The switch from the fixed 5% uplift to the tiered schedule is an
+    // effective-dated profile version, not an edit. This asserts that the
+    // resolution actually picks up v4 — the first run of that change left v4
+    // dated later than these fixtures, so everything still resolved v3 and the
+    // suite passed while testing the superseded rule.
     const profile = await resolveActivePricingProfile("buy_now", ASOF);
 
-    expect(profile.creditCardUpliftRate).toBe("0.05");
-    expect(profile.creditCardPriceRuleId).toBe("CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1");
+    expect(profile.regularCardPriceRuleId).toBe("BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1");
+
+    // Carried forward and NOT read by the tiered rule. Asserted so that its
+    // continued presence is a recorded decision rather than an oversight.
+    expect(profile.fixedCardUpliftRate).toBe("0.05");
   });
 
   it("still routes a first-ever price to a human, tolerance or not", async () => {
@@ -89,7 +97,7 @@ describe("D14 — the auto-apply tolerance the job actually resolves", () => {
 
     expect(intents.length).toBeGreaterThan(0);
     for (const intent of intents) {
-      expect(intent.previousCashPriceMinorUnits).toBeNull();
+      expect(intent.previousBankPaymentPriceMinorUnits).toBeNull();
       expect(intent.deltaBps).toBeNull();
       expect(intent.deltaMinorUnits).toBeNull();
     }

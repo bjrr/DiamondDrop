@@ -48,8 +48,10 @@ import type {
  * D9 and left unused once the credit-card uplift moved onto the pricing profile
  * as a derived, versioned rate. It is kept because Postgres cannot drop an enum
  * value cheaply, and because it is the natural home for the open question
- * flagged with D9 (whether the cash-equivalent base should carry a cash
- * processing cost distinct from card processing). Nothing reads it today, and
+ * flagged there: whether the Bank Payment Price should carry a bank-method
+ * processing cost (ACH and wire are not free) distinct from card processing.
+ * docs/BANK-CARD-PRICING.md §4 settles that CARD expense stays out of the
+ * floors; a genuine bank-method cost would belong here. Nothing reads it, and
  * data recorded under it would have no effect on any price.
  */
 export const INERT_COMPONENT_TYPES: readonly CostComponentType[] = ["payment_adjustment"];
@@ -235,13 +237,13 @@ export async function resolveInputsForVariant(
       priceEndingRuleId:
         profile.priceEndingRuleId as BuyNowPricingInputs["profile"]["priceEndingRuleId"],
       autoApplyToleranceBps: profile.autoApplyToleranceBps,
-      creditCardPriceRuleId: profile.creditCardPriceRuleId as BuyNowPricingInputs["profile"]["creditCardPriceRuleId"],
-      creditCardUpliftRate: profile.creditCardUpliftRate,
+      regularCardPriceRuleId: profile.regularCardPriceRuleId as BuyNowPricingInputs["profile"]["regularCardPriceRuleId"],
+      fixedCardUpliftRate: profile.fixedCardUpliftRate,
       isPlaceholder: profile.isPlaceholder,
     },
     variantFloor:
-      variant.minCashPriceMinorUnits !== null && variant.minCashPriceCurrency !== null
-        ? { amountMinorUnits: variant.minCashPriceMinorUnits.toString(), currency: variant.minCashPriceCurrency }
+      variant.minBankPaymentPriceMinorUnits !== null && variant.minBankPaymentPriceCurrency !== null
+        ? { amountMinorUnits: variant.minBankPaymentPriceMinorUnits.toString(), currency: variant.minBankPaymentPriceCurrency }
         : undefined,
     provenance: [
       {

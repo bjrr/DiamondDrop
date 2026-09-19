@@ -19,10 +19,11 @@ import type { DecimalString } from "~/domain/pricing/types";
  * Thresholds and percentages are therefore DATA, supplied per campaign, frozen
  * when the campaign opens, and validated here.
  *
- * EVERY PRICE IN THIS MODULE IS A CASH PRICE. The frozen campaign base is the
- * cash price, tier multipliers apply to cash, and tier safety is judged on
- * cash. The 5% credit-card uplift is derived afterwards and is not part of
- * Group Buy economics (owner-locked 2026-09-18).
+ * EVERY PRICE IN THIS MODULE IS A BANK PAYMENT PRICE. The frozen campaign base
+ * is one, tier multipliers apply to it, and tier safety is judged on the
+ * result. The Regular/Card Price is derived afterwards from whatever bank price
+ * a tier produces, and is no part of Group Buy economics
+ * (docs/BANK-CARD-PRICING.md §6, owner-locked 2026-09-18).
  *
  * "PERCENTAGE" IS A MULTIPLIER, NOT A DISCOUNT. The README's formula is
  *
@@ -31,9 +32,37 @@ import type { DecimalString } from "~/domain/pricing/types";
  * so 0.90 means "90% of base", i.e. 10% off. The field is named
  * `priceMultiplier` rather than `percentage` because this codebase has already
  * been bitten once by exactly this ambiguity — a 5% card uplift is not a 5%
- * cash discount, and the two differ by a quarter of a point. A name that cannot
- * be misread is worth more than a comment explaining the misreading.
+ * bank-payment discount, and confusing the two costs real money. A name that
+ * cannot be misread is worth more than a comment explaining the misreading.
  */
+
+/**
+ * The smallest permitted difference between adjacent tier multipliers: 1%.
+ *
+ * NOT a style rule. The Bank/Card tier schedule in docs/BANK-CARD-PRICING.md is
+ * NON-MONOTONIC across its boundaries — one more cent of Bank Payment Price can
+ * drop the card price by $5, because the item falls into a lower uplift band:
+ *
+ *     $999.99 bank -> 4.5% -> $1,045.00 card
+ *   $1,000.00 bank -> 4.0% -> $1,040.00 card
+ *
+ * So two Group Buy tiers whose BANK prices straddle such a boundary can produce
+ * a next tier whose CARD price is HIGHER than the current one. The storefront
+ * would then render "3 more and the price drops to $1,044" beside a price of
+ * $1,040 — a false statement, and one no test would catch because every figure
+ * involved is individually correct.
+ *
+ * The inversion window is under 0.5% wide below each boundary (the widest
+ * rate step is 0.5 points, and the $5 ceiling narrows it further), so requiring
+ * adjacent tiers to differ by at least a full 1% makes the overlap impossible
+ * rather than merely unlikely.
+ *
+ * REJECTING THE CONFIGURATION IS THE RIGHT FIX, not clamping the displayed
+ * saving to zero. A campaign with tiers a quarter of a percent apart is
+ * misconfigured — the second tier is not an offer worth advertising — and
+ * hiding the symptom would leave it live.
+ */
+export const MIN_TIER_MULTIPLIER_GAP = "0.01";
 
 /** Per the README: 3 by default, configurable from 2 to 5. */
 export const MIN_TIERS = 2;
@@ -50,8 +79,8 @@ export interface TierDefinition {
    */
   minQualifyingUnits: number;
   /**
-   * Fraction OF THE FROZEN BASE CASH PRICE, e.g. "0.900000" = 90% of base =
-   * 10% off cash.
+   * Fraction OF THE FROZEN BASE BANK PAYMENT PRICE, e.g. "0.900000" = 90% of
+   * base = 10% off.
    * NOT a discount rate. See the header.
    */
   priceMultiplier: DecimalString;
@@ -129,12 +158,20 @@ export function validateTierSet(tiers: readonly TierDefinition[]): void {
       );
     }
 
-    // Later tiers must be CHEAPER. A flat or rising multiplier would mean
-    // selling more units made the price worse, and the storefront promises the
-    // opposite ("next-tier price and additional savings").
-    if (!new MoneyDecimal(current.priceMultiplier).lessThan(previous.priceMultiplier)) {
+    // Later tiers must be CHEAPER, and by a MEANINGFUL MARGIN. A flat or rising
+    // multiplier would mean selling more units made the price worse, and the
+    // storefront promises the opposite ("next-tier price and additional
+    // savings").
+    //
+    // The minimum gap is not decoration — see MIN_TIER_MULTIPLIER_GAP.
+    const gap = new MoneyDecimal(previous.priceMultiplier).minus(current.priceMultiplier);
+    if (gap.lessThanOrEqualTo(0)) {
       problems.push(
         `tier ${current.tierNumber} multiplier (${current.priceMultiplier}) must be lower than tier ${previous.tierNumber} (${previous.priceMultiplier}) — later tiers must be cheaper`
+      );
+    } else if (gap.lessThan(MIN_TIER_MULTIPLIER_GAP)) {
+      problems.push(
+        `tier ${current.tierNumber} multiplier (${current.priceMultiplier}) is only ${gap.toString()} below tier ${previous.tierNumber} (${previous.priceMultiplier}); tiers must differ by at least ${MIN_TIER_MULTIPLIER_GAP} so the card price cannot rise as the group grows`
       );
     }
   }
@@ -194,22 +231,23 @@ export function unitsToNextTier(
 }
 
 /**
- * The EXACT group-buy CASH price for a tier, unrounded.
+ * The EXACT group-buy BANK PAYMENT price for a tier, unrounded.
  *
- * CASH IN, CASH OUT (owner-locked 2026-09-18). The frozen base is a cash price
- * and the multiplier applies to it, so a Group Buy discount is a discount off
- * cash. The credit-card group price is derived from the rounded result of this,
- * by the same uplift Buy Now uses — it is never discounted separately, and the
- * uplift never enters the discount.
+ * BANK IN, BANK OUT. The frozen base is a Bank Payment Price and the multiplier
+ * applies to it, so a Group Buy discount is a discount off the bank price. The
+ * Group Buy Regular/Card Price is derived from the ROUNDED result of this, by
+ * the same tiered rule Buy Now uses — and the tier is selected from the group
+ * price, not the campaign base, so a deep tier can legitimately fall into a
+ * different uplift band from tier 1.
  *
  * Returns an exact decimal rather than whole minor units on purpose. Rounding
  * is the engine's single load-bearing boundary (§5.4) and must happen once,
  * through the versioned rounding and price-ending registries — not here, and
  * not twice.
  */
-export function tierCashPriceExact(
-  frozenBaseCashMinorUnits: MoneyDecimalValue,
+export function tierBankPaymentPriceExact(
+  frozenBaseBankPaymentMinorUnits: MoneyDecimalValue,
   tier: TierDefinition
 ): MoneyDecimalValue {
-  return new MoneyDecimal(frozenBaseCashMinorUnits).times(tier.priceMultiplier);
+  return new MoneyDecimal(frozenBaseBankPaymentMinorUnits).times(tier.priceMultiplier);
 }

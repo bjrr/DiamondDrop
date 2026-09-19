@@ -33,12 +33,22 @@ export type PriceEndingRuleId = "NONE_V1" | "WHOLE_DOLLAR_UP_V1";
 export type MarginModelId = "MARKUP_ON_COST_V1" | "TARGET_GROSS_MARGIN_V1";
 
 /**
- * D9. Versions the FORMULA deriving the displayed credit-card price from the
- * cash price. THE ID STRING IS PERSISTED on every stored calculation, so it
- * keeps its original spelling even though the TypeScript name now says "credit
- * card" — renaming the value would orphan every historical row.
+ * Versions the FORMULA deriving the Regular/Card Price from the Bank Payment
+ * Price. THE ID STRINGS ARE PERSISTED on every stored calculation, so they keep
+ * their original spelling forever — renaming a value would orphan every
+ * historical row that references it.
+ *
+ * CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1 is SUPERSEDED: one fixed rate from the
+ * pricing profile, ceilinged to a whole dollar. It remains registered, and its
+ * behaviour frozen, only so calculations stored under it still reproduce.
+ *
+ * BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1 is CURRENT
+ * (docs/BANK-CARD-PRICING.md): a rate selected from the Bank Payment Price by
+ * the locked tier table, ceilinged to the next $5.
  */
-export type CreditCardPriceRuleId = "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1";
+export type RegularCardPriceRuleId =
+  | "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1"
+  | "BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1";
 
 export type ComponentBasis = "cost_side" | "revenue_side";
 export type ComponentValueKind = "fixed" | "per_stone" | "percentage";
@@ -105,16 +115,23 @@ export interface PricingProfileInputs {
    */
   autoApplyToleranceBps: number | null;
   /**
-   * D9. Formula id and rate for deriving the DISPLAYED credit-card price from
-   * the finalised cash price. Configurable and versioned: the rate is data
-   * (0.05 today), the id versions the formula.
-   *
-   * Neither value may appear in a cost, markup, margin-floor, minimum-profit,
-   * Group Buy discount or tier-safety calculation. They are read at exactly one
-   * point — creditCardPrice.ts, after everything else has finished.
+   * Which versioned rule derives the Regular/Card Price from the finalised Bank
+   * Payment Price. Read at exactly one point — regularCardPrice.ts, after
+   * everything else has finished — and never by a cost, markup, margin-floor,
+   * minimum-profit, Group Buy discount or tier-safety calculation.
    */
-  creditCardPriceRuleId: CreditCardPriceRuleId;
-  creditCardUpliftRate: DecimalString;
+  regularCardPriceRuleId: RegularCardPriceRuleId;
+  /**
+   * The single fixed uplift rate, consumed ONLY by the superseded
+   * CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1 rule.
+   *
+   * The current tiered rule ignores it and selects its own rate from the locked
+   * table, because policy §12 puts tier selection inside the versioned rule: a
+   * table that lived in profile data could be edited without a new rule id, and
+   * every historical price would silently stop reproducing. The column stays so
+   * calculations stored under the old rule keep the rate they used.
+   */
+  fixedCardUpliftRate: DecimalString;
   isPlaceholder: boolean;
 }
 
@@ -144,9 +161,9 @@ export type BindingConstraint = "margin" | "min_profit" | "variant_floor";
 export type FloorId = "min_gross_margin" | "min_dollar_profit" | "variant_floor";
 
 /**
- * The result of testing a CASH price against the hard floors.
+ * The result of testing a BANK PAYMENT price against the hard floors.
  *
- * Every figure here is measured on the cash price GROSS of payment-processing
+ * Every figure is measured on the Bank Payment Price GROSS of payment-processing
  * expense — see PROFITABILITY_BASIS_ID in solve.ts, whose id is echoed in
  * `basisId` so that a stored evaluation states which rule produced it instead
  * of leaving a future reader to infer it from the date.
@@ -156,8 +173,8 @@ export interface FloorEvaluation {
   /** The profitability basis this evaluation was measured on. */
   basisId: string;
   /** Exact decimals as strings — display projections, never re-entered (§5.4). */
-  cashContributionMinorUnits: DecimalString;
-  cashGrossMarginRate: DecimalString;
+  bankPaymentContributionMinorUnits: DecimalString;
+  bankPaymentGrossMarginRate: DecimalString;
   failing: readonly FloorId[];
 }
 
@@ -186,32 +203,52 @@ export interface BuyNowPriceResult {
   size: DecimalString;
   weightGrams: DecimalString;
   breakdown: CostBreakdown;
-  /** The exact unrounded CASH solve result, retained for audit (§5.6). */
-  exactCashPriceMinorUnits: DecimalString;
+  /** The exact unrounded BANK PAYMENT solve result, retained for audit (§5.6). */
+  exactBankPaymentPriceMinorUnits: DecimalString;
   binding: BindingConstraint;
   /**
-   * The AUTHORITATIVE CASH-EQUIVALENT price (D9) — ACH, wire, Zelle, check.
+   * The AUTHORITATIVE BANK PAYMENT PRICE — Zelle, bank transfer, designated
+   * ACH, wire, and future explicitly approved bank/manual methods.
    *
    * THIS IS THE BASIS OF EVERY CALCULATION THAT PRODUCED IT: landed cost, the
    * 40% target markup, the 20% gross-margin floor, the $100 minimum profit and
-   * any variant floor all bind this number. It is the one stored price.
+   * any variant floor all bind this number. It is the one stored price, and the
+   * bank-vs-card feature leaves it exactly as calculated (policy §2).
    *
    * It is NOT the primary price shown to the customer. That is
-   * `creditCardPrice` below; cash is offered alongside it as the discounted
-   * payment option.
+   * `regularCardPrice` below; this appears alongside it as the bank-payment
+   * alternative.
    */
-  cashPrice: MoneyJSON;
+  bankPaymentPrice: MoneyJSON;
   /**
-   * The PRIMARY CUSTOMER-DISPLAYED CARD price, derived as cash x (1 + uplift)
-   * and never stored independently. This is the regular price a shopper sees
-   * and what the sync layer publishes to Shopify.
+   * The PRIMARY ADVERTISED price: Bank Payment Price x (1 + tier rate),
+   * ceilinged to the next $5. Derived, never stored independently — a pure
+   * function of the bank price and the recorded rule id.
    *
-   * Publishing `cashPrice` instead would undercharge every card customer by the
-   * uplift, on every item, silently.
+   * This is what the sync layer publishes to Shopify. Publishing
+   * `bankPaymentPrice` instead would undercharge every card customer, on every
+   * item, silently.
    */
-  creditCardPrice: MoneyJSON;
-  creditCardPriceRuleId: CreditCardPriceRuleId;
-  creditCardUpliftRate: DecimalString;
+  regularCardPrice: MoneyJSON;
+  /**
+   * Final rounded Regular/Card Price − Bank Payment Price (policy §9).
+   *
+   * Carried here rather than left to callers because it must be computed AFTER
+   * the $5 ceiling. Derived from the percentage instead, it would disagree with
+   * the two prices actually shown on almost every item.
+   */
+  bankPaymentSavings: MoneyJSON;
+  regularCardPriceRuleId: RegularCardPriceRuleId;
+  /**
+   * INTERNAL ONLY. The tier rate this calculation applied, recorded so an admin
+   * can explain a price and an auditor can reproduce it. Policy §6 forbids
+   * showing any percentage to a customer, and no storefront DTO carries it.
+   */
+  appliedCardUpliftRate: DecimalString;
+  /** INTERNAL ONLY. Which tier row matched, e.g. "$1,000–$2,499.99". */
+  appliedCardUpliftTierLabel: string;
+  /** The profile's fixed rate, consumed only by the superseded rule. */
+  fixedCardUpliftRate: DecimalString;
   floors: FloorEvaluation;
   bumps: number;
   roundingRuleId: RoundingRuleId;
@@ -226,16 +263,19 @@ export interface BuyNowBandPricingInputs extends Omit<BuyNowPricingInputs, "size
 export interface BuyNowBandPriceResult {
   band: BandSpec;
   /**
-   * The band's CASH price: the maximum cash price across the band's sizes.
-   * Selection is made on CASH, because that is what the floors bind. Selecting
-   * on the card price would pick the same size in practice — the derivation is
-   * monotonic — but would make the choice depend on a number no floor governs.
+   * The band's BANK PAYMENT price: the maximum across the band's sizes.
+   *
+   * Selection is made on this, because it is what the floors bind. Selecting on
+   * the card price would usually pick the same size — but not always: the $5
+   * ceiling makes the derivation non-strictly-monotonic, so two sizes a few
+   * cents apart in bank price can tie on card price, and the tie-break would
+   * then fall to a number no floor governs.
    */
-  bandCashPrice: MoneyJSON;
-  /** The band's displayed price, derived from `bandCashPrice`. */
-  bandCreditCardPrice: MoneyJSON;
+  bandBankPaymentPrice: MoneyJSON;
+  /** The band's advertised price, derived from `bandBankPaymentPrice`. */
+  bandRegularCardPrice: MoneyJSON;
   /** The size whose cost set the band price (R18 evidence). */
   costBasisSize: DecimalString;
-  perSize: readonly { size: DecimalString; cashPriceMinorUnits: string }[];
+  perSize: readonly { size: DecimalString; bankPaymentPriceMinorUnits: string }[];
   winning: BuyNowPriceResult;
 }

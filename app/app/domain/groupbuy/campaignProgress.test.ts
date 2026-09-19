@@ -19,19 +19,25 @@ const TIERS: TierDefinition[] = [
 ];
 
 /**
- * Cash prices, and the card prices derived from them at the 5% uplift with the
- * ceiling to whole dollars. Written out rather than computed so the fixture
- * states the pairing a shopper actually sees:
+ * Bank Payment Prices, and the Regular/Card Prices the current rule derives
+ * from them. All four are under $500, so all four take the 5.0% tier and then
+ * the $5 ceiling:
  *
- *   $400 cash -> $420 card    $360 cash -> $378 card    $320 cash -> $336 card
- *   $420 Buy Now cash        -> $441 Buy Now card
+ *   $400 -> x1.05 = $420.00, already a $5 multiple -> $420
+ *   $360 -> x1.05 = $378.00                        -> $380
+ *   $320 -> x1.05 = $336.00                        -> $340
+ *   $420 Buy Now -> x1.05 = $441.00                -> $445
+ *
+ * Written out rather than computed, so the fixture states the pairing a shopper
+ * actually sees and a change in the rule shows up here as a deliberate edit
+ * rather than silently flowing through.
  */
 const PRICES: Record<number, DualPrice> = {
-  1: { cashMinorUnits: 40_000n, creditCardMinorUnits: 42_000n },
-  2: { cashMinorUnits: 36_000n, creditCardMinorUnits: 37_800n },
-  3: { cashMinorUnits: 32_000n, creditCardMinorUnits: 33_600n },
+  1: { bankPaymentMinorUnits: 40_000n, regularCardMinorUnits: 42_000n },
+  2: { bankPaymentMinorUnits: 36_000n, regularCardMinorUnits: 38_000n },
+  3: { bankPaymentMinorUnits: 32_000n, regularCardMinorUnits: 34_000n },
 };
-const BUY_NOW: DualPrice = { cashMinorUnits: 42_000n, creditCardMinorUnits: 44_100n };
+const BUY_NOW: DualPrice = { bankPaymentMinorUnits: 42_000n, regularCardMinorUnits: 44_500n };
 const ASOF = new Date("2026-09-18T12:00:00Z");
 
 function view(over: Partial<Parameters<typeof buildCampaignProgress>[0]> = {}) {
@@ -70,22 +76,22 @@ describe("the nine required fields", () => {
 
   it("shows the selected variant's Group Buy price and the Buy Now comparison", () => {
     const v = view({ qualifyingUnitsSold: 12 });
-    expect(v.groupBuyCashPriceMinorUnits).toBe("36000");
-    expect(v.buyNowCashPriceMinorUnits).toBe("42000");
+    expect(v.groupBuyBankPaymentPriceMinorUnits).toBe("36000");
+    expect(v.buyNowBankPaymentPriceMinorUnits).toBe("42000");
   });
 
   it("shows savings in dollars and percent, against BUY NOW", () => {
     // Measured against Buy Now, not the campaign base — those differ once Buy
     // Now moves, and the shopper's real alternative is buying it now.
     const v = view({ qualifyingUnitsSold: 12 });
-    expect(v.cashSavingsMinorUnits).toBe("6000");
-    expect(v.cashSavingsPercent).toBe("14.29");
+    expect(v.bankBasisSavingsMinorUnits).toBe("6000");
+    expect(v.bankBasisSavingsPercent).toBe("14.29");
   });
 
   it("shows the next-tier price and the additional saving it would bring", () => {
     const v = view({ qualifyingUnitsSold: 12 });
-    expect(v.nextTierCashPriceMinorUnits).toBe("32000");
-    expect(v.additionalCashSavingsMinorUnits).toBe("4000");
+    expect(v.nextTierBankPaymentPriceMinorUnits).toBe("32000");
+    expect(v.additionalBankPaymentSavingsMinorUnits).toBe("4000");
   });
 
   it("shows time remaining", () => {
@@ -98,7 +104,7 @@ describe("the nine required fields", () => {
     const markers = view({ qualifyingUnitsSold: 12 }).tierMarkers;
     expect(markers.map((m) => m.unlocked)).toEqual([true, true, false]);
     expect(markers.map((m) => m.current)).toEqual([false, true, false]);
-    expect(markers[2]!.cashPriceMinorUnits).toBe("32000");
+    expect(markers[2]!.bankPaymentPriceMinorUnits).toBe("32000");
   });
 
   it("carries the README's core message", () => {
@@ -124,7 +130,7 @@ describe("the two prohibitions", () => {
     // next price", never a shortfall.
     const v = view({ qualifyingUnitsSold: 1 });
     expect(v.currentTierNumber).toBe(1);
-    expect(v.groupBuyCashPriceMinorUnits).toBe("40000");
+    expect(v.groupBuyBankPaymentPriceMinorUnits).toBe("40000");
 
     const keys = Object.keys(v);
     for (const forbidden of ["minimumRequired", "shortfall", "remainingToMinimum"]) {
@@ -156,8 +162,8 @@ describe("Best Price Unlocked", () => {
     const v = view({ qualifyingUnitsSold: 25 });
     expect(v.nextThresholdUnits).toBeNull();
     expect(v.unitsToNextTier).toBeNull();
-    expect(v.nextTierCashPriceMinorUnits).toBeNull();
-    expect(v.additionalCashSavingsMinorUnits).toBeNull();
+    expect(v.nextTierBankPaymentPriceMinorUnits).toBeNull();
+    expect(v.additionalBankPaymentSavingsMinorUnits).toBeNull();
   });
 });
 
@@ -167,13 +173,13 @@ describe("edges that would otherwise mislead a shopper", () => {
     // worse than showing none; the honest display is zero.
     const v = view({
       qualifyingUnitsSold: 1,
-      buyNowPrice: { cashMinorUnits: 30_000n, creditCardMinorUnits: 31_500n },
+      buyNowPrice: { bankPaymentMinorUnits: 30_000n, regularCardMinorUnits: 31_500n },
     });
-    expect(v.cashSavingsMinorUnits).toBe("0");
+    expect(v.bankBasisSavingsMinorUnits).toBe("0");
     // "0", not "0.00": these are exact decimal strings with trailing zeros
     // trimmed, and PRESENTATION formatting belongs to the storefront. Padding
     // here would mean the domain had an opinion about display.
-    expect(v.cashSavingsPercent).toBe("0");
+    expect(v.bankBasisSavingsPercent).toBe("0");
   });
 
   it("shows no countdown for an open-ended campaign rather than inventing one", () => {
@@ -191,7 +197,7 @@ describe("edges that would otherwise mislead a shopper", () => {
     // Silently falling back to the base would show a customer a price the
     // campaign never offered.
     expect(() =>
-      view({ tierPrices: { 1: { cashMinorUnits: 40_000n, creditCardMinorUnits: 42_000n } } })
+      view({ tierPrices: { 1: { bankPaymentMinorUnits: 40_000n, regularCardMinorUnits: 42_000n } } })
     ).toThrow(/No price supplied for tier/);
   });
 });
@@ -219,19 +225,45 @@ describe("nothing cost-related crosses this boundary", () => {
 });
 
 describe("two prices, explicitly named", () => {
-  it("carries both a credit-card and a cash price for every figure", () => {
-    // Owner-locked 2026-09-18: the storefront presents the card price as the
-    // regular price and the cash price as the discounted payment option, so
-    // both must reach it. A single ambiguous `price` field is what let the
-    // internal cash figure be displayed as the headline.
+  it("carries both a Regular/Card and a Bank Payment price for every figure", () => {
+    // The storefront presents the Regular/Card Price as the primary advertised
+    // price and the Bank Payment Price alongside it, so both must reach it. A
+    // single ambiguous `price` field is what let the internal figure be
+    // displayed as the headline.
     const v = view({ qualifyingUnitsSold: 12 });
 
-    expect(v.groupBuyCreditCardPriceMinorUnits).toBe("37800");
-    expect(v.groupBuyCashPriceMinorUnits).toBe("36000");
-    expect(v.buyNowCreditCardPriceMinorUnits).toBe("44100");
-    expect(v.buyNowCashPriceMinorUnits).toBe("42000");
-    expect(v.nextTierCreditCardPriceMinorUnits).toBe("33600");
-    expect(v.nextTierCashPriceMinorUnits).toBe("32000");
+    expect(v.groupBuyRegularCardPriceMinorUnits).toBe("38000");
+    expect(v.groupBuyBankPaymentPriceMinorUnits).toBe("36000");
+    expect(v.buyNowRegularCardPriceMinorUnits).toBe("44500");
+    expect(v.buyNowBankPaymentPriceMinorUnits).toBe("42000");
+    expect(v.nextTierRegularCardPriceMinorUnits).toBe("34000");
+    expect(v.nextTierBankPaymentPriceMinorUnits).toBe("32000");
+  });
+
+  it('carries the "Save $Y with Bank Payment" figure, from the rounded prices', () => {
+    // Policy §9. At tier 2 the pair shown is $380 card / $360 bank, so the
+    // saving is $20 — the exact difference a shopper gets by subtracting the
+    // two figures in front of them.
+    const v = view({ qualifyingUnitsSold: 12 });
+
+    expect(v.groupBuyBankPaymentSavingsMinorUnits).toBe("2000");
+    expect(v.groupBuyBankPaymentSavingsMinorUnits).toBe(
+      String(
+        BigInt(v.groupBuyRegularCardPriceMinorUnits) -
+          BigInt(v.groupBuyBankPaymentPriceMinorUnits)
+      )
+    );
+  });
+
+  it("keeps the two savings separate", () => {
+    // A $20 bank-payment saving and a $65 Group-Buy-vs-Buy-Now saving measure
+    // different things. A template showing either as the other, or adding them,
+    // would misstate the offer.
+    const v = view({ qualifyingUnitsSold: 12 });
+
+    expect(v.groupBuyBankPaymentSavingsMinorUnits).toBe("2000"); // 38000 − 36000
+    expect(v.groupSavingsCardBasisMinorUnits).toBe("6500"); //     44500 − 38000
+    expect(v.groupBuyBankPaymentSavingsMinorUnits).not.toBe(v.groupSavingsCardBasisMinorUnits);
   });
 
   it("has NO ambiguously-named money field at all", () => {
@@ -243,53 +275,60 @@ describe("two prices, explicitly named", () => {
     // than to every key containing "price". `bestPriceUnlocked` is a boolean
     // about which tier is in force and belongs to neither basis; demanding it
     // pick one would be the test failing to say what it means.
+    // `…CardBasis…` / `…BankBasis…` count as saying which side they measure:
+    // a SAVING is a difference between two prices on one basis, not a price, so
+    // it names the basis rather than the price. Accepting both spellings is the
+    // test describing the convention rather than insisting on one word.
     const keys = Object.keys(view()).concat(Object.keys(view().tierMarkers[0]!));
     const amountKeys = keys.filter((k) => k.endsWith("MinorUnits"));
 
     expect(amountKeys.length).toBeGreaterThan(5);
     for (const key of amountKeys) {
-      expect(/cash|creditcard/i.test(key), `"${key}" must say which price it is`).toBe(true);
+      expect(
+        /bankpayment|regularcard|cardbasis|bankbasis/i.test(key),
+        `"${key}" must say which price or basis it is`
+      ).toBe(true);
     }
   });
 
   it("measures savings like against like, never across the two bases", () => {
-    // Card savings compare card to card; cash savings compare cash to cash.
-    // Crossing them would fold the payment-method spread into the advertised
-    // Group Buy saving: $441 card Buy Now against $360 cash group reads as an
-    // $81 saving when the Group Buy is worth $63 of it.
+    // Card against card, bank against bank. Crossing them would fold the
+    // bank/card spread into the advertised Group Buy saving: a $445 card Buy
+    // Now against a $360 bank group price reads as an $85 saving when the Group
+    // Buy is worth $65 of it.
     const v = view({ qualifyingUnitsSold: 12 });
 
-    expect(v.creditCardSavingsMinorUnits).toBe("6300"); // 44100 − 37800
-    expect(v.cashSavingsMinorUnits).toBe("6000"); //      42000 − 36000
-    expect(v.creditCardSavingsMinorUnits).not.toBe("8100"); // the crossed figure
+    expect(v.groupSavingsCardBasisMinorUnits).toBe("6500"); // 44500 − 38000
+    expect(v.bankBasisSavingsMinorUnits).toBe("6000"); //      42000 − 36000
+    expect(v.groupSavingsCardBasisMinorUnits).not.toBe("8500"); // the crossed figure
   });
 
-  it("states no cash-discount percentage anywhere", () => {
-    // The uplift and the discount are reciprocals (5% up is 4.76% off) and
-    // whole-dollar rounding moves the realised figure per item, so no fixed
-    // percentage is correct. The percentages present are the GROUP BUY savings
-    // and the tier discount, which are different and legitimate figures.
+  it("states no bank/card percentage anywhere", () => {
+    // Policy §6 keeps the tier rate internal, and the $5 ceiling makes any
+    // fixed percentage wrong per item in any case. The percentages present are
+    // the GROUP BUY savings and the Group Buy tier discount — different,
+    // legitimate figures the README asks for.
     const v = view({ qualifyingUnitsSold: 12 });
     const percentKeys = Object.keys(v).filter((k) => /percent/i.test(k));
 
     expect(percentKeys.sort()).toEqual([
-      "cashSavingsPercent",
-      "creditCardSavingsPercent",
+      "bankBasisSavingsPercent",
       "currentTierDiscountPercent",
+      "groupSavingsCardBasisPercent",
     ]);
   });
 
   it("gives tier markers both prices", () => {
     const markers = view({ qualifyingUnitsSold: 12 }).tierMarkers;
-    expect(markers[1]!.creditCardPriceMinorUnits).toBe("37800");
-    expect(markers[1]!.cashPriceMinorUnits).toBe("36000");
+    expect(markers[1]!.regularCardPriceMinorUnits).toBe("38000");
+    expect(markers[1]!.bankPaymentPriceMinorUnits).toBe("36000");
   });
 
-  it("does not expose the uplift rate or the rule that produced the pair", () => {
-    // The two prices cross the boundary; the rule that derived one from the
-    // other is profile data and stays on the server.
+  it("does not expose the tier rate or the rule that produced the pair", () => {
+    // The two prices cross the boundary; the tier and the rule that derived one
+    // from the other are internal (policy §6) and stay on the server.
     const serialised = JSON.stringify(view()).toLowerCase();
-    for (const leak of ["uplift", "rule", "0.05"]) {
+    for (const leak of ["uplift", "rule", "tierlabel", "0.05", "0.045", "0.04"]) {
       expect(serialised).not.toContain(leak);
     }
   });

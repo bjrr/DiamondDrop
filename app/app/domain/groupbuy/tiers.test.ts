@@ -9,7 +9,7 @@ import {
   MIN_TIERS,
   nextTier,
   selectTier,
-  tierCashPriceExact,
+  tierBankPaymentPriceExact,
   unitsToNextTier,
   validateTierSet,
   type TierDefinition,
@@ -205,14 +205,14 @@ describe("tier set validation", () => {
 describe("tier price", () => {
   it("multiplies the frozen base by the tier multiplier", () => {
     // README: Variant Group Price = Frozen Base x Applicable Tier Percentage.
-    const price = tierCashPriceExact(new MoneyDecimal("40000"), THREE_TIERS[1]!);
+    const price = tierBankPaymentPriceExact(new MoneyDecimal("40000"), THREE_TIERS[1]!);
     expect(price.toString()).toBe("36000");
   });
 
   it("treats the multiplier as a MULTIPLIER, not a discount rate", () => {
     // The trap this codebase has already hit once with the card uplift. 0.90
     // means 90% of base, not 90% off.
-    const price = tierCashPriceExact(new MoneyDecimal("10000"), {
+    const price = tierBankPaymentPriceExact(new MoneyDecimal("10000"), {
       tierNumber: 2,
       minQualifyingUnits: 10,
       priceMultiplier: "0.900000",
@@ -222,19 +222,79 @@ describe("tier price", () => {
   });
 
   it("returns the base unchanged at a multiplier of 1", () => {
-    expect(tierCashPriceExact(new MoneyDecimal("12345"), THREE_TIERS[0]!).toString()).toBe("12345");
+    expect(tierBankPaymentPriceExact(new MoneyDecimal("12345"), THREE_TIERS[0]!).toString()).toBe("12345");
   });
 
   it("stays EXACT and unrounded, leaving rounding to the engine boundary", () => {
     // 33333 x 0.85 = 28333.05. Rounding here and again in the engine would
     // round twice, and double rounding drifts.
-    const price = tierCashPriceExact(new MoneyDecimal("33333"), THREE_TIERS[2]!);
+    const price = tierBankPaymentPriceExact(new MoneyDecimal("33333"), THREE_TIERS[2]!);
     expect(price.toString()).toBe("28333.05");
   });
 
   it("is exact on a value where float arithmetic diverges", () => {
     // 1002 x 0.9 is 901.8 exactly; the double path gives 901.8000000000001.
-    const price = tierCashPriceExact(new MoneyDecimal("1002"), THREE_TIERS[1]!);
+    const price = tierBankPaymentPriceExact(new MoneyDecimal("1002"), THREE_TIERS[1]!);
     expect(price.toString()).toBe("901.8");
+  });
+});
+
+describe("adjacent tiers must differ by a meaningful margin", () => {
+  /**
+   * Guards against a false storefront claim that the Bank/Card tier schedule
+   * makes possible. See MIN_TIER_MULTIPLIER_GAP for the full reasoning; the
+   * short version is that the card uplift is non-monotonic across its band
+   * boundaries, so two Group Buy tiers priced a hair apart can produce a NEXT
+   * tier whose card price is HIGHER — and the block would then advertise "the
+   * price drops to" a larger number.
+   */
+  const pair = (second: string): TierDefinition[] => [
+    { tierNumber: 1, minQualifyingUnits: 1, priceMultiplier: "1.000000" },
+    { tierNumber: 2, minQualifyingUnits: 10, priceMultiplier: second },
+  ];
+
+  it("rejects a gap narrower than 1%", () => {
+    expect(() => validateTierSet(pair("0.997000"))).toThrow(InvalidTierSetError);
+    expect(() => validateTierSet(pair("0.995000"))).toThrow(/at least 0\.01/);
+  });
+
+  it("accepts a gap of exactly 1%", () => {
+    // The boundary is inclusive: 1% apart is permitted, so a campaign is not
+    // rejected for landing precisely on the documented minimum.
+    expect(() => validateTierSet(pair("0.990000"))).not.toThrow();
+  });
+
+  it("accepts the ordinary 5-10% gaps campaigns actually use", () => {
+    expect(() => validateTierSet(pair("0.950000"))).not.toThrow();
+    expect(() => validateTierSet(pair("0.900000"))).not.toThrow();
+  });
+
+  it("still reports a FLAT or RISING multiplier as the different fault it is", () => {
+    // A zero or negative gap is not "too small a discount", it is a tier that
+    // makes the price worse. The two must not collapse into one message: the
+    // fixes are different.
+    expect(() => validateTierSet(pair("1.000000"))).toThrow(/must be lower than/);
+    expect(() => validateTierSet(pair("1.100000"))).toThrow(/must be lower than/);
+    expect(() => validateTierSet(pair("0.997000"))).not.toThrow(/must be lower than/);
+  });
+
+  it("names every offending pair at once across a five-tier set", () => {
+    // validateTierSet collects rather than throwing on the first problem, and
+    // that has to keep holding for the new rule too — someone configuring a
+    // campaign should see all of it in one pass.
+    let problems: readonly string[] = [];
+    try {
+      validateTierSet([
+        { tierNumber: 1, minQualifyingUnits: 1, priceMultiplier: "1.000000" },
+        { tierNumber: 2, minQualifyingUnits: 5, priceMultiplier: "0.998000" },
+        { tierNumber: 3, minQualifyingUnits: 10, priceMultiplier: "0.996000" },
+        { tierNumber: 4, minQualifyingUnits: 20, priceMultiplier: "0.900000" },
+      ]);
+    } catch (error) {
+      problems = (error as InvalidTierSetError).problems;
+    }
+    expect(problems.length).toBe(2);
+    expect(problems[0]).toMatch(/tier 2/);
+    expect(problems[1]).toMatch(/tier 3/);
   });
 });

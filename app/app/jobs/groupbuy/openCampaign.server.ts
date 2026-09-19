@@ -127,8 +127,8 @@ export async function openGroupBuyCampaign(
     result: BuyNowPriceResult;
     profile: BuyNowPricingInputs["profile"];
     pricingProfileId: string;
-    /** The frozen base is the CASH price: tier multipliers apply to it. */
-    baseCashPriceMinorUnits: bigint;
+    /** The frozen base is the BANK PAYMENT price; tier multipliers apply to it. */
+    baseBankPaymentPriceMinorUnits: bigint;
     landedCostMinorUnits: MoneyDecimalValue;
     variantFloorMinorUnits: MoneyDecimalValue;
   }
@@ -144,11 +144,11 @@ export async function openGroupBuyCampaign(
       result,
       profile: resolved.inputs.profile,
       pricingProfileId: resolved.pricingProfileId,
-      // THE CASH PRICE IS WHAT FREEZES. Tier multipliers apply to it and tier
+      // THE BANK PAYMENT PRICE IS WHAT FREEZES. Tier multipliers apply to it and tier
       // safety judges it; the credit-card price is re-derived for display from
-      // whatever cash price a tier produces, so freezing it too would store a
+      // whatever bank price a tier produces, so freezing it too would store a
       // second number that could only ever agree or be wrong.
-      baseCashPriceMinorUnits: BigInt(result.cashPrice.amountMinorUnits),
+      baseBankPaymentPriceMinorUnits: BigInt(result.bankPaymentPrice.amountMinorUnits),
       landedCostMinorUnits: new MoneyDecimal(result.breakdown.landedCostMinorUnits),
       variantFloorMinorUnits: new MoneyDecimal(resolved.inputs.variantFloor?.amountMinorUnits ?? "0"),
     });
@@ -161,7 +161,7 @@ export async function openGroupBuyCampaign(
   const safety = evaluateTierSafety({
     variants: priced.map((p) => ({
       masterVariantId: p.masterVariantId,
-      frozenBaseCashMinorUnits: p.baseCashPriceMinorUnits,
+      frozenBaseBankPaymentMinorUnits: p.baseBankPaymentPriceMinorUnits,
       landedCostMinorUnits: p.landedCostMinorUnits,
       variantFloorMinorUnits: p.variantFloorMinorUnits,
     })),
@@ -211,7 +211,7 @@ export async function openGroupBuyCampaign(
       await tx.groupBuyCampaignVariant.update({
         where: { campaignId_masterVariantId: { campaignId: campaign.id, masterVariantId: p.masterVariantId } },
         data: {
-          frozenBaseCashPriceMinorUnits: p.baseCashPriceMinorUnits,
+          frozenBaseBankPaymentPriceMinorUnits: p.baseBankPaymentPriceMinorUnits,
           frozenLandedCostMinorUnits: BigInt(p.landedCostMinorUnits.toDecimalPlaces(0).toString()),
         },
       });

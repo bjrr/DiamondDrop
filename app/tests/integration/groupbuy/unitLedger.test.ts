@@ -39,14 +39,21 @@ async function openCampaign() {
       createdBy: "integration-test",
       tiers: {
         create: [
+          // 1% apart, the documented minimum (MIN_TIER_MULTIPLIER_GAP). These
+          // were 0.5% apart, chosen shallow so the campaign could open under
+          // the old fee-deducting margin floor; the tier-gap rule added with
+          // the Bank/Card schedule now rejects that, correctly — adjacent tiers
+          // that close together can invert the CARD price across an uplift-band
+          // boundary. Widening is safe here because the floors no longer deduct
+          // payment expense, so a 2% total discount clears comfortably.
           { tierNumber: 1, minQualifyingUnits: 1, priceMultiplier: "1.000000" },
-          { tierNumber: 2, minQualifyingUnits: 5, priceMultiplier: "0.995000" },
-          { tierNumber: 3, minQualifyingUnits: 10, priceMultiplier: "0.990000" },
+          { tierNumber: 2, minQualifyingUnits: 5, priceMultiplier: "0.990000" },
+          { tierNumber: 3, minQualifyingUnits: 10, priceMultiplier: "0.980000" },
         ],
       },
       variants: {
         create: [
-          { masterVariantId: variant.id, frozenBaseCashPriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
+          { masterVariantId: variant.id, frozenBaseBankPaymentPriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
         ],
       },
     },
