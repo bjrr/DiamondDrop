@@ -21,7 +21,8 @@
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
-    "price-review": "tsx scripts/price-review.ts"
+    "price-review": "tsx scripts/price-review.ts",
+    "dev:group-buy": "tsx scripts/dev-group-buy-campaign.ts"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
