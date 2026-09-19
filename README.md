@@ -21,6 +21,7 @@ Authoritative MVP1 policy documents:
 - `docs/LUXURY-STEALS.md` — Luxury Steals inventory/scarcity, Final Sale rules, required disclosures/acknowledgments, claim separation, and evidence.
 - `docs/LET-US-BEAT-YOUR-QUOTE.md` — competitor custom quotes, active online listings, competing Group Buys, verification, guarantee/fallback eligibility, acknowledgments, and evidence.
 - `docs/WARRANTY-CLAIMS.md` — 1-year limited manufacturing warranty claim intake, authorization, inbound shipping, inspection, coverage decision, remedies, and evidence.
+- `docs/CASH-CARD-PRICING.md` — locked cash-first pricing economics, 5% derived card price, cash-equivalent payment methods, Group Buy cash/card treatment, and customer-facing price display.
 
 If a detailed locked policy document conflicts with a summary in this README, **the applicable locked policy document controls**. Do not silently change a locked decision. Unsettled details must not be invented or converted into customer promises.
 
@@ -82,7 +83,7 @@ Each jewelry design should have a structured master product definition containin
 - stone type, natural/lab status, shape, dimensions, carat, color, clarity, cut/quality, certification, and supplier;
 - moissanite/colored-gemstone specifications;
 - manufacturing complexity/labor;
-- packaging, shipping, insurance, warranty reserve, payment costs, and other cost assumptions;
+- packaging, shipping, insurance, warranty reserve, and other product-cost assumptions; card-processing expense is not part of the cash margin/profit-floor calculation under `docs/CASH-CARD-PRICING.md`;
 - Shopify/SKU mappings;
 - historical pricing/campaign snapshots.
 
@@ -100,7 +101,9 @@ All money calculations must be deterministic and auditable. Do not use binary fl
 
 ### Buy Now Pricing
 
-Buy Now prices derive from current cost data rather than permanent hard-coded prices. Inputs may include metal, stones, labor/manufacturing, packaging, shipping/insurance, payment processing, warranty reserve, other allocated costs, and required margin/minimum profit.
+Buy Now prices derive from current cost data rather than permanent hard-coded prices. The authoritative business price is the **cash-equivalent price**. Inputs may include metal, stones, labor/manufacturing, packaging, shipping/insurance, warranty reserve, other allocated product costs, and required margin/minimum profit. Card-processing expense does **not** reduce the cash margin/profit floors.
+
+Locked cash pricing: target **40% markup on total cost**, minimum **20% gross margin**, minimum **$100 profit**, and whole-dollar customer pricing. After the final cash price clears all floors, derive the credit-card price as `cash_price × 1.05` under a configurable/versioned rule. The credit-card price is the primary customer-facing/Shopify display price; the cash price is presented as the discounted price for ACH, wire, Zelle, or check. Do not advertise a fixed 5% cash-discount percentage; show the two exact dollar prices. See `docs/CASH-CARD-PRICING.md`.
 
 Recalculate at least daily, targeting twice-daily precious-metal updates where practical, then synchronize approved prices to Shopify.
 
@@ -116,9 +119,11 @@ There is **no mandatory minimum buyer/unit count**. One qualifying unit can proc
 
 Default: **3 tiers**, configurable from **2 to 5** per campaign.
 
-Group Buy discounts are percentage-based and apply to the frozen campaign base price for the selected eligible variant:
+Group Buy discounts are percentage-based and apply to the frozen campaign **cash** base price for the selected eligible variant:
 
-**Variant Group Price = Frozen Campaign Base Price for Eligible Variant × Applicable Tier Percentage**
+**Variant Group Cash Price = Frozen Campaign Cash Base Price for Eligible Variant × Applicable Tier Percentage**
+
+After the Group Buy cash price is finalized and validated against the cash floors, derive the customer-facing Group Buy card price using the same versioned +5% card-uplift rule. Group Buy margin, minimum-profit, override, freeze, and refund economics remain cash-based. See `docs/CASH-CARD-PRICING.md`.
 
 Thresholds use **qualifying units sold**, not unique buyers. Three eligible pieces purchased by one customer count as three units. Cancelled/refunded units that no longer qualify stop counting.
 
@@ -153,8 +158,8 @@ Active Group Buy pages should show:
 - qualifying units sold;
 - current tier/percentage;
 - next threshold and units needed;
-- selected variant's current Group Buy price;
-- selected variant's current Buy Now comparison price;
+- selected variant's current **Group Buy card price** as the primary displayed price, plus its discounted cash-equivalent price;
+- selected variant's current **Buy Now card price** as the like-for-like comparison, with cash comparison shown only against cash when needed;
 - current dollar/percentage savings;
 - next-tier price and additional savings;
 - countdown/time remaining;
@@ -455,7 +460,9 @@ Unless later promoted by an owner-approved decision:
 
 ## Payment Strategy
 
-Encourage lower-cost payment methods where commercially appropriate while keeping credit-card payment available, subject to processor rules and applicable law.
+All pricing economics are cash-first. The authoritative cash-equivalent price drives markup, margin/profit floors, Group Buy tiers, overrides, recalculation, and frozen campaign pricing. Cash-equivalent methods are **ACH, wire, Zelle, and check**.
+
+After the cash price is final, derive the credit-card price as **cash × 1.05** under a configurable/versioned rule. The **credit-card price is the primary displayed price**; the cash-equivalent price is shown as the discounted cash price. The 5% uplift must not feed back into product margin, minimum-profit, or Group Buy safety calculations, and card-processing fees must not silently reduce those cash floors. See `docs/CASH-CARD-PRICING.md`.
 
 ## Guiding Rule
 
