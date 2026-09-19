@@ -140,7 +140,22 @@ The 405 on the same-origin request is the load-bearing detail: it proves the 400
 
 **The failure mode to avoid.** Slices 3, 4, 5, 9 and 10 all POST customer forms through the App Proxy. A form rendered on `caratforus.com` posting to a route that *also renders UI* arrives with `Origin: https://caratforus.com` while `request.url` is the app host. The request is rejected with 400 **before any validation runs, before any evidence row is written, and before any log line our code emits**. A customer's Group Buy join or warranty claim fails silently with nothing in our logs to explain it — and nothing in the diff that introduced it to point at.
 
-**Mitigation, one line.** Either keep App Proxy POST endpoints as resource routes (no default export), or set `allowedActionOrigins: ["caratforus.com", "*.myshopify.com"]` in `app/react-router.config.ts`.
+**Mitigation — CORRECTED 2026-09-19 (slice 2, T10). The two options are NOT interchangeable in production.**
+
+The original wording below said "either … or", and that is wrong for a deployed build:
+
+> ~~Either keep App Proxy POST endpoints as resource routes (no default export), or set `allowedActionOrigins: ["caratforus.com", "*.myshopify.com"]` in `app/react-router.config.ts`.~~
+
+**`react-router build` resolves the config with Vite's `defaultNodeEnv` forced to `"production"`, unconditionally** — verified against the installed `@react-router/dev@7.18.3` CLI source, where both build call sites pass `"production"`, regardless of `APP_ENV` or any tunnel variable present at build time. Every production artefact is produced by `build`, never by `dev`. **Therefore every production deploy ships `allowedActionOrigins: []`, and the allowlist cannot protect a production route at all.**
+
+The correct statement of the mitigation:
+
+1. **Resource routes are the only production protection.** Every cross-origin-reachable POST endpoint — App Proxy (`apps.carat.*`), webhooks (`webhooks.*`), internal/cron (`internal.*`) — must have **no default export**. This holds regardless of config, `NODE_ENV`, or any environment variable being right at deploy time, which is exactly why it is the one to rely on.
+2. **`allowedActionOrigins` is a development-only affordance**, populated from the Shopify CLI's tunnel variables so the embedded admin UI route can POST behind `shopify app dev`. It is real and it works — wildcard matching was confirmed end-to-end against the installed runtime — but it is inert in production by construction.
+
+**Consequence for every later slice:** a route that renders UI *and* accepts a cross-origin POST is not a valid shape for this app. Split it — resource route for the POST, UI route for the page. **Slice 2 stage 2C's Bank Payment Checkout POST must be a resource route**, and the same applies to the warranty, RMA and quote forms in slices 3, 4, 5, 9 and 10.
+
+Because nothing in the type system prevents someone adding a default export to an existing resource route, this invariant is enforced by a machine-checked regression fence over the route modules (slice 2, T10), in the same spirit as slice 1's criterion-29 import fence. The failure it prevents is silent: a 400 returned before validation, before any evidence row is written, and before any `logger` call of ours runs.
 
 #### Standing contract for a future React Router 8 upgrade
 

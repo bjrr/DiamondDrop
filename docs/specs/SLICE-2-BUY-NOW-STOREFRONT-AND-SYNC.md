@@ -767,3 +767,28 @@ open against stage 2C only.
 
 **Stage 2A may begin.** Stage 2B and 2C may not begin until their own conditions
 and decisions are closed.
+
+### 16.4 Criterion 57 — the Bank Payment Checkout POST must be a resource route
+
+Added 2026-09-19 from T10's finding, which corrected `ARCHITECTURE-MVP1.md`
+§2.1 R-1.
+
+R-1 previously offered two interchangeable mitigations for the React Router CSRF
+origin guard: resource routes, **or** `allowedActionOrigins`. T10 verified
+against the installed `@react-router/dev@7.18.3` CLI source that
+`react-router build` forces Vite's `defaultNodeEnv` to `"production"`
+unconditionally, so **every production build ships an empty allowlist** and the
+second option is inert where it matters. The two are not alternatives in
+production; resource routes are the only protection.
+
+Therefore:
+
+> **57.** The stage 2C Bank Payment Checkout endpoint — and every other
+> cross-origin POST this slice adds — is a **resource route with no default
+> export**. A route that both renders UI and accepts a cross-origin POST is not
+> a valid shape in this app; split it.
+
+Enforced by the machine-checked route fence T10 is adding, not by review
+attention. The failure it prevents is a 400 returned before validation, before
+any evidence row, and before any log line we emit — a customer's bank order
+vanishing with nothing to explain it.
