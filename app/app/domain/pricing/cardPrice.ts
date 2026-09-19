@@ -7,8 +7,8 @@ import type { CardPriceRuleId } from "./types";
  *
  * TWO PRICES, ONE CALCULATION, AND IT MATTERS WHICH IS WHICH:
  *
- *   INTERNAL   the calculated price is the CASH price (PayPal, Venmo, ACH,
- *              wire, Zelle). It is the real sale price, it is what the margin
+ *   INTERNAL   the calculated price is the CASH-EQUIVALENT price (ACH, wire,
+ *              Zelle, check). It is the authoritative business price, it is what the margin
  *              floors bind, and it is what profit is measured on.
  *   DISPLAYED  the CARD price, cash x (1 + upliftRate), is what the customer
  *              sees and what is published to Shopify. Cash is presented to the
@@ -26,11 +26,11 @@ import type { CardPriceRuleId } from "./types";
  * prices clear every floor by construction, and the
  * discount-overrides-the-minimums carve-out that revision needed is gone.
  *
- * WHY CARD IS THE HEADLINE. Posting the card price and offering a discount for
- * cash is a cash DISCOUNT, permitted without limit. Posting the cash price and
- * adding a fee for card is a SURCHARGE — capped at 3% by the card networks and
- * restricted in several US states. Identical arithmetic, different legal
- * characterisation, and at a 5% spread only the discount framing is available.
+ * WHY CARD IS THE HEADLINE. Owner decision 2026-09-18: the card price is the
+ * primary customer-facing/Shopify price and the cash-equivalent price is shown
+ * as the discounted price for ACH, wire, Zelle, or check. Checkout/legal/network
+ * constraints are verified separately; they do not change the pricing-domain
+ * rule. Payment-processing expense does not feed back into the cash floors.
  *
  * ONE PRICE IS STORED. The card price is a pure function of the cash price and
  * the rate, both recorded on every calculation, so it is re-derivable forever
