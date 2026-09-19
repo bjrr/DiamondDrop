@@ -19,6 +19,11 @@ import type { DecimalString } from "~/domain/pricing/types";
  * Thresholds and percentages are therefore DATA, supplied per campaign, frozen
  * when the campaign opens, and validated here.
  *
+ * EVERY PRICE IN THIS MODULE IS A CASH PRICE. The frozen campaign base is the
+ * cash price, tier multipliers apply to cash, and tier safety is judged on
+ * cash. The 5% credit-card uplift is derived afterwards and is not part of
+ * Group Buy economics (owner-locked 2026-09-18).
+ *
  * "PERCENTAGE" IS A MULTIPLIER, NOT A DISCOUNT. The README's formula is
  *
  *     Variant Group Price = Frozen Campaign Base Price x Applicable Tier Percentage
@@ -45,7 +50,8 @@ export interface TierDefinition {
    */
   minQualifyingUnits: number;
   /**
-   * Fraction OF THE FROZEN BASE PRICE, e.g. "0.900000" = 90% of base = 10% off.
+   * Fraction OF THE FROZEN BASE CASH PRICE, e.g. "0.900000" = 90% of base =
+   * 10% off cash.
    * NOT a discount rate. See the header.
    */
   priceMultiplier: DecimalString;
@@ -188,16 +194,22 @@ export function unitsToNextTier(
 }
 
 /**
- * The EXACT group price for a tier, unrounded.
+ * The EXACT group-buy CASH price for a tier, unrounded.
+ *
+ * CASH IN, CASH OUT (owner-locked 2026-09-18). The frozen base is a cash price
+ * and the multiplier applies to it, so a Group Buy discount is a discount off
+ * cash. The credit-card group price is derived from the rounded result of this,
+ * by the same uplift Buy Now uses — it is never discounted separately, and the
+ * uplift never enters the discount.
  *
  * Returns an exact decimal rather than whole minor units on purpose. Rounding
  * is the engine's single load-bearing boundary (§5.4) and must happen once,
  * through the versioned rounding and price-ending registries — not here, and
  * not twice.
  */
-export function tierPriceExact(
-  frozenBaseMinorUnits: MoneyDecimalValue,
+export function tierCashPriceExact(
+  frozenBaseCashMinorUnits: MoneyDecimalValue,
   tier: TierDefinition
 ): MoneyDecimalValue {
-  return new MoneyDecimal(frozenBaseMinorUnits).times(tier.priceMultiplier);
+  return new MoneyDecimal(frozenBaseCashMinorUnits).times(tier.priceMultiplier);
 }

@@ -276,7 +276,7 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
           result.currency,
           result.roundingRuleId
         ).amountMinorUnits,
-        computedPriceMinorUnits: BigInt(result.price.amountMinorUnits),
+        cashPriceMinorUnits: BigInt(result.cashPrice.amountMinorUnits),
         currency: result.currency,
         status: "computed",
       });
@@ -289,14 +289,19 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
       const lastSyncedCalculation = await getLastSyncedCalculation(variant.id);
       const lastSynced = lastSyncedCalculation
         ? {
-            amountMinorUnits: lastSyncedCalculation.computedPriceMinorUnits.toString(),
+            amountMinorUnits: lastSyncedCalculation.cashPriceMinorUnits.toString(),
             currency: lastSyncedCalculation.currency,
           }
         : null;
 
       const decision = decideSync({
-        newPrice: result.price,
-        lastSyncedPrice: lastSynced,
+        // CASH AGAINST CASH. The published figure is the card price, but the
+        // comparison that decides auto-apply is made on cash, because that is
+        // what is stored and what moves when costs move. Comparing a new cash
+        // price against a previously published card price would read as a ~5%
+        // drop on every variant, every run.
+        newCashPrice: result.cashPrice,
+        lastSyncedCashPrice: lastSynced,
         // NULL tolerance means D14 is unresolved: automatic publication is
         // disabled and every change needs a human. Passing null rather than a
         // default is deliberate — a defaulted tolerance would silently publish.
@@ -331,8 +336,8 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
           : decision.unchanged
             ? "synced"
             : "approved",
-        previousPriceMinorUnits: lastSynced ? BigInt(lastSynced.amountMinorUnits) : null,
-        previousPriceCurrency: lastSynced?.currency ?? null,
+        previousCashPriceMinorUnits: lastSynced ? BigInt(lastSynced.amountMinorUnits) : null,
+        previousCashPriceCurrency: lastSynced?.currency ?? null,
         deltaBps: decision.deltaBps,
         deltaMinorUnits: decision.deltaMinorUnits,
         reason: decision.reason,
@@ -376,7 +381,7 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
           asOf,
           snapshotId: await getFailureSnapshotId(),
           landedCostMinorUnits: 0n,
-          computedPriceMinorUnits: 0n,
+          cashPriceMinorUnits: 0n,
           currency: runProfile.minDollarProfit.toJSON().currency,
           status: "failed",
           failureReason: `${errorName}: ${error instanceof Error ? error.message : String(error)}`,

@@ -36,10 +36,21 @@ export interface LuxuryStealExclusionSource {
   excludedMasterVariantIds(asOf: Date): Promise<ReadonlySet<string>>;
 }
 
+/**
+ * THE PORT TAKES THE CREDIT-CARD PRICE, and the parameter is named so that
+ * passing the wrong one is a type-checked mistake rather than a silent ~5%
+ * shortfall on every variant.
+ *
+ * The stored price is the CASH price — that is what the floors bind and what
+ * profit is measured on — but the price published to Shopify is the credit-card
+ * price, because card is the primary displayed price and cash is offered as a
+ * discount off it. A port parameter called `price` left the choice to whoever
+ * wired slice 2, which is not a decision that should be re-made at a call site.
+ */
 export interface ShopifyPriceSyncPort {
   applyVariantPrice(input: {
     shopifyVariantGid: string;
-    price: Money;
+    creditCardPrice: Money;
     priceCalculationId: string;
   }): Promise<{ appliedAt: Date }>;
 }
@@ -73,20 +84,20 @@ export class UnimplementedPriceSyncPort implements ShopifyPriceSyncPort {
 export class RecordingPriceSyncPort implements ShopifyPriceSyncPort {
   readonly calls: {
     shopifyVariantGid: string;
-    priceMinorUnits: string;
+    creditCardPriceMinorUnits: string;
     currency: string;
     priceCalculationId: string;
   }[] = [];
 
   async applyVariantPrice(input: {
     shopifyVariantGid: string;
-    price: Money;
+    creditCardPrice: Money;
     priceCalculationId: string;
   }): Promise<{ appliedAt: Date }> {
-    const json = input.price.toJSON();
+    const json = input.creditCardPrice.toJSON();
     this.calls.push({
       shopifyVariantGid: input.shopifyVariantGid,
-      priceMinorUnits: json.amountMinorUnits,
+      creditCardPriceMinorUnits: json.amountMinorUnits,
       currency: json.currency,
       priceCalculationId: input.priceCalculationId,
     });

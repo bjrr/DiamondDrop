@@ -111,7 +111,7 @@ describe("engine.ts is agnostic to which margin models exist", () => {
 
   it("finds the source it is checking", () => {
     // Guards the guard: a bad path would make every assertion above vacuous.
-    expect(source).toMatch(/solveExactPrice/);
+    expect(source).toMatch(/solveExactCashPrice/);
     expect(source.length).toBeGreaterThan(500);
   });
 });

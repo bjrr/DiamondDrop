@@ -23,8 +23,8 @@ export type VerifyOutcome =
       status: "diverged";
       calculationId: string;
       engineVersion: string;
-      storedPriceMinorUnits: string;
-      recomputedPriceMinorUnits: string;
+      storedCashPriceMinorUnits: string;
+      recomputedCashPriceMinorUnits: string;
       differences: readonly string[];
     }
   | {
@@ -32,8 +32,8 @@ export type VerifyOutcome =
       calculationId: string;
       storedEngineVersion: string;
       currentEngineVersion: string;
-      storedPriceMinorUnits: string;
-      recomputedPriceMinorUnits: string;
+      storedCashPriceMinorUnits: string;
+      recomputedCashPriceMinorUnits: string;
       note: string;
     }
   | { status: "not_found"; calculationId: string };
@@ -47,12 +47,12 @@ export async function verifyPriceCalculation(calculationId: string): Promise<Ver
   const payload = calculation.snapshot.payload as unknown as {
     engineVersion: string;
     inputs: BuyNowPricingInputs;
-    result: { price: { amountMinorUnits: string } };
+    result: { cashPrice: { amountMinorUnits: string } };
   };
 
   const recomputed = computeBuyNowPrice(payload.inputs);
-  const storedPrice = calculation.computedPriceMinorUnits.toString();
-  const recomputedPrice = recomputed.price.amountMinorUnits;
+  const storedCashPrice = calculation.cashPriceMinorUnits.toString();
+  const recomputedCashPrice = recomputed.cashPrice.amountMinorUnits;
 
   if (payload.engineVersion !== PRICING_ENGINE_VERSION) {
     return {
@@ -60,8 +60,8 @@ export async function verifyPriceCalculation(calculationId: string): Promise<Ver
       calculationId,
       storedEngineVersion: payload.engineVersion,
       currentEngineVersion: PRICING_ENGINE_VERSION,
-      storedPriceMinorUnits: storedPrice,
-      recomputedPriceMinorUnits: recomputedPrice,
+      storedCashPriceMinorUnits: storedCashPrice,
+      recomputedCashPriceMinorUnits: recomputedCashPrice,
       note:
         "The engine version has moved on since this calculation was stored. The " +
         "prices above are reported for comparison and are NOT asserted equal: a " +
@@ -81,12 +81,12 @@ export async function verifyPriceCalculation(calculationId: string): Promise<Ver
     status: "diverged",
     calculationId,
     engineVersion: payload.engineVersion,
-    storedPriceMinorUnits: storedPrice,
-    recomputedPriceMinorUnits: recomputedPrice,
+    storedCashPriceMinorUnits: storedCashPrice,
+    recomputedCashPriceMinorUnits: recomputedCashPrice,
     differences: [
-      storedPrice === recomputedPrice
-        ? "price matches but the full result differs — compare the breakdown"
-        : `price differs: stored ${storedPrice}, recomputed ${recomputedPrice}`,
+      storedCashPrice === recomputedCashPrice
+        ? "cash price matches but the full result differs — compare the breakdown"
+        : `cash price differs: stored ${storedCashPrice}, recomputed ${recomputedCashPrice}`,
     ],
   };
 }

@@ -235,13 +235,13 @@ export async function resolveInputsForVariant(
       priceEndingRuleId:
         profile.priceEndingRuleId as BuyNowPricingInputs["profile"]["priceEndingRuleId"],
       autoApplyToleranceBps: profile.autoApplyToleranceBps,
-      cardPriceRuleId: profile.cardPriceRuleId as BuyNowPricingInputs["profile"]["cardPriceRuleId"],
-      cardUpliftRate: profile.cardUpliftRate,
+      creditCardPriceRuleId: profile.creditCardPriceRuleId as BuyNowPricingInputs["profile"]["creditCardPriceRuleId"],
+      creditCardUpliftRate: profile.creditCardUpliftRate,
       isPlaceholder: profile.isPlaceholder,
     },
     variantFloor:
-      variant.minPriceMinorUnits !== null && variant.minPriceCurrency !== null
-        ? { amountMinorUnits: variant.minPriceMinorUnits.toString(), currency: variant.minPriceCurrency }
+      variant.minCashPriceMinorUnits !== null && variant.minCashPriceCurrency !== null
+        ? { amountMinorUnits: variant.minCashPriceMinorUnits.toString(), currency: variant.minCashPriceCurrency }
         : undefined,
     provenance: [
       {

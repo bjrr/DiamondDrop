@@ -26,10 +26,8 @@ const PROFILE = {
 function variant(overrides: Partial<TierSafetyVariantInput> = {}): TierSafetyVariantInput {
   return {
     masterVariantId: "v1",
-    frozenBaseMinorUnits: 100_000n, // $1,000
+    frozenBaseCashMinorUnits: 100_000n, // $1,000
     landedCostMinorUnits: new MoneyDecimal("50000"), // $500
-    revenueRate: new MoneyDecimal("0.029"),
-    revenueFixedMinorUnits: new MoneyDecimal("30"),
     ...overrides,
   };
 }
@@ -104,7 +102,7 @@ describe("floor breaches", () => {
     // profit. Checking margin alone would pass it.
     const report = run([
       variant({
-        frozenBaseMinorUnits: 20_000n, // $200
+        frozenBaseCashMinorUnits: 20_000n, // $200
         landedCostMinorUnits: new MoneyDecimal("14000"), // $140
       }),
     ]);
@@ -122,17 +120,17 @@ describe("it validates the price a customer would actually pay", () => {
     const report = run([variant()]);
     const tier2 = report.results.find((r) => r.tierNumber === 2)!;
 
-    expect(tier2.priceMinorUnits).toBe(90_000n);
-    expect(tier2.priceMinorUnits % 100n).toBe(0n);
+    expect(tier2.groupBuyCashPriceMinorUnits).toBe(90_000n);
+    expect(tier2.groupBuyCashPriceMinorUnits % 100n).toBe(0n);
   });
 
   it("rounds a fractional tier price up to a whole dollar", () => {
     // 33333 x 0.80 = 26666.4 -> $267.00 under WHOLE_DOLLAR_UP_V1.
     const report = run([
-      variant({ frozenBaseMinorUnits: 33_333n, landedCostMinorUnits: new MoneyDecimal("1000") }),
+      variant({ frozenBaseCashMinorUnits: 33_333n, landedCostMinorUnits: new MoneyDecimal("1000") }),
     ]);
     const tier3 = report.results.find((r) => r.tierNumber === 3)!;
-    expect(tier3.priceMinorUnits).toBe(26_700n);
+    expect(tier3.groupBuyCashPriceMinorUnits).toBe(26_700n);
   });
 });
 
@@ -147,8 +145,161 @@ describe("it reports rather than decides", () => {
   it("gives the margin and contribution for each tier, so a human can judge", () => {
     const report = run([variant()]);
     for (const result of report.results) {
-      expect(result.evaluation.grossMargin).toMatch(/^-?[0-9.]+$/);
-      expect(result.evaluation.contribution).toMatch(/^-?[0-9.]+$/);
+      expect(result.evaluation.cashGrossMarginRate).toMatch(/^-?[0-9.]+$/);
+      expect(result.evaluation.cashContributionMinorUnits).toMatch(/^-?[0-9.]+$/);
     }
+  });
+});
+
+describe("the 40% markup / 20% floor arithmetic, on cash (owner-locked 2026-09-18)", () => {
+  /**
+   * The correction, asserted rather than described.
+   *
+   * These are the owner's actual rules — a 40% markup on cost, a 20% gross
+   * margin floor and a $100 minimum profit — applied to a cost round enough
+   * that the arithmetic can be checked by hand.
+   */
+  const COST = 100_000n; // $1,000
+  const CASH_BASE = 140_000n; // $1,400 = cost x 1.40
+  const OWNER_PROFILE = {
+    minGrossMarginRate: "0.200000",
+    minDollarProfit: { amountMinorUnits: "10000", currency: "USD" }, // $100
+  };
+
+  function ownerRun(tiers: TierDefinition[]) {
+    return evaluateTierSafety({
+      variants: [
+        {
+          masterVariantId: "v1",
+          frozenBaseCashMinorUnits: CASH_BASE,
+          landedCostMinorUnits: new MoneyDecimal(COST.toString()),
+        },
+      ],
+      tiers,
+      profile: OWNER_PROFILE,
+      roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
+      priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
+      currency: "USD",
+    });
+  }
+
+  it("PUBLISHES a 10% second tier — the case the old rule wrongly refused", () => {
+    // cash tier price = 1400 x 0.90 = 1260
+    // margin          = (1260 − 1000) / 1260 = 20.63%  -> clears the 20% floor
+    // profit          = 260                            -> clears the $100 floor
+    //
+    // Deducting 2.9% + $0.30 of payment processing measured this at 17.8% and
+    // blocked publication. That was the gate being wrong, not the tier.
+    const report = ownerRun([
+      { tierNumber: 1, minQualifyingUnits: 1, priceMultiplier: "1.000000" },
+      { tierNumber: 2, minQualifyingUnits: 10, priceMultiplier: "0.900000" },
+    ]);
+
+    expect(report.allSafe).toBe(true);
+    expect(report.unsafe).toHaveLength(0);
+
+    const tier2 = report.results.find((r) => r.tierNumber === 2)!;
+    expect(tier2.groupBuyCashPriceMinorUnits).toBe(126_000n);
+    expect(tier2.evaluation.cashGrossMarginRate.startsWith("0.2063")).toBe(true);
+  });
+
+  it("still REFUSES a tier that genuinely breaches the 20% floor", () => {
+    // The rule was made less strict, not toothless. At 0.88 the margin is
+    // (1232 − 1000) / 1232 = 18.83%, which is a real breach on the cash basis
+    // and must still block.
+    const report = ownerRun([
+      { tierNumber: 1, minQualifyingUnits: 1, priceMultiplier: "1.000000" },
+      { tierNumber: 2, minQualifyingUnits: 10, priceMultiplier: "0.880000" },
+    ]);
+
+    expect(report.allSafe).toBe(false);
+    const tier2 = report.unsafe.find((r) => r.tierNumber === 2)!;
+    expect(tier2.evaluation.failing).toContain("min_gross_margin");
+    expect(tier2.evaluation.cashGrossMarginRate.startsWith("0.1883")).toBe(true);
+  });
+
+  it("puts the deepest publishable discount near 1 / ((1 + markup) x (1 − floor))", () => {
+    // The continuous answer is 1 / (1.40 x 0.80) = 0.892857..., i.e. roughly an
+    // 10.7% discount — which is why a round 10% fits and 12% does not.
+    //
+    // THE ACTUAL BOUNDARY SITS SLIGHTLY LOWER, because WHOLE_DOLLAR_UP rounds
+    // the tier price up before the floor sees it. At 0.8928 the exact price is
+    // $1,249.92, which rounds to $1,250.00 and clears 20% exactly — so the
+    // continuous formula would have called that a breach and been wrong.
+    //
+    // Asserted at the discrete boundary rather than the algebraic one. The
+    // formula is the estimate; the rounding is what a campaign is judged on.
+    const safeAt = (multiplier: string) =>
+      ownerRun([
+        { tierNumber: 1, minQualifyingUnits: 1, priceMultiplier: "1.000000" },
+        { tierNumber: 2, minQualifyingUnits: 10, priceMultiplier: multiplier },
+      ]).allSafe;
+
+    // 1400 x 0.8922 = 1249.08 -> $1,250.00 -> (1250−1000)/1250 = 20.00% exactly.
+    expect(safeAt("0.892200")).toBe(true);
+    // 1400 x 0.8921 = 1248.94 -> $1,249.00 -> 19.94%, a genuine breach.
+    expect(safeAt("0.892100")).toBe(false);
+    // And the algebraic estimate is inside the safe region, as it must be.
+    expect(safeAt("0.892857")).toBe(true);
+  });
+
+  it("lets the $100 profit floor bind before the margin floor on a light piece", () => {
+    // Margin is scale-free; the dollar floor is not. On a $300 cash base a 10%
+    // tier still makes 20.6% but only $55.71 — so the two floors disagree, and
+    // checking margin alone would publish it.
+    const report = evaluateTierSafety({
+      variants: [
+        {
+          masterVariantId: "light",
+          frozenBaseCashMinorUnits: 30_000n, // $300 = cost x 1.40
+          landedCostMinorUnits: new MoneyDecimal("21429"), // ~$214.29
+        },
+      ],
+      tiers: [
+        { tierNumber: 1, minQualifyingUnits: 1, priceMultiplier: "1.000000" },
+        { tierNumber: 2, minQualifyingUnits: 10, priceMultiplier: "0.900000" },
+      ],
+      profile: OWNER_PROFILE,
+      roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
+      priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
+      currency: "USD",
+    });
+
+    const tier2 = report.results.find((r) => r.tierNumber === 2)!;
+    expect(tier2.evaluation.failing).toContain("min_dollar_profit");
+    expect(tier2.evaluation.failing).not.toContain("min_gross_margin");
+  });
+});
+
+describe("the credit-card uplift plays no part in tier safety", () => {
+  it("judges the CASH price, which is 5% below what the shopper is shown", () => {
+    // If the uplift ever leaked into this check it would inflate every margin
+    // by roughly five points and pass tiers that sell below the floor. The
+    // clearest assertion is the number: safety is measured on 1400 x 0.90, not
+    // on the 1470 x 0.90 a card customer pays.
+    const report = evaluateTierSafety({
+      variants: [
+        {
+          masterVariantId: "v1",
+          frozenBaseCashMinorUnits: 140_000n,
+          landedCostMinorUnits: new MoneyDecimal("100000"),
+        },
+      ],
+      tiers: [
+        { tierNumber: 1, minQualifyingUnits: 1, priceMultiplier: "1.000000" },
+        { tierNumber: 2, minQualifyingUnits: 10, priceMultiplier: "0.900000" },
+      ],
+      profile: {
+        minGrossMarginRate: "0.200000",
+        minDollarProfit: { amountMinorUnits: "10000", currency: "USD" },
+      },
+      roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
+      priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
+      currency: "USD",
+    });
+
+    const tier2 = report.results.find((r) => r.tierNumber === 2)!;
+    expect(tier2.groupBuyCashPriceMinorUnits).toBe(126_000n);
+    expect(tier2.groupBuyCashPriceMinorUnits).not.toBe(132_300n); // the card price
   });
 });

@@ -82,22 +82,29 @@
     units.appendChild(document.createTextNode(" pieces claimed so far"));
     body.appendChild(units);
 
-    /* Group price, and the Buy Now price it beats. */
+    /*
+     * THE GROUP BUY PRICE IS THE CREDIT-CARD PRICE.
+     *
+     * Card is the primary displayed price and cash is shown beneath it as the
+     * discounted payment option — never the other way round. Owner decision,
+     * docs/CASH-CARD-PRICING.md section 5. Checkout, network and legal
+     * constraints are verified separately and do not change the display rule.
+     */
     var prices = el("div", "carat-gb__prices");
     var group = el("div", "carat-gb__price");
-    group.appendChild(el("span", "carat-gb__label", "Group price"));
+    group.appendChild(el("span", "carat-gb__label", "Group Buy price"));
     group.appendChild(
-      el("span", "carat-gb__amount", formatMoney(data.groupBuyPriceMinorUnits, moneyFormat))
+      el("span", "carat-gb__amount", formatMoney(data.groupBuyCreditCardPriceMinorUnits, moneyFormat))
     );
     prices.appendChild(group);
 
-    if (data.savingsMinorUnits !== "0") {
+    if (data.creditCardSavingsMinorUnits !== "0") {
       var compare = el("div", "carat-gb__price carat-gb__price--compare");
       compare.appendChild(el("span", "carat-gb__label", "Buy it now"));
       var was = el(
         "s",
         "carat-gb__amount carat-gb__amount--struck",
-        formatMoney(data.buyNowComparisonPriceMinorUnits, moneyFormat)
+        formatMoney(data.buyNowCreditCardPriceMinorUnits, moneyFormat)
       );
       /* The strikethrough is decorative; the saving is stated in words below. */
       was.setAttribute("aria-hidden", "true");
@@ -106,15 +113,39 @@
     }
     body.appendChild(prices);
 
-    if (data.savingsMinorUnits !== "0") {
+    /*
+     * The cash-equivalent price, as an ABSOLUTE AMOUNT and never a percentage.
+     *
+     * "Save 5% with cash" would be wrong: a 5% uplift is a 4.76% discount — the
+     * reciprocal — and whole-dollar rounding makes the realised figure vary per
+     * item, so any fixed percentage claim misstates most of the catalogue. Two
+     * exact prices need no caveat and cannot drift out of step with the rate.
+     */
+    body.appendChild(
+      el(
+        "p",
+        "carat-gb__cash",
+        "Cash-equivalent price " +
+          formatMoney(data.groupBuyCashPriceMinorUnits, moneyFormat) +
+          " — ACH, wire, Zelle or check"
+      )
+    );
+
+    if (data.creditCardSavingsMinorUnits !== "0") {
+      /*
+       * The GROUP BUY saving against Buy Now — a different figure from the cash
+       * discount above, and a legitimate one to state as a percentage. Compared
+       * card-to-card so it measures the group discount alone and does not
+       * quietly fold in the payment-method spread.
+       */
       body.appendChild(
         el(
           "p",
           "carat-gb__savings",
           "You save " +
-            formatMoney(data.savingsMinorUnits, moneyFormat) +
+            formatMoney(data.creditCardSavingsMinorUnits, moneyFormat) +
             " (" +
-            data.savingsPercent +
+            data.creditCardSavingsPercent +
             "%)"
         )
       );
@@ -129,7 +160,9 @@
     data.tierMarkers.forEach(function (marker) {
       var item = el("li", "carat-gb__tier" + (marker.unlocked ? " is-unlocked" : "") + (marker.current ? " is-current" : ""));
       item.appendChild(el("span", "carat-gb__tier-units", marker.minQualifyingUnits + "+"));
-      item.appendChild(el("span", "carat-gb__tier-price", formatMoney(marker.priceMinorUnits, moneyFormat)));
+      item.appendChild(
+        el("span", "carat-gb__tier-price", formatMoney(marker.creditCardPriceMinorUnits, moneyFormat))
+      );
       if (marker.current) {
         /* Conveyed in text, not by colour alone. */
         item.appendChild(el("span", "carat-gb__tier-state", "current"));
@@ -140,14 +173,14 @@
 
     if (data.bestPriceUnlocked) {
       body.appendChild(el("p", "carat-gb__best", "Best Price Unlocked"));
-    } else if (data.unitsToNextTier !== null && data.nextTierPriceMinorUnits !== null) {
+    } else if (data.unitsToNextTier !== null && data.nextTierCreditCardPriceMinorUnits !== null) {
       body.appendChild(
         el(
           "p",
           "carat-gb__next",
           data.unitsToNextTier +
             " more and the price drops to " +
-            formatMoney(data.nextTierPriceMinorUnits, moneyFormat)
+            formatMoney(data.nextTierCreditCardPriceMinorUnits, moneyFormat)
         )
       );
     }

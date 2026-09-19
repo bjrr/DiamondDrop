@@ -1,6 +1,6 @@
 import { prisma } from "~/db/client.server";
 import { MoneyDecimal } from "~/domain/money/decimal";
-import { partitionRevenueSide } from "~/domain/pricing/cost";
+import { deriveCreditCardPrice } from "~/domain/pricing/creditCardPrice";
 import { evaluateFloors } from "~/domain/pricing/solve";
 import type { BuyNowPricingInputs, FloorId } from "~/domain/pricing/types";
 import { logger } from "~/lib/logger.server";
@@ -89,7 +89,7 @@ export async function revokePriceOverride(request: {
       priceCalculationId: active.priceCalculationId,
       // No price: a revocation restores the calculated one. The CHECK
       // constraint refuses a revoke row that carries a price.
-      overridePriceMinorUnits: null,
+      overrideCashPriceMinorUnits: null,
       currency: active.currency,
       breachedFloors: [],
       warningShown: null,
@@ -110,7 +110,7 @@ export async function revokePriceOverride(request: {
 
 export interface PriceOverrideRequest {
   masterVariantId: string;
-  overridePriceMinorUnits: bigint;
+  overrideCashPriceMinorUnits: bigint;
   currency: string;
   reason: string;
   overriddenBy: string;
@@ -130,8 +130,16 @@ export interface PriceOverridePreview {
   breaches: readonly FloorBreach[];
   /** Null when nothing is breached — there is no warning to show. */
   warning: string | null;
-  grossMargin: string;
-  contributionMinorUnits: string;
+  /** Measured on the cash price, gross of payment expense. */
+  cashGrossMarginRate: string;
+  cashContributionMinorUnits: string;
+  /**
+   * What the customer would be shown if this override took effect: the
+   * credit-card price derived from the proposed cash price. Included so the
+   * operator reviews the number a shopper actually sees, not only the internal
+   * one they typed.
+   */
+  resultingCreditCardPriceMinorUnits: string;
   /** The calculation the override was evaluated against. */
   priceCalculationId: string;
 }
@@ -181,7 +189,7 @@ export class PriceOverrideCurrencyMismatchError extends Error {
 export async function previewPriceOverride(
   request: Pick<
     PriceOverrideRequest,
-    "masterVariantId" | "overridePriceMinorUnits" | "currency" | "priceCalculationId"
+    "masterVariantId" | "overrideCashPriceMinorUnits" | "currency" | "priceCalculationId"
   >
 ): Promise<PriceOverridePreview> {
   // Evaluated against the CALCULATION BEING OVERRIDDEN, using the inputs stored
@@ -204,18 +212,21 @@ export async function previewPriceOverride(
     throw new PriceOverrideCurrencyMismatchError(inputs.currency, request.currency);
   }
 
-  const revenueSide = partitionRevenueSide(inputs.components);
   const profile = inputs.profile;
   const variantFloor = inputs.variantFloor?.amountMinorUnits ?? "0";
 
   // The SAME predicate the engine uses (§5.5). Re-implementing the floor check
   // here would let the override path and the pricing path drift apart, and the
   // override path is precisely where an inconsistency would go unnoticed.
+  //
+  // NO REVENUE-SIDE DEDUCTION. The floors are measured on the cash price gross
+  // of payment expense, so an operator is warned against the same numbers the
+  // engine enforces. Previously this subtracted the processing component, which
+  // understated the margin an override would achieve by about three points —
+  // meaning some overrides were warned about when they were in fact compliant.
   const evaluation = evaluateFloors({
-    priceMinorUnits: request.overridePriceMinorUnits,
+    cashPriceMinorUnits: request.overrideCashPriceMinorUnits,
     landedCostMinorUnits: new MoneyDecimal(calculation.landedCostMinorUnits.toString()),
-    revenueRate: revenueSide.rate,
-    revenueFixedMinorUnits: revenueSide.fixedMinorUnits,
     minGrossMarginRate: new MoneyDecimal(profile.minGrossMarginRate),
     minDollarProfitMinorUnits: new MoneyDecimal(profile.minDollarProfit.amountMinorUnits),
     variantFloorMinorUnits: new MoneyDecimal(variantFloor),
@@ -226,11 +237,22 @@ export async function previewPriceOverride(
     detail: describeBreach(floor, evaluation, profile, variantFloor),
   }));
 
+  // Shown so the operator can see what the CUSTOMER will see. They are typing a
+  // cash price — that is what the floors bind — but the storefront headline is
+  // the derived card price, and an override reviewed without it is an override
+  // reviewed against a number no shopper is ever quoted.
+  const resultingCreditCardPriceMinorUnits = deriveCreditCardPrice(
+    request.overrideCashPriceMinorUnits,
+    new MoneyDecimal(profile.creditCardUpliftRate),
+    profile.creditCardPriceRuleId
+  ).toString();
+
   return {
     breaches,
     warning: breaches.length === 0 ? null : buildWarning(breaches),
-    grossMargin: evaluation.grossMargin,
-    contributionMinorUnits: evaluation.contribution,
+    cashGrossMarginRate: evaluation.cashGrossMarginRate,
+    cashContributionMinorUnits: evaluation.cashContributionMinorUnits,
+    resultingCreditCardPriceMinorUnits,
     priceCalculationId: calculation.id,
   };
 }
@@ -322,7 +344,7 @@ export async function applyPriceOverride(request: PriceOverrideRequest): Promise
       // The calculation the preview evaluated against, not the caller's
       // optional hint: the audit row must name the basis actually used.
       priceCalculationId: preview.priceCalculationId,
-      overridePriceMinorUnits: request.overridePriceMinorUnits,
+      overrideCashPriceMinorUnits: request.overrideCashPriceMinorUnits,
       currency: request.currency,
       breachedFloors: preview.breaches.map((b) => b.floor),
       // The warning text as actually shown. Null when there was nothing to warn
@@ -347,23 +369,31 @@ export async function applyPriceOverride(request: PriceOverrideRequest): Promise
   return { id: override.id, breaches: preview.breaches };
 }
 
+/**
+ * Every figure quoted here says CASH explicitly. An operator being warned that
+ * "margin is 18%" has to know which price that is a margin on before the
+ * warning means anything — and the whole point of the confirmation step is that
+ * they understood what they were confirming.
+ */
 function describeBreach(
   floor: FloorId,
-  evaluation: { grossMargin: string; contribution: string },
+  evaluation: { cashGrossMarginRate: string; cashContributionMinorUnits: string },
   profile: { minGrossMarginRate: string; minDollarProfit: { amountMinorUnits: string } },
   variantFloorMinorUnits: string
 ): string {
   switch (floor) {
     case "min_gross_margin":
-      return `gross margin ${asPercent(evaluation.grossMargin)} is below the ${asPercent(
+      return `cash gross margin ${asPercent(evaluation.cashGrossMarginRate)} is below the ${asPercent(
         profile.minGrossMarginRate
       )} floor`;
     case "min_dollar_profit":
-      return `contribution ${asMoney(evaluation.contribution)} is below the ${asMoney(
+      return `cash contribution ${asMoney(evaluation.cashContributionMinorUnits)} is below the ${asMoney(
         profile.minDollarProfit.amountMinorUnits
       )} minimum`;
     case "variant_floor":
-      return `price is below this variant's configured floor of ${asMoney(variantFloorMinorUnits)}`;
+      return `cash price is below this variant's configured floor of ${asMoney(
+        variantFloorMinorUnits
+      )}`;
   }
 }
 

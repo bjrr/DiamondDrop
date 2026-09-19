@@ -4,14 +4,25 @@ import type { MoneyJSON } from "~/domain/money/money";
 /**
  * The sync decision (spec §9.3). PURE — no I/O, so it is unit-testable and
  * cannot depend on when it runs.
+ *
+ * BOTH SIDES ARE CASH PRICES (owner-locked 2026-09-18). Mixing bases here would
+ * be quietly destructive rather than merely wrong: comparing a new cash price
+ * against a previously published CARD price shows a ~4.76% fall on every
+ * variant on every run, which at a 200 bps tolerance routes the entire
+ * catalogue to manual approval — and makes each approval a real price cut.
  */
 
 export type SyncDecision = "auto_apply" | "needs_approval";
 
 export interface DecideSyncInput {
-  newPrice: MoneyJSON;
+  /**
+   * The newly calculated CASH price. Cash, not card, because cash is what is
+   * stored and what moves when costs move; the card price is a fixed multiple
+   * of it and carries no independent information.
+   */
+  newCashPrice: MoneyJSON;
   /** Absent when this variant has never had a synced price. */
-  lastSyncedPrice?: MoneyJSON | null;
+  lastSyncedCashPrice?: MoneyJSON | null;
   /**
    * NULL means the owner has not supplied a tolerance (D14 outstanding).
    * Automatic publication is then DISABLED: every change needs approval.
@@ -39,12 +50,12 @@ export interface DecideSyncResult {
 }
 
 export function decideSync(input: DecideSyncInput): DecideSyncResult {
-  const next = new MoneyDecimal(input.newPrice.amountMinorUnits);
+  const next = new MoneyDecimal(input.newCashPrice.amountMinorUnits);
 
   // A brand-new price must NEVER auto-publish. There is no prior price to
   // sanity-check the magnitude against, so the first price for a variant is
   // always a human decision.
-  if (!input.lastSyncedPrice) {
+  if (!input.lastSyncedCashPrice) {
     return {
       decision: "needs_approval",
       deltaBps: null,
@@ -54,7 +65,7 @@ export function decideSync(input: DecideSyncInput): DecideSyncResult {
     };
   }
 
-  const previous = new MoneyDecimal(input.lastSyncedPrice.amountMinorUnits);
+  const previous = new MoneyDecimal(input.lastSyncedCashPrice.amountMinorUnits);
 
   if (next.equals(previous)) {
     return {

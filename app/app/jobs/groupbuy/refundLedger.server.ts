@@ -1,4 +1,4 @@
-import type { GroupBuyRefundStatus } from "@prisma/client";
+import type { GroupBuyRefundStatus, PaymentBasis } from "@prisma/client";
 
 import { prisma } from "~/db/client.server";
 import {
@@ -6,10 +6,12 @@ import {
   computeTierRefund,
   type RefundStatus,
 } from "~/domain/groupbuy/refunds";
-import { selectTier, tierPriceExact, type TierDefinition } from "~/domain/groupbuy/tiers";
+import { selectTier, tierCashPriceExact, type TierDefinition } from "~/domain/groupbuy/tiers";
 import { MoneyDecimal } from "~/domain/money/decimal";
 import { Money } from "~/domain/money/money";
+import { deriveCreditCardPrice } from "~/domain/pricing/creditCardPrice";
 import { applyPriceEnding } from "~/domain/pricing/priceEnding";
+import type { CreditCardPriceRuleId } from "~/domain/pricing/types";
 import { logger } from "~/lib/logger.server";
 
 /**
@@ -55,7 +57,13 @@ export interface PaidLineInput {
   orderRef: string;
   lineRef: string;
   customerRef?: string;
-  /** Price actually charged per unit at checkout, whole minor units. */
+  /**
+   * WHICH PRICE THE CUSTOMER PAID. Required, with no default, because there is
+   * no safe guess: a card line and a cash line at the same tier were charged
+   * amounts 5% apart, and the refund is computed against whichever it was.
+   */
+  paymentBasis: PaymentBasis;
+  /** Price actually charged per unit at checkout, whole minor units, in `paymentBasis`. */
   paidPerUnitMinorUnits: bigint;
   /** Units still qualifying on this line at close. */
   qualifyingUnits: number;
@@ -100,6 +108,17 @@ export async function computeRefundsAtClose(options: {
   }));
   const finalTier = selectTier(tiers, campaign.finalQualifyingUnits ?? 0);
 
+  // The uplift rate the campaign FROZE, not today's. A card customer is refunded
+  // against the card price they were actually quoted, and that price was fixed
+  // when the campaign opened. Reading the current profile would silently
+  // re-price a settled obligation if the rate had since changed.
+  const frozenProfile = campaign.pricingProfileId
+    ? await prisma.pricingProfile.findUniqueOrThrow({ where: { id: campaign.pricingProfileId } })
+    : null;
+  if (!frozenProfile) {
+    throw new CampaignNotClosedError(campaign.id, `${campaign.status} without a frozen profile`);
+  }
+
   let created = 0;
   let skipped = 0;
   let owedCount = 0;
@@ -117,12 +136,33 @@ export async function computeRefundsAtClose(options: {
     // rounding and price-ending path a customer would have been charged at.
     // Re-deriving it from today's costs would refund against a price that never
     // existed.
-    const exact = tierPriceExact(
-      new MoneyDecimal(eligible.frozenBasePriceMinorUnits.toString()),
+    const exactCash = tierCashPriceExact(
+      new MoneyDecimal(eligible.frozenBaseCashPriceMinorUnits.toString()),
       finalTier
     );
-    const rounded = Money.fromDecimalMinorUnits(exact, campaign.currency, "HALF_UP_MINOR_UNIT_V1");
-    const finalPerUnit = applyPriceEnding(rounded.amountMinorUnits, "WHOLE_DOLLAR_UP_V1");
+    const rounded = Money.fromDecimalMinorUnits(
+      exactCash,
+      campaign.currency,
+      "HALF_UP_MINOR_UNIT_V1"
+    );
+    const finalCashPerUnit = applyPriceEnding(rounded.amountMinorUnits, "WHOLE_DOLLAR_UP_V1");
+
+    // MATCHED TO THE BASIS THE CUSTOMER PAID IN. The tier price above is a cash
+    // price, because that is what the campaign froze. Subtracting it from what
+    // a CARD customer paid would treat the 5% uplift as an overcharge and hand
+    // it back — on every card line, at every tier drop.
+    //
+    // Derived through the same versioned rule Buy Now uses, from the campaign's
+    // frozen uplift rate, so the comparison is against the exact number that
+    // customer was shown.
+    const finalPerUnit =
+      line.paymentBasis === "credit_card"
+        ? deriveCreditCardPrice(
+            finalCashPerUnit,
+            new MoneyDecimal(frozenProfile.creditCardUpliftRate.toString()),
+            frozenProfile.creditCardPriceRuleId as CreditCardPriceRuleId
+          )
+        : finalCashPerUnit;
 
     const computation = computeTierRefund({
       paidPerUnitMinorUnits: line.paidPerUnitMinorUnits,
@@ -148,6 +188,7 @@ export async function computeRefundsAtClose(options: {
           orderRef: line.orderRef,
           lineRef: line.lineRef,
           customerRef: line.customerRef ?? null,
+          paymentBasis: line.paymentBasis,
           paidPerUnitMinorUnits: line.paidPerUnitMinorUnits,
           finalPerUnitMinorUnits: finalPerUnit,
           qualifyingUnits: line.qualifyingUnits,

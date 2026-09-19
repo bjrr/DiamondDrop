@@ -89,12 +89,12 @@ async function list(): Promise<void> {
     console.log(`  variant  ${intent.masterVariantId}`);
     console.log(
       `  old      ${
-        intent.previousPriceMinorUnits === null
+        intent.previousCashPriceMinorUnits === null
           ? "(none — first price)"
-          : formatMinorUnits(intent.previousPriceMinorUnits, intent.previousPriceCurrency ?? "")
+          : formatMinorUnits(intent.previousCashPriceMinorUnits, intent.previousCashPriceCurrency ?? "")
       }`
     );
-    console.log(`  new      ${formatMinorUnits(calc.computedPriceMinorUnits, calc.currency)}`);
+    console.log(`  new      ${formatMinorUnits(calc.cashPriceMinorUnits, calc.currency)}`);
     console.log(`  delta    ${intent.deltaBps === null ? "n/a" : `${intent.deltaBps} bps`}`);
     console.log(`  reason   ${intent.reason ?? ""}\n`);
   }
@@ -141,7 +141,7 @@ async function override(): Promise<void> {
   const request = {
     masterVariantId,
     priceCalculationId: arg("calculation"),
-    overridePriceMinorUnits: BigInt(price),
+    overrideCashPriceMinorUnits: BigInt(price),
     currency: arg("currency") ?? "USD",
     reason,
     overriddenBy: actor,
@@ -154,7 +154,7 @@ async function override(): Promise<void> {
     // operator who does not know one is in force cannot judge whether that is
     // what they meant.
     console.log(
-      `currently in effect: ${formatMinorUnits(active.overridePriceMinorUnits ?? 0n, active.currency)} ` +
+      `currently in effect: ${formatMinorUnits(active.overrideCashPriceMinorUnits ?? 0n, active.currency)} ` +
         `(set by ${active.overriddenBy}: ${active.reason}) — this will supersede it`
     );
   }
@@ -162,15 +162,15 @@ async function override(): Promise<void> {
   const preview = await previewPriceOverride(request);
 
   console.log(`calculation:    ${preview.priceCalculationId}`);
-  console.log(`override price: ${formatMinorUnits(request.overridePriceMinorUnits, request.currency)}`);
+  console.log(`override price: ${formatMinorUnits(request.overrideCashPriceMinorUnits, request.currency)}`);
   // Truncated for DISPLAY only. The exact decimal is what the floor check
   // used; printing all 40 significant digits at an operator is noise they have
   // to squint past to see the number that matters.
   console.log(
-    `gross margin:   ${new MoneyDecimal(preview.grossMargin).times(100).toDecimalPlaces(2).toString()}%`
+    `gross margin:   ${new MoneyDecimal(preview.cashGrossMarginRate).times(100).toDecimalPlaces(2).toString()}%`
   );
   console.log(
-    `contribution:   ${formatMinorUnits(BigInt(preview.contributionMinorUnits.split(".")[0] ?? "0"), request.currency)}`
+    `contribution:   ${formatMinorUnits(BigInt(preview.cashContributionMinorUnits.split(".")[0] ?? "0"), request.currency)}`
   );
 
   if (preview.warning) {
@@ -216,7 +216,7 @@ async function revoke(): Promise<void> {
   }
 
   console.log(
-    `revoking override ${active.id}: ${formatMinorUnits(active.overridePriceMinorUnits ?? 0n, active.currency)}`
+    `revoking override ${active.id}: ${formatMinorUnits(active.overrideCashPriceMinorUnits ?? 0n, active.currency)}`
   );
 
   const result = await revokePriceOverride({ masterVariantId, reason, revokedBy: actor });

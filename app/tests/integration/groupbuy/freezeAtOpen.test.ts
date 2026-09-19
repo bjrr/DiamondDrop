@@ -72,7 +72,7 @@ async function draftCampaign(options?: {
       variants: {
         create: variantIds.map((id) => ({
           masterVariantId: id,
-          frozenBasePriceMinorUnits: 1n,
+          frozenBaseCashPriceMinorUnits: 1n,
           frozenLandedCostMinorUnits: 0n,
         })),
       },
@@ -132,9 +132,9 @@ describe("opening a campaign freezes its pricing", () => {
     });
 
     // The placeholder 1n written at draft time must have been replaced.
-    expect(variant.frozenBasePriceMinorUnits).toBeGreaterThan(1000n);
+    expect(variant.frozenBaseCashPriceMinorUnits).toBeGreaterThan(1000n);
     expect(variant.frozenLandedCostMinorUnits).toBeGreaterThan(0n);
-    expect(variant.frozenBasePriceMinorUnits).toBeGreaterThan(variant.frozenLandedCostMinorUnits);
+    expect(variant.frozenBaseCashPriceMinorUnits).toBeGreaterThan(variant.frozenLandedCostMinorUnits);
   });
 });
 
@@ -152,7 +152,7 @@ describe("frozen pricing cannot be edited afterwards", () => {
     await expect(
       prisma.groupBuyCampaignVariant.update({
         where: { id: variant.id },
-        data: { frozenBasePriceMinorUnits: 1n },
+        data: { frozenBaseCashPriceMinorUnits: 1n },
       })
     ).rejects.toThrow(/frozen/);
   });
@@ -186,7 +186,7 @@ describe("frozen pricing cannot be edited afterwards", () => {
         data: {
           campaignId: draft.id,
           masterVariantId: other.id,
-          frozenBasePriceMinorUnits: 10_000n,
+          frozenBaseCashPriceMinorUnits: 10_000n,
           frozenLandedCostMinorUnits: 1_000n,
         },
       })

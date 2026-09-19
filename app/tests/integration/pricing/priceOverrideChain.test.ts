@@ -73,12 +73,12 @@ describe("override supersession", () => {
 
     const first = await applyPriceOverride({
       ...args,
-      overridePriceMinorUnits: calculation.computedPriceMinorUnits * 2n,
+      overrideCashPriceMinorUnits: calculation.cashPriceMinorUnits * 2n,
       reason: "first",
     });
     const second = await applyPriceOverride({
       ...args,
-      overridePriceMinorUnits: calculation.computedPriceMinorUnits * 3n,
+      overrideCashPriceMinorUnits: calculation.cashPriceMinorUnits * 3n,
       reason: "second",
     });
 
@@ -98,12 +98,12 @@ describe("override supersession", () => {
 
     const first = await applyPriceOverride({
       ...args,
-      overridePriceMinorUnits: calculation.computedPriceMinorUnits * 2n,
+      overrideCashPriceMinorUnits: calculation.cashPriceMinorUnits * 2n,
       reason: "first",
     });
     await applyPriceOverride({
       ...args,
-      overridePriceMinorUnits: calculation.computedPriceMinorUnits * 3n,
+      overrideCashPriceMinorUnits: calculation.cashPriceMinorUnits * 3n,
       reason: "second",
     });
 
@@ -111,7 +111,7 @@ describe("override supersession", () => {
     // asks about. Superseding must never erase it.
     const superseded = await prisma.priceOverride.findUniqueOrThrow({ where: { id: first.id } });
     expect(superseded.reason).toBe("first");
-    expect(superseded.overridePriceMinorUnits).toBe(calculation.computedPriceMinorUnits * 2n);
+    expect(superseded.overrideCashPriceMinorUnits).toBe(calculation.cashPriceMinorUnits * 2n);
   });
 
   it("refuses at the DATABASE level to fork the history", async () => {
@@ -125,12 +125,12 @@ describe("override supersession", () => {
 
     const first = await applyPriceOverride({
       ...args,
-      overridePriceMinorUnits: calculation.computedPriceMinorUnits * 2n,
+      overrideCashPriceMinorUnits: calculation.cashPriceMinorUnits * 2n,
       reason: "first",
     });
     await applyPriceOverride({
       ...args,
-      overridePriceMinorUnits: calculation.computedPriceMinorUnits * 3n,
+      overrideCashPriceMinorUnits: calculation.cashPriceMinorUnits * 3n,
       reason: "second",
     });
 
@@ -143,7 +143,7 @@ describe("override supersession", () => {
           masterVariantId: calculation.masterVariantId,
           kind: "set",
           supersedesId: first.id,
-          overridePriceMinorUnits: 99900n,
+          overrideCashPriceMinorUnits: 99900n,
           currency: calculation.currency,
           breachedFloors: [],
           reason: "forking the chain",
@@ -161,7 +161,7 @@ describe("override revocation", () => {
     await applyPriceOverride({
       masterVariantId: calculation.masterVariantId,
       priceCalculationId: calculation.id,
-      overridePriceMinorUnits: calculation.computedPriceMinorUnits * 2n,
+      overrideCashPriceMinorUnits: calculation.cashPriceMinorUnits * 2n,
       currency: calculation.currency,
       reason: "temporary promotion",
       overriddenBy: "owner:brian",
@@ -185,7 +185,7 @@ describe("override revocation", () => {
     const set = await applyPriceOverride({
       masterVariantId: calculation.masterVariantId,
       priceCalculationId: calculation.id,
-      overridePriceMinorUnits: calculation.computedPriceMinorUnits * 2n,
+      overrideCashPriceMinorUnits: calculation.cashPriceMinorUnits * 2n,
       currency: calculation.currency,
       reason: "temporary promotion",
       overriddenBy: "owner:brian",
@@ -200,7 +200,7 @@ describe("override revocation", () => {
     const row = await prisma.priceOverride.findUniqueOrThrow({ where: { id: revocation.id } });
     expect(row.kind).toBe("revoke");
     expect(row.supersedesId).toBe(set.id);
-    expect(row.overridePriceMinorUnits).toBeNull();
+    expect(row.overrideCashPriceMinorUnits).toBeNull();
     expect(row.reason).toBe("promotion ended");
     // Withdrawing someone else's override is attributed to the person who
     // withdrew it, not inherited from whoever set it.
@@ -219,7 +219,7 @@ describe("override revocation", () => {
 
     await applyPriceOverride({
       ...args,
-      overridePriceMinorUnits: calculation.computedPriceMinorUnits * 2n,
+      overrideCashPriceMinorUnits: calculation.cashPriceMinorUnits * 2n,
       reason: "first",
     });
     const revocation = await revokePriceOverride({
@@ -229,7 +229,7 @@ describe("override revocation", () => {
     });
     const reinstated = await applyPriceOverride({
       ...args,
-      overridePriceMinorUnits: calculation.computedPriceMinorUnits * 4n,
+      overrideCashPriceMinorUnits: calculation.cashPriceMinorUnits * 4n,
       reason: "new promotion",
     });
 
@@ -255,7 +255,7 @@ describe("override revocation", () => {
     await applyPriceOverride({
       masterVariantId: calculation.masterVariantId,
       priceCalculationId: calculation.id,
-      overridePriceMinorUnits: calculation.computedPriceMinorUnits * 2n,
+      overrideCashPriceMinorUnits: calculation.cashPriceMinorUnits * 2n,
       currency: calculation.currency,
       reason: "promotion",
       overriddenBy: "owner:brian",
@@ -288,7 +288,7 @@ describe("kind and price cannot disagree", () => {
         data: {
           masterVariantId: calculation.masterVariantId,
           kind: "revoke",
-          overridePriceMinorUnits: 12345n,
+          overrideCashPriceMinorUnits: 12345n,
           currency: calculation.currency,
           breachedFloors: [],
           reason: "incoherent",
@@ -308,7 +308,7 @@ describe("kind and price cannot disagree", () => {
         data: {
           masterVariantId: calculation.masterVariantId,
           kind: "set",
-          overridePriceMinorUnits: null,
+          overrideCashPriceMinorUnits: null,
           currency: calculation.currency,
           breachedFloors: [],
           reason: "incoherent",

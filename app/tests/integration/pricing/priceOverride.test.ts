@@ -42,7 +42,7 @@ describe("D14 manual price override — WARNING", () => {
     const preview = await previewPriceOverride({
       masterVariantId: calculation.masterVariantId,
       priceCalculationId: calculation.id,
-      overridePriceMinorUnits: calculation.landedCostMinorUnits + 100n,
+      overrideCashPriceMinorUnits: calculation.landedCostMinorUnits + 100n,
       currency: calculation.currency,
     });
 
@@ -58,7 +58,7 @@ describe("D14 manual price override — WARNING", () => {
     const preview = await previewPriceOverride({
       masterVariantId: calculation.masterVariantId,
       priceCalculationId: calculation.id,
-      overridePriceMinorUnits: calculation.computedPriceMinorUnits * 2n,
+      overrideCashPriceMinorUnits: calculation.cashPriceMinorUnits * 2n,
       currency: calculation.currency,
     });
 
@@ -73,7 +73,7 @@ describe("D14 manual price override — WARNING", () => {
     await previewPriceOverride({
       masterVariantId: calculation.masterVariantId,
       priceCalculationId: calculation.id,
-      overridePriceMinorUnits: 100n,
+      overrideCashPriceMinorUnits: 100n,
       currency: calculation.currency,
     });
 
@@ -89,7 +89,7 @@ describe("D14 manual price override — CONFIRMATION", () => {
       applyPriceOverride({
         masterVariantId: calculation.masterVariantId,
         priceCalculationId: calculation.id,
-        overridePriceMinorUnits: calculation.landedCostMinorUnits + 100n,
+        overrideCashPriceMinorUnits: calculation.landedCostMinorUnits + 100n,
         currency: calculation.currency,
         reason: "matching a competitor quote",
         overriddenBy: "owner:brian",
@@ -105,7 +105,7 @@ describe("D14 manual price override — CONFIRMATION", () => {
     const error = await applyPriceOverride({
       masterVariantId: calculation.masterVariantId,
       priceCalculationId: calculation.id,
-      overridePriceMinorUnits: calculation.landedCostMinorUnits + 100n,
+      overrideCashPriceMinorUnits: calculation.landedCostMinorUnits + 100n,
       currency: calculation.currency,
       reason: "matching a competitor quote",
       overriddenBy: "owner:brian",
@@ -123,7 +123,7 @@ describe("D14 manual price override — CONFIRMATION", () => {
     const result = await applyPriceOverride({
       masterVariantId: calculation.masterVariantId,
       priceCalculationId: calculation.id,
-      overridePriceMinorUnits: belowFloor,
+      overrideCashPriceMinorUnits: belowFloor,
       currency: calculation.currency,
       reason: "matching a verified competitor quote, approved by owner",
       overriddenBy: "owner:brian",
@@ -133,7 +133,7 @@ describe("D14 manual price override — CONFIRMATION", () => {
     expect(result.breaches.length).toBeGreaterThan(0);
 
     const row = await prisma.priceOverride.findUniqueOrThrow({ where: { id: result.id } });
-    expect(row.overridePriceMinorUnits).toBe(belowFloor);
+    expect(row.overrideCashPriceMinorUnits).toBe(belowFloor);
   });
 
   it("does not require confirmation when nothing is breached", async () => {
@@ -142,7 +142,7 @@ describe("D14 manual price override — CONFIRMATION", () => {
     const result = await applyPriceOverride({
       masterVariantId: calculation.masterVariantId,
       priceCalculationId: calculation.id,
-      overridePriceMinorUnits: calculation.computedPriceMinorUnits * 2n,
+      overrideCashPriceMinorUnits: calculation.cashPriceMinorUnits * 2n,
       currency: calculation.currency,
       reason: "rounding up for a premium collection",
       overriddenBy: "owner:brian",
@@ -160,7 +160,7 @@ describe("D14 manual price override — REASON and attribution", () => {
       applyPriceOverride({
         masterVariantId: calculation.masterVariantId,
         priceCalculationId: calculation.id,
-        overridePriceMinorUnits: calculation.computedPriceMinorUnits * 2n,
+        overrideCashPriceMinorUnits: calculation.cashPriceMinorUnits * 2n,
         currency: calculation.currency,
         reason: "",
         overriddenBy: "owner:brian",
@@ -177,7 +177,7 @@ describe("D14 manual price override — REASON and attribution", () => {
       applyPriceOverride({
         masterVariantId: calculation.masterVariantId,
         priceCalculationId: calculation.id,
-        overridePriceMinorUnits: calculation.computedPriceMinorUnits * 2n,
+        overrideCashPriceMinorUnits: calculation.cashPriceMinorUnits * 2n,
         currency: calculation.currency,
         reason: "   ",
         overriddenBy: "owner:brian",
@@ -192,7 +192,7 @@ describe("D14 manual price override — REASON and attribution", () => {
       applyPriceOverride({
         masterVariantId: calculation.masterVariantId,
         priceCalculationId: calculation.id,
-        overridePriceMinorUnits: calculation.computedPriceMinorUnits * 2n,
+        overrideCashPriceMinorUnits: calculation.cashPriceMinorUnits * 2n,
         currency: calculation.currency,
         reason: "a perfectly good reason",
         overriddenBy: "",
@@ -208,7 +208,7 @@ describe("D14 manual price override — AUDIT", () => {
     const result = await applyPriceOverride({
       masterVariantId: calculation.masterVariantId,
       priceCalculationId: calculation.id,
-      overridePriceMinorUnits: calculation.landedCostMinorUnits + 100n,
+      overrideCashPriceMinorUnits: calculation.landedCostMinorUnits + 100n,
       currency: calculation.currency,
       reason: "competitor match, owner approved",
       overriddenBy: "owner:brian",
@@ -233,7 +233,7 @@ describe("D14 manual price override — AUDIT", () => {
     const result = await applyPriceOverride({
       masterVariantId: calculation.masterVariantId,
       priceCalculationId: calculation.id,
-      overridePriceMinorUnits: calculation.computedPriceMinorUnits * 2n,
+      overrideCashPriceMinorUnits: calculation.cashPriceMinorUnits * 2n,
       currency: calculation.currency,
       reason: "premium positioning",
       overriddenBy: "owner:brian",
@@ -250,7 +250,7 @@ describe("D14 manual price override — AUDIT", () => {
     await applyPriceOverride({
       masterVariantId: calculation.masterVariantId,
       priceCalculationId: calculation.id,
-      overridePriceMinorUnits: calculation.landedCostMinorUnits + 100n,
+      overrideCashPriceMinorUnits: calculation.landedCostMinorUnits + 100n,
       currency: calculation.currency,
       reason: "competitor match",
       overriddenBy: "owner:brian",
@@ -263,7 +263,7 @@ describe("D14 manual price override — AUDIT", () => {
 
     // "What did the engine compute?" must still be answerable after someone
     // intervened — which is exactly when that question gets asked.
-    expect(after.computedPriceMinorUnits).toBe(calculation.computedPriceMinorUnits);
+    expect(after.cashPriceMinorUnits).toBe(calculation.cashPriceMinorUnits);
     expect(after.landedCostMinorUnits).toBe(calculation.landedCostMinorUnits);
   });
 
@@ -273,7 +273,7 @@ describe("D14 manual price override — AUDIT", () => {
     const result = await applyPriceOverride({
       masterVariantId: calculation.masterVariantId,
       priceCalculationId: calculation.id,
-      overridePriceMinorUnits: calculation.computedPriceMinorUnits * 2n,
+      overrideCashPriceMinorUnits: calculation.cashPriceMinorUnits * 2n,
       currency: calculation.currency,
       reason: "original reason",
       overriddenBy: "owner:brian",
@@ -311,7 +311,7 @@ describe("D14 manual price override — input validation", () => {
       previewPriceOverride({
         masterVariantId: first!.masterVariantId,
         priceCalculationId: second!.id,
-        overridePriceMinorUnits: 100_000n,
+        overrideCashPriceMinorUnits: 100_000n,
         currency: first!.currency,
       })
     ).rejects.toThrow(CalculationVariantMismatchError);
@@ -324,7 +324,7 @@ describe("D14 manual price override — input validation", () => {
       previewPriceOverride({
         masterVariantId: calculation.masterVariantId,
         priceCalculationId: calculation.id,
-        overridePriceMinorUnits: 100_000n,
+        overrideCashPriceMinorUnits: 100_000n,
         currency: "EUR",
       })
     ).rejects.toThrow(PriceOverrideCurrencyMismatchError);
@@ -334,7 +334,7 @@ describe("D14 manual price override — input validation", () => {
     await expect(
       previewPriceOverride({
         masterVariantId: crypto.randomUUID(),
-        overridePriceMinorUnits: 100_000n,
+        overrideCashPriceMinorUnits: 100_000n,
         currency: "USD",
       })
     ).rejects.toThrow(NoCalculationToOverrideError);

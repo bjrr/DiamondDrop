@@ -81,8 +81,64 @@ describe("prices come from the server, never from arithmetic here", () => {
     // can be wrong. Every figure is read from the response.
     const code = stripComments(js);
     expect(code).not.toMatch(/priceMultiplier/);
-    expect(code).toMatch(/data\.groupBuyPriceMinorUnits/);
-    expect(code).toMatch(/data\.savingsMinorUnits/);
+    expect(code).toMatch(/data\.groupBuyCreditCardPriceMinorUnits/);
+    expect(code).toMatch(/data\.creditCardSavingsMinorUnits/);
+  });
+
+  it("derives no card price and no uplift of its own", () => {
+    // The uplift rate is profile data and never crosses to a storefront. If it
+    // appeared here the block could compute a card price from a cash one, which
+    // would be a second derivation of a customer-facing price — and the one
+    // place a rounding rule could silently differ from the server's ceiling.
+    const code = stripComments(js);
+    expect(code).not.toMatch(/uplift/i);
+    expect(code).not.toMatch(/1\.05|0\.05/);
+  });
+});
+
+describe("two prices, card first, and no cash-discount percentage", () => {
+  const code = stripComments(js);
+
+  it("leads with the CREDIT-CARD price and shows cash beneath it", () => {
+    // Owner-locked (docs/CASH-CARD-PRICING.md section 5): the primary displayed
+    // price is the card price; cash is the discounted payment option. The order
+    // is the policy, not a styling preference, so it is asserted structurally
+    // rather than left to whoever next edits the template.
+    const headline = code.indexOf("groupBuyCreditCardPriceMinorUnits");
+    const cash = code.indexOf("groupBuyCashPriceMinorUnits");
+    expect(headline).toBeGreaterThan(-1);
+    expect(cash).toBeGreaterThan(-1);
+    expect(headline).toBeLessThan(cash);
+  });
+
+  it("names the cash-equivalent methods rather than saying 'cash'", () => {
+    // "Cash" alone invites someone to turn up with banknotes. The accepted
+    // methods are listed instead.
+    expect(code).toMatch(/ACH/);
+    expect(code).toMatch(/Zelle/);
+  });
+
+  it("states NO percentage for the cash discount", () => {
+    // A 5% uplift is a 4.76% discount, and whole-dollar rounding moves the
+    // realised figure per item — so any fixed percentage would be wrong on most
+    // of the catalogue. The two absolute prices are always exact.
+    //
+    // The percentage that IS rendered is the Group Buy saving against Buy Now,
+    // which is a different and legitimate figure; this checks that the only
+    // percentage in the file is that one.
+    const percentFields = code.match(/data\.\w*[Pp]ercent\w*/g) ?? [];
+    expect(percentFields.length).toBeGreaterThan(0);
+    for (const field of percentFields) {
+      expect(field).toBe("data.creditCardSavingsPercent");
+    }
+  });
+
+  it("compares like with like — card savings against the card Buy Now price", () => {
+    // Quoting a card group price against a cash Buy Now price would fold the
+    // payment-method spread into the advertised Group Buy saving and overstate
+    // it by roughly 5%.
+    expect(code).toMatch(/data\.buyNowCreditCardPriceMinorUnits/);
+    expect(code).not.toMatch(/data\.buyNowCashPriceMinorUnits/);
   });
 
   it("renders Best Price Unlocked from the server's flag, not by guessing", () => {

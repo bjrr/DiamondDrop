@@ -46,7 +46,7 @@ async function openCampaign() {
       },
       variants: {
         create: [
-          { masterVariantId: variant.id, frozenBasePriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
+          { masterVariantId: variant.id, frozenBaseCashPriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
         ],
       },
     },

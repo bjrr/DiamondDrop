@@ -1,12 +1,14 @@
 import type { LoaderFunctionArgs } from "react-router";
 
 import { prisma } from "~/db/client.server";
-import { buildCampaignProgress } from "~/domain/groupbuy/campaignProgress";
+import { buildCampaignProgress, type DualPrice } from "~/domain/groupbuy/campaignProgress";
 import type { TierDefinition } from "~/domain/groupbuy/tiers";
-import { tierPriceExact } from "~/domain/groupbuy/tiers";
+import { tierCashPriceExact } from "~/domain/groupbuy/tiers";
 import { MoneyDecimal } from "~/domain/money/decimal";
 import { Money } from "~/domain/money/money";
+import { deriveCreditCardPrice } from "~/domain/pricing/creditCardPrice";
 import { applyPriceEnding } from "~/domain/pricing/priceEnding";
+import type { CreditCardPriceRuleId } from "~/domain/pricing/types";
 import { getQualifyingUnits } from "~/jobs/groupbuy/unitLedger.server";
 import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
@@ -28,8 +30,20 @@ import { verifyAppProxySignature } from "~/shopify/proxy";
  * unauthenticated caller cannot use response timing to learn whether a campaign
  * code exists.
  *
+ * TWO PRICES ON EVERY FIGURE. The response carries a credit-card price and a
+ * cash-equivalent price for the group price, the Buy Now comparison and every
+ * tier marker. Card is the primary displayed price; cash is the discounted
+ * payment option. There is no bare `price` field — an ambiguous name here is
+ * how a storefront ends up showing the internal cash figure as the headline.
+ *
+ * The response states NO cash-discount percentage, deliberately: the uplift and
+ * the discount are reciprocals and whole-dollar rounding makes the realised
+ * figure vary per item, so only the two absolute prices are always exact.
+ *
  * WHAT THIS DELIBERATELY NEVER RETURNS. No landed cost, no margin, no floor, no
- * pricing-profile data, no customer identifiers. A shopper is entitled to
+ * pricing-profile data, no customer identifiers. The uplift RATE is profile
+ * data and stays on the server too — the storefront receives the two prices it
+ * produced, never the rule that produced them. A shopper is entitled to
  * prices and savings; everything that would reveal what a piece costs us stays
  * on the server (CLAUDE.md: never expose supplier-private cost data or
  * admin-only margins to storefront clients). The view model in
@@ -105,18 +119,48 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     priceMultiplier: t.priceMultiplier.toString(),
   }));
 
+  // THE CAMPAIGN'S FROZEN UPLIFT, not today's. A campaign records the pricing
+  // profile it froze at open; reading the current profile instead would let a
+  // change to the uplift rate move the displayed price of a campaign customers
+  // have already joined, which is precisely what freezing exists to prevent.
+  //
+  // Only the DISPLAY derivation is frozen this way. The cash prices were frozen
+  // outright at open and are read straight from the row.
+  const frozenProfile = campaign.pricingProfileId
+    ? await prisma.pricingProfile.findUnique({ where: { id: campaign.pricingProfileId } })
+    : null;
+  if (!frozenProfile) return notFound();
+
+  const upliftRate = new MoneyDecimal(frozenProfile.creditCardUpliftRate.toString());
+  const creditCardRuleId = frozenProfile.creditCardPriceRuleId as CreditCardPriceRuleId;
+
+  /**
+   * Cash first, card derived from it — the same order the Buy Now engine uses,
+   * through the same versioned rule. Deriving the card price here from anything
+   * other than the rounded cash price, or with a second rounding of its own,
+   * would produce a storefront price that no calculation on the server agrees
+   * with.
+   */
+  const dual = (cashMinorUnits: bigint): DualPrice => ({
+    cashMinorUnits,
+    creditCardMinorUnits: deriveCreditCardPrice(cashMinorUnits, upliftRate, creditCardRuleId),
+  });
+
   // Every tier's price for THIS variant, rounded exactly as a customer would be
   // charged — through the same registries the engine uses, not a local rounding.
-  const tierPricesMinorUnits: Record<number, bigint> = {};
+  const tierPrices: Record<number, DualPrice> = {};
   for (const tier of tiers) {
-    const exact = tierPriceExact(
-      new MoneyDecimal(selected.frozenBasePriceMinorUnits.toString()),
+    const exactCash = tierCashPriceExact(
+      new MoneyDecimal(selected.frozenBaseCashPriceMinorUnits.toString()),
       tier
     );
-    const rounded = Money.fromDecimalMinorUnits(exact, campaign.currency, "HALF_UP_MINOR_UNIT_V1");
-    tierPricesMinorUnits[tier.tierNumber] = applyPriceEnding(
-      rounded.amountMinorUnits,
-      "WHOLE_DOLLAR_UP_V1"
+    const rounded = Money.fromDecimalMinorUnits(
+      exactCash,
+      campaign.currency,
+      "HALF_UP_MINOR_UNIT_V1"
+    );
+    tierPrices[tier.tierNumber] = dual(
+      applyPriceEnding(rounded.amountMinorUnits, "WHOLE_DOLLAR_UP_V1")
     );
   }
 
@@ -135,13 +179,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     currency: campaign.currency,
     tiers,
     qualifyingUnitsSold,
-    frozenBaseMinorUnits: selected.frozenBasePriceMinorUnits,
     // Falls back to the frozen base when no Buy Now calculation exists yet.
     // Savings then read as zero rather than as a fabricated discount against a
     // comparison price we do not actually have.
-    buyNowPriceMinorUnits:
-      latestBuyNow?.computedPriceMinorUnits ?? selected.frozenBasePriceMinorUnits,
-    tierPricesMinorUnits,
+    buyNowPrice: dual(
+      latestBuyNow?.cashPriceMinorUnits ?? selected.frozenBaseCashPriceMinorUnits
+    ),
+    tierPrices,
     scheduledCloseAt: campaign.scheduledCloseAt,
     asOf: new Date(),
   });

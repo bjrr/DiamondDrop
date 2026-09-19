@@ -66,8 +66,8 @@ async function fixture() {
       minDollarProfitMinorUnits: 15000n,
       currency: "USD",
       roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
-      cardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
-      cardUpliftRate: "0.050000",
+      creditCardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
+      creditCardUpliftRate: "0.050000",
       priceEndingRuleId: "NONE_V1",
       autoApplyToleranceBps: 50,
       effectiveFrom: new Date("2026-01-01T00:00:00Z"),
@@ -100,7 +100,7 @@ async function calculation(
       asOf: new Date("2026-06-01T00:00:00Z"),
       snapshotId: ids.snapshot.id,
       landedCostMinorUnits: 75365n,
-      computedPriceMinorUnits: priceMinorUnits,
+      cashPriceMinorUnits: priceMinorUnits,
       currency: "USD",
       status: "computed",
     },
@@ -114,7 +114,7 @@ describe("criterion 22 — price_calculation is append-only at the database leve
     await expect(
       prisma.priceCalculation.update({
         where: { id: calc.id },
-        data: { computedPriceMinorUnits: 1n },
+        data: { cashPriceMinorUnits: 1n },
       })
     ).rejects.toThrow(/append-only/i);
   });
@@ -142,7 +142,7 @@ describe("criterion 23 — a re-run with the same runId creates no duplicate", (
     const ids = await fixture();
     await calculation(ids, randomUUID(), 136833n);
     const second = await calculation(ids, randomUUID(), 137000n);
-    expect(second.computedPriceMinorUnits).toBe(137000n);
+    expect(second.cashPriceMinorUnits).toBe(137000n);
   });
 });
 

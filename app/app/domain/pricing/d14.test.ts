@@ -4,7 +4,7 @@ import { MoneyDecimal } from "~/domain/money/decimal";
 
 import { computeBuyNowPrice } from "./engine";
 import { applyPriceEnding } from "./priceEnding";
-import { enforceFloors, solveExactPrice } from "./solve";
+import { enforceFloors, solveExactCashPrice } from "./solve";
 import type { BuyNowPricingInputs, PricingProfileInputs } from "./types";
 
 /**
@@ -29,8 +29,8 @@ describe("MARKUP_ON_COST_V1 (D14 target markup)", () => {
     roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
     priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
     autoApplyToleranceBps: null,
-    cardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
-    cardUpliftRate: "0.050000",
+    creditCardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
+    creditCardUpliftRate: "0.050000",
     isPlaceholder: false,
     ...overrides,
   });
@@ -44,19 +44,19 @@ describe("MARKUP_ON_COST_V1 (D14 target markup)", () => {
   };
 
   it("prices at cost x 1.40, the owner's formula", () => {
-    expect(solveExactPrice(base).exact.toString()).toBe("14000");
+    expect(solveExactCashPrice(base).exactCash.toString()).toBe("14000");
   });
 
   it("is NOT the same as a 40% gross margin — the distinction that motivated D14", () => {
-    const markup = solveExactPrice(base).exact;
-    const margin = solveExactPrice({
+    const markup = solveExactCashPrice(base).exactCash;
+    const margin = solveExactCashPrice({
       ...base,
       profile: markupProfile({
         marginModel: "TARGET_GROSS_MARGIN_V1",
         targetMarkupRate: undefined,
         targetGrossMarginRate: "0.40",
       }),
-    }).exact;
+    }).exactCash;
 
     expect(markup.toDecimalPlaces(2).toString()).toBe("14000"); // $140.00
     expect(margin.toDecimalPlaces(2).toString()).toBe("16666.67"); // $166.67
@@ -69,7 +69,7 @@ describe("MARKUP_ON_COST_V1 (D14 target markup)", () => {
   it("realises a 28.6% gross margin on a 40% markup", () => {
     // The identity behind the warning above: markup m on cost yields a gross
     // margin of m/(1+m). 0.4/1.4 = 0.2857...
-    const price = solveExactPrice(base).exact;
+    const price = solveExactCashPrice(base).exactCash;
     const margin = price.minus(base.landedCostMinorUnits).dividedBy(price);
     expect(margin.toDecimalPlaces(4).toString()).toBe("0.2857");
   });
@@ -78,7 +78,7 @@ describe("MARKUP_ON_COST_V1 (D14 target markup)", () => {
     // A profile claiming MARKUP_ON_COST_V1 while carrying only a gross-margin
     // rate must fail loudly, not quietly fall back to the other model's number.
     expect(() =>
-      solveExactPrice({
+      solveExactCashPrice({
         ...base,
         profile: markupProfile({
           targetMarkupRate: undefined,
@@ -91,14 +91,14 @@ describe("MARKUP_ON_COST_V1 (D14 target markup)", () => {
   it("still lets the minimum-profit floor outrank the markup target", () => {
     // $100 cost at 40% markup is $140 — only $40 of profit. The owner's $100
     // minimum dollar profit has to win.
-    const { exact, binding } = solveExactPrice({
+    const { exactCash, binding } = solveExactCashPrice({
       ...base,
       profile: markupProfile({
         minDollarProfit: { amountMinorUnits: "10000", currency: "USD" },
       }),
     });
     expect(binding).toBe("min_profit");
-    expect(exact.toString()).toBe("20000");
+    expect(exactCash.toString()).toBe("20000");
   });
 });
 
@@ -125,7 +125,7 @@ describe("WHOLE_DOLLAR_UP_V1 (D14 price ending)", () => {
 
 describe("floor bumping preserves the price ending", () => {
   const floorInput = {
-    priceMinorUnits: 33400n,
+    cashPriceMinorUnits: 33400n,
     landedCostMinorUnits: new MoneyDecimal("23843"),
     revenueRate: new MoneyDecimal("0.029"),
     revenueFixedMinorUnits: new MoneyDecimal("30"),
@@ -135,9 +135,9 @@ describe("floor bumping preserves the price ending", () => {
   };
 
   it("steps by a whole dollar when the ending rule is whole-dollar", () => {
-    const { priceMinorUnits, final } = enforceFloors(floorInput, 100, 100n);
+    const { cashPriceMinorUnits, final } = enforceFloors(floorInput, 100, 100n);
     expect(final.satisfied).toBe(true);
-    expect(priceMinorUnits % 100n).toBe(0n);
+    expect(cashPriceMinorUnits % 100n).toBe(0n);
   });
 
   it("would otherwise land on a price ending in cents — the bug the step guards", () => {
@@ -146,8 +146,8 @@ describe("floor bumping preserves the price ending", () => {
     // earlier. Asserting the WRONG behaviour documents why the parameter
     // exists: if a change ever makes both paths agree, this fails and the guard
     // gets re-examined rather than silently carried forward.
-    const { priceMinorUnits } = enforceFloors(floorInput, 10000, 1n);
-    expect(priceMinorUnits % 100n).not.toBe(0n);
+    const { cashPriceMinorUnits } = enforceFloors(floorInput, 10000, 1n);
+    expect(cashPriceMinorUnits % 100n).not.toBe(0n);
   });
 });
 
@@ -185,47 +185,62 @@ describe("the engine end-to-end under the owner's D14 + D9 profile", () => {
       roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
       priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
       autoApplyToleranceBps: null,
-      cardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
-      cardUpliftRate: "0.050000",
+      creditCardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
+      creditCardUpliftRate: "0.050000",
       isPlaceholder: false,
     },
   };
 
   it("produces a whole-dollar cash price that satisfies both owner floors", () => {
     const result = computeBuyNowPrice(inputs);
-    expect(BigInt(result.price.amountMinorUnits) % 100n).toBe(0n);
+    expect(BigInt(result.cashPrice.amountMinorUnits) % 100n).toBe(0n);
     expect(result.floors.satisfied).toBe(true);
-    expect(new MoneyDecimal(result.floors.grossMargin).greaterThanOrEqualTo("0.20")).toBe(true);
-    expect(new MoneyDecimal(result.floors.contribution).greaterThanOrEqualTo("10000")).toBe(true);
+    expect(new MoneyDecimal(result.floors.cashGrossMarginRate).greaterThanOrEqualTo("0.20")).toBe(true);
+    expect(new MoneyDecimal(result.floors.cashContributionMinorUnits).greaterThanOrEqualTo("10000")).toBe(true);
   });
 
   it("derives the card price from the FINAL cash price, not the exact solve", () => {
-    const result = computeBuyNowPrice(inputs);
-    const cash = new MoneyDecimal(result.price.amountMinorUnits);
+    // A WEIGHT CHOSEN SO THE TWO DIFFER. On the shared fixture the exact solve
+    // now lands on a whole dollar ($250.00) and survives rounding untouched, so
+    // "final" and "exact" are the same number and the test below would pass
+    // against either. 3.33g gives an exact $266.50, which the whole-dollar
+    // ending lifts to $267.00 — and the card price must follow the $267.
+    //
+    // Worth stating: that collapse is a consequence of this change. The
+    // min-profit price used to be cost + fee + profit over (1 − rate), which
+    // was almost never a round number; it is now cost + profit, which often is.
+    const result = computeBuyNowPrice({
+      ...inputs,
+      weight: { ...inputs.weight, baseWeightGrams: "3.3300" },
+    });
+    const cash = new MoneyDecimal(result.cashPrice.amountMinorUnits);
+    expect(new MoneyDecimal(result.exactCashPriceMinorUnits).equals(cash)).toBe(false);
 
     // Re-derivable from the recorded price and rate — that is D9's whole point.
     // Computed here from the OUTPUT, so it catches a card price derived from
     // the pre-bump exact figure rather than from the cash price actually used.
     const expected = cash.times("1.05").dividedBy(100).ceil().times(100);
-    expect(result.cardPrice.amountMinorUnits).toBe(expected.toString());
+    expect(result.creditCardPrice.amountMinorUnits).toBe(expected.toString());
 
-    // The exact solve and the final cash price differ (rounding + ending), so
-    // the assertion above is genuinely discriminating rather than trivially true.
-    expect(new MoneyDecimal(result.exactPriceMinorUnits).equals(cash)).toBe(false);
+    // And spelled out, so a future reader can check it without running it:
+    // exact $266.50 -> cash $267.00 -> card ceil($280.35) = $281.00.
+    expect(result.exactCashPriceMinorUnits).toBe("26650");
+    expect(result.cashPrice.amountMinorUnits).toBe("26700");
+    expect(result.creditCardPrice.amountMinorUnits).toBe("28100");
   });
 
   it("gives a whole-dollar card price above the whole-dollar cash price", () => {
     const result = computeBuyNowPrice(inputs);
-    expect(BigInt(result.cardPrice.amountMinorUnits) % 100n).toBe(0n);
-    expect(BigInt(result.cardPrice.amountMinorUnits)).toBeGreaterThan(
-      BigInt(result.price.amountMinorUnits)
+    expect(BigInt(result.creditCardPrice.amountMinorUnits) % 100n).toBe(0n);
+    expect(BigInt(result.creditCardPrice.amountMinorUnits)).toBeGreaterThan(
+      BigInt(result.cashPrice.amountMinorUnits)
     );
   });
 
   it("records the rule id and rate so a historical card price can be re-derived", () => {
     const result = computeBuyNowPrice(inputs);
-    expect(result.cardPriceRuleId).toBe("CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1");
-    expect(result.cardUpliftRate).toBe("0.050000");
+    expect(result.creditCardPriceRuleId).toBe("CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1");
+    expect(result.creditCardUpliftRate).toBe("0.050000");
   });
 
   it("binds the floors to the CASH price, so BOTH prices clear them", () => {
@@ -244,22 +259,41 @@ describe("the engine end-to-end under the owner's D14 + D9 profile", () => {
 
     // The card price is strictly higher, so it clears the same floors without
     // needing its own evaluation.
-    expect(BigInt(cheap.cardPrice.amountMinorUnits)).toBeGreaterThan(
-      BigInt(cheap.price.amountMinorUnits)
+    expect(BigInt(cheap.creditCardPrice.amountMinorUnits)).toBeGreaterThan(
+      BigInt(cheap.cashPrice.amountMinorUnits)
     );
   });
 
   it("measures margin and profit on the CASH price, not the displayed one", () => {
     // What the floors report must describe the price actually netted. Reporting
-    // margin on the card price would overstate profitability on every cash sale.
+    // margin on the card price would overstate profitability on every cash
+    // sale — and on this variant by about five points.
     const result = computeBuyNowPrice(inputs);
-    const cash = new MoneyDecimal(result.price.amountMinorUnits);
+    const cash = new MoneyDecimal(result.cashPrice.amountMinorUnits);
+    const card = new MoneyDecimal(result.creditCardPrice.amountMinorUnits);
     const cost = new MoneyDecimal(result.breakdown.landedCostMinorUnits);
 
-    // contribution = cash - revenue-side deductions - cost, so it must be
-    // strictly below cash - cost, and nowhere near card - cost.
-    const contribution = new MoneyDecimal(result.floors.contribution);
-    expect(contribution.lessThan(cash.minus(cost))).toBe(true);
-    expect(contribution.lessThan(new MoneyDecimal(result.cardPrice.amountMinorUnits).minus(cost))).toBe(true);
+    // contribution = cash − cost, EXACTLY (owner-locked 2026-09-18: gross of
+    // payment expense). Asserted as an equality rather than a bound, because a
+    // bound would also be satisfied by the old fee-deducting definition.
+    const contribution = new MoneyDecimal(result.floors.cashContributionMinorUnits);
+    expect(contribution.equals(cash.minus(cost))).toBe(true);
+
+    // And decisively NOT the card figure, which is the number the customer
+    // sees and the number that must never reach a profitability calculation.
+    expect(contribution.equals(card.minus(cost))).toBe(false);
+    expect(contribution.lessThan(card.minus(cost))).toBe(true);
+
+    const margin = new MoneyDecimal(result.floors.cashGrossMarginRate);
+    expect(margin.equals(cash.minus(cost).dividedBy(cash))).toBe(true);
+    expect(margin.lessThan(card.minus(cost).dividedBy(card))).toBe(true);
+  });
+
+  it("reports which profitability basis the floors were measured on", () => {
+    // A stored evaluation has to say which rule produced it. Without the id, a
+    // margin recorded today and one recorded before this change are
+    // indistinguishable numbers three points apart.
+    const result = computeBuyNowPrice(inputs);
+    expect(result.floors.basisId).toBe("CASH_PRICE_GROSS_OF_PAYMENT_EXPENSE_V1");
   });
 });

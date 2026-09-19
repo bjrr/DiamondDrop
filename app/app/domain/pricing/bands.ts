@@ -78,9 +78,9 @@ export function enumerateBandSizes(band: BandSpec, spec: SizeSpec): DecimalStrin
 }
 
 export interface BandPriceSelection<TResult> {
-  bandPrice: bigint;
+  bandCashPriceMinorUnits: bigint;
   costBasisSize: DecimalString;
-  perSize: readonly { size: DecimalString; priceMinorUnits: string }[];
+  perSize: readonly { size: DecimalString; cashPriceMinorUnits: string }[];
   winning: TResult;
 }
 
@@ -95,23 +95,23 @@ export interface BandPriceSelection<TResult> {
  */
 export function selectBandPrice<TResult>(
   candidates: readonly DecimalString[],
-  priceAtSize: (size: DecimalString) => { priceMinorUnits: bigint; result: TResult }
+  cashPriceAtSize: (size: DecimalString) => { cashPriceMinorUnits: bigint; result: TResult }
 ): BandPriceSelection<TResult> {
   if (candidates.length === 0) {
     throw new InvalidBandError("(unknown)", "no candidate sizes to evaluate");
   }
 
-  const perSize: { size: DecimalString; priceMinorUnits: string }[] = [];
-  let bestPrice: bigint | null = null;
+  const perSize: { size: DecimalString; cashPriceMinorUnits: string }[] = [];
+  let bestCash: bigint | null = null;
   let bestSize: DecimalString | null = null;
   let bestResult: TResult | null = null;
 
   for (const size of candidates) {
-    const { priceMinorUnits, result } = priceAtSize(size);
-    perSize.push({ size, priceMinorUnits: priceMinorUnits.toString() });
+    const { cashPriceMinorUnits, result } = cashPriceAtSize(size);
+    perSize.push({ size, cashPriceMinorUnits: cashPriceMinorUnits.toString() });
 
-    if (bestPrice === null || priceMinorUnits > bestPrice) {
-      bestPrice = priceMinorUnits;
+    if (bestCash === null || cashPriceMinorUnits > bestCash) {
+      bestCash = cashPriceMinorUnits;
       bestSize = size;
       bestResult = result;
     }
@@ -120,7 +120,7 @@ export function selectBandPrice<TResult>(
   }
 
   return {
-    bandPrice: bestPrice!,
+    bandCashPriceMinorUnits: bestCash!,
     costBasisSize: bestSize!,
     perSize,
     winning: bestResult!,

@@ -10,6 +10,7 @@ import {
   markRefundFailed,
   markRefundIssued,
   releaseRefundForShipping,
+  type PaidLineInput,
 } from "~/jobs/groupbuy/refundLedger.server";
 import { closeGroupBuyCampaign, recordUnitEvent } from "~/jobs/groupbuy/unitLedger.server";
 
@@ -47,7 +48,7 @@ async function closedCampaign(units: number) {
       },
       variants: {
         create: [
-          { masterVariantId: variant.id, frozenBasePriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
+          { masterVariantId: variant.id, frozenBaseCashPriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
         ],
       },
     },
@@ -77,7 +78,7 @@ async function closedCampaign(units: number) {
   return {
     campaignId: draft.id,
     variantId: variant.id,
-    basePrice: frozen.frozenBasePriceMinorUnits,
+    basePrice: frozen.frozenBaseCashPriceMinorUnits,
     finalTier: closed.finalTierNumber,
   };
 }
@@ -107,7 +108,7 @@ describe("refunds are computed at close", () => {
         },
         variants: {
           create: [
-            { masterVariantId: variant.id, frozenBasePriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
+            { masterVariantId: variant.id, frozenBaseCashPriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
           ],
         },
       },
@@ -133,6 +134,7 @@ describe("refunds are computed at close", () => {
           masterVariantId: c.variantId,
           orderRef: "order-1",
           lineRef: "line-1",
+          paymentBasis: "cash",
           paidPerUnitMinorUnits: c.basePrice,
           qualifyingUnits: 5,
         },
@@ -168,6 +170,7 @@ describe("refunds are computed at close", () => {
           masterVariantId: c.variantId,
           orderRef: "order-1",
           lineRef: "line-1",
+          paymentBasis: "cash",
           paidPerUnitMinorUnits: c.basePrice,
           qualifyingUnits: 1,
         },
@@ -183,10 +186,11 @@ describe("refunds are computed at close", () => {
 
   it("is idempotent — recomputing does not create a second payable row", async () => {
     const c = await closedCampaign(5);
-    const line = {
+    const line: PaidLineInput = {
       masterVariantId: c.variantId,
       orderRef: "order-1",
       lineRef: "line-1",
+      paymentBasis: "cash",
       paidPerUnitMinorUnits: c.basePrice,
       qualifyingUnits: 5,
     };
@@ -222,6 +226,7 @@ describe("the hold through production and QC", () => {
           masterVariantId: c.variantId,
           orderRef: "order-1",
           lineRef: "line-1",
+          paymentBasis: "cash",
           paidPerUnitMinorUnits: c.basePrice,
           qualifyingUnits: 5,
         },
@@ -304,6 +309,7 @@ describe("no duplicate customer value", () => {
           masterVariantId: c.variantId,
           orderRef: "order-1",
           lineRef: "line-1",
+          paymentBasis: "cash",
           paidPerUnitMinorUnits: c.basePrice,
           qualifyingUnits: 5,
         },
@@ -356,6 +362,7 @@ describe("no duplicate customer value", () => {
           masterVariantId: refund.masterVariantId,
           orderRef: refund.orderRef,
           lineRef: refund.lineRef,
+          paymentBasis: "cash",
           paidPerUnitMinorUnits: 1000n,
           finalPerUnitMinorUnits: 0n,
           qualifyingUnits: 1,
@@ -378,6 +385,7 @@ describe("no duplicate customer value", () => {
           masterVariantId: c.variantId,
           orderRef: "order-1",
           lineRef: "line-1",
+          paymentBasis: "cash",
           paidPerUnitMinorUnits: c.basePrice,
           qualifyingUnits: 5,
         },
@@ -406,6 +414,7 @@ describe("the history is evidence", () => {
           masterVariantId: c.variantId,
           orderRef: "order-1",
           lineRef: "line-1",
+          paymentBasis: "cash",
           paidPerUnitMinorUnits: c.basePrice,
           qualifyingUnits: 5,
         },

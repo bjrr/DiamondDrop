@@ -5,7 +5,7 @@ import { MoneyDecimal } from "~/domain/money/decimal";
 import {
   enforceFloors,
   evaluateFloors,
-  solveExactPrice,
+  solveExactCashPrice,
 } from "./solve";
 import { MarginFloorUnreachableError } from "./errors";
 import type { FloorInput, SolveInput } from "./solve";
@@ -17,7 +17,7 @@ import type { PricingProfileInputs } from "./types";
  */
 
 /**
- * A minimal pricing profile for solve tests. `solveExactPrice` takes the
+ * A minimal pricing profile for solve tests. `solveExactCashPrice` takes the
  * profile WHOLE — that is what keeps its signature stable as margin models are
  * added — so the tests build one here and override the one field under test.
  */
@@ -32,14 +32,14 @@ function profile(overrides: Partial<PricingProfileInputs> = {}): PricingProfileI
     roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
     priceEndingRuleId: "NONE_V1",
     autoApplyToleranceBps: null,
-    cardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
-    cardUpliftRate: "0.050000",
+    creditCardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
+    creditCardUpliftRate: "0.050000",
     isPlaceholder: false,
     ...overrides,
   };
 }
 
-describe("solveExactPrice (spec §5.3)", () => {
+describe("solveExactCashPrice (spec §5.3)", () => {
   const baseInput: SolveInput = {
     profile: profile(),
     landedCostMinorUnits: new MoneyDecimal("75365.25"),
@@ -49,12 +49,12 @@ describe("solveExactPrice (spec §5.3)", () => {
   };
 
   it("solves for margin-constrained price", () => {
-    const result = solveExactPrice(baseInput);
+    const result = solveExactCashPrice(baseInput);
     // P_margin = (75365.25 + 30) / (1 - 0.42 - 0.029)
     //          = 75395.25 / 0.551
     //          ≈ 136833.48...
     expect(result.binding).toBe("margin");
-    expect(result.exact.toString().startsWith("136833.4845735027223")).toBe(true);
+    expect(result.exactCash.toString().startsWith("136833.4845735027223")).toBe(true);
   });
 
   it("uses min-profit when it exceeds margin (criterion 17)", () => {
@@ -64,13 +64,71 @@ describe("solveExactPrice (spec §5.3)", () => {
         minDollarProfit: { amountMinorUnits: "200000", currency: "USD" }, // Very high
       }),
     };
-    const result = solveExactPrice(highMinProfit);
+    const result = solveExactCashPrice(highMinProfit);
     expect(result.binding).toBe("min_profit");
-    // P_minProfit = (75365.25 + 30 + 200000) / (1 - 0.029)
-    //             = 275395.25 / 0.971
-    expect(result.exact.greaterThan(solveExactPrice(baseInput).exact)).toBe(true);
-    // (75365.25 + 30 + 200000) / 0.971 = 283620.236869207003...
-    expect(result.exact.toString().startsWith("283620.2368692070")).toBe(true);
+    // CASH BASIS (owner-locked 2026-09-18): cash − cost >= minProfit, so
+    //   P_minProfit = 75365.25 + 200000 = 275365.25
+    //
+    // Formerly (75365.25 + 30 + 200000) / (1 − 0.029) = 283620.23..., which
+    // solved for a profit NET of payment expense while the floor that checks it
+    // is measured GROSS of it. The two disagreed by $82.55 on this variant.
+    expect(result.exactCash.greaterThan(solveExactCashPrice(baseInput).exactCash)).toBe(true);
+    expect(result.exactCash.toString()).toBe("275365.25");
+  });
+
+  it("solves the min-profit price WITHOUT payment-processing expense", () => {
+    // The point of the rule, isolated: the revenue-side rate and fixed fee must
+    // make no difference to the minimum-profit price. Two solves that differ
+    // only in those inputs must return the identical number.
+    //
+    // A single assertion on one value could pass against an implementation that
+    // still divided by (1 − r) if r happened to be zero; comparing a fee-laden
+    // solve against a fee-free one cannot.
+    const withFees = solveExactCashPrice({
+      ...baseInput,
+      profile: profile({
+        marginModel: "MARKUP_ON_COST_V1",
+        targetMarkupRate: "0.40",
+        minDollarProfit: { amountMinorUnits: "200000", currency: "USD" },
+      }),
+      revenueRate: new MoneyDecimal("0.029"),
+      revenueFixedMinorUnits: new MoneyDecimal("30"),
+    });
+    const withoutFees = solveExactCashPrice({
+      ...baseInput,
+      profile: profile({
+        marginModel: "MARKUP_ON_COST_V1",
+        targetMarkupRate: "0.40",
+        minDollarProfit: { amountMinorUnits: "200000", currency: "USD" },
+      }),
+      revenueRate: new MoneyDecimal("0"),
+      revenueFixedMinorUnits: new MoneyDecimal("0"),
+    });
+
+    expect(withFees.binding).toBe("min_profit");
+    expect(withFees.exactCash.toString()).toBe(withoutFees.exactCash.toString());
+    expect(withFees.exactCash.toString()).toBe("275365.25");
+  });
+
+  it("MARKUP_ON_COST_V1 ignores revenue-side inputs entirely", () => {
+    // The MVP1 model. Cost x 1.40 and nothing else: a 40% markup on cost is a
+    // statement about cost, and payment expense is not cost.
+    const markup = (revenueRate: string, revenueFixed: string) =>
+      solveExactCashPrice({
+        ...baseInput,
+        profile: profile({
+          marginModel: "MARKUP_ON_COST_V1",
+          targetMarkupRate: "0.40",
+          minDollarProfit: { amountMinorUnits: "0", currency: "USD" },
+        }),
+        landedCostMinorUnits: new MoneyDecimal("100000"),
+        revenueRate: new MoneyDecimal(revenueRate),
+        revenueFixedMinorUnits: new MoneyDecimal(revenueFixed),
+      }).exactCash.toString();
+
+    expect(markup("0", "0")).toBe("140000");
+    expect(markup("0.029", "30")).toBe("140000");
+    expect(markup("0.5", "99999")).toBe("140000");
   });
 
   it("uses variant floor when it exceeds both constraints (criterion 17)", () => {
@@ -78,9 +136,9 @@ describe("solveExactPrice (spec §5.3)", () => {
       ...baseInput,
       variantFloorMinorUnits: new MoneyDecimal("999999"),
     };
-    const result = solveExactPrice(withFloor);
+    const result = solveExactCashPrice(withFloor);
     expect(result.binding).toBe("variant_floor");
-    expect(result.exact.toString()).toBe("999999");
+    expect(result.exactCash.toString()).toBe("999999");
   });
 
   it("throws UnreachableMarginError when 1 - m - r ≤ 0 (criterion 16)", () => {
@@ -90,16 +148,28 @@ describe("solveExactPrice (spec §5.3)", () => {
       revenueRate: new MoneyDecimal("0.05"),
       // 1 - 0.97 - 0.05 = -0.02 ≤ 0
     };
-    expect(() => solveExactPrice(unreachable)).toThrow(/UnreachableMarginError|denominator/);
+    expect(() => solveExactCashPrice(unreachable)).toThrow(/UnreachableMarginError|denominator/);
   });
 
-  it("throws UnreachableMarginError when 1 - r ≤ 0", () => {
-    const unreachable: SolveInput = {
+  it("a revenue rate above 1 no longer breaks the MIN-PROFIT path", () => {
+    // There used to be a guard here against dividing by (1 − r) when r >= 1.
+    // The min-profit price no longer divides by anything, so an absurd revenue
+    // rate cannot make it unsolvable — it is simply not consulted.
+    //
+    // The MARGIN model is a separate question: TARGET_GROSS_MARGIN_V1 still
+    // puts r in a denominator and still refuses an impossible one. Asserted on
+    // MARKUP_ON_COST_V1 so this test is about the min-profit path alone.
+    const result = solveExactCashPrice({
       ...baseInput,
+      profile: profile({
+        marginModel: "MARKUP_ON_COST_V1",
+        targetMarkupRate: "0.40",
+        minDollarProfit: { amountMinorUnits: "200000", currency: "USD" },
+      }),
       revenueRate: new MoneyDecimal("1.05"),
-      // 1 - 1.05 = -0.05 ≤ 0
-    };
-    expect(() => solveExactPrice(unreachable)).toThrow(/UnreachableMarginError|denominator/);
+    });
+    expect(result.binding).toBe("min_profit");
+    expect(result.exactCash.toString()).toBe("275365.25");
   });
 
   it("cost-side vs revenue-side yield different prices (criterion 16)", () => {
@@ -108,7 +178,7 @@ describe("solveExactPrice (spec §5.3)", () => {
     // Revenue-side: goes into denominator
 
     // Revenue-side case (base): rate 0.02 revenue-side
-    const revenueSide = solveExactPrice({
+    const revenueSide = solveExactCashPrice({
       profile: profile({
         targetGrossMarginRate: "0.40",
         minDollarProfit: { amountMinorUnits: "0", currency: "USD" },
@@ -120,7 +190,7 @@ describe("solveExactPrice (spec §5.3)", () => {
     });
 
     // Cost-side case: add 2% of base to cost
-    const costSide = solveExactPrice({
+    const costSide = solveExactCashPrice({
       profile: profile({
         targetGrossMarginRate: "0.40",
         minDollarProfit: { amountMinorUnits: "0", currency: "USD" },
@@ -142,39 +212,83 @@ describe("solveExactPrice (spec §5.3)", () => {
     // Revenue-side is the HIGHER of the two: 2% of the selling price is more
     // money than 2% of the cost that price is derived from. That asymmetry is
     // the entire reason §4.4 classifies components by basis.
-    expect(costSide.exact.toString()).toBe("170000");
-    expect(revenueSide.exact.toString().startsWith("172413.7931034482758620689655172413793")).toBe(true);
-    expect(revenueSide.exact.greaterThan(costSide.exact)).toBe(true);
+    expect(costSide.exactCash.toString()).toBe("170000");
+    expect(revenueSide.exactCash.toString().startsWith("172413.7931034482758620689655172413793")).toBe(true);
+    expect(revenueSide.exactCash.greaterThan(costSide.exactCash)).toBe(true);
   });
 });
 
 describe("evaluateFloors (criterion 35 — predicate only, without loop)", () => {
   const baseInput: FloorInput = {
-    priceMinorUnits: 136833n,
+    cashPriceMinorUnits: 136833n,
     landedCostMinorUnits: new MoneyDecimal("75365.25"),
-    revenueRate: new MoneyDecimal("0.029"),
-    revenueFixedMinorUnits: new MoneyDecimal("30"),
     minGrossMarginRate: new MoneyDecimal("0.35"),
     minDollarProfitMinorUnits: new MoneyDecimal("15000"),
     variantFloorMinorUnits: new MoneyDecimal("0"),
   };
 
-  it("evaluates all floors without bumping (criterion 18)", () => {
+  it("measures contribution and margin on CASH, gross of payment expense", () => {
     const evaluation = evaluateFloors(baseInput);
-    // §5.8 worked example at price $1,368.33:
-    // deductions = 0.029 * 136833 + 30 = 3998.157
-    // contribution = 136833 - 3998.157 - 75365.25 = 57469.593 (= $574.70)
-    // gross margin = 57469.593 / 136833 ≈ 0.419998...
-    // Satisfies min_gross_margin 0.35 and min_dollar_profit $150.00
+    // Owner-locked 2026-09-18, at cash price $1,368.33:
+    //   contribution = 136833 − 75365.25 = 61467.75   (= $614.68)
+    //   gross margin = 61467.75 / 136833 = 0.449217...
+    //
+    // The former, fee-deducting definition gave 57469.593 and 0.419998 — about
+    // three points lower on the same variant. Both numbers are asserted here
+    // because the DIFFERENCE is the business decision; a test that only checked
+    // `satisfied` would pass under either rule.
     expect(evaluation.satisfied).toBe(true);
     expect(evaluation.failing).toHaveLength(0);
-    expect(evaluation.contribution).toBe("57469.593");
+    expect(evaluation.cashContributionMinorUnits).toBe("61467.75");
+    expect(evaluation.cashGrossMarginRate.startsWith("0.4492")).toBe(true);
+    expect(evaluation.basisId).toBe("CASH_PRICE_GROSS_OF_PAYMENT_EXPENSE_V1");
+  });
+
+  it("gives the same answer whatever the payment-processing cost happens to be", () => {
+    // The floors cannot see revenue-side inputs — FloorInput has no field for
+    // them. This asserts the consequence at the only level a test can: the
+    // margin on a given cash price and cost is a fixed number, so it is stated
+    // exactly rather than compared against a second call that would be
+    // identical by construction.
+    //
+    // Guarding the guard: if someone re-adds a fee deduction, this fails with a
+    // lower margin rather than passing quietly.
+    const evaluation = evaluateFloors({
+      ...baseInput,
+      cashPriceMinorUnits: 100000n,
+      landedCostMinorUnits: new MoneyDecimal("75000"),
+      minGrossMarginRate: new MoneyDecimal("0.25"),
+      minDollarProfitMinorUnits: new MoneyDecimal("0"),
+    });
+    // 25000 / 100000 = exactly 0.25 — precisely AT the floor, which must pass.
+    expect(evaluation.cashGrossMarginRate).toBe("0.25");
+    expect(evaluation.satisfied).toBe(true);
+  });
+
+  it("clears the 20% floor on a 10% Group Buy tier over a 40% markup", () => {
+    // The arithmetic the owner corrected, stated as a test rather than a
+    // comment. Cost $1,000 -> cash base $1,400 -> 10% off = $1,260.
+    //
+    //   margin = (1260 − 1000) / 1260 = 20.63%
+    //
+    // Under the old fee-deducting rule this measured 17.8% and a campaign at
+    // this tier could not be published.
+    const evaluation = evaluateFloors({
+      cashPriceMinorUnits: 126000n,
+      landedCostMinorUnits: new MoneyDecimal("100000"),
+      minGrossMarginRate: new MoneyDecimal("0.20"),
+      minDollarProfitMinorUnits: new MoneyDecimal("10000"),
+      variantFloorMinorUnits: new MoneyDecimal("0"),
+    });
+    expect(evaluation.satisfied).toBe(true);
+    expect(evaluation.failing).toHaveLength(0);
+    expect(evaluation.cashGrossMarginRate.startsWith("0.2063")).toBe(true);
   });
 
   it("detects when gross margin falls below minimum (criterion 18)", () => {
     const tooLowPrice: FloorInput = {
       ...baseInput,
-      priceMinorUnits: 100000n, // Too low
+      cashPriceMinorUnits: 100000n, // Too low
     };
     const evaluation = evaluateFloors(tooLowPrice);
     expect(evaluation.satisfied).toBe(false);
@@ -185,7 +299,7 @@ describe("evaluateFloors (criterion 35 — predicate only, without loop)", () =>
     const tooLowPrice: FloorInput = {
       ...baseInput,
       minDollarProfitMinorUnits: new MoneyDecimal("100000"), // Require $1000 profit
-      priceMinorUnits: 100000n,
+      cashPriceMinorUnits: 100000n,
     };
     const evaluation = evaluateFloors(tooLowPrice);
     expect(evaluation.satisfied).toBe(false);
@@ -196,7 +310,7 @@ describe("evaluateFloors (criterion 35 — predicate only, without loop)", () =>
     const belowFloor: FloorInput = {
       ...baseInput,
       variantFloorMinorUnits: new MoneyDecimal("200000"),
-      priceMinorUnits: 150000n,
+      cashPriceMinorUnits: 150000n,
     };
     const evaluation = evaluateFloors(belowFloor);
     expect(evaluation.satisfied).toBe(false);
@@ -204,53 +318,51 @@ describe("evaluateFloors (criterion 35 — predicate only, without loop)", () =>
   });
 
   it("distinguishes target from floor (criterion 18 inverse)", () => {
-    // §5.8 worked example: rounded price $1,368.33, margin 0.419998... vs target 0.42
-    // Must NOT be bumped merely for landing below the target margin
+    // A price that clears the FLOOR while sitting below the TARGET must not be
+    // bumped. Comparing against the target instead would nudge nearly every
+    // price upward and look like it was working.
     const baseFloorInput: FloorInput = {
-      priceMinorUnits: 136833n,
+      cashPriceMinorUnits: 136833n,
       landedCostMinorUnits: new MoneyDecimal("75365.25"),
-      revenueRate: new MoneyDecimal("0.029"),
-      revenueFixedMinorUnits: new MoneyDecimal("30"),
-      minGrossMarginRate: new MoneyDecimal("0.35"), // Floor is 0.35
+      minGrossMarginRate: new MoneyDecimal("0.35"), // floor
       minDollarProfitMinorUnits: new MoneyDecimal("15000"),
       variantFloorMinorUnits: new MoneyDecimal("0"),
     };
     const evaluation = evaluateFloors(baseFloorInput);
-    // Price satisfies the FLOOR (0.35), even though it's below the target (0.42)
     expect(evaluation.satisfied).toBe(true);
-    const grossMargin = new MoneyDecimal(evaluation.grossMargin);
+    const grossMargin = new MoneyDecimal(evaluation.cashGrossMarginRate);
+    // 0.4492 on the cash basis: above the 0.35 floor, below a 0.46 target.
     expect(grossMargin.greaterThanOrEqualTo("0.35")).toBe(true);
-    expect(grossMargin.lessThan("0.42")).toBe(true);
+    expect(grossMargin.lessThan("0.46")).toBe(true);
   });
 
   it("returns unrounded contribution and margin as decimal strings", () => {
     const evaluation = evaluateFloors(baseInput);
-    expect(typeof evaluation.contribution).toBe("string");
-    expect(typeof evaluation.grossMargin).toBe("string");
+    expect(typeof evaluation.cashContributionMinorUnits).toBe("string");
+    expect(typeof evaluation.cashGrossMarginRate).toBe("string");
     // Should not be integers
-    expect(evaluation.contribution).toMatch(/\./);
+    expect(evaluation.cashContributionMinorUnits).toMatch(/\./);
   });
 });
 
 describe("enforceFloors (spec §5.5 loop)", () => {
   const baseInput: FloorInput = {
-    priceMinorUnits: 136000n, // Just below what we need
+    cashPriceMinorUnits: 136000n,
     landedCostMinorUnits: new MoneyDecimal("75365.25"),
-    revenueRate: new MoneyDecimal("0.029"),
-    revenueFixedMinorUnits: new MoneyDecimal("30"),
     minGrossMarginRate: new MoneyDecimal("0.35"),
     minDollarProfitMinorUnits: new MoneyDecimal("15000"),
     variantFloorMinorUnits: new MoneyDecimal("0"),
   };
 
   it("bumps price one minor unit at a time until floors pass (criterion 18)", () => {
-    // A price a few minor units below the MIN GROSS MARGIN floor.
-    // margin = (0.971P - 75395.25) / P >= 0.35  =>  0.621P >= 75395.25
-    //                                          =>  P >= 121409.42...
-    // So 121405 falls just short and needs a handful of one-unit bumps. The
-    // price must be only slightly short: a price far below the floor would
-    // exhaust the 100-iteration bound, which is a different test (below).
-    const violating: FloorInput = { ...baseInput, priceMinorUnits: 121405n };
+    // A price a few minor units below the MIN GROSS MARGIN floor, on the cash
+    // basis:
+    //   (P − 75365.25) / P >= 0.35  =>  0.65P >= 75365.25  =>  P >= 115946.53...
+    //
+    // So 115943 falls four minor units short. The price must be only slightly
+    // short: one far below the floor would exhaust the 100-iteration bound,
+    // which is a different test (below).
+    const violating: FloorInput = { ...baseInput, cashPriceMinorUnits: 115943n };
     expect(evaluateFloors(violating).satisfied).toBe(false);
     const result = enforceFloors(violating);
     expect(result.bumps).toBeGreaterThan(0);
@@ -258,7 +370,7 @@ describe("enforceFloors (spec §5.5 loop)", () => {
     // Final price should satisfy all floors
     const finalEval = evaluateFloors({
       ...baseInput,
-      priceMinorUnits: result.priceMinorUnits,
+      cashPriceMinorUnits: result.cashPriceMinorUnits,
     });
     expect(finalEval.satisfied).toBe(true);
   });
@@ -266,11 +378,11 @@ describe("enforceFloors (spec §5.5 loop)", () => {
   it("does not bump when floors already satisfied", () => {
     const highPrice: FloorInput = {
       ...baseInput,
-      priceMinorUnits: 200000n, // High enough
+      cashPriceMinorUnits: 200000n, // High enough
     };
     const result = enforceFloors(highPrice);
     expect(result.bumps).toBe(0);
-    expect(result.priceMinorUnits).toBe(200000n);
+    expect(result.cashPriceMinorUnits).toBe(200000n);
   });
 
   it("throws MarginFloorUnreachableError when bound exceeded (criterion 18)", () => {
@@ -290,16 +402,14 @@ describe("enforceFloors (spec §5.5 loop)", () => {
   it("returns the final floor evaluation", () => {
     const result = enforceFloors(baseInput);
     expect(result.final.satisfied).toBe(true);
-    expect(result.final.contribution).toBeDefined();
+    expect(result.final.cashContributionMinorUnits).toBeDefined();
   });
 
   it("target margin does not trigger bumps (criterion 18 inverse)", () => {
     // Construct a case where price is below target but above floor
     const targetOnlyInput: FloorInput = {
-      priceMinorUnits: 136833n,
+      cashPriceMinorUnits: 136833n,
       landedCostMinorUnits: new MoneyDecimal("75365.25"),
-      revenueRate: new MoneyDecimal("0.029"),
-      revenueFixedMinorUnits: new MoneyDecimal("30"),
       minGrossMarginRate: new MoneyDecimal("0.35"), // Low floor
       minDollarProfitMinorUnits: new MoneyDecimal("10000"), // Achievable
       variantFloorMinorUnits: new MoneyDecimal("0"),

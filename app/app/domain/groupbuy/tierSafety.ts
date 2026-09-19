@@ -5,7 +5,7 @@ import { evaluateFloors } from "~/domain/pricing/solve";
 import type { FloorEvaluation, PriceEndingRuleId, PricingProfileInputs } from "~/domain/pricing/types";
 import type { RoundingRuleId } from "~/domain/money/rounding";
 
-import { tierPriceExact, type TierDefinition } from "./tiers";
+import { tierCashPriceExact, type TierDefinition } from "./tiers";
 
 /**
  * Pre-publication tier safety — README, Group Buy Tier Model:
@@ -14,6 +14,25 @@ import { tierPriceExact, type TierDefinition } from "./tiers";
  *    minimum gross-margin percentage, minimum dollar profit, and any
  *    variant-specific floor. Unsafe tiers must be blocked or require an
  *    explicit authorized override."
+ *
+ * EVERYTHING HERE IS CASH (owner-locked 2026-09-18). The frozen base is a cash
+ * price, the tier multiplier is applied to cash, and the floors are tested on
+ * cash gross of payment-processing expense. The 5% credit-card uplift plays no
+ * part in tier safety at all — it is not margin, and it is not Group Buy
+ * discount headroom. A campaign's economics are settled entirely in cash terms
+ * before a card price exists.
+ *
+ * WHAT THAT CORRECTION IS WORTH, concretely. Deducting the 2.9% + $0.30
+ * processing component here made a 10% second tier measure 17.8% and fail the
+ * 20% floor, so the campaign could not open. On the cash basis the same tier is
+ *
+ *     cash base  = cost x 1.40
+ *     tier price = cost x 1.40 x 0.90 = cost x 1.26
+ *     margin     = 0.26 / 1.26 = 20.63%
+ *
+ * which clears it. The gate was refusing campaigns the owner's rules allow. The
+ * $100 minimum-profit floor still binds separately, and on a light enough piece
+ * it is the one that bites first — see the report this returns.
  *
  * WHY EVERY VARIANT x EVERY TIER, rather than the cheapest tier alone. It is
  * tempting to assume the deepest tier is the only one that can breach a floor,
@@ -35,22 +54,22 @@ import { tierPriceExact, type TierDefinition } from "./tiers";
 
 export interface TierSafetyVariantInput {
   masterVariantId: string;
-  /** Frozen campaign base price for this variant, in whole minor units. */
-  frozenBaseMinorUnits: bigint;
+  /** Frozen campaign base CASH price for this variant, in whole minor units. */
+  frozenBaseCashMinorUnits: bigint;
   /** Landed cost frozen with the campaign, exact decimal minor units. */
   landedCostMinorUnits: MoneyDecimalValue;
-  /** Revenue-side rate and fixed fee, as used by the Buy Now floor check. */
-  revenueRate: MoneyDecimalValue;
-  revenueFixedMinorUnits: MoneyDecimalValue;
-  /** Variant-specific price floor, if configured. */
+  /** Variant-specific CASH price floor, if configured. */
   variantFloorMinorUnits?: MoneyDecimalValue;
 }
 
 export interface TierSafetyResult {
   masterVariantId: string;
   tierNumber: number;
-  /** The rounded price a customer would actually pay at this tier. */
-  priceMinorUnits: bigint;
+  /**
+   * The rounded CASH price a customer paying by ACH, wire, Zelle or check would
+   * actually pay at this tier. Safety is judged on this and nothing else.
+   */
+  groupBuyCashPriceMinorUnits: bigint;
   evaluation: FloorEvaluation;
   safe: boolean;
 }
@@ -64,13 +83,16 @@ export interface TierSafetyReport {
 }
 
 /**
- * Evaluates the price a customer would actually be charged at each tier, which
- * means rounding it exactly as the engine would.
+ * Evaluates the CASH price a customer would actually be charged at each tier,
+ * which means rounding it exactly as the engine would.
  *
  * Checking the unrounded price would be subtly wrong in both directions: a
  * price rounded DOWN can fall under a floor the exact value cleared, and one
  * rounded UP can clear a floor the exact value breached. Either way the
  * validation would be answering a question about a price nobody pays.
+ *
+ * NOTE WHAT IS ABSENT FROM THE SIGNATURE: no uplift rate, no card price rule,
+ * no revenue-side rate. This function could not consult them if it wanted to.
  */
 export function evaluateTierSafety(input: {
   variants: readonly TierSafetyVariantInput[];
@@ -84,18 +106,22 @@ export function evaluateTierSafety(input: {
 
   for (const variant of input.variants) {
     for (const tier of input.tiers) {
-      const exact = tierPriceExact(new MoneyDecimal(variant.frozenBaseMinorUnits.toString()), tier);
+      const exactCash = tierCashPriceExact(
+        new MoneyDecimal(variant.frozenBaseCashMinorUnits.toString()),
+        tier
+      );
 
       // The same two-step the Buy Now engine uses: the single rounding
       // boundary, then the price-ending rule.
-      const rounded = Money.fromDecimalMinorUnits(exact, input.currency, input.roundingRuleId);
-      const priceMinorUnits = applyPriceEnding(rounded.amountMinorUnits, input.priceEndingRuleId);
+      const rounded = Money.fromDecimalMinorUnits(exactCash, input.currency, input.roundingRuleId);
+      const groupBuyCashPriceMinorUnits = applyPriceEnding(
+        rounded.amountMinorUnits,
+        input.priceEndingRuleId
+      );
 
       const evaluation = evaluateFloors({
-        priceMinorUnits,
+        cashPriceMinorUnits: groupBuyCashPriceMinorUnits,
         landedCostMinorUnits: variant.landedCostMinorUnits,
-        revenueRate: variant.revenueRate,
-        revenueFixedMinorUnits: variant.revenueFixedMinorUnits,
         minGrossMarginRate: new MoneyDecimal(input.profile.minGrossMarginRate),
         minDollarProfitMinorUnits: new MoneyDecimal(input.profile.minDollarProfit.amountMinorUnits),
         variantFloorMinorUnits: new MoneyDecimal(variant.variantFloorMinorUnits ?? "0"),
@@ -104,7 +130,7 @@ export function evaluateTierSafety(input: {
       results.push({
         masterVariantId: variant.masterVariantId,
         tierNumber: tier.tierNumber,
-        priceMinorUnits,
+        groupBuyCashPriceMinorUnits,
         evaluation,
         safe: evaluation.satisfied,
       });

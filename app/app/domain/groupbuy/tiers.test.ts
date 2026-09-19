@@ -9,7 +9,7 @@ import {
   MIN_TIERS,
   nextTier,
   selectTier,
-  tierPriceExact,
+  tierCashPriceExact,
   unitsToNextTier,
   validateTierSet,
   type TierDefinition,
@@ -205,14 +205,14 @@ describe("tier set validation", () => {
 describe("tier price", () => {
   it("multiplies the frozen base by the tier multiplier", () => {
     // README: Variant Group Price = Frozen Base x Applicable Tier Percentage.
-    const price = tierPriceExact(new MoneyDecimal("40000"), THREE_TIERS[1]!);
+    const price = tierCashPriceExact(new MoneyDecimal("40000"), THREE_TIERS[1]!);
     expect(price.toString()).toBe("36000");
   });
 
   it("treats the multiplier as a MULTIPLIER, not a discount rate", () => {
     // The trap this codebase has already hit once with the card uplift. 0.90
     // means 90% of base, not 90% off.
-    const price = tierPriceExact(new MoneyDecimal("10000"), {
+    const price = tierCashPriceExact(new MoneyDecimal("10000"), {
       tierNumber: 2,
       minQualifyingUnits: 10,
       priceMultiplier: "0.900000",
@@ -222,19 +222,19 @@ describe("tier price", () => {
   });
 
   it("returns the base unchanged at a multiplier of 1", () => {
-    expect(tierPriceExact(new MoneyDecimal("12345"), THREE_TIERS[0]!).toString()).toBe("12345");
+    expect(tierCashPriceExact(new MoneyDecimal("12345"), THREE_TIERS[0]!).toString()).toBe("12345");
   });
 
   it("stays EXACT and unrounded, leaving rounding to the engine boundary", () => {
     // 33333 x 0.85 = 28333.05. Rounding here and again in the engine would
     // round twice, and double rounding drifts.
-    const price = tierPriceExact(new MoneyDecimal("33333"), THREE_TIERS[2]!);
+    const price = tierCashPriceExact(new MoneyDecimal("33333"), THREE_TIERS[2]!);
     expect(price.toString()).toBe("28333.05");
   });
 
   it("is exact on a value where float arithmetic diverges", () => {
     // 1002 x 0.9 is 901.8 exactly; the double path gives 901.8000000000001.
-    const price = tierPriceExact(new MoneyDecimal("1002"), THREE_TIERS[1]!);
+    const price = tierCashPriceExact(new MoneyDecimal("1002"), THREE_TIERS[1]!);
     expect(price.toString()).toBe("901.8");
   });
 });

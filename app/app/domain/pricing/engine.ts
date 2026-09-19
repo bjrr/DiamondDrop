@@ -4,9 +4,9 @@ import { Money } from "~/domain/money/money";
 import { enumerateBandSizes, selectBandPrice } from "./bands";
 import { calculateLandedCost, partitionRevenueSide } from "./cost";
 import { PricingCurrencyMismatchError } from "./errors";
-import { deriveCardPrice } from "./cardPrice";
+import { deriveCreditCardPrice } from "./creditCardPrice";
 import { applyPriceEnding, getPriceEndingRule } from "./priceEnding";
-import { enforceFloors, solveExactPrice } from "./solve";
+import { enforceFloors, solveExactCashPrice } from "./solve";
 import type {
   BuyNowBandPriceResult,
   BuyNowBandPricingInputs,
@@ -30,6 +30,12 @@ import { calculateWeightGrams } from "./weight";
  * The `new MoneyDecimal(...)` calls below are parsing at the boundary, not
  * arithmetic: they turn JSON-safe decimal strings into the exact type the
  * calculation modules expect.
+ *
+ * THE ORDER OF THE TWO PRICES IS THE BUSINESS RULE (owner-locked 2026-09-18).
+ * Cost, markup, rounding, price ending and every floor run on the CASH price
+ * and finish completely. Only then is the credit-card price derived from the
+ * settled cash figure. Nothing downstream of that derivation feeds back, so the
+ * 5% uplift cannot reach a cost, a markup, a margin floor or a profit floor.
  */
 export function computeBuyNowPrice(inputs: BuyNowPricingInputs): BuyNowPriceResult {
   assertCurrenciesMatch(inputs);
@@ -49,7 +55,7 @@ export function computeBuyNowPrice(inputs: BuyNowPricingInputs): BuyNowPriceResu
   // The profile goes in WHOLE. This file names no margin model and no
   // model-specific rate, which is what lets a new model be added without
   // touching the engine — the seam that the first version of this got wrong.
-  const { exact, binding } = solveExactPrice({
+  const { exactCash, binding } = solveExactCashPrice({
     profile: inputs.profile,
     landedCostMinorUnits: landedCost,
     revenueRate: revenueSide.rate,
@@ -57,42 +63,46 @@ export function computeBuyNowPrice(inputs: BuyNowPricingInputs): BuyNowPriceResu
     variantFloorMinorUnits: new MoneyDecimal(inputs.variantFloor?.amountMinorUnits ?? "0"),
   });
 
-  const ended = finalise(exact, inputs);
+  const endedCash = finalise(exactCash, inputs);
 
+  // NO REVENUE-SIDE FIGURES REACH THE FLOORS. `revenueSide` is resolved above
+  // for the margin model alone; `FloorInput` has no field for it, so payment
+  // processing cannot be deducted from the margin or the minimum profit. That
+  // is the owner's rule, and the shape of the type is what keeps it.
   const floorInput = {
-    priceMinorUnits: ended,
+    cashPriceMinorUnits: endedCash,
     landedCostMinorUnits: landedCost,
-    revenueRate: revenueSide.rate,
-    revenueFixedMinorUnits: revenueSide.fixedMinorUnits,
     minGrossMarginRate: new MoneyDecimal(inputs.profile.minGrossMarginRate),
     minDollarProfitMinorUnits: new MoneyDecimal(inputs.profile.minDollarProfit.amountMinorUnits),
     variantFloorMinorUnits: new MoneyDecimal(inputs.variantFloor?.amountMinorUnits ?? "0"),
   };
   // The floor loop steps by the price-ending granularity, so a whole-dollar
   // price stays a whole dollar even when a floor forces it upward.
-  const { priceMinorUnits, bumps, final } = enforceFloors(
+  const { cashPriceMinorUnits, bumps, final } = enforceFloors(
     floorInput,
     100,
     getPriceEndingRule(inputs.profile.priceEndingRuleId).stepMinorUnits
   );
 
-  // D9. The displayed card price is derived from the FINAL cash price — after
-  // rounding, price ending and every floor bump — not from the exact solve.
-  // Deriving it from the exact value would let the two disagree: a cash price
-  // nudged up a dollar to clear a floor would keep a card price computed from
-  // the pre-bump figure, and the pair shown to the customer would not be
-  // consistent with each other.
+  // D9, AND THE LAST THING THAT HAPPENS. The displayed credit-card price is
+  // derived from the FINAL cash price — after rounding, price ending and every
+  // floor bump — not from the exact solve. Deriving it from the exact value
+  // would let the two disagree: a cash price nudged up a dollar to clear a
+  // floor would keep a card price computed from the pre-bump figure, and the
+  // pair shown to the customer would not be consistent with each other.
   //
   // The rule owns its own rounding (ceiling to whole dollars) rather than
   // reusing the price-ending rule, because rounding a derived price DOWN would
-  // put it under the uplift the configuration asked for. See cardPrice.ts.
+  // put it under the uplift the configuration asked for. See creditCardPrice.ts.
   //
   // No floor evaluation for the card price: it is strictly above the cash
   // price, which has already satisfied every floor, so it satisfies them too.
-  const cardPriceMinorUnits = deriveCardPrice(
-    priceMinorUnits,
-    new MoneyDecimal(inputs.profile.cardUpliftRate),
-    inputs.profile.cardPriceRuleId
+  // Evaluating the floors against it would also be WRONG — it would report a
+  // margin inflated by the uplift, which is not margin the business earns.
+  const creditCardPriceMinorUnits = deriveCreditCardPrice(
+    cashPriceMinorUnits,
+    new MoneyDecimal(inputs.profile.creditCardUpliftRate),
+    inputs.profile.creditCardPriceRuleId
   );
 
   return {
@@ -101,12 +111,12 @@ export function computeBuyNowPrice(inputs: BuyNowPricingInputs): BuyNowPriceResu
     size: inputs.size,
     weightGrams,
     breakdown,
-    exactPriceMinorUnits: exact.toString(),
+    exactCashPriceMinorUnits: exactCash.toString(),
     binding,
-    price: Money.fromMinorUnits(priceMinorUnits, inputs.currency).toJSON(),
-    cardPrice: Money.fromMinorUnits(cardPriceMinorUnits, inputs.currency).toJSON(),
-    cardPriceRuleId: inputs.profile.cardPriceRuleId,
-    cardUpliftRate: inputs.profile.cardUpliftRate,
+    cashPrice: Money.fromMinorUnits(cashPriceMinorUnits, inputs.currency).toJSON(),
+    creditCardPrice: Money.fromMinorUnits(creditCardPriceMinorUnits, inputs.currency).toJSON(),
+    creditCardPriceRuleId: inputs.profile.creditCardPriceRuleId,
+    creditCardUpliftRate: inputs.profile.creditCardUpliftRate,
     floors: final,
     bumps,
     roundingRuleId: inputs.profile.roundingRuleId,
@@ -125,12 +135,30 @@ export function computeBuyNowBandPrice(inputs: BuyNowBandPricingInputs): BuyNowB
 
   const selection = selectBandPrice(candidates, (size) => {
     const result = computeBuyNowPrice({ ...inputs, size });
-    return { priceMinorUnits: BigInt(result.price.amountMinorUnits), result };
+    return { cashPriceMinorUnits: BigInt(result.cashPrice.amountMinorUnits), result };
   });
+
+  // The band's card price is derived from the band's CASH price, not carried
+  // over from the winning size's own card price. They are the same number here,
+  // because the derivation is monotonic and the winner is the cash maximum —
+  // but taking it from the band cash price states the dependency rather than
+  // relying on that coincidence continuing to hold.
+  const bandCreditCardPriceMinorUnits = deriveCreditCardPrice(
+    selection.bandCashPriceMinorUnits,
+    new MoneyDecimal(inputs.profile.creditCardUpliftRate),
+    inputs.profile.creditCardPriceRuleId
+  );
 
   return {
     band: inputs.band,
-    bandPrice: Money.fromMinorUnits(selection.bandPrice, inputs.currency).toJSON(),
+    bandCashPrice: Money.fromMinorUnits(
+      selection.bandCashPriceMinorUnits,
+      inputs.currency
+    ).toJSON(),
+    bandCreditCardPrice: Money.fromMinorUnits(
+      bandCreditCardPriceMinorUnits,
+      inputs.currency
+    ).toJSON(),
     costBasisSize: selection.costBasisSize,
     perSize: selection.perSize,
     winning: selection.winning,
@@ -142,18 +170,22 @@ export function computeBuyNowBandPrice(inputs: BuyNowBandPricingInputs): BuyNowB
  * always follows it. Everything upstream is exact decimal; everything
  * downstream is whole minor units.
  *
- * Extracted because the cash price and the card price must cross that boundary
- * IDENTICALLY. Written out twice, the two could drift — a different rounding
- * rule on one, or a price ending applied to one and not the other — and the
- * symptom would be a card price that is not a clean multiple of the cash price,
- * which reads as a rounding curiosity rather than as a bug.
+ * THE CASH PRICE IS THE ONLY THING THAT CROSSES IT. The credit-card price is
+ * derived afterwards from the whole-minor-unit cash figure and carries its own
+ * ceiling (creditCardPrice.ts), so it never passes through here. Keeping the
+ * boundary single-purpose is what makes "which number did the floors bind?"
+ * answerable: the one this function returned.
  *
  * This is sequencing, not arithmetic: the rounding lives in the rounding
  * registry and the ending in the price-ending registry. The anti-monolith rule
  * for this file still holds.
  */
-function finalise(exact: MoneyDecimalValue, inputs: BuyNowPricingInputs): bigint {
-  const rounded = Money.fromDecimalMinorUnits(exact, inputs.currency, inputs.profile.roundingRuleId);
+function finalise(exactCash: MoneyDecimalValue, inputs: BuyNowPricingInputs): bigint {
+  const rounded = Money.fromDecimalMinorUnits(
+    exactCash,
+    inputs.currency,
+    inputs.profile.roundingRuleId
+  );
   return applyPriceEnding(rounded.amountMinorUnits, inputs.profile.priceEndingRuleId);
 }
 

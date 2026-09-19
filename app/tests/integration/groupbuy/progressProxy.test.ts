@@ -57,7 +57,7 @@ async function openCampaign(options?: { units?: number; scheduledCloseAt?: Date 
       },
       variants: {
         create: [
-          { masterVariantId: variant.id, frozenBasePriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
+          { masterVariantId: variant.id, frozenBaseCashPriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
         ],
       },
     },
@@ -136,10 +136,49 @@ describe("what a shopper is shown", () => {
     expect(body.qualifyingUnitsSold).toBe(5);
     expect(body.currentTierNumber).toBe(2);
     expect(body.bestPriceUnlocked).toBe(true);
-    expect(body.groupBuyPriceMinorUnits).toBeTruthy();
-    expect(body.buyNowComparisonPriceMinorUnits).toBeTruthy();
+    expect(body.groupBuyCreditCardPriceMinorUnits).toBeTruthy();
+    expect(body.groupBuyCashPriceMinorUnits).toBeTruthy();
+    expect(body.buyNowCreditCardPriceMinorUnits).toBeTruthy();
+    expect(body.buyNowCashPriceMinorUnits).toBeTruthy();
     expect(body.tierMarkers).toHaveLength(2);
     expect(body.coreMessage).toMatch(/your final price drops too/);
+  });
+
+  it("serves BOTH prices, with the card price derived from the cash one", () => {
+    // End to end through the real route, because the uplift is applied here
+    // from the campaign's FROZEN profile — not in the pure view model, which
+    // receives both prices already computed. A unit test cannot reach this.
+    const check = async () => {
+      const { code } = await openCampaign({ units: 5 });
+      const body = (await (await call(code)).json()) as Record<string, string>;
+
+      const cash = BigInt(body.groupBuyCashPriceMinorUnits!);
+      const card = BigInt(body.groupBuyCreditCardPriceMinorUnits!);
+
+      // card = ceil_to_whole_dollar(cash x 1.05), recomputed here in integer
+      // arithmetic rather than trusted from the same helper the route used.
+      const exact = (cash * 105n) / 100n + ((cash * 105n) % 100n === 0n ? 0n : 1n);
+      const expected = exact % 100n === 0n ? exact : exact + (100n - (exact % 100n));
+
+      expect(card).toBe(expected);
+      expect(card).toBeGreaterThan(cash);
+    };
+    return check();
+  });
+
+  it("states no cash-discount percentage and no uplift rate", () => {
+    // The two absolute prices cross the boundary; the rate that relates them is
+    // pricing-profile data and stays on the server. A percentage would also be
+    // wrong per item — a 5% uplift is a 4.76% discount before rounding.
+    const check = async () => {
+      const { code } = await openCampaign({ units: 3 });
+      const text = JSON.stringify(await (await call(code)).json()).toLowerCase();
+
+      for (const leak of ["uplift", "cashdiscount", "0.05", "ruleid"]) {
+        expect(text, `response must not contain "${leak}"`).not.toContain(leak);
+      }
+    };
+    return check();
   });
 
   it("LEAKS NO cost, margin or profile data", async () => {
@@ -188,7 +227,7 @@ describe("campaigns a shopper may not see", () => {
         },
         variants: {
           create: [
-            { masterVariantId: variant.id, frozenBasePriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
+            { masterVariantId: variant.id, frozenBaseCashPriceMinorUnits: 1n, frozenLandedCostMinorUnits: 0n },
           ],
         },
       },

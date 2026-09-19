@@ -21,14 +21,14 @@
 // columns: BIGINT minor units + CHAR(3) ISO-4217 currency. Never NUMERIC,
 // never DOUBLE PRECISION, never a bare integer without its currency.
 //
-//   computedPriceMinorUnits BigInt  @map("computed_price_minor_units")
+//   cashPriceMinorUnits     BigInt  @map("cash_price_minor_units")
 //   currency                String  @db.Char(3)
 //
 // Prisma maps BIGINT to a JS `bigint`. `JSON.stringify` THROWS on a bigint —
 // "Do not know how to serialize a BigInt". Never return a raw row across a
 // JSON boundary. Repositories convert at their edge:
 //
-//   Money.fromMinorUnits(row.computedPriceMinorUnits, row.currency)
+//   Money.fromMinorUnits(row.cashPriceMinorUnits, row.currency)
 //
 // and Money.toJSON() yields { amountMinorUnits: string, currency } — lossless
 // and JSON-safe. See app/app/domain/money/money.ts.
@@ -557,8 +557,8 @@ model PricingProfile {
   /// cash margin/profit floors; see docs/CASH-CARD-PRICING.md.
   ///
   /// Rule id versions the FORMULA; the rate makes the number configurable.
-  cardPriceRuleId String   @map("card_price_rule_id")
-  cardUpliftRate  Decimal  @map("card_uplift_rate") @db.Decimal(9, 6)
+  creditCardPriceRuleId String   @map("credit_card_price_rule_id")
+  creditCardUpliftRate  Decimal  @map("credit_card_uplift_rate") @db.Decimal(9, 6)
   effectiveFrom   DateTime @map("effective_from")
   createdBy       String   @map("created_by")
   /// See model doc comment. D14 placeholder marker.
@@ -623,8 +623,8 @@ model MasterVariant {
   /// than a list. The RATE is resolved effective-dated at calculation time and
   /// snapshotted with the calculation — only the choice of source lives here.
   laborSource                  LaborSource         @map("labor_source")
-  minPriceMinorUnits           BigInt?             @map("min_price_minor_units")
-  minPriceCurrency             String?             @map("min_price_currency") @db.Char(3)
+  minCashPriceMinorUnits       BigInt?             @map("min_cash_price_minor_units")
+  minCashPriceCurrency         String?             @map("min_cash_price_currency") @db.Char(3)
   shopifyVariantGid            String?             @unique @map("shopify_variant_gid")
   status                       MasterVariantStatus @default(draft)
   /// Compare-and-set anchor for slice 2's sync (§9.4): the sync executes
@@ -807,7 +807,9 @@ model PriceOverride {
   /// NULL exactly when kind is `revoke` — a revocation restores the calculated
   /// price and therefore has no price of its own. Enforced by a CHECK, so the
   /// two fields cannot disagree.
-  overridePriceMinorUnits BigInt? @map("override_price_minor_units")
+  /// An override sets the CASH price. The floors that warn about it are
+  /// measured on cash, and the displayed card price is re-derived from it.
+  overrideCashPriceMinorUnits BigInt? @map("override_cash_price_minor_units")
   currency                String  @db.Char(3)
 
   /// Which floors the override breaches, if any. An EMPTY array is meaningful:
@@ -847,7 +849,11 @@ model PriceCalculation {
   snapshot                Snapshot               @relation(fields: [snapshotId], references: [id])
   costBasisSize           Decimal?               @map("cost_basis_size") @db.Decimal(6, 2)
   landedCostMinorUnits    BigInt                 @map("landed_cost_minor_units")
-  computedPriceMinorUnits BigInt                 @map("computed_price_minor_units")
+  /// The CASH price (owner-locked 2026-09-18): the number the 40% markup, the
+  /// 20% margin floor and the $100 profit floor were all measured on. The
+  /// displayed credit-card price is derived from it via the profile s
+  /// creditCardUpliftRate and is deliberately NOT stored a second time.
+  cashPriceMinorUnits     BigInt                 @map("cash_price_minor_units")
   currency                String                 @db.Char(3)
   status                  PriceCalculationStatus
   failureReason           String?                @map("failure_reason")
@@ -876,8 +882,8 @@ model PriceSyncIntent {
   priceCalculation        PriceCalculation      @relation(fields: [priceCalculationId], references: [id])
   decision                PriceSyncDecision
   status                  PriceSyncIntentStatus
-  previousPriceMinorUnits BigInt?               @map("previous_price_minor_units")
-  previousPriceCurrency   String?               @map("previous_price_currency") @db.Char(3)
+  previousCashPriceMinorUnits BigInt?           @map("previous_cash_price_minor_units")
+  previousCashPriceCurrency String?             @map("previous_cash_price_currency") @db.Char(3)
   deltaBps                Int?                  @map("delta_bps")
   /// D15 requires the DOLLAR change alongside the percentage one. Stored
   /// rather than derived so the audit row is self-contained: the previous price
@@ -1095,7 +1101,8 @@ model GroupBuyCampaignVariant {
   masterVariantId String        @map("master_variant_id") @db.Uuid
   masterVariant   MasterVariant @relation(fields: [masterVariantId], references: [id])
 
-  frozenBasePriceMinorUnits  BigInt @map("frozen_base_price_minor_units")
+  /// Frozen CASH base. Tier multipliers apply to this; tier safety judges it.
+  frozenBaseCashPriceMinorUnits BigInt @map("frozen_base_cash_price_minor_units")
   frozenLandedCostMinorUnits BigInt @map("frozen_landed_cost_minor_units")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -1158,6 +1165,20 @@ model GroupBuyUnitEvent {
   @@map("group_buy_unit_event")
 }
 
+/// Which of the two prices a payment was made at (owner-locked 2026-09-18).
+///
+/// Internal calculations are always CASH. This enum exists for the places that
+/// must record which price a CUSTOMER actually paid, because a refund or an
+/// adjustment has to be computed against the same basis the money arrived in.
+enum PaymentBasis {
+  /// ACH, wire, Zelle, check — the cash-equivalent methods.
+  cash
+  /// Card, charged at cash x (1 + uplift). The primary displayed price.
+  credit_card
+
+  @@map("payment_basis")
+}
+
 enum GroupBuyRefundStatus {
   /// Computed and owed, HELD through production/QC. Not payable yet.
   pending
@@ -1206,9 +1227,15 @@ model GroupBuyRefund {
   /// Shopify (README security: minimise PII).
   customerRef String? @map("customer_ref")
 
-  /// What the customer actually paid, per unit.
+  /// WHICH PRICE THE CUSTOMER PAID. A card customer paid the uplifted price and
+  /// a cash-equivalent customer paid the cash price, so the two amounts below
+  /// are only comparable once the basis is known. Refunding a card payment
+  /// against a cash tier price would hand back the 5% uplift as well — about 5%
+  /// of the order, on every card line, at every tier drop.
+  paymentBasis           PaymentBasis @map("payment_basis")
+  /// What the customer actually paid, per unit, IN `paymentBasis`.
   paidPerUnitMinorUnits  BigInt @map("paid_per_unit_minor_units")
-  /// The campaign's final tier price, per unit.
+  /// The campaign's final tier price, per unit, in the SAME basis.
   finalPerUnitMinorUnits BigInt @map("final_per_unit_minor_units")
   /// Units still qualifying on this line at close.
   qualifyingUnits        Int    @map("qualifying_units")

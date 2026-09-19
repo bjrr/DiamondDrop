@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { CORE_MESSAGE, buildCampaignProgress } from "./campaignProgress";
+import { CORE_MESSAGE, buildCampaignProgress, type DualPrice } from "./campaignProgress";
 import type { TierDefinition } from "./tiers";
 
 /**
@@ -18,7 +18,20 @@ const TIERS: TierDefinition[] = [
   { tierNumber: 3, minQualifyingUnits: 25, priceMultiplier: "0.800000" },
 ];
 
-const PRICES = { 1: 40_000n, 2: 36_000n, 3: 32_000n };
+/**
+ * Cash prices, and the card prices derived from them at the 5% uplift with the
+ * ceiling to whole dollars. Written out rather than computed so the fixture
+ * states the pairing a shopper actually sees:
+ *
+ *   $400 cash -> $420 card    $360 cash -> $378 card    $320 cash -> $336 card
+ *   $420 Buy Now cash        -> $441 Buy Now card
+ */
+const PRICES: Record<number, DualPrice> = {
+  1: { cashMinorUnits: 40_000n, creditCardMinorUnits: 42_000n },
+  2: { cashMinorUnits: 36_000n, creditCardMinorUnits: 37_800n },
+  3: { cashMinorUnits: 32_000n, creditCardMinorUnits: 33_600n },
+};
+const BUY_NOW: DualPrice = { cashMinorUnits: 42_000n, creditCardMinorUnits: 44_100n };
 const ASOF = new Date("2026-09-18T12:00:00Z");
 
 function view(over: Partial<Parameters<typeof buildCampaignProgress>[0]> = {}) {
@@ -27,9 +40,8 @@ function view(over: Partial<Parameters<typeof buildCampaignProgress>[0]> = {}) {
     currency: "USD",
     tiers: TIERS,
     qualifyingUnitsSold: 4,
-    frozenBaseMinorUnits: 40_000n,
-    buyNowPriceMinorUnits: 42_000n,
-    tierPricesMinorUnits: PRICES,
+    buyNowPrice: BUY_NOW,
+    tierPrices: PRICES,
     scheduledCloseAt: new Date("2026-09-25T12:00:00Z"),
     asOf: ASOF,
     ...over,
@@ -47,7 +59,7 @@ describe("the nine required fields", () => {
     // a mistake this project has already made once with the card uplift.
     const v = view({ qualifyingUnitsSold: 12 });
     expect(v.currentTierNumber).toBe(2);
-    expect(v.currentDiscountPercent).toBe("10");
+    expect(v.currentTierDiscountPercent).toBe("10");
   });
 
   it("shows the next threshold and how many units are needed", () => {
@@ -58,22 +70,22 @@ describe("the nine required fields", () => {
 
   it("shows the selected variant's Group Buy price and the Buy Now comparison", () => {
     const v = view({ qualifyingUnitsSold: 12 });
-    expect(v.groupBuyPriceMinorUnits).toBe("36000");
-    expect(v.buyNowComparisonPriceMinorUnits).toBe("42000");
+    expect(v.groupBuyCashPriceMinorUnits).toBe("36000");
+    expect(v.buyNowCashPriceMinorUnits).toBe("42000");
   });
 
   it("shows savings in dollars and percent, against BUY NOW", () => {
     // Measured against Buy Now, not the campaign base — those differ once Buy
     // Now moves, and the shopper's real alternative is buying it now.
     const v = view({ qualifyingUnitsSold: 12 });
-    expect(v.savingsMinorUnits).toBe("6000");
-    expect(v.savingsPercent).toBe("14.29");
+    expect(v.cashSavingsMinorUnits).toBe("6000");
+    expect(v.cashSavingsPercent).toBe("14.29");
   });
 
   it("shows the next-tier price and the additional saving it would bring", () => {
     const v = view({ qualifyingUnitsSold: 12 });
-    expect(v.nextTierPriceMinorUnits).toBe("32000");
-    expect(v.additionalSavingsMinorUnits).toBe("4000");
+    expect(v.nextTierCashPriceMinorUnits).toBe("32000");
+    expect(v.additionalCashSavingsMinorUnits).toBe("4000");
   });
 
   it("shows time remaining", () => {
@@ -86,7 +98,7 @@ describe("the nine required fields", () => {
     const markers = view({ qualifyingUnitsSold: 12 }).tierMarkers;
     expect(markers.map((m) => m.unlocked)).toEqual([true, true, false]);
     expect(markers.map((m) => m.current)).toEqual([false, true, false]);
-    expect(markers[2]!.priceMinorUnits).toBe("32000");
+    expect(markers[2]!.cashPriceMinorUnits).toBe("32000");
   });
 
   it("carries the README's core message", () => {
@@ -112,7 +124,7 @@ describe("the two prohibitions", () => {
     // next price", never a shortfall.
     const v = view({ qualifyingUnitsSold: 1 });
     expect(v.currentTierNumber).toBe(1);
-    expect(v.groupBuyPriceMinorUnits).toBe("40000");
+    expect(v.groupBuyCashPriceMinorUnits).toBe("40000");
 
     const keys = Object.keys(v);
     for (const forbidden of ["minimumRequired", "shortfall", "remainingToMinimum"]) {
@@ -144,8 +156,8 @@ describe("Best Price Unlocked", () => {
     const v = view({ qualifyingUnitsSold: 25 });
     expect(v.nextThresholdUnits).toBeNull();
     expect(v.unitsToNextTier).toBeNull();
-    expect(v.nextTierPriceMinorUnits).toBeNull();
-    expect(v.additionalSavingsMinorUnits).toBeNull();
+    expect(v.nextTierCashPriceMinorUnits).toBeNull();
+    expect(v.additionalCashSavingsMinorUnits).toBeNull();
   });
 });
 
@@ -153,12 +165,15 @@ describe("edges that would otherwise mislead a shopper", () => {
   it("never shows a NEGATIVE saving when Buy Now has fallen below the tier price", () => {
     // Buy Now can drop after a campaign freezes. Showing "-$40 savings" is
     // worse than showing none; the honest display is zero.
-    const v = view({ qualifyingUnitsSold: 1, buyNowPriceMinorUnits: 30_000n });
-    expect(v.savingsMinorUnits).toBe("0");
+    const v = view({
+      qualifyingUnitsSold: 1,
+      buyNowPrice: { cashMinorUnits: 30_000n, creditCardMinorUnits: 31_500n },
+    });
+    expect(v.cashSavingsMinorUnits).toBe("0");
     // "0", not "0.00": these are exact decimal strings with trailing zeros
     // trimmed, and PRESENTATION formatting belongs to the storefront. Padding
     // here would mean the domain had an opinion about display.
-    expect(v.savingsPercent).toBe("0");
+    expect(v.cashSavingsPercent).toBe("0");
   });
 
   it("shows no countdown for an open-ended campaign rather than inventing one", () => {
@@ -175,7 +190,9 @@ describe("edges that would otherwise mislead a shopper", () => {
   it("throws rather than substituting a price it was not given", () => {
     // Silently falling back to the base would show a customer a price the
     // campaign never offered.
-    expect(() => view({ tierPricesMinorUnits: { 1: 40_000n } })).toThrow(/No price supplied for tier/);
+    expect(() =>
+      view({ tierPrices: { 1: { cashMinorUnits: 40_000n, creditCardMinorUnits: 42_000n } } })
+    ).toThrow(/No price supplied for tier/);
   });
 });
 
@@ -196,6 +213,83 @@ describe("nothing cost-related crosses this boundary", () => {
       "multiplier",
       "supplier",
     ]) {
+      expect(serialised).not.toContain(leak);
+    }
+  });
+});
+
+describe("two prices, explicitly named", () => {
+  it("carries both a credit-card and a cash price for every figure", () => {
+    // Owner-locked 2026-09-18: the storefront presents the card price as the
+    // regular price and the cash price as the discounted payment option, so
+    // both must reach it. A single ambiguous `price` field is what let the
+    // internal cash figure be displayed as the headline.
+    const v = view({ qualifyingUnitsSold: 12 });
+
+    expect(v.groupBuyCreditCardPriceMinorUnits).toBe("37800");
+    expect(v.groupBuyCashPriceMinorUnits).toBe("36000");
+    expect(v.buyNowCreditCardPriceMinorUnits).toBe("44100");
+    expect(v.buyNowCashPriceMinorUnits).toBe("42000");
+    expect(v.nextTierCreditCardPriceMinorUnits).toBe("33600");
+    expect(v.nextTierCashPriceMinorUnits).toBe("32000");
+  });
+
+  it("has NO ambiguously-named money field at all", () => {
+    // Structural, not stylistic. A key called `price` or `priceMinorUnits`
+    // leaves the storefront to guess which of the two it holds, and the guess
+    // stays invisible until someone is charged the wrong amount.
+    //
+    // Scoped to fields CARRYING AN AMOUNT — the `…MinorUnits` suffix — rather
+    // than to every key containing "price". `bestPriceUnlocked` is a boolean
+    // about which tier is in force and belongs to neither basis; demanding it
+    // pick one would be the test failing to say what it means.
+    const keys = Object.keys(view()).concat(Object.keys(view().tierMarkers[0]!));
+    const amountKeys = keys.filter((k) => k.endsWith("MinorUnits"));
+
+    expect(amountKeys.length).toBeGreaterThan(5);
+    for (const key of amountKeys) {
+      expect(/cash|creditcard/i.test(key), `"${key}" must say which price it is`).toBe(true);
+    }
+  });
+
+  it("measures savings like against like, never across the two bases", () => {
+    // Card savings compare card to card; cash savings compare cash to cash.
+    // Crossing them would fold the payment-method spread into the advertised
+    // Group Buy saving: $441 card Buy Now against $360 cash group reads as an
+    // $81 saving when the Group Buy is worth $63 of it.
+    const v = view({ qualifyingUnitsSold: 12 });
+
+    expect(v.creditCardSavingsMinorUnits).toBe("6300"); // 44100 − 37800
+    expect(v.cashSavingsMinorUnits).toBe("6000"); //      42000 − 36000
+    expect(v.creditCardSavingsMinorUnits).not.toBe("8100"); // the crossed figure
+  });
+
+  it("states no cash-discount percentage anywhere", () => {
+    // The uplift and the discount are reciprocals (5% up is 4.76% off) and
+    // whole-dollar rounding moves the realised figure per item, so no fixed
+    // percentage is correct. The percentages present are the GROUP BUY savings
+    // and the tier discount, which are different and legitimate figures.
+    const v = view({ qualifyingUnitsSold: 12 });
+    const percentKeys = Object.keys(v).filter((k) => /percent/i.test(k));
+
+    expect(percentKeys.sort()).toEqual([
+      "cashSavingsPercent",
+      "creditCardSavingsPercent",
+      "currentTierDiscountPercent",
+    ]);
+  });
+
+  it("gives tier markers both prices", () => {
+    const markers = view({ qualifyingUnitsSold: 12 }).tierMarkers;
+    expect(markers[1]!.creditCardPriceMinorUnits).toBe("37800");
+    expect(markers[1]!.cashPriceMinorUnits).toBe("36000");
+  });
+
+  it("does not expose the uplift rate or the rule that produced the pair", () => {
+    // The two prices cross the boundary; the rule that derived one from the
+    // other is profile data and stays on the server.
+    const serialised = JSON.stringify(view()).toLowerCase();
+    for (const leak of ["uplift", "rule", "0.05"]) {
       expect(serialised).not.toContain(leak);
     }
   });

@@ -6,10 +6,31 @@ import { nextTier, selectTier, unitsToNextTier, type TierDefinition } from "./ti
  * The storefront Group Buy progress view model (README "Live Savings /
  * Progress").
  *
- * WHAT THIS FILE IS FOR. It builds exactly the nine things the README says an
- * active campaign page shows, and — just as importantly — refuses to build the
- * two it forbids. Putting that in a pure function means the rules are testable
- * and cannot be quietly reinterpreted by whichever template renders them.
+ * WHAT THIS FILE IS FOR. It builds exactly the things the README says an active
+ * campaign page shows, and — just as importantly — refuses to build the two it
+ * forbids. Putting that in a pure function means the rules are testable and
+ * cannot be quietly reinterpreted by whichever template renders them.
+ *
+ * TWO PRICES, AND WHICH IS THE HEADLINE (owner-locked 2026-09-18). Every price
+ * here is carried in BOTH forms, explicitly named:
+ *
+ *   ...CreditCardPriceMinorUnits   the PRIMARY displayed price. This is the
+ *                                  regular price a shopper sees.
+ *   ...CashPriceMinorUnits         the cash-equivalent price, shown alongside
+ *                                  as the discounted payment option (ACH, wire,
+ *                                  Zelle, check).
+ *
+ * So a $1,800 group cash price presents as "Group Buy price $1,890,
+ * cash-equivalent price $1,800". There is deliberately no bare `price` field:
+ * an ambiguous name is how a storefront ends up publishing the internal cash
+ * figure as the headline and undercharging every card customer.
+ *
+ * THE CASH DISCOUNT IS NEVER EXPRESSED AS A PERCENTAGE. Two absolute prices,
+ * no percentage, no "save 5%" — the uplift and the discount are reciprocals
+ * (5% up is 4.76% off) and whole-dollar rounding makes the realised figure vary
+ * per item, so any fixed claim would be wrong on most of the catalogue. The
+ * savings percentages below are GROUP BUY savings against Buy Now, which is a
+ * different and legitimate figure.
  *
  * THE TWO PROHIBITIONS, verbatim: "Do not use crowdfunding-funded percentages
  * or imply a minimum is required."
@@ -31,8 +52,10 @@ import { nextTier, selectTier, unitsToNextTier, type TierDefinition } from "./ti
 export interface TierMarker {
   tierNumber: number;
   minQualifyingUnits: number;
-  /** Price at this tier for the selected variant, whole minor units. */
-  priceMinorUnits: string;
+  /** Displayed price at this tier for the selected variant, whole minor units. */
+  creditCardPriceMinorUnits: string;
+  /** Cash-equivalent price at this tier, whole minor units. */
+  cashPriceMinorUnits: string;
   /** Already reached at the current unit count. */
   unlocked: boolean;
   /** The tier currently in force. */
@@ -48,25 +71,42 @@ export interface CampaignProgressView {
 
   /** README: "current tier/percentage". */
   currentTierNumber: number;
-  /** The tier's share of base as a percentage OFF, e.g. "10.00" for 0.90. */
-  currentDiscountPercent: string;
+  /**
+   * The tier's share of base as a percentage OFF, e.g. "10.00" for 0.90.
+   * This is the GROUP BUY discount — not the cash-payment discount, which is
+   * never expressed as a percentage.
+   */
+  currentTierDiscountPercent: string;
 
   /** README: "next threshold and units needed". Null at the final tier. */
   nextThresholdUnits: number | null;
   unitsToNextTier: number | null;
 
-  /** README: "selected variant's current Group Buy price". */
-  groupBuyPriceMinorUnits: string;
-  /** README: "selected variant's current Buy Now comparison price". */
-  buyNowComparisonPriceMinorUnits: string;
+  /** README: "selected variant's current Group Buy price", both forms. */
+  groupBuyCreditCardPriceMinorUnits: string;
+  groupBuyCashPriceMinorUnits: string;
 
-  /** README: "current dollar/percentage savings" against Buy Now. */
-  savingsMinorUnits: string;
-  savingsPercent: string;
+  /** README: "selected variant's current Buy Now comparison price", both forms. */
+  buyNowCreditCardPriceMinorUnits: string;
+  buyNowCashPriceMinorUnits: string;
+
+  /**
+   * README: "current dollar/percentage savings" against Buy Now.
+   *
+   * COMPARED LIKE WITH LIKE: card against card, cash against cash. Mixing them
+   * would quote a saving that includes the payment-method spread and overstate
+   * what the Group Buy itself is worth.
+   */
+  creditCardSavingsMinorUnits: string;
+  creditCardSavingsPercent: string;
+  cashSavingsMinorUnits: string;
+  cashSavingsPercent: string;
 
   /** README: "next-tier price and additional savings". Null at the final tier. */
-  nextTierPriceMinorUnits: string | null;
-  additionalSavingsMinorUnits: string | null;
+  nextTierCreditCardPriceMinorUnits: string | null;
+  nextTierCashPriceMinorUnits: string | null;
+  additionalCreditCardSavingsMinorUnits: string | null;
+  additionalCashSavingsMinorUnits: string | null;
 
   /** README: "countdown/time remaining". Null for an open-ended campaign. */
   closesAt: string | null;
@@ -85,22 +125,28 @@ export interface CampaignProgressView {
 export const CORE_MESSAGE =
   "Join now. If the group unlocks a lower price later, your final price drops too.";
 
+/** A price in both forms, as produced by the server and never recomputed downstream. */
+export interface DualPrice {
+  cashMinorUnits: bigint;
+  creditCardMinorUnits: bigint;
+}
+
 export interface CampaignProgressInput {
   campaignCode: string;
   currency: string;
   tiers: readonly TierDefinition[];
   qualifyingUnitsSold: number;
-  /** Frozen campaign base for the selected variant, whole minor units. */
-  frozenBaseMinorUnits: bigint;
-  /** Current Buy Now price for the same variant, whole minor units. */
-  buyNowPriceMinorUnits: bigint;
+  /** Current Buy Now price for the selected variant, both forms. */
+  buyNowPrice: DualPrice;
   /**
-   * Already-rounded tier prices, keyed by tier number. Supplied rather than
-   * computed here because rounding is the engine's single boundary — a view
-   * model that rounded prices itself would be a second place where a customer-
-   * facing price is decided, and the two could disagree.
+   * Already-rounded tier prices, keyed by tier number, both forms.
+   *
+   * Supplied rather than computed here because rounding is the engine's single
+   * boundary and the card derivation is its own versioned rule — a view model
+   * that did either itself would be a second place where a customer-facing
+   * price is decided, and the two could disagree.
    */
-  tierPricesMinorUnits: Readonly<Record<number, bigint>>;
+  tierPrices: Readonly<Record<number, DualPrice>>;
   scheduledCloseAt: Date | null;
   /** An input, never a clock read, so the view is reproducible in tests. */
   asOf: Date;
@@ -121,12 +167,18 @@ function percentString(numerator: bigint, denominator: bigint): string {
     .toString();
 }
 
+/** A saving never becomes a surcharge: a negative difference clamps to zero. */
+function saving(comparison: bigint, groupPrice: bigint): bigint {
+  const raw = comparison - groupPrice;
+  return raw > 0n ? raw : 0n;
+}
+
 export function buildCampaignProgress(input: CampaignProgressInput): CampaignProgressView {
   const currentTier = selectTier(input.tiers, input.qualifyingUnitsSold);
   const upcoming = nextTier(input.tiers, input.qualifyingUnitsSold);
 
-  const priceOf = (tierNumber: number): bigint => {
-    const price = input.tierPricesMinorUnits[tierNumber];
+  const priceOf = (tierNumber: number): DualPrice => {
+    const price = input.tierPrices[tierNumber];
     if (price === undefined) {
       // Silently substituting the base would show a customer a price the
       // campaign never offered.
@@ -135,17 +187,15 @@ export function buildCampaignProgress(input: CampaignProgressInput): CampaignPro
     return price;
   };
 
-  const groupBuyPrice = priceOf(currentTier.tierNumber);
+  const groupBuy = priceOf(currentTier.tierNumber);
   const nextPrice = upcoming ? priceOf(upcoming.tierNumber) : null;
 
   // Savings are measured against the BUY NOW price, per the README's field
   // list, not against the campaign base. Those differ whenever Buy Now has
   // moved since the campaign froze, and the customer's actual alternative is
   // buying it now.
-  const rawSavings = input.buyNowPriceMinorUnits - groupBuyPrice;
-  const savings = rawSavings > 0n ? rawSavings : 0n;
-
-  const additionalSavings = nextPrice !== null ? groupBuyPrice - nextPrice : null;
+  const creditCardSavings = saving(input.buyNowPrice.creditCardMinorUnits, groupBuy.creditCardMinorUnits);
+  const cashSavings = saving(input.buyNowPrice.cashMinorUnits, groupBuy.cashMinorUnits);
 
   // Integer arithmetic rather than Math.floor/Math.max, and not because this
   // is money — a countdown plainly is not. The repo-wide guard against ad-hoc
@@ -162,13 +212,17 @@ export function buildCampaignProgress(input: CampaignProgressInput): CampaignPro
 
   const tierMarkers: TierMarker[] = [...input.tiers]
     .sort((a, b) => a.tierNumber - b.tierNumber)
-    .map((tier) => ({
-      tierNumber: tier.tierNumber,
-      minQualifyingUnits: tier.minQualifyingUnits,
-      priceMinorUnits: priceOf(tier.tierNumber).toString(),
-      unlocked: input.qualifyingUnitsSold >= tier.minQualifyingUnits,
-      current: tier.tierNumber === currentTier.tierNumber,
-    }));
+    .map((tier) => {
+      const price = priceOf(tier.tierNumber);
+      return {
+        tierNumber: tier.tierNumber,
+        minQualifyingUnits: tier.minQualifyingUnits,
+        creditCardPriceMinorUnits: price.creditCardMinorUnits.toString(),
+        cashPriceMinorUnits: price.cashMinorUnits.toString(),
+        unlocked: input.qualifyingUnitsSold >= tier.minQualifyingUnits,
+        current: tier.tierNumber === currentTier.tierNumber,
+      };
+    });
 
   return {
     campaignCode: input.campaignCode,
@@ -179,19 +233,32 @@ export function buildCampaignProgress(input: CampaignProgressInput): CampaignPro
     // shopper reads "10% off". Converting here keeps the storefront from doing
     // the subtraction and getting the direction wrong — a mistake this project
     // has already made once with the card uplift.
-    currentDiscountPercent: new MoneyDecimal(1)
+    currentTierDiscountPercent: new MoneyDecimal(1)
       .minus(currentTier.priceMultiplier)
       .times(100)
       .toDecimalPlaces(2)
       .toString(),
     nextThresholdUnits: upcoming?.minQualifyingUnits ?? null,
     unitsToNextTier: unitsToNextTier(input.tiers, input.qualifyingUnitsSold),
-    groupBuyPriceMinorUnits: groupBuyPrice.toString(),
-    buyNowComparisonPriceMinorUnits: input.buyNowPriceMinorUnits.toString(),
-    savingsMinorUnits: savings.toString(),
-    savingsPercent: percentString(savings, input.buyNowPriceMinorUnits),
-    nextTierPriceMinorUnits: nextPrice?.toString() ?? null,
-    additionalSavingsMinorUnits: additionalSavings?.toString() ?? null,
+    groupBuyCreditCardPriceMinorUnits: groupBuy.creditCardMinorUnits.toString(),
+    groupBuyCashPriceMinorUnits: groupBuy.cashMinorUnits.toString(),
+    buyNowCreditCardPriceMinorUnits: input.buyNowPrice.creditCardMinorUnits.toString(),
+    buyNowCashPriceMinorUnits: input.buyNowPrice.cashMinorUnits.toString(),
+    creditCardSavingsMinorUnits: creditCardSavings.toString(),
+    creditCardSavingsPercent: percentString(
+      creditCardSavings,
+      input.buyNowPrice.creditCardMinorUnits
+    ),
+    cashSavingsMinorUnits: cashSavings.toString(),
+    cashSavingsPercent: percentString(cashSavings, input.buyNowPrice.cashMinorUnits),
+    nextTierCreditCardPriceMinorUnits: nextPrice?.creditCardMinorUnits.toString() ?? null,
+    nextTierCashPriceMinorUnits: nextPrice?.cashMinorUnits.toString() ?? null,
+    additionalCreditCardSavingsMinorUnits:
+      nextPrice === null
+        ? null
+        : (groupBuy.creditCardMinorUnits - nextPrice.creditCardMinorUnits).toString(),
+    additionalCashSavingsMinorUnits:
+      nextPrice === null ? null : (groupBuy.cashMinorUnits - nextPrice.cashMinorUnits).toString(),
     closesAt: input.scheduledCloseAt?.toISOString() ?? null,
     secondsRemaining,
     tierMarkers,

@@ -39,8 +39,8 @@ describe("D14 — the auto-apply tolerance the job actually resolves", () => {
   it("the ACTIVE profile carries the owner's 5% card uplift", async () => {
     const profile = await resolveActivePricingProfile("buy_now", ASOF);
 
-    expect(profile.cardUpliftRate).toBe("0.05");
-    expect(profile.cardPriceRuleId).toBe("CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1");
+    expect(profile.creditCardUpliftRate).toBe("0.05");
+    expect(profile.creditCardPriceRuleId).toBe("CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1");
   });
 
   it("still routes a first-ever price to a human, tolerance or not", async () => {
@@ -89,7 +89,7 @@ describe("D14 — the auto-apply tolerance the job actually resolves", () => {
 
     expect(intents.length).toBeGreaterThan(0);
     for (const intent of intents) {
-      expect(intent.previousPriceMinorUnits).toBeNull();
+      expect(intent.previousCashPriceMinorUnits).toBeNull();
       expect(intent.deltaBps).toBeNull();
       expect(intent.deltaMinorUnits).toBeNull();
     }

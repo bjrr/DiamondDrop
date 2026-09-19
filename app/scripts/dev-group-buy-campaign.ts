@@ -28,7 +28,28 @@ const SHOPIFY_PRODUCT_TITLE = "The Complete Snowboard";
 const SHOPIFY_VARIANT_TITLE = "Ice";
 const SHOPIFY_VARIANT_GID = "gid://shopify/ProductVariant/52375385309485";
 
-const CAMPAIGN_CODE = "dev-gb-1";
+/**
+ * A NEW CODE RATHER THAN A REWRITE OF dev-gb-1, and not as a convenience.
+ *
+ * dev-gb-1 is open at the old x0.93 tier. Tiers freeze when a campaign opens,
+ * so editing TIERS below cannot reach it — and the attempt to clear it out and
+ * rebuild was refused outright by the append-only trigger on the unit ledger:
+ *
+ *   "Table group_buy_unit_event is append-only: DELETE is not permitted"
+ *
+ * That is the guarantee working. A campaign customers have joined at a stated
+ * price does not get quietly re-priced, in development or anywhere else, and a
+ * script that could do it in dev would be a script that could do it by mistake
+ * in production. Changing a tier means opening a new campaign, which is also
+ * exactly what the business would have to do.
+ *
+ * Override with `--code <code>` to spin up another.
+ */
+const CAMPAIGN_CODE = (() => {
+  const flag = process.argv.indexOf("--code");
+  const value = flag === -1 ? null : process.argv[flag + 1];
+  return value && /^[a-z0-9-]+$/.test(value) ? value : "dev-gb-2";
+})();
 
 /**
  * Units to have on the campaign. Override to watch the tier change live:
@@ -54,25 +75,26 @@ const QUALIFYING_UNITS = (() => {
  * app/domain/groupbuy/tiers.ts — so changing these numbers changes this
  * campaign and nothing else.
  *
- * TEMPORARY 7% FIXTURE NOTE — NOT BUSINESS POLICY.
+ * TEN PERCENT, which is what that reading assumes and what the owner's rules
+ * actually permit. Measured on the CASH price, as every pricing calculation now
+ * is (owner-locked 2026-09-18):
  *
- * Owner clarification 2026-09-18 makes all Group Buy economics CASH based and
- * explicitly excludes card-processing expense from the cash margin/profit
- * floors. Under the locked 40% markup and 20% cash-margin floor, a 10% cash
- * tier is mathematically viable before the separate $100/variant floors:
+ *   cash base  = cost x 1.40
+ *   tier price = cost x 1.40 x 0.90 = cost x 1.26
+ *   margin     = 0.26 / 1.26 = 20.63%   -> clears the 20% floor
  *
- *   1.40 x 0.90 = 1.26
- *   cash gross margin = (1.26 - 1.00) / 1.26 = 20.6349%
+ * This campaign previously ran at x0.93 because tier safety deducted payment
+ * processing before testing the floor, measured 17.8% and refused to open. The
+ * gate was wrong, not the tier.
  *
- * This fixture remains at x0.93 only so an already-open dev campaign is not
- * silently rewritten. It MUST NOT be cited as the maximum safe business
- * discount. New/recreated test campaigns should use the corrected cash-first
- * tier-safety implementation and may use x0.90 when the $100 and variant floors
- * also clear. See docs/CASH-CARD-PRICING.md.
+ * The constraint is still real, just further out: with markup m and floor f the
+ * deepest safe multiplier is roughly 1 / ((1 + m) x (1 - f)) = 0.8929 here, so
+ * about 10.7% is the limit. The $100 minimum profit binds separately and bites
+ * first on a light piece. See docs/CASH-CARD-PRICING.md §6.
  */
 const TIERS = [
   { tierNumber: 1, minQualifyingUnits: 1, priceMultiplier: "1.000000" },
-  { tierNumber: 2, minQualifyingUnits: 10, priceMultiplier: "0.930000" },
+  { tierNumber: 2, minQualifyingUnits: 10, priceMultiplier: "0.900000" },
 ];
 
 async function main() {
@@ -86,8 +108,9 @@ async function main() {
   // through, since a theme knows only Shopify ids.
   //
   // 30g of 14k gold, chosen so the 10% second tier clears the $100 minimum
-  // profit comfortably. A light piece cannot sustain a 10% tier at all, which
-  // is the safety check working rather than a limitation of the campaign.
+  // profit comfortably. A light piece cannot sustain a 10% tier at all — the
+  // margin is scale-free but the dollar floor is not — which is the safety
+  // check working rather than a limitation of the campaign.
   const product = await prisma.masterProduct.upsert({
     where: { id: "00000000-0000-4000-8000-00000000dbb1" },
     update: {},
@@ -146,7 +169,7 @@ async function main() {
               masterVariantId: variant.id,
               // Placeholders; the freeze at open replaces them with real
               // prices. They exist only to satisfy NOT NULL while drafting.
-              frozenBasePriceMinorUnits: 1n,
+              frozenBaseCashPriceMinorUnits: 1n,
               frozenLandedCostMinorUnits: 0n,
             },
           ],
@@ -211,7 +234,7 @@ async function main() {
   console.log("  Shopify product    ", SHOPIFY_PRODUCT_TITLE);
   console.log("  Shopify variant    ", `${SHOPIFY_VARIANT_TITLE}  ${SHOPIFY_VARIANT_GID}`);
   console.log("  master variant     ", variant.id);
-  console.log("  frozen base price  ", dollars(frozen.frozenBasePriceMinorUnits));
+  console.log("  frozen base price  ", dollars(frozen.frozenBaseCashPriceMinorUnits));
   console.log("  qualifying units   ", qualifyingUnits);
   console.log("  active tier        ", tier.tierNumber);
   console.log("  closes at          ", opened.scheduledCloseAt?.toISOString() ?? "(open-ended)");

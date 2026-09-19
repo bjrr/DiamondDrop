@@ -5,7 +5,6 @@ import { MoneyDecimal, type MoneyDecimalValue } from "~/domain/money/decimal";
 import { evaluateTierSafety, type TierSafetyReport } from "~/domain/groupbuy/tierSafety";
 import { validateTierSet, type TierDefinition } from "~/domain/groupbuy/tiers";
 import { computeBuyNowPrice } from "~/domain/pricing/engine";
-import { partitionRevenueSide } from "~/domain/pricing/cost";
 import type { BuyNowPriceResult, BuyNowPricingInputs } from "~/domain/pricing/types";
 import { resolveInputsForVariant } from "~/jobs/pricing/resolveInputs.server";
 import { logger } from "~/lib/logger.server";
@@ -128,10 +127,9 @@ export async function openGroupBuyCampaign(
     result: BuyNowPriceResult;
     profile: BuyNowPricingInputs["profile"];
     pricingProfileId: string;
-    basePriceMinorUnits: bigint;
+    /** The frozen base is the CASH price: tier multipliers apply to it. */
+    baseCashPriceMinorUnits: bigint;
     landedCostMinorUnits: MoneyDecimalValue;
-    revenueRate: MoneyDecimalValue;
-    revenueFixedMinorUnits: MoneyDecimalValue;
     variantFloorMinorUnits: MoneyDecimalValue;
   }
 
@@ -139,7 +137,6 @@ export async function openGroupBuyCampaign(
   for (const variant of campaign.variants) {
     const resolved = await resolveInputsForVariant(variant.masterVariantId, asOf);
     const result = computeBuyNowPrice(resolved.inputs);
-    const revenueSide = partitionRevenueSide(resolved.inputs.components);
 
     priced.push({
       masterVariantId: variant.masterVariantId,
@@ -147,10 +144,12 @@ export async function openGroupBuyCampaign(
       result,
       profile: resolved.inputs.profile,
       pricingProfileId: resolved.pricingProfileId,
-      basePriceMinorUnits: BigInt(result.price.amountMinorUnits),
+      // THE CASH PRICE IS WHAT FREEZES. Tier multipliers apply to it and tier
+      // safety judges it; the credit-card price is re-derived for display from
+      // whatever cash price a tier produces, so freezing it too would store a
+      // second number that could only ever agree or be wrong.
+      baseCashPriceMinorUnits: BigInt(result.cashPrice.amountMinorUnits),
       landedCostMinorUnits: new MoneyDecimal(result.breakdown.landedCostMinorUnits),
-      revenueRate: revenueSide.rate,
-      revenueFixedMinorUnits: revenueSide.fixedMinorUnits,
       variantFloorMinorUnits: new MoneyDecimal(resolved.inputs.variantFloor?.amountMinorUnits ?? "0"),
     });
   }
@@ -162,10 +161,8 @@ export async function openGroupBuyCampaign(
   const safety = evaluateTierSafety({
     variants: priced.map((p) => ({
       masterVariantId: p.masterVariantId,
-      frozenBaseMinorUnits: p.basePriceMinorUnits,
+      frozenBaseCashMinorUnits: p.baseCashPriceMinorUnits,
       landedCostMinorUnits: p.landedCostMinorUnits,
-      revenueRate: p.revenueRate,
-      revenueFixedMinorUnits: p.revenueFixedMinorUnits,
       variantFloorMinorUnits: p.variantFloorMinorUnits,
     })),
     tiers,
@@ -214,7 +211,7 @@ export async function openGroupBuyCampaign(
       await tx.groupBuyCampaignVariant.update({
         where: { campaignId_masterVariantId: { campaignId: campaign.id, masterVariantId: p.masterVariantId } },
         data: {
-          frozenBasePriceMinorUnits: p.basePriceMinorUnits,
+          frozenBaseCashPriceMinorUnits: p.baseCashPriceMinorUnits,
           frozenLandedCostMinorUnits: BigInt(p.landedCostMinorUnits.toDecimalPlaces(0).toString()),
         },
       });
