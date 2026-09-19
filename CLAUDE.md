@@ -31,6 +31,12 @@ Build CaratForUs MVP1 as a lean Shopify-centered jewelry commerce business with 
 14. **Eligible Bank Payment methods are electronic only:** Zelle, ACH, bank transfer and wire. No personal, cashier's or certified checks, money orders, or other paper payments.
 15. **Bank Payment savings are merchandise-only.** Do not include tax, shipping, duties or other non-merchandise charges in the savings figure.
 16. **Pricing-failure safety.** A Buy Now recalculation failure keeps the last valid price live for at most 48 hours while admin is notified immediately; the first unresolved failure starts the timer. At 48 hours, only the affected variant becomes unavailable. A successful corrected recalculation restores it automatically. Open Group Buy pricing remains governed by the frozen campaign snapshot.
+17. **Sync-failure safety.** If a valid approved price cannot be published to Shopify, the currently published Shopify price remains authoritative and sellable for up to 48 hours while retrying. Notify through email + persistent embedded-admin alert. Never mark `synced` before Shopify confirms success. After 48 hours unresolved, only the affected variant becomes unavailable; restore automatically on successful sync.
+18. **Auto-publication.** After the real Shopify sync path passes money-critical integration tests, Bank Payment Price changes <=2% may auto-publish; >2% requires human approval. Common-input events may be bulk-approved. Bulk reject is forbidden; rejection is per item/variant and requires an explicit override price and reason.
+19. **Overrides.** Manual price overrides expire on the next material pricing recalculation unless explicitly marked **Never Expire**.
+20. **Cart/payment mode is money-critical.** One cart has one mode (Card or Bank Payment). Bank Payment itself is always allowed; the lower Bank Payment Price is controlled by per-product/variant **Bank Payment Discount Eligible** (default ON). Switching modes must reprice all eligible lines exactly and must be protected by enhanced unit/integration/tamper/regression tests.
+21. **Buy Now actions.** PDP buttons are **Add to Cart** and **Add to Cart with Bank Payment Discount**. The latter switches the entire cart to Bank Payment mode. Normal Add to Cart preserves the current cart mode. Cart presents Card Checkout and Bank Payment Checkout. Buy Now and Group Buy must not share one cart/order.
+22. **Buy Now Bank Payment commitment.** Bank Payment Price is guaranteed 24 hours. After 24 hours, an unpaid order stays open only while price is unchanged; any price change cancels it and sends cancellation email. Inventory is not reserved until manual admin verification of received funds. Checkout + confirmation email must state that order/availability is not guaranteed until payment is received and verified.
 
 ## Architect-led development model
 The Tech Lead is the Principal Architect and should reserve the top-tier model for architecture, decomposition, ambiguity, cross-domain integration, high-risk policy/financial review, and final technical approval.
@@ -76,7 +82,8 @@ Before broad scaffolding or major cross-domain changes, use `/plan-architecture`
 ## Critical domains
 Require tests/review for:
 - money, metal/gem cost calculations, variant weights and ring-size bands;
-- Group Buy tiers, qualifying units, freeze/close, cancellations, final-price/refund calculations;
+- Group Buy tiers, monotonic public progress, pending-bank-payment counting, freeze/close, cancellations, final-price/refund calculations;
+- cart payment-mode switching, Bank Payment Discount eligibility, checkout-basis enforcement, and client-price tamper resistance;
 - Buy Now RMA windows, receipt deadlines, customer-paid tracked/insured return shipping, restocking/refund/credit calculations;
 - Luxury Steals inventory, sold-out behavior, Final Sale enforcement and acknowledgment evidence;
 - warranty claim intake, authorization, customer-paid tracked/insured inbound shipping, inspection, repair/replacement/refund remedy and local-jeweler authorization records;
@@ -100,7 +107,9 @@ Custom CaratForUs functionality. Freeze the campaign **Bank Payment Price** base
 
 Customer-facing Group Buy presentation is intentionally different from Buy Now: public/options-table prices are Regular/Card prices, with a note that lower Bank Payment pricing is available. After product options are chosen, Payment Type is required before ordering; Bank Payment changes the active displayed price to the Bank Payment Price, Card leaves it at Regular/Card Price. Do not show both prices side-by-side by default in the Group Buy table.
 
-Group Buy option dimensions are campaign-specific and must not be hard-coded around rings. Preserve a seam for a versioned JSON campaign-options format; the formal JSON Schema is deferred until the Group Buy campaign creation/upload tool (expected Slice 6). Refunds must remain payment-basis aware so card-paid orders settle against card-basis prices and bank-paid orders against bank-basis prices. Implement configurable tiers, unit qualification, selected-variant pricing, progress, cancellation-before-close, final-price determination, refund ledger and evidence per README.
+A placed Group Buy order counts toward public progress immediately, including pending Bank Payment orders. Public count and unlocked tier are **monotonic**: later nonpayment/cancellation never reduces the displayed count or rolls back a tier. Bank Payment gets 48 hours plus one automatic 48-hour extension. After 96 hours an unpaid order may become inactive internally; while campaign remains open, email-requested reactivation uses the same order and original locked price. At close, settlement uses the final unlocked tier and original payment basis; system calculates refunds, admin explicitly approves/processes them.
+
+Group Buy option dimensions are campaign-specific and must not be hard-coded around rings. Preserve a seam for a versioned JSON campaign-options format; the formal JSON Schema is deferred until the Group Buy campaign creation/upload tool (expected Slice 6). Refunds must remain payment-basis aware. Implement configurable tiers, monotonic progress, selected-variant pricing, close settlement, refund ledger and evidence per README.
 
 ### Custom Jewelry / Let Us Beat Your Quote
 MVP1 consultation/revisions remain email-driven. Provide lightweight intake, $49 Design Deposit, reusable Shopify approval/purchase template and quote-acquisition flow. Read both quote documents; the amendment controls conflicts. Review remains manual; automate intake/evidence/eligibility calculations/acknowledgments/status but never auto-commit CaratForUs to competitor pricing.
