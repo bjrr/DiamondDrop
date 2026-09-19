@@ -335,3 +335,82 @@ into `global.js` rather than stopping at the Liquid. The same instinct
 distinguished `sections.quick_order_list.each` — ordinary volume pricing used
 by four unrelated surfaces — from the feature itself, which a name-match sweep
 would have broken.
+
+
+---
+
+# R12 — how cart surfaces obtain mode-aware prices (architect decision, 2B-3/2B-4)
+
+Decided 2026-09-19 before delegating 2B-3 and 2B-4, because both agents would
+otherwise have to invent it and would not invent the same thing.
+
+## The two candidates
+
+**(a) Render from metafields in Liquid.** Each line reads
+`carat.bank_payment_price_minor_units` and Liquid does unit x quantity and
+summation. Fast, no round trip, and survives the Section Rendering API for
+free because the server re-renders with the same data.
+
+**Rejected.** It puts a second implementation of `priceCart`'s arithmetic in
+Liquid. Two implementations of one money calculation is F-30's shape, and L1
+exists precisely to forbid it. Liquid is also the worst place to keep money
+arithmetic honest: no types, no money-safety scan, no unit tests.
+
+**(b) The proxy service is the single source; the theme applies and
+re-applies.** CHOSEN. The server renders Shopify's own Card prices as it does
+today. The client makes one call to `/apps/carat/cart` and writes the
+mode-aware figures into the DOM, then re-applies after every Section Rendering
+API swap. L3's own wording — "must return **or reapply** the correct
+active-mode prices" — already contemplates this.
+
+One source, no duplicated arithmetic, and every money figure a customer sees
+traces to `priceCart`, which is typed, scanned and tested.
+
+## The cost, which must be handled rather than accepted
+
+Option (b) means the server first renders the **Card** price, and the correct
+Bank figure arrives a moment later. A customer in Bank mode would see the
+higher price flash before it corrects.
+
+**Requirement:** in Bank mode, cart money values render in a pending state and
+are revealed only once applied. Never show a Card figure to a customer who
+selected Bank Payment, even for 200ms — that is the same broken promise L4
+suppressed accelerated checkout to avoid, just briefer. Card mode has no
+pending state, because the server-rendered value is already correct.
+
+## The DOM contract — fixed here so 2B-3 and 2B-4 can run in parallel
+
+**2B-3 owns the Liquid** and marks every cart money node so JS can find it
+without guessing at Dawn's class names, which change between Dawn versions:
+
+- `data-carat-money` on every cart money node, valued one of:
+  `line-unit`, `line-total`, `cart-subtotal`, `cart-total`.
+- `data-carat-line-id` on any node whose value is per line, carrying the
+  Shopify line key.
+- `data-carat-variant-id` on the same nodes, carrying the Shopify variant id.
+- `data-carat-mode-pending` on nodes awaiting application, removed on apply.
+
+**2B-4 owns the JS** and may rely on exactly those attributes. It must not
+select by Dawn class names or element structure: the fence in
+`cartMoneySurfaceFence.test.ts` governs which files render money, and a
+selector coupled to markup will silently stop matching when a template changes.
+
+**Mode carrier:** a Shopify cart attribute, `carat_payment_mode`, values
+`card` or `bank`, default `card`. It is set through `/cart/update.js`
+so it persists server-side, survives reload, and is visible to Liquid on every
+render including Section Rendering API re-renders. Mode is NOT kept in
+`localStorage` or a JS variable: both are lost on reload, and L5 requires
+reload persistence.
+
+**Authority:** the cart attribute states which mode the customer chose. It
+never states a price. Criterion 43 stands unchanged — every figure is
+recomputed server-side from published calculations, so tampering with the
+attribute changes which mode is requested, never what a line costs.
+
+## What this means for the live region (L2)
+
+`cart-live-region-text.liquid` must announce the **applied** total, so its
+announcement is triggered after application, not on server render. Announcing
+a Card total and then silently correcting the DOM is worse for a screen-reader
+user than the visual flash is for a sighted one: they hear the wrong number
+with nothing to indicate it changed.
