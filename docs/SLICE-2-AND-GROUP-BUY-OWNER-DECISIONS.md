@@ -226,6 +226,8 @@ When Bank Payment is selected, the eligible methods may be shown:
 
 Only one active Group Buy price should be presented at a time in the ordering flow.
 
+**Correction to existing Slice 1 storefront behavior:** any currently shipped Group Buy block that shows the Bank Payment Price and Bank Payment savings side-by-side with the Regular/Card Group Buy Price by default is stale and must be corrected to this rule before the current pricing/storefront work is considered complete.
+
 ## 10. Group Buy options/pricing table
 
 Group Buys commonly show all offered configurations in a comparison/options table before the customer begins the order-selection flow.
