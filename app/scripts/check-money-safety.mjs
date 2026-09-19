@@ -151,8 +151,21 @@ const TIER2_PATTERNS = [
  * prefix checks rather than a directory listing so paths that don't exist
  * yet (app/domain/pricing, app/jobs/pricing — both land later in Slice 1)
  * are covered correctly the moment they appear, with no edit needed here.
+ *
+ * The groupbuy prefixes were added at the close of Slice 1 (T11 condition C2).
+ * They are NOT reachable through TIER2_FILENAME_PATTERN below: tiers.ts,
+ * tierSafety.ts, refunds.ts, campaignProgress.ts and refundLedger.server.ts
+ * all move real money and none of their filenames match that pattern. No
+ * violation existed when the prefixes were added — the point is to close the
+ * hole before Slice 6 pours more code into it.
  */
-const TIER2_DIR_PREFIXES = ["app/domain/money/", "app/domain/pricing/", "app/jobs/pricing/"];
+const TIER2_DIR_PREFIXES = [
+  "app/domain/money/",
+  "app/domain/pricing/",
+  "app/jobs/pricing/",
+  "app/domain/groupbuy/",
+  "app/jobs/groupbuy/",
+];
 
 /** Any file anywhere in the repo whose FILENAME (not path) matches this is money-adjacent too. */
 const TIER2_FILENAME_PATTERN = /price|cost|metal|stone/i;

@@ -118,11 +118,66 @@ moment slice 2 does.
 | F-27 | High | `app/app/jobs/pricing/ports.ts`, `runRecalculation.server.ts` | Nothing calls `ShopifyPriceSyncPort.applyVariantPrice`. An intent reaching `approved` is cleared for sync but no sync occurs. Slice 2 must move `approved -> syncing -> synced` on a real call, and must re-check `isPlaceholderProfile` immediately before the call rather than trusting the status alone | Contract |
 | F-28 | Medium | `app/app/jobs/pricing/runRecalculation.server.ts` | A variant whose `bandId` does not resolve to one of its product's bands now throws, failing that variant every run. Correct — pricing off the wrong band is worse — but there is no operator surface to discover or repair such a variant. Slice 2's admin UI should surface persistently failing variants | Contract |
 
-## Gate: test infrastructure (raised by slice 1 QA review)
+## Contracts created by slice 1
 
-| ID | Sev | Where | Item | Kind |
-|---|---|---|---|---|
-| F-29 | High | `app/tests/integration/pricing/*.test.ts`, `app/vitest.integration.config.ts` | Integration tests create non-placeholder `pricing_profile` rows in the shared `carat_dev` database. The table is append-only, so they accumulate and cannot be removed: 62 exist as of 2026-09-17 against 1 real placeholder, and several outrank it for any `asOf >= 2026-05-01`. **The D14 placeholder guard therefore will not demonstrate itself in `carat_dev`** — a stray test profile with realistic-looking values resolves instead. Integration tests need a disposable database or schema, never the one used for manual verification | Real defect |
+Folded in 2026-09-19 at slice 1 T11 from `docs/specs/SLICE-1-PRICING.md` §12,
+which is now closed. **This register is the authoritative copy** — a later
+slice's spec author is directed here, not to a closed slice spec.
+
+These are not defects. Each is a promise slice 1 makes to a later slice, and
+each becomes live the moment its gate slice starts.
+
+| ID | Gate | Contract | Kind |
+|---|---|---|---|
+| C-S1 | **Slice 6** | Implement `OpenCampaignExclusionSource` so variants in an open campaign are excluded from Buy Now recalculation (R17). The no-op shipped in slice 1 is correct **only** while no campaign table is wired into the job | Contract |
+| C-S2 | **Slice 2** | Implement `ShopifyPriceSyncPort` over `productVariantsBulkUpdate`; honour the `lastSyncedPriceCalculationId` compare-and-set; no JS `number` price anywhere between `Money` and the GraphQL variable. **Publish the final rounded Regular/Card Price.** See the three notes below — all three are money-consequential | Contract |
+| C-S3 | **Slice 6** | A Group Buy `campaign_snapshot` must record `engineVersion`, `pricingProfileVersion`, `roundingRuleId`, `priceEndingRuleId` and `regularCardPriceRuleId` alongside the frozen prices, or a frozen price stops being reproducible — which defeats freezing it (`CLAUDE.md` #7). **No consumer may substitute today's active profile or a hardcoded rule id** | Contract |
+| C-S4 | **Slices 4 and 8** | Refunds, restocking and merchandise credit are computed from **what the customer actually paid** — the Shopify order line and its purchase snapshot — never from `price_calculation`. `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md` §4's "eligible merchandise amount" is a historical fact about a transaction, not a current computation. A recalculated price must never reach a refund path | Contract |
+| C-S5 | **Standing — every slice adding a price-bearing route** | No cost, margin, supplier or breakdown field on any metafield, Liquid, App Proxy JSON or log (R14). The card **tier rate** and the **rule id** are internal for the same reason (`docs/BANK-CARD-PRICING.md` §6): the storefront receives the two prices they produced, never the rule that produced them | Contract |
+| C-S6 | **Standing — every slice adding a customer-facing price surface** | **Every surface showing a price shows BOTH prices, or neither.** Slice 1 ships this for the Group Buy block only; the Buy Now product page, cart, email and admin preview are unbuilt and are where it is easiest to regress | Contract |
+
+**C-S2 note 1 — publish the card price, not the stored price.** `price_calculation`
+stores the **Bank Payment Price**, the lower of the two. Publishing it would
+undercharge every card customer by the uplift, on every item, silently. The port
+parameter is named `regularCardPrice` so the wrong one does not typecheck; do
+not widen it. "Final rounded" is load-bearing — the figure after the $5 ceiling,
+never the preliminary uplift.
+
+**C-S2 note 2 — derive from the calculation's OWN profile.** The card price is
+deliberately not stored; it is a pure function of the stored bank price and the
+rule that governed that calculation. Compute
+`deriveRegularCardPrice(row.bankPaymentPriceMinorUnits, row.pricingProfile.fixedCardUpliftRate, row.pricingProfile.regularCardPriceRuleId)`.
+Taking the rate or rule id from **today's active profile** would re-price a
+historical calculation under a rule that did not exist when it was made — the
+same failure C-S3 forbids for campaigns, on the Buy Now path.
+
+**C-S2 note 3 — the bank-basis tolerance can publish an inverted move.** The
+auto-apply delta is measured **bank-to-bank** (comparing a new bank price to a
+previously published card price would read as a ~4% fall on every variant on
+every run, routing the whole catalogue to manual approval and making each
+approval a real price cut). But the uplift schedule is deliberately
+non-monotonic at its tier boundaries, so a tiny rise in the bank price can make
+the published card price **fall**. Worked case: bank `$4,999.99 → $5,000.00` is
+**+0.0002%**, far inside the 200 bps tolerance, so it auto-applies unreviewed —
+while the published Regular/Card Price falls `$5,175 → $5,150`, a 0.48% cut
+nobody approved. Bounded (it cannot exceed the gap between two adjacent tier
+rates) and confined to one tier-width of a boundary, so it is a known small leak
+rather than an open-ended one. Slice 2 must choose explicitly: measure the
+published card delta against `toleranceBps` as well, **or** record an
+owner-accepted decision that sub-1% inverted moves at tier boundaries may
+auto-apply. Silently inheriting the bank-only measurement is not an option — the
+card price is the figure the customer sees.
+
+**C-S6 note — the contact line is part of the contract.** Each surface needs the
+Regular/Card Price visually dominant, the **Bank Payment Price** alongside it,
+the exact dollar saving, and an accurate statement of how the bank price is
+obtained. For MVP1 that statement is *"Available with Zelle, bank transfer, ACH,
+or wire. Contact us to arrange payment."* — owner-approved wording, reproduced
+verbatim. Showing the Bank Payment Price **without** it advertises a price the
+checkout will not honour, because Shopify cannot vary the payable total by
+payment method (`docs/BANK-PAYMENT-CHECKOUT-FINDINGS.md`). That is the outcome
+`docs/BANK-CARD-PRICING.md` §8 prohibits and the hidden-material-terms rule in
+`CLAUDE.md` forbids.
 
 ## Gate: next migration that touches `webhook_event`
 
@@ -170,6 +225,7 @@ A row with a null `claimed_at` would be permanently unreclaimable — stuck in `
 | ID | Resolution |
 |---|---|
 | **A1** | **RESOLVED by owner 2026-09-14 (D12); RE-RESOLVED, UNCHANGED IN SUBSTANCE, 2026-09-15 (D13).** Hybrid: adopt **`@shopify/shopify-app-react-router@2.1.0`** — *not* the superseded `@shopify/shopify-app-remix` — for OAuth, session storage and App Bridge; keep `receiveShopifyWebhook` / `claimWebhookEventForProcessing` for inbound webhooks. Prisma `session` model ships in the slice 2 migration. Recorded as **D13** in `docs/ARCHITECTURE-MVP1.md` §2.1 and §12, including the reason the library's `authenticate.webhook` is deliberately not used — read §2.1 before proposing to consolidate onto it, and note that the rename from the Remix library to the React Router library changed nothing about `authenticate.webhook`'s behaviour or about that reasoning. A1 remains **closed**: the framework change altered which library is adopted, not whether the hybrid boundary holds. |
+| **F-29** | **RESOLVED 2026-09-19 (verified at slice 1 T11).** Integration tests no longer touch `carat_dev`. `app/tests/integration/globalSetup.ts` creates a per-run disposable database named `carat_it_<pid>_<base36 timestamp>`, migrates it, and drops it `WITH (FORCE)` in teardown; `KEEP_TEST_DATABASE=1` retains it for inspection, and a failed drop warns rather than failing a green run. The accumulated `pricing_profile` rows that motivated the finding can no longer be created, so the D14 placeholder guard now demonstrates itself in `carat_dev` as intended. The finding as originally written is stale and must not be re-raised. |
 | **C-1** | In flight. GDPR compliance handler no longer writes customer PII into the append-only `audit_event` table. Owner-approved row shape: `topic`, `shopDomain`, `shopId`, `customerId`, `orderIds`, `dataRequestId`, and a sha256 of the raw body — no payload. |
 | **C-2** | In flight. `app/tests/integration/evidence/snapshotRoundTrip.test.ts` closes slice 0 spec deferred-verification item 5 (write a snapshot containing a `Date` and a `Money`, read it back, re-hash, assert `contentHash` still matches). This also gives `snapshotRepository` its first test coverage of any kind. |
 | **C-3** | In flight. `/health` no longer echoes raw Prisma error text (which embeds DB host, port and user) on an unauthenticated route. |
