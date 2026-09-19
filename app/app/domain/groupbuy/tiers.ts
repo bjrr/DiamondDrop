@@ -36,34 +36,6 @@ import type { DecimalString } from "~/domain/pricing/types";
  * cannot be misread is worth more than a comment explaining the misreading.
  */
 
-/**
- * The smallest permitted difference between adjacent tier multipliers: 1%.
- *
- * NOT a style rule. The Bank/Card tier schedule in docs/BANK-CARD-PRICING.md is
- * NON-MONOTONIC across its boundaries — one more cent of Bank Payment Price can
- * drop the card price by $5, because the item falls into a lower uplift band:
- *
- *     $999.99 bank -> 4.5% -> $1,045.00 card
- *   $1,000.00 bank -> 4.0% -> $1,040.00 card
- *
- * So two Group Buy tiers whose BANK prices straddle such a boundary can produce
- * a next tier whose CARD price is HIGHER than the current one. The storefront
- * would then render "3 more and the price drops to $1,044" beside a price of
- * $1,040 — a false statement, and one no test would catch because every figure
- * involved is individually correct.
- *
- * The inversion window is under 0.5% wide below each boundary (the widest
- * rate step is 0.5 points, and the $5 ceiling narrows it further), so requiring
- * adjacent tiers to differ by at least a full 1% makes the overlap impossible
- * rather than merely unlikely.
- *
- * REJECTING THE CONFIGURATION IS THE RIGHT FIX, not clamping the displayed
- * saving to zero. A campaign with tiers a quarter of a percent apart is
- * misconfigured — the second tier is not an offer worth advertising — and
- * hiding the symptom would leave it live.
- */
-export const MIN_TIER_MULTIPLIER_GAP = "0.01";
-
 /** Per the README: 3 by default, configurable from 2 to 5. */
 export const MIN_TIERS = 2;
 export const MAX_TIERS = 5;
@@ -158,20 +130,21 @@ export function validateTierSet(tiers: readonly TierDefinition[]): void {
       );
     }
 
-    // Later tiers must be CHEAPER, and by a MEANINGFUL MARGIN. A flat or rising
-    // multiplier would mean selling more units made the price worse, and the
-    // storefront promises the opposite ("next-tier price and additional
-    // savings").
+    // Later tiers must be CHEAPER. A flat or rising multiplier would mean
+    // selling more units made the price worse, and the storefront promises the
+    // opposite ("next-tier price and additional savings").
     //
-    // The minimum gap is not decoration — see MIN_TIER_MULTIPLIER_GAP.
-    const gap = new MoneyDecimal(previous.priceMultiplier).minus(current.priceMultiplier);
-    if (gap.lessThanOrEqualTo(0)) {
+    // THIS CHECKS MULTIPLIERS, WHICH IS NOT THE WHOLE STORY. A strictly falling
+    // multiplier guarantees a falling BANK PAYMENT price but NOT a falling
+    // REGULAR/CARD price: the Bank/Card tier schedule is non-monotonic across
+    // its band boundaries, so a lower bank price can derive a higher card
+    // price. Whether that happens depends on each variant's actual frozen
+    // price, which this module never sees — it validates a tier SET, not a
+    // priced campaign. `evaluateTierSafety` checks the resulting prices
+    // directly, per variant, before publication.
+    if (!new MoneyDecimal(current.priceMultiplier).lessThan(previous.priceMultiplier)) {
       problems.push(
         `tier ${current.tierNumber} multiplier (${current.priceMultiplier}) must be lower than tier ${previous.tierNumber} (${previous.priceMultiplier}) — later tiers must be cheaper`
-      );
-    } else if (gap.lessThan(MIN_TIER_MULTIPLIER_GAP)) {
-      problems.push(
-        `tier ${current.tierNumber} multiplier (${current.priceMultiplier}) is only ${gap.toString()} below tier ${previous.tierNumber} (${previous.priceMultiplier}); tiers must differ by at least ${MIN_TIER_MULTIPLIER_GAP} so the card price cannot rise as the group grows`
       );
     }
   }

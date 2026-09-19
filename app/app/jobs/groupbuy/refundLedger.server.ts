@@ -11,7 +11,11 @@ import { MoneyDecimal } from "~/domain/money/decimal";
 import { Money } from "~/domain/money/money";
 import { deriveRegularCardPrice } from "~/domain/pricing/regularCardPrice";
 import { applyPriceEnding } from "~/domain/pricing/priceEnding";
-import type { RegularCardPriceRuleId } from "~/domain/pricing/types";
+import type {
+  PriceEndingRuleId,
+  RegularCardPriceRuleId,
+} from "~/domain/pricing/types";
+import type { RoundingRuleId } from "~/domain/money/rounding";
 import { logger } from "~/lib/logger.server";
 
 /**
@@ -140,14 +144,20 @@ export async function computeRefundsAtClose(options: {
       new MoneyDecimal(eligible.frozenBaseBankPaymentPriceMinorUnits.toString()),
       finalTier
     );
+    // ROUNDED UNDER THE CAMPAIGN'S FROZEN RULES, not today's ids.
+    //
+    // These were hardcoded, which is invisible while one set of rules is in use
+    // and wrong the moment a profile changes one: a refund would be settled
+    // against a price the campaign never quoted. The money leaving the business
+    // has to be computed the same way the money that came in was.
     const rounded = Money.fromDecimalMinorUnits(
       exactBankPayment,
       campaign.currency,
-      "HALF_UP_MINOR_UNIT_V1"
+      frozenProfile.roundingRuleId as RoundingRuleId
     );
     const finalBankPaymentPerUnit = applyPriceEnding(
       rounded.amountMinorUnits,
-      "WHOLE_DOLLAR_UP_V1"
+      frozenProfile.priceEndingRuleId as PriceEndingRuleId
     );
 
     // MATCHED TO THE BASIS THE CUSTOMER PAID IN. The tier price above is a Bank

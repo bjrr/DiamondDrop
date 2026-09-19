@@ -69,6 +69,28 @@ export class UnsafeTiersError extends Error {
   }
 }
 
+/**
+ * The campaign's price ladder does not fall monotonically for some variant.
+ *
+ * SEPARATE FROM UnsafeTiersError, and deliberately not carrying an override
+ * path. The two faults are different in kind: an unsafe tier sells at a margin
+ * the owner may still accept, while a rising price makes the storefront state
+ * something false. Sharing an error type would invite sharing the override.
+ */
+export class BrokenPriceLadderError extends Error {
+  constructor(
+    readonly report: TierSafetyReport,
+    readonly summary: string
+  ) {
+    super(
+      `Campaign cannot open — the price ladder does not only fall: ${summary}. ` +
+        `This cannot be overridden; adjust the tier multipliers so every tier's ` +
+        `Bank Payment Price falls and its Regular/Card Price does not rise.`
+    );
+    this.name = "BrokenPriceLadderError";
+  }
+}
+
 export interface OpenCampaignOptions {
   campaignId: string;
   openedBy: string;
@@ -169,8 +191,30 @@ export async function openGroupBuyCampaign(
     profile: first.profile,
     roundingRuleId: first.profile.roundingRuleId,
     priceEndingRuleId: first.profile.priceEndingRuleId,
+    // The card rule this campaign is about to freeze. Used only to validate the
+    // displayed price ladder; it reaches no floor.
+    regularCardPriceRuleId: first.profile.regularCardPriceRuleId,
+    fixedCardUpliftRate: first.profile.fixedCardUpliftRate,
     currency: campaign.currency,
   });
+
+  // A BROKEN PRICE LADDER IS NOT OVERRIDABLE, and that is the one place this
+  // differs from a floor breach.
+  //
+  // The override exists so an owner can knowingly sell at a thin margin — a
+  // commercial judgement that is theirs to make. There is no equivalent
+  // judgement behind "the price rises as the group grows": the storefront would
+  // tell a shopper the price drops at the next tier and then charge more. No
+  // authority makes that true, so no authority can approve it.
+  //
+  // Checked BEFORE the override is consulted, so an override supplied for a
+  // margin breach cannot carry a ladder fault through with it.
+  if (safety.priceLadderProblems.length > 0) {
+    throw new BrokenPriceLadderError(
+      safety,
+      safety.priceLadderProblems.map((p) => p.detail).join("; ")
+    );
+  }
 
   if (!safety.allSafe && !options.unsafeOverride) {
     const summary = safety.unsafe

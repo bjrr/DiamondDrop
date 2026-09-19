@@ -8,7 +8,11 @@ import { MoneyDecimal } from "~/domain/money/decimal";
 import { Money } from "~/domain/money/money";
 import { deriveRegularCardPrice } from "~/domain/pricing/regularCardPrice";
 import { applyPriceEnding } from "~/domain/pricing/priceEnding";
-import type { RegularCardPriceRuleId } from "~/domain/pricing/types";
+import type {
+  PriceEndingRuleId,
+  RegularCardPriceRuleId,
+} from "~/domain/pricing/types";
+import type { RoundingRuleId } from "~/domain/money/rounding";
 import { getQualifyingUnits } from "~/jobs/groupbuy/unitLedger.server";
 import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
@@ -157,6 +161,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
   // Every tier's price for THIS variant, rounded exactly as a customer would be
   // charged — through the same registries the engine uses, not a local rounding.
+  //
+  // EVERY RULE COMES FROM THE FROZEN PROFILE, none is written in here. These
+  // were hardcoded to today's ids, which is invisible while only one set is in
+  // use and wrong the moment a profile changes a rounding or price-ending rule:
+  // a campaign frozen under the old rules would be quoted under the new ones,
+  // and the storefront would disagree with both the freeze and the refund.
+  const roundingRuleId = frozenProfile.roundingRuleId as RoundingRuleId;
+  const priceEndingRuleId = frozenProfile.priceEndingRuleId as PriceEndingRuleId;
+
   const tierPrices: Record<number, DualPrice> = {};
   for (const tier of tiers) {
     const exactBankPayment = tierBankPaymentPriceExact(
@@ -166,10 +179,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     const rounded = Money.fromDecimalMinorUnits(
       exactBankPayment,
       campaign.currency,
-      "HALF_UP_MINOR_UNIT_V1"
+      roundingRuleId
     );
     tierPrices[tier.tierNumber] = dual(
-      applyPriceEnding(rounded.amountMinorUnits, "WHOLE_DOLLAR_UP_V1")
+      applyPriceEnding(rounded.amountMinorUnits, priceEndingRuleId)
     );
   }
 

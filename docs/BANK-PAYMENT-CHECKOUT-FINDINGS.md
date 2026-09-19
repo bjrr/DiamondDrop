@@ -2,8 +2,10 @@
 
 ## Status
 
-**ENGINEERING FINDING, 2026-09-18. Requires an owner decision before the Bank
-Payment Price can be charged at checkout.**
+**ENGINEERING FINDING, 2026-09-18. RESOLVED BY OWNER DECISION, 2026-09-19:**
+MVP1 ships display only. Bank Payment is an advertised alternative requiring
+customer contact; draft-order automation is deferred to a separate future
+checkout/payment decision.
 
 Raised against `docs/BANK-CARD-PRICING.md` §8, which requires:
 
@@ -14,8 +16,9 @@ and instructs engineering to "verify what Shopify checkout/payment capabilities
 are available … or explicitly surface the platform limitation before release. Do
 not silently fake this behavior only on the product page/cart."
 
-Nothing in this document is implemented. The pricing engine, App Proxy DTO and
-theme block are complete and correct; what follows is about the payment step.
+The pricing engine, App Proxy DTO and theme block are complete and correct.
+What follows is about the payment step, where §1 documents a hard platform
+limitation and §3 records what was decided about it.
 
 ## 1. The finding
 
@@ -91,18 +94,33 @@ work plus a second chargeback surface.
 
 ## 3. Recommended implementation
 
-**Phase 1 — display only, which is what ships now.**
+**Phase 1 — display only. THIS IS WHAT SHIPS, and it is the whole of MVP1.**
+
+Owner decision, 2026-09-19: for MVP1 the Bank Payment Price is an advertised
+alternative that requires the customer to contact us and arrange payment. It is
+not a checkout option, and the storefront must not imply that it is.
 
 The Regular/Card Price is the published Shopify price and the price standard
 checkout collects. The Bank Payment Price and its exact saving are displayed on
 the product page and in the Group Buy block. **No claim is made at checkout that
 a bank method will charge less**, because at that point it would not.
 
-Copy must therefore be accurate about how to obtain the bank price — a request
-step, not a payment-method radio button. Suggested framing, subject to owner
-approval: *"Bank Payment Price: $2,149 — request a bank-payment invoice"*.
+Copy is therefore accurate about how to obtain the bank price — a contact step,
+not a payment-method radio button. OWNER-APPROVED WORDING, shipped verbatim:
 
-**Phase 2 — draft-order invoice flow, needing owner approval.**
+> Bank Payment Price: $X
+> Save $Y with Bank Payment
+> Available with Zelle, bank transfer, ACH, or wire. Contact us to arrange payment.
+
+Asserted character-for-character by the theme source guards, because a
+well-meant rewording is the likeliest way approved copy drifts.
+
+**Phase 2 — draft-order invoice flow. DEFERRED by owner decision, 2026-09-19.**
+
+NOT part of this pricing slice and not implemented. No `write_draft_orders`
+scope is requested and no inventory behaviour changes here. Recorded so the
+option is not rediscovered from scratch when checkout and payment are taken up
+as their own piece of work.
 
 A "Pay by bank transfer" action on the product page creates a draft order at the
 Bank Payment Price and emails the invoice. Requires: Admin API `write_draft_orders`

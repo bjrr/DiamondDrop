@@ -39,6 +39,8 @@ function run(variants: TierSafetyVariantInput[], tiers = TIERS) {
     profile: PROFILE,
     roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
     priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
+    regularCardPriceRuleId: "BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1",
+    fixedCardUpliftRate: "0.050000",
     currency: "USD",
   });
 }
@@ -179,6 +181,8 @@ describe("the 40% markup / 20% floor arithmetic, on the Bank Payment Price (owne
       profile: OWNER_PROFILE,
       roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
       priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
+      regularCardPriceRuleId: "BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1",
+      fixedCardUpliftRate: "0.050000",
       currency: "USD",
     });
   }
@@ -262,6 +266,8 @@ describe("the 40% markup / 20% floor arithmetic, on the Bank Payment Price (owne
       profile: OWNER_PROFILE,
       roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
       priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
+      regularCardPriceRuleId: "BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1",
+      fixedCardUpliftRate: "0.050000",
       currency: "USD",
     });
 
@@ -295,11 +301,212 @@ describe("the credit-card uplift plays no part in tier safety", () => {
       },
       roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
       priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
+      regularCardPriceRuleId: "BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1",
+      fixedCardUpliftRate: "0.050000",
       currency: "USD",
     });
 
     const tier2 = report.results.find((r) => r.tierNumber === 2)!;
     expect(tier2.groupBuyBankPaymentPriceMinorUnits).toBe(126_000n);
     expect(tier2.groupBuyBankPaymentPriceMinorUnits).not.toBe(132_300n); // the card price
+  });
+});
+
+describe("the price ladder must only ever fall", () => {
+  /**
+   * Validated on the ACTUAL RESULTING PRICES, per variant, rather than inferred
+   * from the tier multipliers — because the multipliers cannot answer it.
+   *
+   * A strictly falling multiplier always gives a falling Bank Payment Price,
+   * but the Bank/Card schedule is non-monotonic across its band boundaries, so
+   * a cheaper bank price can derive a DEARER card price. Whether a campaign
+   * trips that depends on the variant's frozen base and where its tiers land.
+   */
+  const ladder = (
+    frozenBaseBankPaymentMinorUnits: bigint,
+    multipliers: readonly string[],
+    landedCost = "1000"
+  ) =>
+    evaluateTierSafety({
+      variants: [
+        {
+          masterVariantId: "v1",
+          frozenBaseBankPaymentMinorUnits,
+          landedCostMinorUnits: new MoneyDecimal(landedCost),
+        },
+      ],
+      tiers: multipliers.map((priceMultiplier, index) => ({
+        tierNumber: index + 1,
+        minQualifyingUnits: index === 0 ? 1 : index * 10,
+        priceMultiplier,
+      })),
+      profile: {
+        minGrossMarginRate: "0.000000",
+        minDollarProfit: { amountMinorUnits: "0", currency: "USD" },
+      },
+      roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
+      priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
+      regularCardPriceRuleId: "BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1",
+      fixedCardUpliftRate: "0.050000",
+      currency: "USD",
+    });
+
+  it("BLOCKS a campaign whose card price rises across a Bank/Card threshold", () => {
+    // Base $1,000.00. Tier 2 at x0.999 gives $999.00 bank — one dollar cheaper,
+    // but across the $1,000 boundary, so it takes 4.5% instead of 4.0%:
+    //
+    //   tier 1: $1,000.00 bank -> 4.0% -> $1,040.00 card
+    //   tier 2:   $999.00 bank -> 4.5% = $1,043.955 -> ceil $5 -> $1,045.00  <- RISES
+    //
+    // Exactly the case the owner asked to be caught by validating the prices.
+    const report = ladder(100_000n, ["1.000000", "0.999000"]);
+
+    expect(report.allSafe).toBe(false);
+    expect(report.unsafe).toHaveLength(0); // every floor is fine; the LADDER is not
+    expect(report.priceLadderProblems).toHaveLength(1);
+
+    const problem = report.priceLadderProblems[0]!;
+    expect(problem.basis).toBe("regular_card");
+    expect(problem.masterVariantId).toBe("v1");
+    expect(problem.priorTierNumber).toBe(1);
+    expect(problem.tierNumber).toBe(2);
+    expect(problem.priorPriceMinorUnits).toBe(104_000n);
+    expect(problem.priceMinorUnits).toBe(104_500n);
+  });
+
+  it("reports the exact variant, tiers and prices, not just that something failed", () => {
+    // The owner's requirement verbatim: "block publication and report the exact
+    // variant/tier/prices". A screen that says "unsafe" and nothing else leaves
+    // the operator to rediscover which tier, and by how much.
+    const detail = ladder(100_000n, ["1.000000", "0.999000"]).priceLadderProblems[0]!.detail;
+
+    expect(detail).toContain("v1");
+    expect(detail).toContain("tier 2");
+    expect(detail).toContain("$1045.00");
+    expect(detail).toContain("$1040.00");
+    expect(detail).toContain("$999.00"); // the bank price that crossed
+    expect(detail).toMatch(/crossed a Bank\/Card pricing threshold/);
+  });
+
+  it("BLOCKS a bank price that fails to fall at all", () => {
+    // Rounding can collapse a small multiplier difference to nothing, so two
+    // tiers can land on the same bank price without anyone configuring
+    // duplicates. A tier that rewards reaching a threshold with the same price
+    // is a promise not kept.
+    //
+    // $500.00 x 0.9999 = $499.95, which whole-dollar-UP returns to $500.00.
+    const report = ladder(50_000n, ["1.000000", "0.999900"]);
+
+    const bank = report.priceLadderProblems.filter((p) => p.basis === "bank_payment");
+    expect(bank).toHaveLength(1);
+    expect(bank[0]!.priorPriceMinorUnits).toBe(50_000n);
+    expect(bank[0]!.priceMinorUnits).toBe(50_000n);
+    expect(bank[0]!.detail).toMatch(/is not below tier 1/);
+  });
+
+  it("ALLOWS a card price that merely ties — the owner's rule is <=, not <", () => {
+    // $2,000.00 -> $2,080.00 card. $1,999.00 -> x1.04 = $2,078.96 -> ceil $5 =
+    // $2,080.00. The card price is unchanged while the bank price fell.
+    //
+    // PERMITTED HERE, AND NOT ADVERTISED AS A DROP. The owner locked "next <=
+    // prior", so publication allows this. The storefront separately suppresses
+    // its "the price drops to" line when the additional saving is zero, because
+    // permitting a state is not licence to describe it falsely — see the guard
+    // in extensions/group-buy-progress and its source tests.
+    const report = ladder(200_000n, ["1.000000", "0.999500"]);
+
+    expect(report.results[0]!.groupBuyRegularCardPriceMinorUnits).toBe(208_000n);
+    expect(report.results[1]!.groupBuyRegularCardPriceMinorUnits).toBe(208_000n);
+    expect(report.priceLadderProblems).toHaveLength(0);
+    expect(report.allSafe).toBe(true);
+  });
+
+  it("passes the ordinary campaign shapes untouched", () => {
+    // The check must not become an obstacle to normal configuration.
+    for (const multipliers of [
+      ["1.000000", "0.900000"],
+      ["1.000000", "0.950000", "0.900000"],
+      ["1.000000", "0.930000", "0.880000", "0.850000"],
+    ]) {
+      const report = ladder(238_700n, multipliers);
+      expect(report.priceLadderProblems, multipliers.join("/")).toHaveLength(0);
+    }
+  });
+
+  it("checks EVERY variant, not just the first", () => {
+    // Two variants share one tier set, and which boundary a tier crosses
+    // depends on each variant's own frozen base. A campaign can be sound for
+    // one piece and broken for another.
+    const report = evaluateTierSafety({
+      variants: [
+        {
+          masterVariantId: "safe-variant",
+          frozenBaseBankPaymentMinorUnits: 238_700n,
+          landedCostMinorUnits: new MoneyDecimal("1000"),
+        },
+        {
+          masterVariantId: "crosses-a-threshold",
+          frozenBaseBankPaymentMinorUnits: 100_000n,
+          landedCostMinorUnits: new MoneyDecimal("1000"),
+        },
+      ],
+      tiers: [
+        { tierNumber: 1, minQualifyingUnits: 1, priceMultiplier: "1.000000" },
+        { tierNumber: 2, minQualifyingUnits: 10, priceMultiplier: "0.999000" },
+      ],
+      profile: {
+        minGrossMarginRate: "0.000000",
+        minDollarProfit: { amountMinorUnits: "0", currency: "USD" },
+      },
+      roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
+      priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
+      regularCardPriceRuleId: "BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1",
+      fixedCardUpliftRate: "0.050000",
+      currency: "USD",
+    });
+
+    expect(report.priceLadderProblems).toHaveLength(1);
+    expect(report.priceLadderProblems[0]!.masterVariantId).toBe("crosses-a-threshold");
+  });
+
+  it("is INDEPENDENT of the floors — a ladder fault with every floor cleared", () => {
+    // The two gates answer different questions and must not be conflated: this
+    // campaign is comfortably profitable at both tiers and still unpublishable.
+    const report = ladder(100_000n, ["1.000000", "0.999000"], "1000");
+
+    expect(report.results.every((r) => r.evaluation.satisfied)).toBe(true);
+    expect(report.unsafe).toHaveLength(0);
+    expect(report.allSafe).toBe(false);
+  });
+
+  it("derives the ladder under the rule it is GIVEN, not a hardcoded one", () => {
+    // Under the superseded fixed rule the same tiers are fine, because a single
+    // rate with a whole-dollar ceiling IS monotonic. The check must follow the
+    // rule the campaign will freeze rather than assume today's.
+    const legacy = evaluateTierSafety({
+      variants: [
+        {
+          masterVariantId: "v1",
+          frozenBaseBankPaymentMinorUnits: 100_000n,
+          landedCostMinorUnits: new MoneyDecimal("1000"),
+        },
+      ],
+      tiers: [
+        { tierNumber: 1, minQualifyingUnits: 1, priceMultiplier: "1.000000" },
+        { tierNumber: 2, minQualifyingUnits: 10, priceMultiplier: "0.999000" },
+      ],
+      profile: {
+        minGrossMarginRate: "0.000000",
+        minDollarProfit: { amountMinorUnits: "0", currency: "USD" },
+      },
+      roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
+      priceEndingRuleId: "WHOLE_DOLLAR_UP_V1",
+      regularCardPriceRuleId: "CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1",
+      fixedCardUpliftRate: "0.050000",
+      currency: "USD",
+    });
+
+    expect(legacy.priceLadderProblems).toHaveLength(0);
+    expect(legacy.allSafe).toBe(true);
   });
 });

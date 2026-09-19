@@ -333,3 +333,44 @@ describe("two prices, explicitly named", () => {
     }
   });
 });
+
+describe("the view model reports faithfully and does not paper over a bad ladder", () => {
+  /**
+   * `additionalRegularCardSavings...` is deliberately UNCLAMPED, where the
+   * Buy-Now savings above it are clamped to zero. The two are different
+   * situations and the asymmetry is the point.
+   *
+   * A Buy Now price that has fallen below the group price is ORDINARY — costs
+   * move after a campaign freezes — so showing zero rather than a negative is
+   * honest. A next tier that costs MORE than the current one is not ordinary:
+   * it means the campaign should never have opened. `evaluateTierSafety`
+   * refuses to publish one (see BrokenPriceLadderError), so a live campaign
+   * cannot reach this state.
+   *
+   * Clamping here would hide the fault if it ever did arrive — a campaign
+   * quietly showing "0 additional savings" instead of failing loudly. The
+   * correct place to stop it is publication, and this test exists so that a
+   * future reader who spots the missing clamp finds the reason rather than
+   * adding one.
+   */
+  it("passes a negative additional saving straight through, rather than hiding it", () => {
+    const inverted = view({
+      qualifyingUnitsSold: 4,
+      tierPrices: {
+        1: { bankPaymentMinorUnits: 40_000n, regularCardMinorUnits: 42_000n },
+        // Cheaper on bank, DEARER on card — the inversion tier safety blocks.
+        2: { bankPaymentMinorUnits: 39_900n, regularCardMinorUnits: 42_500n },
+        3: { bankPaymentMinorUnits: 32_000n, regularCardMinorUnits: 34_000n },
+      },
+    });
+
+    expect(inverted.additionalRegularCardSavingsMinorUnits).toBe("-500");
+  });
+
+  it("reports a non-negative additional saving for any well-formed ladder", () => {
+    // The normal case, and the invariant publication guarantees.
+    const v = view({ qualifyingUnitsSold: 4 });
+    expect(BigInt(v.additionalRegularCardSavingsMinorUnits!)).toBeGreaterThanOrEqual(0n);
+    expect(BigInt(v.additionalBankPaymentSavingsMinorUnits!)).toBeGreaterThanOrEqual(0n);
+  });
+});

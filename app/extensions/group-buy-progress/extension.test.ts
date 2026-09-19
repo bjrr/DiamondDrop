@@ -148,22 +148,26 @@ describe("Bank Payment display (docs/BANK-CARD-PRICING.md §6)", () => {
     }
   });
 
-  it("names the eligible methods AND how to obtain the price", () => {
-    // Shopify cannot change the payable total at payment-method selection
-    // (docs/BANK-PAYMENT-CHECKOUT-FINDINGS.md), so a block that advertises a
-    // lower Bank Payment Price without saying how to get it is advertising a
-    // price the checkout will not honour. Both halves are asserted: which
-    // methods qualify, and that obtaining it is a REQUEST rather than a choice
-    // made at checkout.
-    expect(code).toMatch(/Zelle/);
-    expect(code).toMatch(/bank transfer/i);
-    expect(code).toMatch(/ACH/);
-    expect(code).toMatch(/wire/i);
-    expect(code).toMatch(/contact us to arrange/i);
+  it("renders the OWNER-APPROVED wording, character for character", () => {
+    // Approved copy, not a paraphrase. Asserted as exact strings because these
+    // three lines were signed off as written and a well-meant rewording is the
+    // most likely way they drift.
+    expect(code).toContain('"Bank Payment Price: "');
+    expect(code).toContain('" with Bank Payment"');
+    expect(code).toContain(
+      '"Available with Zelle, bank transfer, ACH, or wire. Contact us to arrange payment."'
+    );
+  });
 
-    // And must NOT promise a checkout behaviour the platform cannot deliver.
+  it("promises no checkout behaviour the platform cannot deliver", () => {
+    // Shopify cannot change the payable total at payment-method selection
+    // (docs/BANK-PAYMENT-CHECKOUT-FINDINGS.md). For MVP1 Phase 1 the Bank
+    // Payment Price is obtained by arrangement, so the copy must say contact —
+    // never "select at checkout", which the platform would not honour.
+    expect(code).toMatch(/Contact us to arrange payment/);
     expect(code).not.toMatch(/select .{0,30}at checkout/i);
     expect(code).not.toMatch(/choose .{0,30}at checkout/i);
+    expect(code).not.toMatch(/at checkout/i);
   });
 
   it("shows the bank saving as an absolute amount from the server", () => {
@@ -186,6 +190,36 @@ describe("Bank Payment display (docs/BANK-CARD-PRICING.md §6)", () => {
     // bank/card spread into the advertised Group Buy saving and overstate it.
     expect(code).toMatch(/data\.buyNowRegularCardPriceMinorUnits/);
     expect(code).not.toMatch(/data\.buyNowBankPaymentPriceMinorUnits/);
+  });
+
+  it("does NOT claim a price drop when the next tier ties on the card price", () => {
+    // Publication permits a TIE on the Regular/Card Price — the owner's rule is
+    // "next <= prior", and the $5 ceiling can swallow a small tier difference
+    // so a lower Bank Payment Price rounds to the same card price.
+    //
+    // Permitted is not the same as sayable. Without a guard the block renders
+    // "N more and the price drops to $2,080.00" directly beneath a Group Buy
+    // Price of $2,080.00: every figure correct, the sentence false.
+    const code = stripComments(js);
+
+    // Gated on the SAVING, not merely on a next tier existing — a guard on
+    // `nextTierRegularCardPriceMinorUnits !== null` alone is exactly what
+    // produced the false sentence.
+    const guard = code.indexOf("isPositiveMinorUnits(data.additionalRegularCardSavingsMinorUnits)");
+    const claim = code.indexOf("more and the price drops to");
+    expect(guard).toBeGreaterThan(-1);
+    expect(claim).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(claim);
+  });
+
+  it("tests that saving by STRING inspection, never by converting money to a number", () => {
+    // The guard must not reintroduce the float path the rest of this file
+    // avoids, and must not reach for BigInt either — ES2020, where this file
+    // stays ES5 so it runs in whatever a merchant's theme drags along.
+    const code = stripComments(js);
+    expect(code).toMatch(/function isPositiveMinorUnits/);
+    expect(code).not.toMatch(/Number\s*\(\s*data\./);
+    expect(code).not.toMatch(/BigInt/);
   });
 
   it("renders Best Price Unlocked from the server's flag, not by guessing", () => {

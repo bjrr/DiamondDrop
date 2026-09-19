@@ -376,8 +376,12 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
           pricingProfileId: runProfile.id,
           profileVersion: runProfile.version,
           engineVersion: PRICING_ENGINE_VERSION,
-          roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
-          priceEndingRuleId: "NONE_V1",
+          // The profile's own rules, even on a FAILED row. It carries no price,
+          // so these are metadata rather than arithmetic — but a failure record
+          // naming rules the run was not using would mislead exactly the person
+          // reading it to work out why the run failed.
+          roundingRuleId: runProfile.roundingRuleId,
+          priceEndingRuleId: runProfile.priceEndingRuleId,
           asOf,
           snapshotId: await getFailureSnapshotId(),
           landedCostMinorUnits: 0n,

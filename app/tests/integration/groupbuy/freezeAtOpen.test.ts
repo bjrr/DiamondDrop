@@ -4,6 +4,7 @@ import { prisma } from "~/db/client.server";
 import {
   CampaignIncompleteError,
   CampaignNotDraftError,
+  BrokenPriceLadderError,
   UnsafeTiersError,
   openGroupBuyCampaign,
 } from "~/jobs/groupbuy/openCampaign.server";
@@ -351,5 +352,140 @@ describe("refusals that protect the freeze", () => {
     await expect(
       openGroupBuyCampaign({ campaignId: draft.id, openedBy: "staff", asOf: ASOF })
     ).rejects.toThrow(/must start at 1 qualifying unit/);
+  });
+});
+
+describe("a broken price ladder blocks publication, and cannot be overridden", () => {
+  /**
+   * The GATE, not the validator. `tierSafety.test.ts` proves the check finds an
+   * inversion; these prove `openGroupBuyCampaign` acts on one — the campaign
+   * stays a draft, and stays one even when an authorised override is supplied.
+   *
+   * WHY THE FAULT EXERCISED HERE IS THE BANK-SIDE ONE. A Regular/Card inversion
+   * needs two tiers whose bank prices straddle a Bank/Card band boundary, and
+   * the lowest boundary is $500. The heaviest variant in the seeded catalogue
+   * prices at about $436, so every tier of every campaign these tests can build
+   * sits inside the single "under $500" band, where the derivation is
+   * monotonic. Rather than seed a fictional high-value piece purely to trip a
+   * check, the card-price inversion is covered by unit tests with explicit
+   * prices, and this file covers the gate, the error, the non-overridability
+   * and the reporting — which is the part only a real open can demonstrate.
+   */
+
+  /**
+   * Two tiers that ROUND TO THE SAME bank price.
+   *
+   * $436.00 x 0.999 = $435.564, which HALF_UP-to-minor-units then
+   * whole-dollar-UP returns to $436.00. The multiplier falls, so
+   * `validateTierSet` is satisfied; the resulting PRICE does not, which is
+   * exactly why the check had to move from multipliers to prices.
+   */
+  async function flatLadderDraft() {
+    return draftCampaign({
+      tiers: [
+        { tierNumber: 1, minQualifyingUnits: 1, priceMultiplier: "1.000000" },
+        { tierNumber: 2, minQualifyingUnits: 10, priceMultiplier: "0.999000" },
+      ],
+    });
+  }
+
+  it("REFUSES to open, and leaves the campaign a draft", async () => {
+    const draft = await flatLadderDraft();
+
+    await expect(
+      openGroupBuyCampaign({ campaignId: draft.id, openedBy: "staff", asOf: ASOF })
+    ).rejects.toThrow(BrokenPriceLadderError);
+
+    const still = await prisma.groupBuyCampaign.findUniqueOrThrow({ where: { id: draft.id } });
+    expect(still.status).toBe("draft");
+  });
+
+  it("REFUSES even with an authorised unsafe override", async () => {
+    // The ladder is checked BEFORE the override is consulted, so an override
+    // supplied for a margin breach cannot carry a ladder fault through with it.
+    //
+    // The distinction is deliberate: an override exists so an owner can
+    // knowingly sell at a thin margin, which is theirs to decide. There is no
+    // equivalent decision behind a tier that does not actually lower the price
+    // — the storefront would promise a reward for reaching a threshold and then
+    // charge the same amount.
+    const draft = await flatLadderDraft();
+
+    await expect(
+      openGroupBuyCampaign({
+        campaignId: draft.id,
+        openedBy: "staff",
+        asOf: ASOF,
+        unsafeOverride: { by: "owner", reason: "I accept the margin" },
+      })
+    ).rejects.toThrow(BrokenPriceLadderError);
+
+    const still = await prisma.groupBuyCampaign.findUniqueOrThrow({ where: { id: draft.id } });
+    expect(still.status).toBe("draft");
+  });
+
+  it("reports the exact variant, tiers and prices", async () => {
+    const draft = await flatLadderDraft();
+
+    const error = await openGroupBuyCampaign({
+      campaignId: draft.id,
+      openedBy: "staff",
+      asOf: ASOF,
+    }).catch((e: unknown) => e as BrokenPriceLadderError);
+
+    expect(error).toBeInstanceOf(BrokenPriceLadderError);
+
+    const problems = (error as BrokenPriceLadderError).report.priceLadderProblems;
+    expect(problems.length).toBeGreaterThan(0);
+
+    const problem = problems.find((p) => p.basis === "bank_payment")!;
+    expect(problem).toBeDefined();
+    expect(problem.masterVariantId).toBe(draft.variants[0]!.masterVariantId);
+    expect(problem.priorTierNumber).toBe(1);
+    expect(problem.tierNumber).toBe(2);
+    expect(problem.priceMinorUnits).toBe(problem.priorPriceMinorUnits);
+    expect(problem.detail).toMatch(/is not below tier 1/);
+    expect(problem.detail).toMatch(/\$\d+\.\d\d/); // the actual price, not a placeholder
+
+    // The message names the fault and says it is not overridable, rather than
+    // reading like an ordinary safety refusal.
+    expect((error as BrokenPriceLadderError).message).toMatch(/cannot be overridden/);
+  });
+
+  it("still opens an ordinary campaign whose ladder falls throughout", async () => {
+    // Guards the guard: a check that blocked everything would pass the three
+    // tests above and be worthless.
+    const draft = await draftCampaign();
+
+    const result = await openGroupBuyCampaign({
+      campaignId: draft.id,
+      openedBy: "staff",
+      asOf: ASOF,
+    });
+
+    expect(result.safety.priceLadderProblems).toHaveLength(0);
+    expect(result.safety.allSafe).toBe(true);
+
+    const opened = await prisma.groupBuyCampaign.findUniqueOrThrow({ where: { id: draft.id } });
+    expect(opened.status).toBe("open");
+  });
+
+  it("records both prices per tier in the report, so a screen can show the ladder", async () => {
+    const draft = await draftCampaign();
+    const result = await openGroupBuyCampaign({
+      campaignId: draft.id,
+      openedBy: "staff",
+      asOf: ASOF,
+    });
+
+    for (const row of result.safety.results) {
+      expect(row.groupBuyBankPaymentPriceMinorUnits).toBeGreaterThan(0n);
+      expect(row.groupBuyRegularCardPriceMinorUnits).toBeGreaterThanOrEqual(
+        row.groupBuyBankPaymentPriceMinorUnits
+      );
+      // Derived under the frozen rule, which for a campaign opened today is the
+      // tiered one — hence a $5 multiple.
+      expect(row.groupBuyRegularCardPriceMinorUnits % 500n).toBe(0n);
+    }
   });
 });

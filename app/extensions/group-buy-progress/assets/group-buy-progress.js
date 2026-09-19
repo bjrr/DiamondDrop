@@ -59,6 +59,24 @@
     return minutes + "m";
   }
 
+  /*
+   * Is a minor-units string strictly greater than zero?
+   *
+   * STRING INSPECTION, not arithmetic. The server sends whole minor units as a
+   * decimal string precisely so the client never converts money to a number,
+   * and `Number(...)` here would be the one call that reintroduces a float into
+   * the price path — the thing this whole file is written to avoid. An integer
+   * string is positive exactly when it is neither absent, nor "0", nor signed.
+   *
+   * BigInt would also be exact but is ES2020; this file stays ES5 so it runs in
+   * whatever a merchant's theme drags along with it.
+   */
+  function isPositiveMinorUnits(value) {
+    if (value === null || value === undefined) return false;
+    var text = String(value);
+    return text.charAt(0) !== "-" && !/^0+$/.test(text);
+  }
+
   function el(tag, className, text) {
     var node = document.createElement(tag);
     if (className) node.className = className;
@@ -143,28 +161,26 @@
     }
 
     /*
-     * WHICH METHODS QUALIFY, AND HOW TO GET THE PRICE.
+     * WHICH METHODS QUALIFY, AND HOW TO GET THE PRICE. Owner-approved wording,
+     * reproduced verbatim — do not paraphrase.
      *
      * Not decoration. "Bank Payment Price" alone tells a shopper a lower price
-     * exists without telling them how to obtain it — and standard Shopify
-     * checkout will collect the Regular/Card Price whatever they select there,
-     * because no Shopify mechanism changes the payable total at payment-method
+     * exists without telling them how to obtain it, and standard Shopify
+     * checkout will collect the Regular/Card Price whatever they select there:
+     * no Shopify mechanism changes the payable total at payment-method
      * selection (docs/BANK-PAYMENT-CHECKOUT-FINDINGS.md).
      *
-     * So the line says REQUEST, not "choose at checkout". Advertising a price
-     * the checkout cannot charge, with no route to it, is the outcome
-     * docs/BANK-CARD-PRICING.md §8 prohibits and the hidden-material-terms rule
-     * in CLAUDE.md forbids.
-     *
-     * The wording is PROVISIONAL and needs owner sign-off alongside the Phase 2
-     * draft-order flow; what is not provisional is that some accurate statement
-     * has to be here.
+     * So the line says CONTACT US, not "choose at checkout". For MVP1 Phase 1
+     * Bank Payment is an advertised alternative requiring arrangement; draft-
+     * order automation is a separate future decision and is NOT implemented.
+     * Advertising a price the checkout cannot charge, with no route to it,
+     * would be the outcome docs/BANK-CARD-PRICING.md §8 prohibits.
      */
     body.appendChild(
       el(
         "p",
         "carat-gb__bank-methods",
-        "Available by Zelle, bank transfer, ACH or wire — contact us to arrange bank payment."
+        "Available with Zelle, bank transfer, ACH, or wire. Contact us to arrange payment."
       )
     );
 
@@ -214,7 +230,26 @@
 
     if (data.bestPriceUnlocked) {
       body.appendChild(el("p", "carat-gb__best", "Best Price Unlocked"));
-    } else if (data.unitsToNextTier !== null && data.nextTierRegularCardPriceMinorUnits !== null) {
+    } else if (
+      data.unitsToNextTier !== null &&
+      data.nextTierRegularCardPriceMinorUnits !== null &&
+      /*
+       * ONLY CLAIM A DROP WHEN THERE IS ONE.
+       *
+       * Publication requires the next tier's Regular/Card Price to be no HIGHER
+       * than the current one — but "no higher" permits EQUAL, and equal is
+       * reachable: the $5 ceiling can swallow a small tier difference, so a
+       * lower Bank Payment Price can round to the same card price.
+       *
+       * Without this guard the block renders "7 more and the price drops to
+       * $2,080.00" directly beneath a Group Buy Price of $2,080.00 — every
+       * figure individually correct, the sentence false. The tier is still real
+       * for a bank-paying customer, whose price does fall, and its marker still
+       * shows in the track; what is suppressed is a promise about the card
+       * price that the card price does not keep.
+       */
+      isPositiveMinorUnits(data.additionalRegularCardSavingsMinorUnits)
+    ) {
       body.appendChild(
         el(
           "p",
