@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { PriceRecalculationTrigger } from "@prisma/client";
 
 import { prisma } from "~/db/client.server";
+import { dispatchAdminAlert } from "~/db/repositories/adminAlertDispatch.server";
 import {
   recordCalculationFailure,
   recordCalculationSuccess,
@@ -389,10 +390,33 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
       // `recordCalculationSuccess` is a cheap no-op when nothing is open.
       // Same isolation reasoning as the override-expiry call above.
       try {
-        await recordCalculationSuccess({
+        const recovery = await recordCalculationSuccess({
           masterVariantId: variant.id,
           trigger: calculationRecoveryTrigger(trigger, options.triggeredBy),
         });
+
+        // ADMIN NOTIFICATION (owner §7 "notify the admin"; the resolution
+        // half — see the module doc comment on `dispatchAdminAlert`). Its
+        // own nested try/catch: a notification failure must never turn a
+        // genuinely successful recalculation into a failed one, exactly
+        // like the recovery-record call it sits beside.
+        if (recovery.restored && recovery.failureId) {
+          try {
+            await dispatchAdminAlert({
+              sourceKind: "calculation_failure",
+              sourceId: recovery.failureId,
+              event: "resolved",
+            });
+          } catch (alertError) {
+            logger.error("admin_alert.dispatch_failed", {
+              runId,
+              masterVariantId: variant.id,
+              sourceKind: "calculation_failure",
+              event: "resolved",
+              error: alertError instanceof Error ? alertError.name : "UnknownError",
+            });
+          }
+        }
       } catch (recoveryError) {
         logger.error("pricing.calculation_recovery_record_failed", {
           runId,
@@ -518,16 +542,49 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
         });
         // Owner §7 "notify the admin immediately" — fired exactly once, only
         // on the attempt that OPENS a new episode, never on a retry of an
-        // already-open one. No email/persistent-admin-alert delivery channel
-        // exists yet anywhere in this codebase (checked); this distinctly
-        // -named, durable log event is the notification until one is built —
-        // it must not be reported as an email having been sent, because none
-        // was.
+        // already-open one. Durable log line kept alongside the real
+        // notification below (Slice 2 stage 2A wired `dispatchAdminAlert`,
+        // which sends the email/records the persistent alert) rather than
+        // replaced by it — this log line is unconditional and needs no
+        // database round trip to read during an incident.
         if (failure.newEpisode) {
           logger.error("pricing.calculation_failure_opened", {
             runId,
             masterVariantId: variant.id,
             failureType: failure.failureType,
+          });
+        }
+
+        // ADMIN NOTIFICATION (owner §7). Its own try/catch, same reasoning
+        // as `recordCalculationFailure`'s own call above: a notification
+        // failure must never turn a single failed variant into an aborted
+        // run. `failure.newEpisode`/`failure.newlySuspended` are each true
+        // for exactly one call across this episode's lifetime (see
+        // `calculationFailure.ts`'s own state-machine guarantees) — see
+        // `dispatchAdminAlert`'s own doc comment for why the caller, not the
+        // dispatch function, is the one deciding which event fired.
+        try {
+          if (failure.newEpisode) {
+            await dispatchAdminAlert({
+              sourceKind: "calculation_failure",
+              sourceId: failure.failureId,
+              event: "opened",
+            });
+          }
+          if (failure.newlySuspended) {
+            await dispatchAdminAlert({
+              sourceKind: "calculation_failure",
+              sourceId: failure.failureId,
+              event: "suspended",
+            });
+          }
+        } catch (alertError) {
+          logger.error("admin_alert.dispatch_failed", {
+            runId,
+            masterVariantId: variant.id,
+            sourceKind: "calculation_failure",
+            event: failure.newEpisode ? "opened" : "suspended",
+            error: alertError instanceof Error ? alertError.name : "UnknownError",
           });
         }
       } catch (recordError) {

@@ -1,4 +1,5 @@
 import { prisma } from "~/db/client.server";
+import { dispatchAdminAlert } from "~/db/repositories/adminAlertDispatch.server";
 import { getLatestComputedCalculation } from "~/db/repositories/priceCalculationRepository.server";
 import { recordPricingInputChangeIfPriceAffecting } from "~/db/repositories/pricingInputChangeRepository.server";
 import { recordSyncFailure, recordSyncSuccess } from "~/db/repositories/priceSyncFailureRepository.server";
@@ -284,10 +285,46 @@ export async function syncApprovedPriceSyncIntent(
     appliedAt = applied.appliedAt;
   } catch (syncError) {
     try {
-      await recordSyncFailure({
+      const failure = await recordSyncFailure({
         masterVariantId: intent.masterVariantId,
         error: syncError instanceof Error ? syncError.message : String(syncError),
       });
+
+      // ADMIN NOTIFICATION (owner §4/§15). `attemptCount === 1` is the
+      // sync-failure equivalent of `RecordCalculationFailureResult.newEpisode`
+      // — `price_sync_failure`'s own result shape has no `newEpisode` field
+      // (its repository is reviewed/green and not modified by this work; see
+      // `dispatchAdminAlert`'s module doc comment), but
+      // `decideFirstFailure`/`decideRetryFailure` in `~/domain/pricing/syncFailure`
+      // guarantee `attemptCount` starts at exactly 1 for a brand-new episode
+      // and only ever increments from there within one episode's lifetime,
+      // so this reads the identical fact by a different name. Its own
+      // try/catch: a notification failure must never mask the ORIGINAL sync
+      // error re-thrown below.
+      try {
+        if (failure.attemptCount === 1) {
+          await dispatchAdminAlert({
+            sourceKind: "sync_failure",
+            sourceId: failure.failureId,
+            event: "opened",
+          });
+        }
+        if (failure.newlySuspended) {
+          await dispatchAdminAlert({
+            sourceKind: "sync_failure",
+            sourceId: failure.failureId,
+            event: "suspended",
+          });
+        }
+      } catch (alertError) {
+        logger.error("admin_alert.dispatch_failed", {
+          intentId: intent.id,
+          masterVariantId: intent.masterVariantId,
+          sourceKind: "sync_failure",
+          event: failure.attemptCount === 1 ? "opened" : "suspended",
+          error: alertError instanceof Error ? alertError.name : "UnknownError",
+        });
+      }
     } catch (recordError) {
       // Recording the failure must never mask the ORIGINAL error below, and
       // must never itself become the thing that propagates.
@@ -312,7 +349,28 @@ export async function syncApprovedPriceSyncIntent(
   // `resolvedAt`; it does not touch `alertState`'s dismissed/cleared split,
   // which governs notification noise, not whether a variant may sell.
   try {
-    await recordSyncSuccess({ masterVariantId: intent.masterVariantId, now: appliedAt });
+    const recovery = await recordSyncSuccess({ masterVariantId: intent.masterVariantId, now: appliedAt });
+
+    // ADMIN NOTIFICATION (owner §15 resolution). Own nested try/catch, same
+    // reasoning as the recovery-record call it sits beside: a notification
+    // failure must never turn a genuinely successful sync into a failed one.
+    if (recovery.restored && recovery.failureId) {
+      try {
+        await dispatchAdminAlert({
+          sourceKind: "sync_failure",
+          sourceId: recovery.failureId,
+          event: "resolved",
+        });
+      } catch (alertError) {
+        logger.error("admin_alert.dispatch_failed", {
+          intentId: intent.id,
+          masterVariantId: intent.masterVariantId,
+          sourceKind: "sync_failure",
+          event: "resolved",
+          error: alertError instanceof Error ? alertError.name : "UnknownError",
+        });
+      }
+    }
   } catch (recordError) {
     logger.error("pricing.sync_success_record_failed", {
       intentId: intent.id,

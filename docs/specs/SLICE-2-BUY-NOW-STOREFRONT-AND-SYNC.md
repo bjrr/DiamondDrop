@@ -1007,3 +1007,77 @@ returning `null` rather than throwing when nothing price-affecting changed.
 `pricing_input_change → price_recalculation_run → price_calculation → price_sync_intent`
 in three queries because the middle hop joins on `runId` with no Prisma
 relation. That is a pre-existing schema convention, not something T2 introduced.
+
+### 16.10 Alert delivery — criteria 61–70 (the final Stage 2A blocker)
+
+Owner §7 requires "notify the admin immediately"; owner §15 requires
+notification "through **both email and a persistent embedded-admin alert**".
+Both failure state machines were built, wired and correct, and neither could
+tell anybody: `EMAIL_API_KEY` was an env declaration with no sender behind it
+and no admin surface existed. The code said so honestly in a comment rather
+than pretending otherwise. These criteria make that comment untrue.
+
+**61 — both failure kinds raise alerts.** An unresolved calculation failure
+(§7) and an unresolved Shopify sync failure (§15) each produce a persistent
+admin alert and an email. Neither kind may be silent.
+
+**62 — both channels, or an honest record that one was unavailable.** When
+`EMAIL_API_KEY`, `EMAIL_FROM` or `STAFF_EMAIL_ALLOWLIST` is unset, the
+notification is recorded with delivery **unset and a stated reason**, and a
+distinctly named event is logged. **A row claiming an email was sent when none
+was is worse than no row** — that is the exact class of false completion
+signal this whole blocker exists to correct, and replacing one with another
+would be indefensible.
+
+**63 — every alert identifies:** product, variant, failure type,
+reason/message, first unresolved failure timestamp, current age, time
+remaining before the 48-hour cutoff, latest retry result, and current status.
+`productTitle`/`variantLabel` are nullable and a row is **never dropped**
+when they cannot be resolved — a failure that cannot even be named is more
+urgent, not less.
+
+**64 — retries must not spam.** Dedup is a UNIQUE constraint on
+`(source_kind, source_id, event)`, inserted-and-caught, never a read-then-write
+check, which races. Email fires on **three meaningful state changes only**:
+episode opened, 48-hour suspension reached, resolved. However many retries
+occur between them, the count stays at three.
+
+**65 — the persistent alert updates rather than accumulates.** A retry
+refreshes the existing episode's state; it does not create a second alert for
+the same variant and failure kind.
+
+**66 — resolution clears the alert by construction.** The open-alert list is
+derived from `resolved_at IS NULL`. There is no second "alert cleared" flag
+that could disagree with the episode state. Resolution time is recorded
+(already enforced by the calculation-failure CHECK pairing
+`resolved_at`/`resolved_trigger`).
+
+**67 — the two kinds stay distinct in storage AND presentation.** Separate
+tables already; the `source_kind` discriminator carries through the view model
+into the email subject/body and the admin page. A reader must be able to tell
+"we could not compute a price" from "Shopify would not accept the price we
+computed" at a glance — they need different fixes.
+
+**68 — one view model, two renderings.** The email body and the admin page
+render from the **same pure function**, so they cannot drift. Purity is also
+what makes the field set testable without a database.
+
+**69 — nothing sensitive leaves.** No supplier cost, margin, landed cost,
+pricing-profile internals, uplift rate, rule id, token or secret in an email
+body, a log line, or the rendered page (C-S5). Failure *reason* text is fine;
+a cost breakdown is not. **An email body is the least trusted destination in
+the system** — it leaves our infrastructure entirely and cannot be recalled.
+
+**70 — `dismissed` never means fixed.** Dismissal exists only for sync
+failures. It silences the notification and records who and why. It does **not**
+set `resolved_at`, does **not** restore a suspended variant, and must not be
+presented as resolved. This is ruling R2 carried from the schema into the UI:
+otherwise a human could put an unpublishable price back on sale by clicking
+"dismiss".
+
+**Route safety.** The admin surface sits behind `authenticate.admin`, never an
+App Proxy route. It is loader-only, so `csrfResourceRouteFence.test.ts` needs
+no exemption entry; adding an action later would require a reasoned one. Worth
+recording that the fence built earlier in this stage constrained a route
+written hours later by a different agent, with nobody needing to remember the
+rule — which is what it was for.

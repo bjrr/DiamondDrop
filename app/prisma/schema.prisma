@@ -659,6 +659,7 @@ model MasterVariant {
   priceSyncFailures        PriceSyncFailure[]
   priceCalculationFailures PriceCalculationFailure[]
   bankPaymentOrderLines    BankPaymentOrderLine[]
+  adminAlertNotifications  AdminAlertNotification[]
 
   @@unique([masterProductId, metal, purity, bandId])
   @@index([status])
@@ -1217,6 +1218,95 @@ enum PriceCalculationFailureType {
   unknown
 
   @@map("price_calculation_failure_type")
+}
+
+// =============================================================================
+// admin_alert_notification -- Slice 2 stage 2A (owner §7/§15; T5 sibling
+// note: keep this table beside, not merged into, price_sync_failure /
+// price_calculation_failure). Both failure episodes already know they are
+// wrong; this table only answers "has a human been told, and how."
+//
+// ONE ROW PER (episode, meaningful transition), never per retry. The
+// UNIQUE constraint below is the dedup mechanism itself -- an insert that
+// collides with an already-notified transition is the intended, expected
+// outcome of a retried job step, not an error condition (see
+// `adminAlertDispatch.server.ts`, which relies on catching that collision
+// rather than checking first: a read-then-write check races under
+// concurrent callers exactly like idempotency_key and webhook_event's own
+// unique constraints do).
+// =============================================================================
+
+/// Distinguishes which failure table this notification is ABOUT. Not a
+/// foreign key to either `price_calculation_failure` or
+/// `price_sync_failure` directly -- `sourceId` cannot carry a single FK to
+/// two different tables, so this column plus `sourceId` together are the
+/// polymorphic reference, resolved by the reading side.
+enum AdminAlertSourceKind {
+  calculation_failure
+  sync_failure
+
+  @@map("admin_alert_source_kind")
+}
+
+/// The closed set of meaningful state changes a failure episode's
+/// notification fires on (team-lead directive): episode opened, the 48-hour
+/// suspension reached, and resolved. Deliberately NOT "retry" -- a retry is
+/// not a state change a human needs telling about again.
+enum AdminAlertEvent {
+  opened
+  suspended
+  resolved
+
+  @@map("admin_alert_event")
+}
+
+/// Honest-by-construction delivery accounting. `sent` requires a real
+/// provider message id; `skipped_unconfigured` requires a stated reason
+/// (missing env var); `failed` requires the provider/network failure name.
+/// There is no state meaning "an email was sent" without one of these three
+/// being true -- see the module doc comment above for why that matters.
+enum AdminAlertEmailDeliveryStatus {
+  sent
+  skipped_unconfigured
+  failed
+
+  @@map("admin_alert_email_delivery_status")
+}
+
+model AdminAlertNotification {
+  id     String               @id @default(uuid()) @db.Uuid
+  sourceKind AdminAlertSourceKind @map("source_kind")
+  /// The failure episode's own id (`price_calculation_failure.id` or
+  /// `price_sync_failure.id`, per `sourceKind`). Not a DB foreign key --
+  /// see the enum doc comment above.
+  sourceId String @map("source_id") @db.Uuid
+  event    AdminAlertEvent
+
+  /// Denormalized from the episode row for admin listing/filtering without
+  /// a second join back through `sourceId` -- both failure tables already
+  /// carry this column, so it is never ambiguous which variant a
+  /// notification is about.
+  masterVariantId String        @map("master_variant_id") @db.Uuid
+  masterVariant   MasterVariant @relation(fields: [masterVariantId], references: [id])
+
+  emailDeliveryStatus    AdminAlertEmailDeliveryStatus @map("email_delivery_status")
+  /// Populated for `skipped_unconfigured` (which env var(s) were missing) and
+  /// `failed` (the provider/network error's name, never its raw body --
+  /// see the dispatch module's own discipline). NULL only for `sent`.
+  emailDeliveryReason    String?                       @map("email_delivery_reason")
+  /// The provider's own message id. Populated only for `sent` -- proof the
+  /// provider actually accepted the send, not merely that this code
+  /// attempted one.
+  emailProviderMessageId String?                       @map("email_provider_message_id")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  /// THE DEDUP. At most one notification row per (episode, transition) --
+  /// see the module doc comment above.
+  @@unique([sourceKind, sourceId, event])
+  @@index([masterVariantId])
+  @@map("admin_alert_notification")
 }
 
 enum BankPaymentOrderStatus {
