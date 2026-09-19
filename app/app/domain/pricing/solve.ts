@@ -14,10 +14,12 @@ export type { MarginModelId };
 /**
  * L5 — the price solve and the hard floors (spec §5.3, §5.5). Pure.
  *
- * THE CIRCULARITY, AND WHY THIS IS NOT A LOOP. Payment processing and
- * full-value insurance are percentages OF THE SELLING PRICE, so the price
- * depends on fees that depend on the price. Solved algebraically instead of
- * iteratively: revenue-side rates go into the denominator.
+ * THE CIRCULARITY, AND WHY THIS IS NOT A LOOP. Some legitimate cash-side
+ * costs (for example full-value insurance when configured as a percentage of
+ * selling price) can depend on the CASH selling price. They are solved
+ * algebraically instead of iteratively: cash-relevant revenue-side rates go
+ * into the denominator. Card payment-processing expense is explicitly excluded
+ * from the cash floor calculation by docs/CASH-CARD-PRICING.md.
  *
  *     P = (C + f) / (1 − m − r)
  *
