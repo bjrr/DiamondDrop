@@ -178,6 +178,30 @@ export async function openGroupBuyCampaign(
 
   const first = priced[0]!;
 
+  // ONE PROFILE GOVERNS THE WHOLE CAMPAIGN, and that is now checked rather than
+  // assumed.
+  //
+  // `first.profile` supplies the floors, the rounding, the price ending and the
+  // card rule for every variant below, and `first.pricingProfileId` is the one
+  // id frozen on the campaign. That is sound only because every variant was
+  // resolved at the same `asOf` and therefore resolved the same profile — true
+  // today, and nothing enforced it.
+  //
+  // If it ever stopped being true the failure would be silent and serious: the
+  // campaign would record a profile that did not govern some of its variants,
+  // and every later reader — the storefront, the refund ledger, an auditor —
+  // would price those variants under rules they were never validated against.
+  const divergent = priced.find((p) => p.pricingProfileId !== first.pricingProfileId);
+  if (divergent) {
+    throw new CampaignIncompleteError(
+      campaign.id,
+      `its variants resolved different pricing profiles at ${asOf.toISOString()} ` +
+        `(variant ${first.masterVariantId} -> ${first.pricingProfileId}, ` +
+        `variant ${divergent.masterVariantId} -> ${divergent.pricingProfileId}); ` +
+        `a campaign freezes one profile and cannot honestly record two`
+    );
+  }
+
   // Every variant against every tier — not just the deepest. A variant-specific
   // floor can sit above an INTERMEDIATE tier.
   const safety = evaluateTierSafety({

@@ -489,3 +489,59 @@ describe("a broken price ladder blocks publication, and cannot be overridden", (
     }
   });
 });
+
+describe("one profile governs the whole campaign", () => {
+  /**
+   * The freeze records a SINGLE `pricing_profile_id`, and tier safety judges
+   * every variant against that one profile's floors and rules. Sound only
+   * because every variant is resolved at the same `asOf` — which was true, and
+   * unchecked.
+   *
+   * The guard exists because the failure would be silent: the campaign would
+   * record a profile that did not govern some of its variants, and the
+   * storefront, the refund ledger and any auditor would then price those
+   * variants under rules they were never validated against.
+   */
+  it("opens normally when every variant resolves the same profile", async () => {
+    // The ordinary case, and the one the guard must not disturb.
+    const a = await anEligibleVariant();
+    const b = await prisma.masterVariant.findFirstOrThrow({
+      where: { status: "active", id: { not: a.id }, masterProduct: { isLuxurySteal: false } },
+      orderBy: { baseWeightGrams: "desc" },
+    });
+
+    const draft = await draftCampaign({ variantIds: [a.id, b.id] });
+
+    // Both variants resolve at one `asOf`, so both get the same profile. Any
+    // floor breach on the lighter piece is a separate concern — this asserts
+    // only that the profile-consistency guard does not fire.
+    const opened = await openGroupBuyCampaign({
+      campaignId: draft.id,
+      openedBy: "staff",
+      asOf: ASOF,
+      unsafeOverride: { by: "owner", reason: "lighter variant margin accepted for this fixture" },
+    }).catch((e: unknown) => e);
+
+    expect(opened).not.toBeInstanceOf(CampaignIncompleteError);
+  });
+
+  it("freezes exactly one profile id, matching what tier safety judged", async () => {
+    // The invariant the guard protects, asserted on the stored row: the
+    // campaign's frozen profile is the one every variant was priced under.
+    const draft = await draftCampaign();
+    await openGroupBuyCampaign({ campaignId: draft.id, openedBy: "staff", asOf: ASOF });
+
+    const opened = await prisma.groupBuyCampaign.findUniqueOrThrow({
+      where: { id: draft.id },
+      include: { pricingProfile: true },
+    });
+    // The profile active at ASOF, resolved the way the engine resolves it.
+    const calculationProfile = await prisma.pricingProfile.findFirstOrThrow({
+      where: { code: "buy_now", effectiveFrom: { lte: ASOF } },
+      orderBy: [{ effectiveFrom: "desc" }, { version: "desc" }],
+    });
+
+    expect(opened.pricingProfileId).toBe(calculationProfile.id);
+    expect(opened.profileVersion).toBe(calculationProfile.version);
+  });
+});
