@@ -22,6 +22,7 @@ Authoritative MVP1 policy documents:
 - `docs/LET-US-BEAT-YOUR-QUOTE.md` — competitor custom quotes, active online listings, competing Group Buys, verification, guarantee/fallback eligibility, acknowledgments, and evidence.
 - `docs/WARRANTY-CLAIMS.md` — 1-year limited manufacturing warranty claim intake, authorization, inbound shipping, inspection, coverage decision, remedies, and evidence.
 - `docs/BANK-CARD-PRICING.md` — locked Bank Payment Price vs Regular/Card Price policy, tiered card-price increases, $5 card-price rounding, eligible bank-payment methods, checkout behavior, and customer-facing savings display.
+- `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` — locked post-Slice-1 owner decisions for recalculation cadence/failures, Buy Now price placement, Group Buy payment selection/display, and the future campaign-options JSON contract.
 - `docs/CASH-CARD-PRICING.md` — superseded historical policy retained only for reproducibility of earlier versioned calculations.
 
 If a detailed locked policy document conflicts with a summary in this README, **the applicable locked policy document controls**. Do not silently change a locked decision. Unsettled details must not be invented or converted into customer promises.
@@ -106,7 +107,19 @@ Buy Now prices derive from current cost data rather than permanent hard-coded pr
 
 The bank-vs-card feature must leave the Bank Payment Price unchanged. The **Regular/Card Price** is derived afterward from the Bank Payment Price using the locked tier table: under $500 = +5.0%, $500–$999.99 = +4.5%, $1,000–$2,499.99 = +4.0%, $2,500–$4,999.99 = +3.5%, and $5,000+ = +3.0%. The tier is selected from the Bank Payment Price only. After applying the tier increase, round the Regular/Card Price **up to the next $5 increment**, leaving the Bank Payment Price untouched. The Regular/Card Price is the primary website price; show **Bank Payment Price** and the exact dollar savings alongside it. Never display the internal percentage or describe it as a card fee/surcharge. See `docs/BANK-CARD-PRICING.md`.
 
-Recalculate at least daily, targeting twice-daily precious-metal updates where practical, then synchronize approved prices to Shopify.
+Recalculate on a daily schedule and also immediately when a material pricing input changes, then synchronize approved prices to Shopify. Do not rely on redundant scheduled runs when no input changed.
+
+### Buy Now customer-facing placement
+
+Collection/search discovery cards lead with the **lowest currently purchasable Bank Payment Price** as **"As low as $X"**, clearly labeled Bank Payment Price. Do not use unavailable variants to advertise a lower starting price.
+
+On the detailed product page, show the exact selected-variant **Price** (Regular/Card Price), **Bank Payment Price**, and exact dollar savings. In cart, calculate Bank/Card pricing per line item and sum the line totals; never choose a new uplift tier from the combined cart subtotal.
+
+Eligible Bank Payment methods are Zelle, ACH, bank transfer, and wire only. No checks, money orders, cashier's/certified checks, or other paper payments qualify. Bank Payment savings apply to merchandise only, not tax, shipping, duties, or other non-merchandise charges.
+
+### Buy Now pricing-failure protection
+
+If recalculation fails because required pricing/configuration data is missing or invalid, notify admin immediately and keep the last valid published price live for up to **48 hours**. The timer begins at the first unresolved failure and is not reset by retries. If unresolved at 48 hours, make only the affected variant unavailable/out of stock. When the issue is corrected, recalculate immediately and automatically restore the variant after a successful valid price publication. Open Group Buy pricing remains governed by its frozen campaign snapshot and is not invalidated merely because current Buy Now recalculation failed.
 
 ## Group Buy — Locked MVP1 Direction
 
@@ -159,9 +172,10 @@ Active Group Buy pages should show:
 - qualifying units sold;
 - current tier/percentage;
 - next threshold and units needed;
-- selected variant's current **Group Buy Regular/Card Price** as the primary displayed price, plus its **Bank Payment Price**;
-- selected variant's current **Buy Now Regular/Card Price** as the like-for-like comparison, with Bank Payment comparisons shown Bank-to-Bank when needed;
-- current dollar/percentage savings;
+- the selected configuration's current **Group Buy Regular/Card Price** as the default/public price;
+- a concise note that **lower pricing is available with Bank Payment**;
+- selected variant's current **Buy Now Regular/Card Price** as the like-for-like Group Buy comparison;
+- current dollar/percentage Group Buy savings;
 - next-tier price and additional savings;
 - countdown/time remaining;
 - configured tier markers.
@@ -182,7 +196,20 @@ Calculate/store refund due at order/line-item/variant level, hold it through pro
 
 Group Buys are standardized, not custom-design orders. Customers choose only campaign-approved options. Do not provide a free-form design-change field. An optional order note is logistics/clarification only.
 
+Group Buy option dimensions are **campaign-specific**. Rings, bracelets, necklaces and other product types may expose different option sets. The application must not hard-code one universal ring-shaped form.
+
+A Group Buy may present all offered configurations in a comparison/options table. That table shows the **Regular/Card Group Buy Price** for each displayed configuration and a concise note that lower pricing is available with Bank Payment; do not show both prices in every table row.
+
+After the customer chooses the applicable product options/configuration, **Payment Type is required before ordering**:
+
+- Credit / Debit Card -> active displayed price remains the Regular/Card Price.
+- Bank Payment -> active displayed price changes to the Bank Payment Price.
+
+Eligible Bank Payment methods are Zelle, ACH, bank transfer and wire. Only one active price should be shown at a time in the Group Buy ordering flow.
+
 Each materially different configuration must remain a separate Shopify line item. Quantity greater than one is allowed only for the same exact configuration. Tier qualification and cancellation/refund calculations operate at line-item/unit level.
+
+Campaign option definitions will ultimately be supplied to the admin/campaign tool through a **versioned JSON format** describing allowed option dimensions, values, valid combinations, table-view configuration and ordering-flow configuration. The JSON does not define pricing formulas, Bank/Card tiers, margin floors, payment fees or ad-hoc pricing rule ids. The exact formal JSON Schema is intentionally deferred until the Group Buy campaign creation/upload tooling is implemented (expected Slice 6).
 
 ### Group Buy Cancellation / Final Sale
 
