@@ -536,27 +536,25 @@ model PricingProfile {
   /// change at all requires approval".
   autoApplyToleranceBps     Int?               @map("auto_apply_tolerance_bps")
 
-  /// D9, owner-clarified 2026-09-17 (final). Two prices, one calculation:
+  /// D9, owner-clarified 2026-09-18 (final). Two prices, one cash-based calculation:
   ///
-  ///   INTERNAL  the calculated price is the CASH price. It is the real sale
-  ///             price, it is what the margin floors bind, and it is what
-  ///             profit is measured on.
-  ///   DISPLAYED the CARD price, cash x (1 + cardUpliftRate), is what the
-  ///             customer is shown and what gets published to Shopify. Cash is
-  ///             presented to the customer as a discount off it.
+  ///   AUTHORITATIVE the calculated CASH-EQUIVALENT price (ACH, wire, Zelle,
+  ///                 check). Markup, margin/min-profit floors, Group Buy tiers,
+  ///                 overrides and recalculation bind this price.
+  ///   DISPLAYED     the CARD price, cash x (1 + cardUpliftRate), is what the
+  ///                 customer is shown and what gets published to Shopify. Cash
+  ///                 is presented as the discounted cash-equivalent price.
   ///
   /// THE PUBLISHED PRICE IS THE CARD PRICE, not price_calculation's stored
   /// price. Publishing the stored cash price would undercharge every card
   /// customer by the uplift. See app/domain/pricing/cardPrice.ts.
   ///
-  /// Presenting card as the headline and cash as a discount is also the
-  /// compliant framing: a cash DISCOUNT is permitted without limit, whereas a
-  /// card SURCHARGE is capped at 3% by the card networks and restricted in
-  /// several states. Same arithmetic, different legal characterisation.
+  /// Customer-facing/legal/payment-network implementation is verified separately;
+  /// it does not change the pricing-domain relationship above.
   ///
-  /// Because the floors bind the CASH price, which is the lower of the two,
-  /// both prices clear every floor by construction — the earlier
-  /// discount-overrides-the-minimums carve-out is no longer needed.
+  /// Because the floors bind the CASH price, both prices clear those floors by
+  /// construction. Card-processing expense is not deducted from the current
+  /// cash margin/profit floors; see docs/CASH-CARD-PRICING.md.
   ///
   /// Rule id versions the FORMULA; the rate makes the number configurable.
   cardPriceRuleId String   @map("card_price_rule_id")
