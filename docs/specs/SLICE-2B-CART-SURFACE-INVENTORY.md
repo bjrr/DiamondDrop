@@ -17,7 +17,7 @@ cart is in Bank Payment mode, or the reverse.
 | # | File | Renders | Value source | Can go stale on mode switch? | Stage 2B change | Test |
 |---|---|---|---|---|---|---|
 | A1 | `sections/main-cart-items.liquid` | Per-line original and final line price, per-line unit price | `item.original_line_price`, `item.final_line_price`, `item.original_price`, `item.final_price` | **YES** — these are Shopify's own line prices, always Card-basis | Render the mode-correct line price; show both prices per line per owner §3 "Cart" | Render test in both modes; assert eligible line shows Bank, ineligible shows Card |
-| A2 | `sections/main-cart-footer.liquid` | Cart subtotal, checkout CTA, `content_for_additional_checkout_buttons` | `cart.items_subtotal_price` | **YES** — sum of Card-basis line prices | Subtotal must be the mode-correct **sum of per-line totals** (owner §5: never re-tier from the combined subtotal). Two CTAs: Card Checkout / Bank Payment Checkout | Assert subtotal equals sum of per-line mode-correct totals, not a re-tiered figure |
+| A2 | `sections/main-cart-footer.liquid` | Cart total, checkout CTA, `content_for_additional_checkout_buttons` | **`cart.total_price`** (corrected 2026-09-19 — this row originally said `cart.items_subtotal_price`, which is wrong; verified at `main-cart-footer.liquid:63`) | **YES** — sum of Card-basis line prices | Subtotal must be the mode-correct **sum of per-line totals** (owner §5: never re-tier from the combined subtotal). Two CTAs: Card Checkout / Bank Payment Checkout | Assert subtotal equals sum of per-line mode-correct totals, not a re-tiered figure |
 | A3 | `snippets/cart-drawer.liquid` | Drawer line prices, drawer subtotal, drawer checkout CTA | Same objects as A1 + A2 | **YES** | Same treatment as A1/A2. **Separate file — fixing the cart page does not fix the drawer** | Drawer-specific render test in both modes |
 | A4 | `sections/cart-live-region-text.liquid` | Accessibility live-region announcement of cart total | `cart.total_price` | **YES, and silently** | Announce the mode-correct total | Assert the announced figure matches the visible subtotal |
 
@@ -290,3 +290,48 @@ does not exist yet. **Stage 2B must fence the proxy response shape itself** —
 assert no response body ever contains `appliedUpliftRate`, `appliedTierLabel`,
 a rule id, a profile version or a cost field — in the same spirit as the
 resource-route fence. Added to task 2B-1.
+
+
+---
+
+## R11 — a THIRD activation path for quick-order-list, found by the implementer
+
+My 2B-2 brief named three things to close: template references, presets, and
+"no customer-facing path". The first two are concrete; the third was a
+generality, and it had a specific instance I had not identified.
+
+`sections/main-collection-product-grid.liquid` and
+`sections/featured-collection.liquid` each exposed a `quick_add` select
+setting offering **`"bulk"`**. Choosing it in the theme editor needs **no code
+change and no preset**: `snippets/card-product.liquid` renders a
+`<bulk-modal>` element (lines 211, 231, 393) whose `connectedCallback` in
+`assets/global.js` (line 658) fetches
+`?section_id=bulk-quick-order-list` straight through the Section Rendering
+API. Presets and `enabled_on` do not gate that route at all.
+
+So a merchant toggling a dropdown could have activated a customer-facing
+surface the owner ruled out of MVP1 — which is exactly what "not activatable
+without a future explicit decision" forbids. Both defaults were `"none"` and
+both templates pinned `"none"` explicitly, so nothing was live; relying on a
+default to hold is not the same as removing the option.
+
+**Verified and closed:** `"bulk"` no longer appears in any section schema in
+the theme, and the regression fence sweeps **all** schemas rather than the two
+known files, so a third section offering it later fails too.
+
+**R11 ruling — leave the dead `quick_add == 'bulk'` branch in
+`card-product.liquid`.** It is now unreachable, the fence prevents the schema
+option returning, and `card-product.liquid` is a heavily shared vendored file.
+Keeping the diff against the Dawn baseline minimal is worth more than deleting
+inert code: the whole reason the baseline landed as its own commit was so
+"did we change this, or did Dawn always do that?" stays answerable. An
+unreachable branch guarded by a fence is not a hazard; an unnecessary edit to
+a shared upstream file is a small permanent cost.
+
+**The general lesson, recorded because it will recur:** a brief that says "no
+customer-facing path" is asking the implementer to find the paths, not to
+confirm the ones already listed. This one did, by tracing runtime behaviour
+into `global.js` rather than stopping at the Liquid. The same instinct
+distinguished `sections.quick_order_list.each` — ordinary volume pricing used
+by four unrelated surfaces — from the feature itself, which a name-match sweep
+would have broken.
