@@ -241,17 +241,39 @@ Customer sees:
 
 ## 6. Customer-Facing Display
 
-Both prices should be visible before checkout.
+Customer-facing treatment depends on surface.
 
-The **Regular/Card Price is the primary advertised price**.
+### Collection and search
 
-Example:
+The discovery price is the **Bank Payment Price**.
 
-**$2,080**
+Display conceptually:
+
+**As low as $2,000**
+
+*Bank Payment Price*
+
+Rules:
+
+- use the lowest Bank Payment Price among currently purchasable eligible variants;
+- do not use an unavailable configuration to advertise a lower "As low as" price;
+- collection/search cards do not need to show the Regular/Card Price alongside the discovery price.
+
+### Buy Now product page
+
+For the selected variant/configuration show:
+
+**Price: $2,080**
 
 **Bank Payment Price: $2,000**
 
 **Save $80 with Bank Payment**
+
+The Regular/Card Price is the primary detailed-product price.
+
+### Cart
+
+Show the exact Regular/Card Price and Bank Payment Price for each selected line/configuration. Cart totals are calculated per line item and then summed; never re-tier from the combined cart value.
 
 Do NOT display the internal percentage.
 
@@ -274,17 +296,19 @@ The Bank Payment Price applies only to approved bank/manual payment methods, inc
 - Bank transfer
 - ACH when designated as an eligible bank payment
 - Wire transfer
-- Other approved bank/manual payment methods added in the future
+- Other explicitly owner-approved electronic bank/manual payment methods added in the future
 
 Standard credit/debit cards and other payment methods designated as standard payments use the Regular/Card Price.
+
+No paper payment method is eligible for Bank Payment Price. This includes personal checks, cashier's checks, certified checks, money orders, and other paper instruments.
 
 A payment method is not eligible merely because it is lower-cost. Eligibility must come from approved configuration/policy.
 
 ## 8. Checkout Logic
 
-The product page and cart should use the **final rounded Regular/Card Price as the primary price**.
+Buy Now product pages and cart use the final rounded Regular/Card Price as the primary detailed-purchase price, while also showing the lower Bank Payment Price.
 
-The lower Bank Payment Price should also be clearly displayed.
+Collection/search discovery may instead lead with **As low as [Bank Payment Price]** under §6.
 
 When the customer selects an eligible Bank Payment method:
 
@@ -297,6 +321,18 @@ When the customer selects a standard/card payment method:
 The final amount due must be clearly shown before the customer completes the order.
 
 Implementation must verify what Shopify checkout/payment capabilities are available for the chosen plan and payment configuration. If Shopify cannot natively switch the payable amount at payment-method selection, the engineering design must provide a compliant supported mechanism or explicitly surface the platform limitation before release. Do not silently fake this behavior only on the product page/cart.
+
+### Merchandise-only scope
+
+Bank Payment savings apply to merchandise only. Do not include tax, shipping, separately charged insurance, duties, or other non-merchandise charges in "Save $X with Bank Payment."
+
+### Cart aggregation
+
+Bank/Card pricing is determined per line item/configuration. The cart does not choose a new tier from the combined subtotal.
+
+- Cart Bank Payment Merchandise Total = sum of Bank Payment line totals.
+- Cart Regular/Card Merchandise Total = sum of Regular/Card line totals.
+- Cart Bank Payment Savings = Regular/Card Merchandise Total - Bank Payment Merchandise Total.
 
 ## 9. Savings Calculation
 
@@ -389,3 +425,18 @@ Customer-facing DTOs should prefer explicit names such as:
 - `buyNowRegularCardPrice`
 
 Historical internal fields may be migrated safely rather than destructively renamed, but storefront and admin boundaries must not use ambiguous generic `price` or customer-facing "cash" terminology.
+
+
+## 13. Additional locked owner decisions — 2026-09-19
+
+The detailed owner decisions in `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` are authoritative for the following areas:
+
+- daily scheduled recalculation plus immediate recalculation when material pricing inputs change;
+- intentional Bank/Card tier-boundary inversions do not by themselves force manual approval;
+- 48-hour Buy Now recalculation-failure handling and affected-variant-only unavailability;
+- automatic variant recovery after a valid recalculation;
+- Group Buy public/default price is Regular/Card Price with a note that lower Bank Payment pricing is available;
+- required Group Buy Payment Type selection before ordering;
+- Group Buy comparison/options table shows Regular/Card prices only;
+- campaign-specific Group Buy option configuration through a future versioned JSON contract;
+- formal JSON Schema deferred until Group Buy campaign creation/upload tooling is built.
