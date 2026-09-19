@@ -145,7 +145,7 @@ Group Buy discounts are percentage-based and apply to the frozen campaign **Bank
 
 After the Group Buy Bank Payment Price is final, derive its Regular/Card Price using the same Bank-vs-Card tier schedule based on that Group Buy Bank Payment Price, then round only the Regular/Card Price up to the next $5 increment. Refund calculations remain payment-basis aware. See `docs/BANK-CARD-PRICING.md`.
 
-Thresholds use **qualifying units sold**, not unique buyers. Three eligible pieces purchased by one customer count as three units. Cancelled/refunded units that no longer qualify stop counting.
+Thresholds use **campaign participation units**, not unique buyers. Three eligible pieces purchased by one customer count as three units. A placed Group Buy order counts toward public campaign progress immediately, including a pending Bank Payment order. Public progress is cumulative and monotonic: later nonpayment, cancellation, or refund does **not** reduce the displayed unit count or roll back an already unlocked tier. Payment/refund status is tracked separately for settlement and reconciliation.
 
 Before publication, validate every allowed variant against configured minimum gross-margin percentage, minimum dollar profit, and any variant-specific floor. Unsafe tiers must be blocked or require an explicit authorized override.
 
