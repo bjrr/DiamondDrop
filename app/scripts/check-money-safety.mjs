@@ -173,6 +173,12 @@ const TIER2_DIR_PREFIXES = [
   "app/domain/bankpayment/",
   "app/jobs/bankpayment/",
   "app/shopify/admin/",
+  // Added ahead of Stage 2B (spec criterion 56 / review condition C5): the
+  // metafield payload contract and writer carry the Bank Payment Price and
+  // Regular/Card Price out to Shopify as a presentation cache. Same
+  // ahead-of-the-code reasoning as the three prefixes above — the guard is
+  // in place before any code lands in this directory, not after.
+  "app/shopify/metafields/",
 ];
 
 /** Any file anywhere in the repo whose FILENAME (not path) matches this is money-adjacent too. */
