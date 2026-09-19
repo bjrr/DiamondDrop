@@ -16,6 +16,18 @@ Two owner decisions are requested in §13. **Neither blocks writing code** — b
 
 ---
 
+### 2026-09-18 implementation reconciliation required
+
+The owner amendment above changes a live implementation assumption, not just wording. Before Slice 1/Group Buy pricing is accepted, reconcile the following runtime surfaces with `docs/CASH-CARD-PRICING.md` and add/adjust tests:
+
+- `app/domain/pricing/cost.ts` / `engine.ts`: card `payment_processing` components must not enter the authoritative cash solve or cash floor predicate;
+- `app/jobs/groupbuy/openCampaign.server.ts` / `tierSafety.ts`: Group Buy safety must evaluate cash tier prices without card-processing deductions;
+- `app/domain/groupbuy/campaignProgress.ts` and the App Proxy DTO: expose explicit cash and card prices so storefront code cannot confuse them;
+- `extensions/group-buy-progress`: primary displayed Group Buy/Buy Now comparisons must be card-vs-card, with the discounted Group Buy cash price shown separately;
+- dev fixture `dev-group-buy-campaign.ts`: the current 7% tier is historical test data only and must not be treated as the maximum safe discount. A 10% cash tier is compatible with the 20% margin floor before the separate $100/variant floors.
+
+This reconciliation is a release gate. Do not claim the cash/card policy is fully implemented merely because the documentation and card-price derivation exist.
+
 ## 1. Outcome
 
 CaratForUs stops carrying hard-coded Buy Now prices and starts deriving them from a structured, effective-dated cost library. Staff maintain metal prices per gram, stone costs by specification and shape, labour, packaging, shipping, insurance, warranty reserve and payment-cost assumptions. A deterministic pricing engine turns those inputs plus a versioned pricing profile into a per-variant Buy Now price, in integer minor units, under a named and versioned rounding rule. Every computed price is written to an immutable, content-hashed row that records exactly which inputs, which profile version, which engine version and which rounding rule produced it — so any price can be reproduced and defended months later without the database's current state. A scheduled job recalculates all Buy Now variants, decides per variant whether the change is small enough to apply automatically or must be approved by a person, and records that decision durably and idempotently.
