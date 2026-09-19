@@ -134,7 +134,7 @@ each becomes live the moment its gate slice starts.
 | C-S3 | **Slice 6** | A Group Buy `campaign_snapshot` must record `engineVersion`, `pricingProfileVersion`, `roundingRuleId`, `priceEndingRuleId` and `regularCardPriceRuleId` alongside the frozen prices, or a frozen price stops being reproducible — which defeats freezing it (`CLAUDE.md` #7). **No consumer may substitute today's active profile or a hardcoded rule id** | Contract |
 | C-S4 | **Slices 4 and 8** | Refunds, restocking and merchandise credit are computed from **what the customer actually paid** — the Shopify order line and its purchase snapshot — never from `price_calculation`. `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md` §4's "eligible merchandise amount" is a historical fact about a transaction, not a current computation. A recalculated price must never reach a refund path | Contract |
 | C-S5 | **Standing — every slice adding a price-bearing route** | No cost, margin, supplier or breakdown field on any metafield, Liquid, App Proxy JSON or log (R14). The card **tier rate** and the **rule id** are internal for the same reason (`docs/BANK-CARD-PRICING.md` §6): the storefront receives the two prices they produced, never the rule that produced them | Contract |
-| C-S6 | **Standing — every slice adding a customer-facing price surface** | Follow the surface-specific display rules in `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md`: Buy Now collection/search leads with `As low as` Bank Payment Price; detailed Buy Now product/cart show exact Regular/Card + Bank Payment pricing; Group Buy defaults to one Regular/Card price with a lower-Bank-Payment note and switches the active price only after required Payment Type selection | Contract |
+| C-S6 | **Standing — every slice adding a customer-facing price surface** | Follow `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md`: Buy Now collection/search leads with `As low as` Bank Payment Price; Buy Now PDP uses `Add to Cart` + `Add to Cart with Bank Payment Discount`; cart has one payment mode and offers Card Checkout / Bank Payment Checkout; Group Buy defaults to one Regular/Card price and switches after required Payment Type selection | Contract |
 
 **C-S2 note 1 — publish the card price, not the stored price.** `price_calculation`
 stores the **Bank Payment Price**, the lower of the two. Publishing it would
@@ -160,6 +160,24 @@ its own card price; only the direction of change differs across versions.
 Do **not** force manual approval solely because Bank Payment and Regular/Card
 prices moved in opposite directions at a tier boundary. This is intentional
 behavior of the locked tier schedule, not a defect.
+
+**C-S2 note 4 — auto-publication enablement resolved 2026-09-19.**
+Automatic publication remains a separate enablement from the 200 bps tolerance.
+Enable it only after the real Shopify synchronization path passes money-critical
+integration tests. Thereafter Bank Payment Price changes <=2% may auto-publish;
+larger changes require human approval. Common-input batches may be bulk-approved.
+Bulk reject is not allowed; item-level rejection requires an override price and
+reason. Temporary overrides expire on the next material pricing recalculation
+unless marked Never Expire.
+
+**C-S2 note 5 — sync failure behavior resolved 2026-09-19.**
+The currently published Shopify price remains authoritative during a failed
+replacement sync. Retry automatically; notify by email + persistent admin alert;
+do not mark synced before Shopify confirmation. After 48 hours unresolved, make
+only the affected variant unavailable and restore it automatically after a
+successful sync. A purchase at the live price during that window is valid and
+does not receive an automatic retroactive refund merely because a lower price is
+published later.
 
 **C-S6 note — owner-updated 2026-09-19.** Price presentation is now
 surface-specific. Buy Now collection/search cards may lead with the lowest
