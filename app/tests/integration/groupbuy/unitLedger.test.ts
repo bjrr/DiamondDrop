@@ -116,11 +116,17 @@ describe("recording qualifying units", () => {
   });
 });
 
-describe("the tier can move BACKWARDS before close", () => {
-  it("drops to a prior tier when units are cancelled", async () => {
-    // README: "Cancellation removes qualifying units and can move the live
-    // campaign back to a prior tier before close." The tier is therefore not a
-    // high-water mark, which is the thing most likely to be got wrong.
+describe("the tier is ONE-WAY and never moves backwards before close (owner §24)", () => {
+  // SUPERSEDED RULE, kept visible so the correction is legible. This
+  // `describe` used to be titled "the tier can move BACKWARDS before close"
+  // and the README used to read: "Cancellation removes qualifying units and
+  // can move the live campaign back to a prior tier before close." Owner
+  // decision (docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md §24, 2026-09-19):
+  // "Group Buy tier progression is one-way only... an unlocked tier never
+  // falls back." Both tests below asserted the old behaviour and are
+  // corrected here, not deleted, so the reversal stays legible.
+
+  it("keeps the tier — and the public count — unchanged when units are cancelled", async () => {
     const { campaignId, variantId } = await openCampaign();
 
     await recordUnitEvent(unit(campaignId, variantId, { quantity: 6, lineRef: "L1" }));
@@ -130,19 +136,32 @@ describe("the tier can move BACKWARDS before close", () => {
       unit(campaignId, variantId, { kind: "cancelled", quantity: 3, lineRef: "L1" })
     );
 
+    // Superseded expectations (were 3 and tier 1): the public count is
+    // purchases only now; the cancellation is recorded (see "the ledger is
+    // evidence" below) but never subtracts from it.
     const after = await getCurrentTier(campaignId);
-    expect(after.qualifyingUnits).toBe(3);
-    expect(after.tier.tierNumber).toBe(1);
+    expect(after.qualifyingUnits).toBe(6);
+    expect(after.tier.tierNumber).toBe(2);
   });
 
-  it("climbs again if units come back", async () => {
+  it("does not fall back even when a line is cancelled in full, and later purchases only add to the peak", async () => {
+    // Superseded test name was "climbs again if units come back" — there is
+    // no falling and climbing back any more, only a total that never drops.
     const { campaignId, variantId } = await openCampaign();
     await recordUnitEvent(unit(campaignId, variantId, { quantity: 5, lineRef: "L1" }));
     await recordUnitEvent(unit(campaignId, variantId, { kind: "cancelled", quantity: 5, lineRef: "L1" }));
-    expect((await getCurrentTier(campaignId)).tier.tierNumber).toBe(1);
+
+    // Superseded expectation (was tier 1): the tier this order unlocked stays
+    // unlocked even though the order that unlocked it is now fully cancelled.
+    expect((await getCurrentTier(campaignId)).tier.tierNumber).toBe(2);
 
     await recordUnitEvent(unit(campaignId, variantId, { quantity: 10, lineRef: "L2" }));
-    expect((await getCurrentTier(campaignId)).tier.tierNumber).toBe(3);
+
+    // 5 (still counted, per §24) + 10 = 15 -> tier 3. Not "10 -> tier 3",
+    // which is what a net/rollback model would have produced here.
+    const after = await getCurrentTier(campaignId);
+    expect(after.qualifyingUnits).toBe(15);
+    expect(after.tier.tierNumber).toBe(3);
   });
 
   it("refuses to remove more units than a line has", async () => {

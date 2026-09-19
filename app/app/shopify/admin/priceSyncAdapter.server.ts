@@ -23,12 +23,38 @@ import type { ShopifyPriceSyncPort } from "~/jobs/pricing/ports";
  * port this class implements (`ShopifyPriceSyncPort`) needs both
  * `shopifyProductGid` and `shopifyVariantGid`, not the variant id alone.
  *
- * NOT INTROSPECTION-VERIFIED. `productClient.server.ts`'s mutations were
- * checked against a live store on API version 2026-07 (see its header
- * comment); this adapter's shape is written from the same documented schema
- * but has not been run against a real store in this environment. Flagged
- * explicitly in the T1 handoff for architect/QA follow-up before the first
- * production sync.
+ * VERIFIED AGAINST THE REAL STORE 2026-09-19 (criterion 60), not assumed.
+ * Run against caratforus-dev.myshopify.com on Admin API 2026-07 with a
+ * throwaway product created and deleted within the run. Four things were
+ * confirmed, and two of them could not have been learned from the schema:
+ *
+ * 1. The mutation is accepted exactly as written below —
+ *    `productVariantsBulkUpdate(productId:, variants:)` with
+ *    `[ProductVariantsBulkInput!]!`. A price of "2080.00" was published and
+ *    an INDEPENDENT read-back query returned "2080.00" — exact to the cent,
+ *    and equal to the policy's Example D final rounded Regular/Card Price.
+ *
+ * 2. Success returns HTTP 200 with
+ *    `data.productVariantsBulkUpdate.productVariants[] { id, price }` and
+ *    `userErrors: []`. Price comes back as a decimal STRING, not a number.
+ *
+ * 3. A REJECTED mutation also returns HTTP 200. A bad variant id produced
+ *    `userErrors: [{ field: ["variants","0","id"],
+ *    message: "Product variant does not exist" }]` — and, importantly,
+ *    `productVariants: null`, NOT an empty array. The belt-and-braces check
+ *    further down is therefore load-bearing against a real observed shape,
+ *    not a hypothetical one.
+ *
+ * 4. A malformed price never reaches `userErrors` at all. It fails at
+ *    GraphQL variable coercion and surfaces in TOP-LEVEL `errors`
+ *    ("invalid money 'not-a-price'"), still on HTTP 200. That is why
+ *    `body.errors` is checked FIRST below; reversing the order would let a
+ *    malformed price fall through the userErrors branch unreported.
+ *
+ * The through-line: every failure mode this API has is an HTTP 200. Code that
+ * checks `response.ok` and moves on reports publishing a price it never
+ * published, which is why all three checks below exist and why none may be
+ * removed as redundant.
  */
 
 const MUTATION = `#graphql
@@ -134,11 +160,13 @@ export class ShopifyPriceSyncAdapter implements ShopifyPriceSyncPort {
       );
     }
 
-    // Belt and braces: a mutation that returned no variant at all and no
-    // userErrors either is not evidence of success, whatever the HTTP status
-    // said. This has not been observed from the real API — the two checks
-    // above are the documented failure modes — but a silent third shape is
-    // exactly the kind of surprise this file exists to refuse to guess about.
+    // A mutation that returned no variant and no userErrors either is not
+    // evidence of success, whatever the HTTP status said. The live run on
+    // 2026-09-19 showed `productVariants` comes back NULL (not []) whenever
+    // the mutation is rejected, so this guard sits directly on a real observed
+    // shape rather than a hypothetical one — it is the last line of defence if
+    // a future API version ever returns that null without populating
+    // userErrors alongside it.
     const updated = payload.productVariants?.[0];
     if (!updated) {
       throw new AdminApiError("productVariantsBulkUpdate", [

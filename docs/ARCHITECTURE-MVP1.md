@@ -286,7 +286,14 @@ This makes the in-flight-cart race safe by construction: a stale cart can only h
 Refunds are held through production/QC and processed at shipping, per README — staff triggers a batch in admin; every call is guarded by `idempotency_key` plus a ledger state machine, and re-running is a no-op.
 
 ### 6.2 Qualifying units and cancellation
-`orders/paid` creates `campaign_unit` rows (one per unit, not per line). `orders/cancelled` and `refunds/create` mark units non-qualifying, which can move a live campaign back to a prior tier before close — including raising the variant price back up, which is the correct and disclosed behavior. All transitions are idempotent on Shopify event id.
+**Corrected 2026-09-19 (owner decision, `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` §24).** This section previously read: "`orders/cancelled` and `refunds/create` mark units non-qualifying, which can move a live campaign back to a prior tier before close — including raising the variant price back up, which is the correct and disclosed behavior." That is superseded and was already in tension with §6.1's "tier prices descend only" and its monotonic-descent refund math — this section had not been updated to match.
+
+`orders/paid` creates `campaign_unit` rows (one per unit, not per line); `orders/cancelled` and `refunds/create` mark units non-qualifying. Qualifying-unit counting (`app/app/domain/groupbuy/qualifyingUnits.ts`) folds these into two different figures, kept deliberately apart:
+
+- the **campaign-wide public total** — what tier thresholds compare against, and what the storefront reads — is **one-way**: it is the running sum of purchased quantities only, and a cancellation or refund is recorded but never subtracts from it. An unlocked tier never falls back, the live variant price is never raised back up, and no other customer is ever repriced upward because someone else's order went unpaid or was cancelled.
+- the **per-line net** (purchased minus removed, on that specific line) is retained separately, for two purposes only: refusing to record a cancellation larger than a line ever purchased, and settling that line's own tier-adjustment refund at close. It is never read for tier selection and never exposed to the storefront.
+
+All transitions are idempotent on Shopify event id.
 
 Customer-initiated cancellation before close is a signed App Proxy request that creates a staff action; staff approves in admin and the app calls Shopify `refundCreate` + order cancel. Money always moves through Shopify. (See open decision D8 on whether self-serve auto-approval is required for MVP1.)
 
@@ -367,7 +374,7 @@ Shopify plan $39+/mo · app host $7–25/mo · Postgres $0–25/mo · object sto
 - LUXURY-STEALS §"MVP1 Acceptance Cases" 1–12.
 - WARRANTY-CLAIMS §11 cases 1–11.
 - LUBYQ **amendment** §4 cases 1–8 (the amendment's cases control; see §11).
-- Group Buy: tier thresholds, qualifying-unit counting, cancellation regression to a prior tier, final price, refund math, margin-floor validation, weight-by-ring-size, band cost basis, rounding.
+- Group Buy: tier thresholds, qualifying-unit counting, one-way tier progression under cancellation/refund (§6.2 — the public total and tier never fall back), final price, refund math, margin-floor validation, weight-by-ring-size, band cost basis, rounding.
 - Money: no floating point anywhere; property tests that round-trip and sum to exact cents.
 
 **Integration (Vitest + real Postgres).** Webhook HMAC + replay idempotency; refund ledger under duplicate/retried processing; evidence-row immutability; App Proxy signature rejection; magic-link expiry and single use.

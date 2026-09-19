@@ -20,10 +20,22 @@ import { logger } from "~/lib/logger.server";
  * event is a no-op rather than an extra unit, even if something other than the
  * webhook path writes it.
  *
- * THE TIER CAN GO DOWN. README: "Cancellation removes qualifying units and can
- * move the live campaign back to a prior tier before close." So the live tier
- * is always recomputed from the current fold — never cached, never treated as a
- * high-water mark.
+ * THE TIER IS ONE-WAY AND NEVER GOES DOWN — corrected 2026-09-19 against
+ * `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` §24. This comment previously
+ * said the opposite, quoting a README line that has since been replaced:
+ * "Cancellation removes qualifying units and can move the live campaign back to
+ * a prior tier before close." That rule is superseded. An unpaid or cancelled
+ * participant does not reduce the public count, does not roll back an unlocked
+ * tier, and never causes another customer to be repriced upward.
+ *
+ * Nothing in THIS file changed to achieve that, which is worth stating so the
+ * absence of a diff here is not mistaken for an oversight: this module only
+ * ever consumes `foldQualifyingUnits().total`, and that fold is now a
+ * monotonic sum of purchased quantities. The correctness lives there, by
+ * construction. `byLine` remains NET on purpose — `canRemoveUnits` needs it
+ * to refuse cancelling more units than a line ever bought — and is never read
+ * by `selectTier` nor returned to the storefront, so it carries no rollback
+ * risk.
  */
 
 export class CampaignNotOpenError extends Error {

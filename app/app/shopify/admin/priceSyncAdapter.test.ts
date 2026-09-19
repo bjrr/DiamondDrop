@@ -192,6 +192,91 @@ describe("ShopifyPriceSyncAdapter — the Admin API's 200-with-userErrors hazard
     ).rejects.toThrow(/no.*updated variant/);
   });
 
+  /**
+   * CONTRACT TESTS AGAINST REAL OBSERVED RESPONSES (criterion 60).
+   *
+   * The three payloads below are not invented. They were captured on
+   * 2026-09-19 from caratforus-dev.myshopify.com, Admin API 2026-07, using a
+   * throwaway product created and deleted within the verification run. If a
+   * future API version changes these shapes, these are the tests that should
+   * fail first — before a real price sync discovers it.
+   */
+  it("REAL SHAPE — a rejected mutation returns productVariants NULL, not an empty array", async () => {
+    // Captured verbatim. The null is the point: code written against an
+    // assumed [] would read productVariants?.[0] on an array that does not
+    // exist, and the optional chain would swallow it into a generic
+    // "no updated variant" rather than reporting the actual reason.
+    const { client } = fakeClient({
+      data: {
+        productVariantsBulkUpdate: {
+          productVariants: null,
+          userErrors: [
+            { field: ["variants", "0", "id"], message: "Product variant does not exist" },
+          ],
+        },
+      },
+    });
+
+    await expect(
+      new ShopifyPriceSyncAdapter(client).applyVariantPrice({
+        shopifyProductGid: "gid://shopify/Product/1",
+        shopifyVariantGid: "gid://shopify/ProductVariant/1",
+        regularCardPrice: Money.fromMinorUnits(208_000n, "USD"),
+        priceCalculationId: "calc-1",
+      })
+    ).rejects.toThrow(AdminApiError);
+  });
+
+  it("REAL SHAPE — a malformed price surfaces in TOP-LEVEL errors, never in userErrors", async () => {
+    // Captured verbatim. Shopify rejects this at GraphQL variable coercion,
+    // so there is no productVariantsBulkUpdate payload at all — which is why
+    // body.errors must be checked BEFORE the userErrors branch. Reversing
+    // that order lets a malformed price through unreported.
+    const { client } = fakeClient({
+      errors: [
+        {
+          message:
+            "Variable $variants of type [ProductVariantsBulkInput!]! was provided invalid value for 0.price (invalid money 'not-a-price')",
+        },
+      ],
+    });
+
+    await expect(
+      new ShopifyPriceSyncAdapter(client).applyVariantPrice({
+        shopifyProductGid: "gid://shopify/Product/1",
+        shopifyVariantGid: "gid://shopify/ProductVariant/1",
+        regularCardPrice: Money.fromMinorUnits(208_000n, "USD"),
+        priceCalculationId: "calc-1",
+      })
+    ).rejects.toThrow(/invalid money/);
+  });
+
+  it("REAL SHAPE — the live success payload is accepted verbatim, price as a decimal string", async () => {
+    // Captured verbatim from the successful live publish of $2,080.00, the
+    // policy's Example D final rounded Regular/Card Price. Shopify returns the
+    // price as a STRING; anything here that started parsing it into a number
+    // would reintroduce exactly the float hazard the money rules forbid.
+    const { client } = fakeClient({
+      data: {
+        productVariantsBulkUpdate: {
+          productVariants: [
+            { id: "gid://shopify/ProductVariant/52378659586349", price: "2080.00" },
+          ],
+          userErrors: [],
+        },
+      },
+    });
+
+    const result = await new ShopifyPriceSyncAdapter(client).applyVariantPrice({
+      shopifyProductGid: "gid://shopify/Product/10358680027437",
+      shopifyVariantGid: "gid://shopify/ProductVariant/52378659586349",
+      regularCardPrice: Money.fromMinorUnits(208_000n, "USD"),
+      priceCalculationId: "calc-1",
+    });
+
+    expect(result.appliedAt).toBeInstanceOf(Date);
+  });
+
   it("returns an appliedAt timestamp on success", async () => {
     const { client } = fakeClient(okReply("gid://x", "1.00"));
     const adapter = new ShopifyPriceSyncAdapter(client);

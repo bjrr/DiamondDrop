@@ -60,31 +60,65 @@
 }
 
 /*
- * The Bank Payment lines. CLEARLY VISIBLE BUT SECONDARY, per the owner's
- * requirement: body-copy size, no large numerals, so the Regular/Card Price
- * above stays the visually dominant figure. The saving is bolder than the price
- * it follows, because it is the line that makes the alternative worth reading.
+ * The single active price slot (owner §9) — Regular/Card by default, Bank
+ * Payment once selected. Only ever one `.carat-gb__price` here, never two.
  */
-.carat-gb__bank {
-  margin: 0 0 0.125rem;
-  font-size: 0.9375rem;
-}
-
-.carat-gb__bank-savings {
-  margin: 0 0 0.125rem;
-  font-size: 0.9375rem;
-  font-weight: 600;
+.carat-gb__price-active {
+  display: flex;
+  flex-direction: column;
 }
 
 /*
- * How to obtain the Bank Payment Price. The smallest type in the block, but
- * rendered unconditionally: a lower price advertised without a route to it is a
- * hidden material term, not a detail to drop when space is tight.
+ * The §9 default note: a lower price exists, nothing more — no figure, no
+ * side-by-side price. Small and secondary so the active price above it stays
+ * the dominant figure.
+ */
+.carat-gb__bank-note {
+  margin: 0 0 0.75rem;
+  font-size: 0.8125rem;
+  opacity: 0.8;
+}
+
+/*
+ * How to obtain the Bank Payment Price, shown only once it is the active
+ * selection. A lower price advertised without a route to it is a hidden
+ * material term, not a detail to drop when space is tight.
  */
 .carat-gb__bank-methods {
   margin: 0 0 0.75rem;
   font-size: 0.8125rem;
   opacity: 0.8;
+}
+
+/*
+ * The required Payment Type selection (owner §9). A plain, unstyled-looking
+ * fieldset — inherits typography like everything else in this block — with
+ * enough spacing that the two options are clearly tappable on a phone.
+ */
+.carat-gb__payment-type {
+  margin: 0 0 0.75rem;
+  padding: 0;
+  border: 0;
+}
+
+.carat-gb__payment-type-legend {
+  padding: 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.7;
+  margin-bottom: 0.25rem;
+}
+
+.carat-gb__payment-option {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 1rem 0.25rem 0;
+  cursor: pointer;
+}
+
+.carat-gb__payment-input {
+  margin-right: 0.375rem;
 }
 
 /*

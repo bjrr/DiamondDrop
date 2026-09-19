@@ -87,10 +87,121 @@
     return node;
   }
 
+  /*
+   * THE ACTIVE GROUP BUY PRICE — ONLY ONE AT A TIME (owner
+   * docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md §9, §10).
+   *
+   * DEFAULT/PUBLIC STATE is the Regular/Card Price plus a concise note that a
+   * lower price exists. It deliberately does NOT show the Bank Payment Price
+   * beside it, does NOT show the dollar saving, and does NOT list eligible
+   * methods as default body copy — showing all of that by default is exactly
+   * what §9 supersedes from the earlier presentation.
+   *
+   * SELECTING "Bank Payment" switches the SAME slot to the Bank Payment Price
+   * and reveals the eligible methods there. Selecting "Credit / Debit Card"
+   * switches it back. The two prices are never rendered side by side, so a
+   * shopper is never looking at two "the price is" claims at once.
+   *
+   * STILL A DISPLAY CHOICE, NOT A CHECKOUT ONE. Shopify does not vary the
+   * payable total by payment method (docs/BANK-PAYMENT-CHECKOUT-FINDINGS.md),
+   * so the Bank Payment state keeps the CONTACT-TO-ARRANGE copy rather than
+   * implying a shopper can simply pick it at checkout.
+   */
+  function renderActivePrice(container, data, moneyFormat, mode) {
+    container.textContent = "";
+
+    var amount =
+      mode === "bank" ? data.groupBuyBankPaymentPriceMinorUnits : data.groupBuyRegularCardPriceMinorUnits;
+
+    var priceRow = el("div", "carat-gb__price");
+    priceRow.appendChild(el("span", "carat-gb__label", "Group Buy Price"));
+    priceRow.appendChild(el("span", "carat-gb__amount", formatMoney(amount, moneyFormat)));
+    container.appendChild(priceRow);
+
+    if (mode === "bank") {
+      /*
+       * WHICH METHODS QUALIFY, AND HOW TO GET THE PRICE. Owner-approved
+       * wording, reproduced verbatim — do not paraphrase. Shown only once
+       * Bank Payment is the active selection (§9), never as default copy.
+       *
+       * No Shopify mechanism changes the payable total at payment-method
+       * selection, so the line says CONTACT US, not "choose at checkout".
+       */
+      container.appendChild(
+        el(
+          "p",
+          "carat-gb__bank-methods",
+          "Available with Zelle, bank transfer, ACH, or wire. Contact us to arrange payment."
+        )
+      );
+    } else {
+      /* The §9 default note — nothing more. No side-by-side price, no figure. */
+      container.appendChild(
+        el("p", "carat-gb__bank-note", "Lower pricing is available with Bank Payment.")
+      );
+    }
+  }
+
+  /*
+   * REQUIRED PAYMENT TYPE SELECTION (§9), once a configuration is selected.
+   *
+   * Deliberately rendered with NEITHER option pre-checked. CLAUDE.md: a
+   * required choice is never pre-checked or silently inferred, and §9 calls
+   * this a required selection the shopper makes, not a default the page picks
+   * for them. The DEFAULT DISPLAYED PRICE above is still the Regular/Card
+   * Price — that is the resting/public state, not an implicit selection.
+   *
+   * `name` is scoped per block instance (`data-carat-gb-instance`, set once in
+   * `init`) because a radio group's `name` is unique across the whole
+   * document, not just this element's subtree — two Group Buy blocks on one
+   * page must not fight over each other's selection.
+   */
+  function renderPaymentType(container, instanceId, onChange) {
+    container.textContent = "";
+
+    var fieldset = document.createElement("fieldset");
+    fieldset.className = "carat-gb__payment-type";
+    var legend = document.createElement("legend");
+    legend.className = "carat-gb__payment-type-legend";
+    legend.textContent = "Payment Type";
+    fieldset.appendChild(legend);
+
+    var groupName = "carat-gb-payment-type-" + instanceId;
+
+    function option(value, label) {
+      var wrap = el("label", "carat-gb__payment-option");
+      var input = document.createElement("input");
+      input.type = "radio";
+      input.name = groupName;
+      input.value = value;
+      input.className = "carat-gb__payment-input";
+      wrap.appendChild(input);
+      wrap.appendChild(document.createTextNode(" " + label));
+      fieldset.appendChild(wrap);
+      return input;
+    }
+
+    var cardInput = option("card", "Credit / Debit Card");
+    var bankInput = option("bank", "Bank Payment");
+
+    function change(event) {
+      // Stops this radio's "change" from reaching the document-level listener
+      // `init` installs to detect a THEME variant change — a different
+      // concern that happens to share the same event name.
+      if (event && event.stopPropagation) event.stopPropagation();
+      onChange(bankInput.checked ? "bank" : "card");
+    }
+    cardInput.addEventListener("change", change);
+    bankInput.addEventListener("change", change);
+
+    container.appendChild(fieldset);
+  }
+
   function render(root, data) {
     var body = root.querySelector("[data-carat-gb-body]");
     var loading = root.querySelector("[data-carat-gb-loading]");
     var moneyFormat = root.getAttribute("data-money-format");
+    var instanceId = root.getAttribute("data-carat-gb-instance") || "0";
 
     body.textContent = "";
 
@@ -101,20 +212,15 @@
     body.appendChild(units);
 
     /*
-     * THE GROUP BUY PRICE IS THE REGULAR/CARD PRICE.
+     * THE GROUP BUY PRICE IS THE REGULAR/CARD PRICE BY DEFAULT.
      *
-     * Card is the primary advertised price and the Bank Payment Price sits
-     * beneath it — never the other way round. Owner decision,
-     * docs/BANK-CARD-PRICING.md section 6. Checkout, network and legal
-     * constraints are verified separately and do not change the display rule.
+     * Card is the primary/public advertised price (owner §9). The Bank
+     * Payment Price only becomes active once the shopper selects it below —
+     * never shown side by side with the card price.
      */
     var prices = el("div", "carat-gb__prices");
-    var group = el("div", "carat-gb__price");
-    group.appendChild(el("span", "carat-gb__label", "Group Buy Price"));
-    group.appendChild(
-      el("span", "carat-gb__amount", formatMoney(data.groupBuyRegularCardPriceMinorUnits, moneyFormat))
-    );
-    prices.appendChild(group);
+    var activePrice = el("div", "carat-gb__price-active");
+    prices.appendChild(activePrice);
 
     if (data.groupSavingsCardBasisMinorUnits !== "0") {
       var compare = el("div", "carat-gb__price carat-gb__price--compare");
@@ -130,59 +236,18 @@
       prices.appendChild(compare);
     }
     body.appendChild(prices);
+    renderActivePrice(activePrice, data, moneyFormat, "card");
 
     /*
-     * The Bank Payment Price, and the saving against the card price — both as
-     * ABSOLUTE AMOUNTS, never a percentage (policy §6).
-     *
-     * The saving arrives already computed from the two ROUNDED prices, so it is
-     * exactly what a shopper gets by subtracting the two figures on screen. A
-     * percentage would not be: the tier rate is applied before a $5 ceiling, so
-     * the realised saving varies item to item and no single figure is right.
+     * §9's required Payment Type selection. Re-renders the SAME active-price
+     * slot above — never a second price node — so only one price is ever on
+     * screen at once.
      */
-    body.appendChild(
-      el(
-        "p",
-        "carat-gb__bank",
-        "Bank Payment Price: " + formatMoney(data.groupBuyBankPaymentPriceMinorUnits, moneyFormat)
-      )
-    );
-
-    if (data.groupBuyBankPaymentSavingsMinorUnits !== "0") {
-      body.appendChild(
-        el(
-          "p",
-          "carat-gb__bank-savings",
-          "Save " +
-            formatMoney(data.groupBuyBankPaymentSavingsMinorUnits, moneyFormat) +
-            " with Bank Payment"
-        )
-      );
-    }
-
-    /*
-     * WHICH METHODS QUALIFY, AND HOW TO GET THE PRICE. Owner-approved wording,
-     * reproduced verbatim — do not paraphrase.
-     *
-     * Not decoration. "Bank Payment Price" alone tells a shopper a lower price
-     * exists without telling them how to obtain it, and standard Shopify
-     * checkout will collect the Regular/Card Price whatever they select there:
-     * no Shopify mechanism changes the payable total at payment-method
-     * selection (docs/BANK-PAYMENT-CHECKOUT-FINDINGS.md).
-     *
-     * So the line says CONTACT US, not "choose at checkout". For MVP1 Phase 1
-     * Bank Payment is an advertised alternative requiring arrangement; draft-
-     * order automation is a separate future decision and is NOT implemented.
-     * Advertising a price the checkout cannot charge, with no route to it,
-     * would be the outcome docs/BANK-CARD-PRICING.md §8 prohibits.
-     */
-    body.appendChild(
-      el(
-        "p",
-        "carat-gb__bank-methods",
-        "Available with Zelle, bank transfer, ACH, or wire. Contact us to arrange payment."
-      )
-    );
+    var paymentType = el("div", "carat-gb__payment-type-wrap");
+    body.appendChild(paymentType);
+    renderPaymentType(paymentType, instanceId, function (mode) {
+      renderActivePrice(activePrice, data, moneyFormat, mode);
+    });
 
     if (data.groupSavingsCardBasisMinorUnits !== "0") {
       /*
@@ -317,7 +382,12 @@
 
   function init() {
     var roots = document.querySelectorAll("[data-carat-group-buy]");
-    Array.prototype.forEach.call(roots, function (root) {
+    Array.prototype.forEach.call(roots, function (root, index) {
+      // A stable id per block instance, so its Payment Type radio group's
+      // `name` (document-scoped, not subtree-scoped) never collides with a
+      // second Group Buy block on the same page.
+      root.setAttribute("data-carat-gb-instance", String(index));
+
       load(root);
 
       /*

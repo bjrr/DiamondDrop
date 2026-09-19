@@ -657,6 +657,7 @@ model MasterVariant {
   groupBuyUnitEvents       GroupBuyUnitEvent[]
   groupBuyRefunds          GroupBuyRefund[]
   priceSyncFailures        PriceSyncFailure[]
+  priceCalculationFailures PriceCalculationFailure[]
   bankPaymentOrderLines    BankPaymentOrderLine[]
 
   @@unique([masterProductId, metal, purity, bandId])
@@ -1130,6 +1131,92 @@ model PriceSyncFailure {
   @@index([masterVariantId])
   @@index([alertState])
   @@map("price_sync_failure")
+}
+
+/// Slice 2 stage 2A follow-on (docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md
+/// §7; sibling migration to M5's price_sync_failure). One row per FAILURE
+/// EPISODE for a variant's price RECALCULATION -- never per sync attempt.
+///
+/// DELIBERATELY A SEPARATE TABLE FROM price_sync_failure (owner ruled the two
+/// failure modes stay conceptually separate; see §16.5 R2's neighbouring
+/// ruling). A sync failure means a price WAS computed and Shopify refused it;
+/// this means no price could be computed AT ALL -- an unresolved ring-size
+/// band, a missing stone cost, an invalid weight, absent labour/metal inputs,
+/// a currency mismatch, or an unavailable pricing rule/profile (owner §7's own
+/// examples). The remedies rhyme (keep the last valid price live, 48-hour
+/// unresolved timer anchored on the FIRST failure, automatic no-human-action
+/// restore) but the causes and the admin diagnosis differ, which is exactly
+/// what `failureType` exists to answer and price_sync_failure has no
+/// equivalent of.
+///
+/// NO DISMISSIBLE ALERT. price_sync_failure's alert_state (active / cleared /
+/// dismissed) exists because owner §4/§15 describes a PERSISTENT alert a
+/// human can silence. Owner §7 describes only an immediate one-time
+/// notification on the first failure -- there is nothing here for R2's
+/// dismiss-vs-resolve split to apply to, so this table carries no alert_state
+/// and no dismissed_* columns at all.
+model PriceCalculationFailure {
+  id              String        @id @default(uuid()) @db.Uuid
+  masterVariantId String        @map("master_variant_id") @db.Uuid
+  masterVariant   MasterVariant @relation(fields: [masterVariantId], references: [id])
+
+  firstFailedAt DateTime @map("first_failed_at") @db.Timestamptz(6)
+  lastAttemptAt DateTime @map("last_attempt_at") @db.Timestamptz(6)
+  attemptCount  Int      @default(1) @map("attempt_count")
+
+  /// WHAT is unresolvable, not merely that something is -- see
+  /// PriceCalculationFailureType's own doc comment.
+  failureType PriceCalculationFailureType @map("failure_type")
+  lastError   String                      @map("last_error")
+
+  /// Set when the 48-hour timer (owner §7) expires unresolved. Never cleared
+  /// back to NULL -- mirrors price_sync_failure's R4 (suspendedAt is history,
+  /// not current state; resolvedAt is what current availability reads).
+  suspendedAt DateTime? @map("suspended_at") @db.Timestamptz(6)
+
+  /// A later recalculation succeeded. Closes the episode and is what
+  /// automatic no-human-action restoration (owner §7 recovery step 3) reads.
+  resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(6)
+  /// Owner §7 recovery step 5: "record the resolution timestamp and
+  /// trigger/actor." "scheduled" for the routine recalculation run that
+  /// discovers the fix, or a staff identifier for a manually triggered one.
+  /// price_sync_failure has no equivalent column: a sync's resolution is
+  /// always "a later sync succeeded" and names no separate trigger, while a
+  /// calculation can be corrected by either a routine run or a deliberate
+  /// staff action and owner §7 requires telling those apart.
+  resolvedTrigger String? @map("resolved_trigger")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  /// At most one OPEN episode per variant (partial unique index, this
+  /// migration's raw SQL -- Prisma cannot express it), mirroring
+  /// price_sync_failure_one_open_per_variant.
+  @@index([masterVariantId])
+  @@index([failureType])
+  @@map("price_calculation_failure")
+}
+
+/// The calculation-failure cause taxonomy (owner §7's own examples).
+/// Deliberately NOT shaped like price_sync_failure_alert_state, which names
+/// an ALERT'S state rather than a CAUSE: a sync failure has one cause
+/// (Shopify refused the write) and several possible alert states, while a
+/// calculation failure has one notification behaviour (notify once,
+/// immediately) and several possible causes. `unknown` is a real, storable
+/// value -- see classifyCalculationFailureType in
+/// app/domain/pricing/calculationFailure.ts -- rather than a default that
+/// would let an unrecognised error masquerade as a classified one.
+enum PriceCalculationFailureType {
+  unresolved_band
+  invalid_size
+  invalid_weight
+  missing_cost_input
+  ambiguous_cost_input
+  currency_mismatch
+  margin_unreachable
+  unknown
+
+  @@map("price_calculation_failure_type")
 }
 
 enum BankPaymentOrderStatus {

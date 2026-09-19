@@ -105,15 +105,33 @@ checkout collects. The Bank Payment Price and its exact saving are displayed on
 the product page and in the Group Buy block. **No claim is made at checkout that
 a bank method will charge less**, because at that point it would not.
 
-Copy is therefore accurate about how to obtain the bank price — a contact step,
-not a payment-method radio button. OWNER-APPROVED WORDING, shipped verbatim:
+**SUPERSEDED 2026-09-19 for the Group Buy block — see
+`docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` §9 and §10, which control.**
+The wording below was owner-approved and shipped verbatim under the earlier
+decision, and is retained only so the change is legible:
 
-> Bank Payment Price: $X
-> Save $Y with Bank Payment
-> Available with Zelle, bank transfer, ACH, or wire. Contact us to arrange payment.
+> ~~Bank Payment Price: $X~~
+> ~~Save $Y with Bank Payment~~
+> ~~Available with Zelle, bank transfer, ACH, or wire. Contact us to arrange payment.~~
 
-Asserted character-for-character by the theme source guards, because a
-well-meant rewording is the likeliest way approved copy drifts.
+Owner §9 now forbids showing the Bank Payment Price side by side as the default
+presentation. The Group Buy block's resting state shows the **Regular/Card Price
+alone** plus the note *"Lower pricing is available with Bank Payment."*, and a
+**required Payment Type selection** (Credit / Debit Card, Bank Payment) switches
+the single active price. The eligible-methods line appears only once Bank
+Payment is selected, never as default body copy.
+
+Two documents both claiming "shipped verbatim" for contradictory copy is exactly
+how the wrong one gets implemented, which is why this is struck through here
+rather than left to be discovered. The new copy is asserted character-for-
+character by the same theme source guards, for the same reason: a well-meant
+rewording is the likeliest way approved copy drifts.
+
+Note this supersedes the **display** rule only. §1's platform finding — that
+Shopify cannot vary a payable total at payment-method selection — is unchanged
+and still binding, and owner §14 keeps the transaction mechanism an open design
+task. The Payment Type selection is a display and intent capture; it does not
+by itself change what checkout charges.
 
 **Phase 2 — draft-order invoice flow. DEFERRED by owner decision, 2026-09-19.**
 

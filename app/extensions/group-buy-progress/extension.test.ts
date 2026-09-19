@@ -98,32 +98,35 @@ describe("prices come from the server, never from arithmetic here", () => {
   });
 });
 
-describe("Bank Payment display (docs/BANK-CARD-PRICING.md §6)", () => {
+describe("Group Buy price display and Payment Type selection (docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md §9, §10)", () => {
   const code = stripComments(js);
 
-  it("leads with the REGULAR/CARD price and shows Bank Payment beneath it", () => {
-    // The primary advertised price is the card price; the Bank Payment Price is
-    // secondary. The order is the policy, not a styling preference, so it is
-    // asserted structurally rather than left to whoever next edits the template.
-    const headline = code.indexOf("groupBuyRegularCardPriceMinorUnits");
-    const bank = code.indexOf("groupBuyBankPaymentPriceMinorUnits");
-    expect(headline).toBeGreaterThan(-1);
-    expect(bank).toBeGreaterThan(-1);
-    expect(headline).toBeLessThan(bank);
+  it("shows exactly one active price slot, not the two prices side by side", () => {
+    // §9: "Do not show the Bank Payment Price side-by-side as the default
+    // presentation... Only one active Group Buy price should be presented at a
+    // time in the ordering flow." There is exactly one function that writes the
+    // active price, and it clears its container before writing — asserted
+    // structurally rather than left to whoever next edits the template.
+    expect(code).toMatch(/function renderActivePrice/);
+    expect(code.match(/function renderActivePrice/g)).toHaveLength(1);
+  });
+
+  it("defaults the active price to the REGULAR/CARD price, not Bank Payment", () => {
+    // §9: "The default/public Group Buy price shown is the Regular/Card
+    // Price." Asserted on the actual call that renders the initial state.
+    expect(code).toMatch(/renderActivePrice\(activePrice,\s*data,\s*moneyFormat,\s*"card"\)/);
   });
 
   it("uses the words the owner specified, verbatim", () => {
-    // Customer-facing terminology is locked. "Bank Payment Price: $X" and
-    // "Save $Y with Bank Payment" are the approved strings.
-    expect(code).toMatch(/Bank Payment Price: /);
-    expect(code).toMatch(/with Bank Payment/);
     expect(code).toMatch(/Group Buy Price/);
+    expect(code).toMatch(/Lower pricing is available with Bank Payment/);
+    expect(code).toMatch(/Credit \/ Debit Card/);
+    expect(code).toMatch(/Bank Payment/);
   });
 
   it("uses NO superseded or forbidden payment wording", () => {
-    // The whole point of the terminology change. Checked on the rendered
-    // strings AND the comments, because a stale comment is how the old wording
-    // creeps back into the next edit.
+    // Checked on the rendered strings AND the comments, because a stale
+    // comment is how forbidden wording creeps back into the next edit.
     const everything = (js + css + liquid).toLowerCase();
     for (const forbidden of [
       "cash price",
@@ -132,8 +135,29 @@ describe("Bank Payment display (docs/BANK-CARD-PRICING.md §6)", () => {
       "credit card fee",
       "card fee",
       "surcharge",
+      "cash",
     ]) {
       expect(everything, `must not contain "${forbidden}"`).not.toContain(forbidden);
+    }
+  });
+
+  it("uses NO paper payment methods anywhere in eligible-method copy", () => {
+    // Owner §4: no personal/cashier's/certified checks or money orders may
+    // ever appear in eligible-method copy. Matched as whole payment-method
+    // phrases, not the bare substring "check" — this file legitimately says
+    // "checkout" and reads `.checked` on the radio inputs, neither of which is
+    // a paper payment method.
+    const everything = (js + css + liquid).toLowerCase();
+    for (const forbidden of [
+      /\bpersonal check/,
+      /\bcashier'?s check/,
+      /\bcertified check/,
+      /\bmoney order/,
+      /\bpaper payment/,
+      /\bpay(ing)? by check\b/,
+      /\bmail(ed)? .{0,10}check\b/,
+    ]) {
+      expect(everything, `must not match ${forbidden}`).not.toMatch(forbidden);
     }
   });
 
@@ -148,40 +172,62 @@ describe("Bank Payment display (docs/BANK-CARD-PRICING.md §6)", () => {
     }
   });
 
-  it("renders the OWNER-APPROVED wording, character for character", () => {
-    // Approved copy, not a paraphrase. Asserted as exact strings because these
-    // three lines were signed off as written and a well-meant rewording is the
-    // most likely way they drift.
-    expect(code).toContain('"Bank Payment Price: "');
-    expect(code).toContain('" with Bank Payment"');
+  it("renders the OWNER-APPROVED default-state note, character for character", () => {
+    // §9's required note, exact — a well-meant rewording is the likeliest way
+    // approved copy drifts.
+    expect(code).toContain('"Lower pricing is available with Bank Payment."');
+  });
+
+  it("renders the OWNER-APPROVED Payment Type labels, character for character", () => {
+    expect(code).toContain('"Credit / Debit Card"');
+    expect(code).toContain('"Bank Payment"');
+  });
+
+  it("renders the OWNER-APPROVED eligible-methods wording, character for character", () => {
     expect(code).toContain(
       '"Available with Zelle, bank transfer, ACH, or wire. Contact us to arrange payment."'
     );
   });
 
+  it("shows the eligible-methods copy ONLY in the Bank Payment branch, never as default body copy", () => {
+    // §9: the default state shows the note, not the methods list. Structural
+    // check that the methods string sits inside the `mode === "bank"` branch.
+    const bankBranchStart = code.indexOf('mode === "bank"');
+    const methods = code.indexOf("Available with Zelle, bank transfer, ACH, or wire");
+    const elseBranch = code.indexOf('} else {', bankBranchStart);
+    expect(bankBranchStart).toBeGreaterThan(-1);
+    expect(methods).toBeGreaterThan(bankBranchStart);
+    expect(methods).toBeLessThan(elseBranch);
+  });
+
+  it("requires the Payment Type selection with NEITHER option pre-checked", () => {
+    // CLAUDE.md: a required choice is never pre-checked or silently inferred.
+    // Asserted by absence: no `.checked = true` is ever set on either radio.
+    expect(code).not.toMatch(/\.checked\s*=\s*true/);
+  });
+
+  it("gives the Payment Type radio group a per-instance name", () => {
+    // A radio group's `name` is document-scoped, not subtree-scoped — two
+    // Group Buy blocks on one page must not fight over each other's selection.
+    expect(code).toMatch(/carat-gb-payment-type-.*instanceId/);
+  });
+
   it("promises no checkout behaviour the platform cannot deliver", () => {
     // Shopify cannot change the payable total at payment-method selection
-    // (docs/BANK-PAYMENT-CHECKOUT-FINDINGS.md). For MVP1 Phase 1 the Bank
-    // Payment Price is obtained by arrangement, so the copy must say contact —
-    // never "select at checkout", which the platform would not honour.
+    // (docs/BANK-PAYMENT-CHECKOUT-FINDINGS.md). The Bank Payment state must
+    // still say contact — never "select at checkout", which the platform
+    // would not honour, and selecting it must not itself claim to reprice
+    // checkout.
     expect(code).toMatch(/Contact us to arrange payment/);
     expect(code).not.toMatch(/select .{0,30}at checkout/i);
     expect(code).not.toMatch(/choose .{0,30}at checkout/i);
     expect(code).not.toMatch(/at checkout/i);
   });
 
-  it("shows the bank saving as an absolute amount from the server", () => {
-    // Policy §9: computed after the $5 ceiling, server-side. The block must
-    // render the figure it was given rather than subtract two prices itself —
-    // client arithmetic on money is the habit this whole file guards against.
-    expect(code).toMatch(/data\.groupBuyBankPaymentSavingsMinorUnits/);
-  });
-
   it("keeps the two savings distinguishable in the copy", () => {
-    // "Save $111 with Bank Payment" and "You save $250 vs buying now" are
-    // different quantities. Rendered adjacently and worded alike they would
-    // read as one number, or be added together.
-    expect(code).toMatch(/with Bank Payment/);
+    // The bank-vs-card note and "You save $250 vs buying now" are different
+    // concepts (owner §10) and must not blend into one figure or percentage.
+    expect(code).toMatch(/Lower pricing is available with Bank Payment/);
     expect(code).toMatch(/vs buying now/);
   });
 

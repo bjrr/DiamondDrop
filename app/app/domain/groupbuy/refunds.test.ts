@@ -42,12 +42,14 @@ describe("refund amount", () => {
     expect(result.finalPriceExceededPaid).toBe(false);
   });
 
-  it("NEVER becomes a charge when the final price is higher", () => {
-    // The asymmetry the README does not address. Cancellations can move the
-    // tier backwards, so someone who bought at the deepest tier can find the
-    // final tier shallower than the one they paid at. We absorb it: charging a
-    // customer more after checkout because other people cancelled is not
-    // something to infer from silence.
+  it("NEVER becomes a charge when the final price is higher — belt and braces", () => {
+    // Under the one-way tier rule (owner §24) the final tier can no longer
+    // land above a tier a customer paid at, so this input pair should not
+    // arise from normal campaign settlement any more. `computeTierRefund` is
+    // a pure function that cannot know that, though, so it still floors at
+    // zero rather than trust a caller never to hand it a stale or
+    // out-of-band pair. Charging a customer more after checkout, for any
+    // reason, is not something to infer from silence.
     const result = computeTierRefund({
       paidPerUnitMinorUnits: 36_000n,
       finalPerUnitMinorUnits: 40_000n,
@@ -57,8 +59,8 @@ describe("refund amount", () => {
     expect(result.totalRefundMinorUnits).toBe(0n);
     expect(result.refundPerUnitMinorUnits).toBe(0n);
     expect(result.owed).toBe(false);
-    // Recorded rather than silently swallowed — a campaign where this happens
-    // has had cancellations undo a tier, and that is worth being able to see.
+    // Recorded rather than silently swallowed — a `true` here on a real
+    // campaign is now a signal worth investigating, not an expected outcome.
     expect(result.finalPriceExceededPaid).toBe(true);
   });
 

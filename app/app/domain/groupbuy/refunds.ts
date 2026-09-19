@@ -7,15 +7,30 @@
  *
  * A REFUND NEVER BECOMES A CHARGE, and this is the one judgement in the file.
  *
- * Qualifying units can fall as well as rise — cancellation "can move the live
- * campaign back to a prior tier before close" — so a customer who bought while
- * the campaign was at its deepest tier can find the FINAL tier is shallower
- * than the one they paid at. The arithmetic difference is then negative.
+ * SUPERSEDED REASONING, kept visible so the correction is legible. This used
+ * to read: qualifying units can fall as well as rise — cancellation "can move
+ * the live campaign back to a prior tier before close" — so a customer who
+ * bought at the deepest tier could find the FINAL tier shallower than the one
+ * they paid at.
  *
- * The README addresses only the improving case, so the loss-making direction is
- * a decision rather than a reading: the amount is floored at zero and we absorb
- * it. Retroactively charging a customer more than they agreed to at checkout,
- * because other people cancelled, is not something to infer from silence — it
+ * That premise is gone. Owner decision (docs/SLICE-2-AND-GROUP-BUY-OWNER-
+ * DECISIONS.md §24, 2026-09-19): Group Buy tier progression is one-way —
+ * "an unlocked tier never falls back" — so under the corrected qualifying-unit
+ * count (`~/domain/groupbuy/qualifyingUnits.ts`) the tier active at close is
+ * always the deepest one ever publicly reached, which is always AT OR BELOW
+ * every tier that was ever active while a customer's order was placed. The
+ * final price a customer is settled against can therefore no longer exceed
+ * what they paid, as a consequence of that fold being monotonic.
+ *
+ * THE ZERO-FLOOR STAYS ANYWAY, now as belt and braces rather than the live
+ * defence. `computeTierRefund` is a pure function that does not know how its
+ * inputs were produced — a caller could still hand it a paid/final pair from a
+ * source other than the corrected fold (a data-migration script, a manual
+ * correction, a campaign opened before this fix). Refusing to ever turn a
+ * refund into a charge costs nothing on the path that can no longer occur and
+ * is the only safe behaviour on the path that, through some future caller
+ * error, still could. Retroactively charging a customer more than they agreed
+ * to at checkout is not something to infer from silence in either case — it
  * would need explicit authorisation, and it is the kind of thing that produces
  * chargebacks rather than revenue.
  *
@@ -41,10 +56,16 @@ export interface RefundComputation {
   /** False when nothing is owed — a distinct state from "owed zero by mistake". */
   owed: boolean;
   /**
-   * True when the final price ended up ABOVE what was paid. No money moves, but
-   * it is recorded: a campaign where this happens has had cancellations undo a
-   * tier, and that is worth being able to see rather than inferring from a
-   * suspicious run of zero refunds.
+   * True when the final price ended up ABOVE what was paid. No money moves,
+   * but it is recorded and worth being able to see rather than inferring from
+   * a suspicious run of zero refunds.
+   *
+   * Under the one-way tier rule (owner §24) this should not arise from normal
+   * campaign settlement — the final tier is always at or below every tier
+   * that was ever publicly active — so a `true` here on a post-fix campaign
+   * is a signal worth investigating (mismatched inputs, a pre-fix campaign,
+   * or a caller bypassing the corrected qualifying-unit fold), not an
+   * expected outcome of cancellations.
    */
   finalPriceExceededPaid: boolean;
 }
