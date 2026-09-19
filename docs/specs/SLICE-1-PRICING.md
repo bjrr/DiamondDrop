@@ -776,7 +776,9 @@ Numbered, testable. 1–8 are the inherited slice 0 findings and must be satisfi
 26. Variants excluded by `LuxuryStealExclusionSource` or `OpenCampaignExclusionSource` are recorded as skipped with a reason and produce no calculation and no intent.
 27. `POST /internal/jobs/price-recalculation` returns 401 for a missing, wrong or malformed `CRON_SECRET`, using a timing-safe comparison, and rejects before reading the body; it is a resource route with no default export.
 28. Approval and rejection require an explicit actor, write an `audit_event`, and are reflected in the intent's status; there is no code path that approves without an actor.
-29. Slice 1 never calls the Shopify Admin API: `package.json` contains no `@shopify/*` dependency, and the production-wired port throws `PriceSyncNotImplementedError`.
+29. Slice 1 never calls the Shopify Admin API: **no file under `app/app/domain/**`, `app/app/jobs/**` or `app/app/db/**` imports `@shopify/*`**, and the production-wired port throws `PriceSyncNotImplementedError`. Asserted by a test that walks those directories, not by inspection.
+
+   **AMENDED 2026-09-19.** This criterion previously read "`package.json` contains no `@shopify/*` dependency". That proxy stopped holding when the owner directed the app shell, OAuth and Prisma session storage to be installed — `@shopify/shopify-app-react-router` and `@shopify/shopify-app-session-storage-prisma` are both present and belong there. The GUARANTEE is unchanged; only the way it is checked moved, from a dependency list to the import graph of the directories the guarantee is actually about. A QA review read the stale wording, checked `package.json`, and reported the criterion as passing when it was false — a drifted proxy answers confidently and wrongly, which is worse than having none.
 
 **Security and privacy**
 

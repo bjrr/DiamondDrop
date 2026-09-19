@@ -71,6 +71,81 @@ describe("criterion 34 — app/domain/pricing is pure", () => {
   });
 });
 
+describe("criterion 29 — the pricing slice never reaches the Shopify Admin API", () => {
+  /**
+   * THE CRITERION'S ORIGINAL PROXY NO LONGER WORKS, so this replaces it with
+   * one that does.
+   *
+   * §10 criterion 29 read "`package.json` contains no `@shopify/*`
+   * dependency". That was a sound proxy when nothing Shopify existed. It stopped
+   * being one when the owner directed the app shell, OAuth and Prisma session
+   * storage to be installed — `@shopify/shopify-app-react-router` and
+   * `@shopify/shopify-app-session-storage-prisma` are both present and belong
+   * there.
+   *
+   * The GUARANTEE behind the criterion is unchanged and is what matters: no
+   * pricing, Group Buy or persistence code calls the Admin API, so a price
+   * cannot reach a live store by accident before slice 2 wires the sync
+   * deliberately. That is asserted directly here, over the three directories
+   * the guarantee is about, rather than inferred from a dependency list that
+   * now legitimately contains the package.
+   *
+   * A QA review read the stale criterion, checked `package.json`, and reported
+   * criterion 29 as passing. It was not. A proxy that has drifted from its
+   * guarantee is worse than no proxy: it answers confidently and wrongly.
+   */
+  const FENCED_DIRECTORIES = ["domain", "jobs", "db"];
+
+  function sourceFilesUnder(relative: string): string[] {
+    const root = join(process.cwd(), "app", relative);
+    const found: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) found.push(full);
+      }
+    };
+    walk(root);
+    return found;
+  }
+
+  it("finds the files to check", () => {
+    // Guards the guard: a broken walk would make every assertion below vacuous.
+    const all = FENCED_DIRECTORIES.flatMap(sourceFilesUnder);
+    expect(all.length).toBeGreaterThan(20);
+  });
+
+  it.each(FENCED_DIRECTORIES)("no file under app/%s imports @shopify/*", (relative) => {
+    for (const file of sourceFilesUnder(relative)) {
+      const code = readFileSync(file, "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/.*$/gm, "");
+
+      // The import form specifically. A bare mention in a string — the
+      // PriceSyncNotImplementedError message names the package deliberately, to
+      // tell whoever hits it which slice owns the work — is not a dependency.
+      expect(
+        /(?:from|import)\s*\(?\s*["']@shopify\//.test(code),
+        `${file} imports @shopify/*. Slice 1 must not reach the Admin API; the ` +
+          `sync port is implemented in slice 2 (§9.6 scope fence).`
+      ).toBe(false);
+    }
+  });
+
+  it("wires the THROWING sync port in production, not a silent no-op", async () => {
+    // The other half of the criterion, and the half that actually protects a
+    // customer: if slice 1 somehow tried to publish a price, it must fail
+    // loudly. A no-op would mark intents `synced`, leaving an audit trail
+    // claiming a price reached Shopify when none did.
+    const { UnimplementedPriceSyncPort, PriceSyncNotImplementedError } = await import("~/jobs/pricing/ports");
+
+    await expect(
+      new UnimplementedPriceSyncPort().applyVariantPrice()
+    ).rejects.toBeInstanceOf(PriceSyncNotImplementedError);
+  });
+});
+
 describe("criterion 35 — engine.ts performs no arithmetic of its own", () => {
   it("contains no decimal or money operator calls", () => {
     const source = readFileSync(join(PRICING_DIR, "engine.ts"), "utf8");

@@ -8,6 +8,7 @@ import {
   UnsafeTiersError,
   openGroupBuyCampaign,
 } from "~/jobs/groupbuy/openCampaign.server";
+import { closeGroupBuyCampaign } from "~/jobs/groupbuy/unitLedger.server";
 
 /**
  * Freeze at open — README: "When a campaign opens, freeze/version its
@@ -543,5 +544,109 @@ describe("one profile governs the whole campaign", () => {
 
     expect(opened.pricingProfileId).toBe(calculationProfile.id);
     expect(opened.profileVersion).toBe(calculationProfile.version);
+  });
+});
+
+describe("the campaign status machine is enforced at the DATABASE", () => {
+  /**
+   * Raised by the QA and security review (T10, finding 1).
+   *
+   * The guard blocked returning to `draft` and editing the frozen basis, but
+   * permitted `closed -> open`. No application path can do that —
+   * `openGroupBuyCampaign` accepts only `draft`, `closeGroupBuyCampaign` only
+   * `open` — which is exactly why the DB-level rule matters: the trigger exists
+   * to survive a script or a manual UPDATE, and reopening a settled campaign
+   * was the transition that escaped it.
+   *
+   * Written against raw Prisma updates rather than the services, because a test
+   * that goes through the services proves the services are careful, not that
+   * the database is.
+   */
+  it("REFUSES to reopen a closed campaign", async () => {
+    const draft = await draftCampaign();
+    await openGroupBuyCampaign({ campaignId: draft.id, openedBy: "staff", asOf: ASOF });
+    await closeGroupBuyCampaign({ campaignId: draft.id, closedBy: "staff" });
+
+    await expect(
+      prisma.groupBuyCampaign.update({ where: { id: draft.id }, data: { status: "open" } })
+    ).rejects.toThrow(/not an allowed status transition/);
+
+    const still = await prisma.groupBuyCampaign.findUniqueOrThrow({ where: { id: draft.id } });
+    expect(still.status).toBe("closed");
+  });
+
+  it("REFUSES to reopen a cancelled campaign", async () => {
+    const draft = await draftCampaign();
+    await openGroupBuyCampaign({ campaignId: draft.id, openedBy: "staff", asOf: ASOF });
+    await prisma.groupBuyCampaign.update({
+      where: { id: draft.id },
+      data: { status: "cancelled" },
+    });
+
+    await expect(
+      prisma.groupBuyCampaign.update({ where: { id: draft.id }, data: { status: "open" } })
+    ).rejects.toThrow(/not an allowed status transition/);
+  });
+
+  it("REFUSES to skip the open state entirely", async () => {
+    // draft -> closed would settle a campaign that never had a frozen price.
+    const draft = await draftCampaign();
+
+    await expect(
+      prisma.groupBuyCampaign.update({ where: { id: draft.id }, data: { status: "closed" } })
+    ).rejects.toThrow(/not an allowed status transition/);
+  });
+
+  it("REFUSES draft -> cancelled, which the schema never supported either", async () => {
+    // Deliberately absent from the transition table rather than overlooked. The
+    // pre-existing `group_buy_campaign_open_is_frozen` CHECK requires any
+    // non-draft campaign to carry a frozen pricing basis, and a draft has none,
+    // so this was already impossible; listing it as allowed would have claimed
+    // a capability the schema does not have.
+    //
+    // TWO RULES NOW REFUSE IT, and the trigger gets there first — triggers run
+    // before CHECK constraints — which is why the message is the transition one
+    // rather than a constraint-name error. That is the better diagnostic of the
+    // two, so the ordering is worth keeping.
+    const draft = await draftCampaign();
+
+    await expect(
+      prisma.groupBuyCampaign.update({ where: { id: draft.id }, data: { status: "cancelled" } })
+    ).rejects.toThrow(/not an allowed status transition/);
+  });
+
+  it("still ALLOWS every transition the business needs", async () => {
+    // Guards the guard: a rule that refused everything would pass the tests
+    // above and make the feature unusable.
+    const cancelledFromOpen = await draftCampaign();
+    await openGroupBuyCampaign({
+      campaignId: cancelledFromOpen.id,
+      openedBy: "staff",
+      asOf: ASOF,
+    });
+    await expect(
+      prisma.groupBuyCampaign.update({
+        where: { id: cancelledFromOpen.id },
+        data: { status: "cancelled" },
+      })
+    ).resolves.toBeTruthy();
+
+    // draft -> open and open -> closed are exercised by every other test in
+    // this file, so they are not repeated here.
+  });
+
+  it("still allows an update that does not change the status", async () => {
+    // Every other column on an open campaign is edited by ordinary updates —
+    // the scheduled close time, for one. A transition rule that tripped on a
+    // no-op would break them all.
+    const draft = await draftCampaign();
+    await openGroupBuyCampaign({ campaignId: draft.id, openedBy: "staff", asOf: ASOF });
+
+    await expect(
+      prisma.groupBuyCampaign.update({
+        where: { id: draft.id },
+        data: { scheduledCloseAt: new Date("2027-01-01T00:00:00Z") },
+      })
+    ).resolves.toBeTruthy();
   });
 });

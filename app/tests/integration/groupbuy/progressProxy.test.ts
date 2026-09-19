@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { prisma } from "~/db/client.server";
 import { loader } from "~/routes/apps.carat.group-buy.$code";
 import { openGroupBuyCampaign } from "~/jobs/groupbuy/openCampaign.server";
-import { recordUnitEvent } from "~/jobs/groupbuy/unitLedger.server";
+import { closeGroupBuyCampaign, recordUnitEvent } from "~/jobs/groupbuy/unitLedger.server";
 
 /**
  * The storefront progress endpoint, served through Shopify's App Proxy.
@@ -239,6 +239,20 @@ describe("what a shopper is shown", () => {
 describe("campaigns a shopper may not see", () => {
   it("404s an unknown code", async () => {
     expect((await call("no-such-campaign")).status).toBe(404);
+  });
+
+  it("404s a CLOSED campaign, indistinguishably from one that does not exist", async () => {
+    // The status a probe is most likely to try: a campaign that recently ended,
+    // to see whether stale progress still leaks. `draft` was covered; `closed`
+    // was the one enum value with no direct assertion here, and the route
+    // treats everything that is not `open` the same way — which is worth
+    // pinning rather than inferring from the condition.
+    const { campaignId, code } = await openCampaign({ units: 2 });
+    await closeGroupBuyCampaign({ campaignId, closedBy: "staff" });
+
+    const response = await call(code);
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "not_found" });
   });
 
   it("404s a DRAFT campaign, indistinguishably from one that does not exist", async () => {
