@@ -243,3 +243,50 @@ closed and the implementation plan demonstrates how every surface in the
 inventory above consumes the single mode-aware pricing source required by L1.**
 
 C4 is closed by this document. C1 and C5 are in progress.
+
+
+---
+
+## R9 — price-bearing metafields are `type: "json"`, not bare integers. CONFIRMED.
+
+Raised by the C5 implementer and ruled 2026-09-19. Spec §6 listed metafield
+*names* and implied plain integer values. The implementation instead embeds
+`{ masterVariantId, priceCalculationId, currency, bankPaymentPriceMinorUnits, … }`
+in a single JSON value per price-bearing metafield.
+
+**The reasoning is decisive and worth recording, because the alternative looks
+simpler and is wrong.** `metafieldsSet` reports success and failure **per
+field**. Two sibling metafields written in one call are therefore *not* atomic
+with respect to each other — only a single field's own value is all-or-nothing.
+
+A bare integer price plus a sibling `carat.*_price_calculation_id` field can
+partially fail, leaving Shopify holding a **new price beside an old id**, or an
+old price beside a new id. Either way the theme's staleness check compares the
+wrong pair and concludes everything is coherent. That defeats the entire
+mechanism C5 exists to provide — and it fails *silently*, which is worse than
+not having the check at all, because the check would then actively vouch for a
+mismatched pair.
+
+Embedding the id inside the value makes price and id atomically consistent by
+construction: they are one field, so they move together or not at all.
+
+**Consequence for the theme half:** Liquid reads these as parsed objects
+(`…metafields.carat.bank_payment_price_minor_units.value.bankPaymentPriceMinorUnits`),
+not as bare numbers. Any Liquid written against an integer shape will be wrong.
+Recorded here rather than left in a handoff because the theme work happens
+later and by a different agent.
+
+## R10 — `appliedUpliftRate` and `appliedTierLabel` need a fence, not a comment
+
+`PublishedVariantPrice` carries both, marked INTERNAL ONLY for audit and admin
+callers. `priceMetafieldPayload.test.ts` asserts neither ever appears in a
+built payload, which is good — but the resolver's return type is the object
+every customer-facing surface in Stage 2B will hold, and one spread into an
+App Proxy response publishes the internal tier rate to the storefront in
+violation of C-S5.
+
+A test on the metafield builder does not protect the App Proxy route, which
+does not exist yet. **Stage 2B must fence the proxy response shape itself** —
+assert no response body ever contains `appliedUpliftRate`, `appliedTierLabel`,
+a rule id, a profile version or a cost field — in the same spirit as the
+resource-route fence. Added to task 2B-1.
