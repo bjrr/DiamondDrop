@@ -179,6 +179,23 @@ successful sync. A purchase at the live price during that window is valid and
 does not receive an automatic retroactive refund merely because a lower price is
 published later.
 
+**C-S2 note 6 — cart tiering is per line/configuration.**
+Bank/Card tier selection is performed independently for each merchandise
+line/configuration from that line's Bank Payment Price, then line totals are
+summed. Never re-tier from the combined cart subtotal, extended order value, or
+mixed variants. Quantity multiplication must not change the tier of the
+underlying unit/configuration. This is money-consequential and requires explicit
+tests before Slice 2 closes.
+
+**C-S2 note 7 — calculation failure is distinct from sync failure.**
+A variant whose price cannot be computed at all because required pricing
+inputs/configuration are missing or invalid follows the owner's 48-hour
+calculation-failure policy even though no Shopify sync attempt exists. Preserve
+the last valid published price, notify admin immediately, anchor the timer on
+the first unresolved calculation failure, suspend only the affected variant
+after 48 hours, and restore after a corrected valid calculation is successfully
+published. Do not model this only as a `price_sync_failure`.
+
 **C-S6 note — owner-updated 2026-09-19.** Price presentation is now
 surface-specific. Buy Now collection/search cards may lead with the lowest
 currently purchasable **Bank Payment Price** as `As low as $X` without showing
