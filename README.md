@@ -21,7 +21,8 @@ Authoritative MVP1 policy documents:
 - `docs/LUXURY-STEALS.md` — Luxury Steals inventory/scarcity, Final Sale rules, required disclosures/acknowledgments, claim separation, and evidence.
 - `docs/LET-US-BEAT-YOUR-QUOTE.md` — competitor custom quotes, active online listings, competing Group Buys, verification, guarantee/fallback eligibility, acknowledgments, and evidence.
 - `docs/WARRANTY-CLAIMS.md` — 1-year limited manufacturing warranty claim intake, authorization, inbound shipping, inspection, coverage decision, remedies, and evidence.
-- `docs/CASH-CARD-PRICING.md` — locked cash-first pricing economics, 5% derived card price, cash-equivalent payment methods, Group Buy cash/card treatment, and customer-facing price display.
+- `docs/BANK-CARD-PRICING.md` — locked Bank Payment Price vs Regular/Card Price policy, tiered card-price increases, $5 card-price rounding, eligible bank-payment methods, checkout behavior, and customer-facing savings display.
+- `docs/CASH-CARD-PRICING.md` — superseded historical policy retained only for reproducibility of earlier versioned calculations.
 
 If a detailed locked policy document conflicts with a summary in this README, **the applicable locked policy document controls**. Do not silently change a locked decision. Unsettled details must not be invented or converted into customer promises.
 
@@ -83,7 +84,7 @@ Each jewelry design should have a structured master product definition containin
 - stone type, natural/lab status, shape, dimensions, carat, color, clarity, cut/quality, certification, and supplier;
 - moissanite/colored-gemstone specifications;
 - manufacturing complexity/labor;
-- packaging, shipping, insurance, warranty reserve, and other product-cost assumptions; card-processing expense is not part of the cash margin/profit-floor calculation under `docs/CASH-CARD-PRICING.md`;
+- packaging, shipping, insurance, warranty reserve, and other product-cost assumptions; the Bank Payment Price remains the underlying calculated selling price and the bank-vs-card feature does not alter that base calculation;
 - Shopify/SKU mappings;
 - historical pricing/campaign snapshots.
 
@@ -101,9 +102,9 @@ All money calculations must be deterministic and auditable. Do not use binary fl
 
 ### Buy Now Pricing
 
-Buy Now prices derive from current cost data rather than permanent hard-coded prices. The authoritative business price is the **cash-equivalent price**. Inputs may include metal, stones, labor/manufacturing, packaging, shipping/insurance, warranty reserve, other allocated product costs, and required margin/minimum profit. Card-processing expense does **not** reduce the cash margin/profit floors.
+Buy Now prices derive from current cost data rather than permanent hard-coded prices. The authoritative underlying selling price is the **Bank Payment Price**. Inputs may include metal, stones, labor/manufacturing, packaging, shipping/insurance, warranty reserve, other allocated product costs, and required margin/minimum profit.
 
-Locked cash pricing: target **40% markup on total cost**, minimum **20% gross margin**, minimum **$100 profit**, and whole-dollar customer pricing. After the final cash price clears all floors, derive the credit-card price as `cash_price × 1.05` under a configurable/versioned rule. The credit-card price is the primary customer-facing/Shopify display price; the cash price is presented as the discounted price for ACH, wire, Zelle, or check. Do not advertise a fixed 5% cash-discount percentage; show the two exact dollar prices. See `docs/CASH-CARD-PRICING.md`.
+The bank-vs-card feature must leave the Bank Payment Price unchanged. The **Regular/Card Price** is derived afterward from the Bank Payment Price using the locked tier table: under $500 = +5.0%, $500–$999.99 = +4.5%, $1,000–$2,499.99 = +4.0%, $2,500–$4,999.99 = +3.5%, and $5,000+ = +3.0%. The tier is selected from the Bank Payment Price only. After applying the tier increase, round the Regular/Card Price **up to the next $5 increment**, leaving the Bank Payment Price untouched. The Regular/Card Price is the primary website price; show **Bank Payment Price** and the exact dollar savings alongside it. Never display the internal percentage or describe it as a card fee/surcharge. See `docs/BANK-CARD-PRICING.md`.
 
 Recalculate at least daily, targeting twice-daily precious-metal updates where practical, then synchronize approved prices to Shopify.
 
@@ -119,11 +120,11 @@ There is **no mandatory minimum buyer/unit count**. One qualifying unit can proc
 
 Default: **3 tiers**, configurable from **2 to 5** per campaign.
 
-Group Buy discounts are percentage-based and apply to the frozen campaign **cash** base price for the selected eligible variant:
+Group Buy discounts are percentage-based and apply to the frozen campaign **Bank Payment Price** for the selected eligible variant:
 
-**Variant Group Cash Price = Frozen Campaign Cash Base Price for Eligible Variant × Applicable Tier Percentage**
+**Variant Group Bank Payment Price = Frozen Campaign Bank Payment Price × Applicable Group Buy Tier Percentage**
 
-After the Group Buy cash price is finalized and validated against the cash floors, derive the customer-facing Group Buy card price using the same versioned +5% card-uplift rule. Group Buy margin, minimum-profit, override, freeze, and refund economics remain cash-based. See `docs/CASH-CARD-PRICING.md`.
+After the Group Buy Bank Payment Price is final, derive its Regular/Card Price using the same Bank-vs-Card tier schedule based on that Group Buy Bank Payment Price, then round only the Regular/Card Price up to the next $5 increment. Refund calculations remain payment-basis aware. See `docs/BANK-CARD-PRICING.md`.
 
 Thresholds use **qualifying units sold**, not unique buyers. Three eligible pieces purchased by one customer count as three units. Cancelled/refunded units that no longer qualify stop counting.
 
@@ -158,8 +159,8 @@ Active Group Buy pages should show:
 - qualifying units sold;
 - current tier/percentage;
 - next threshold and units needed;
-- selected variant's current **Group Buy card price** as the primary displayed price, plus its discounted cash-equivalent price;
-- selected variant's current **Buy Now card price** as the like-for-like comparison, with cash comparison shown only against cash when needed;
+- selected variant's current **Group Buy Regular/Card Price** as the primary displayed price, plus its **Bank Payment Price**;
+- selected variant's current **Buy Now Regular/Card Price** as the like-for-like comparison, with Bank Payment comparisons shown Bank-to-Bank when needed;
 - current dollar/percentage savings;
 - next-tier price and additional savings;
 - countdown/time remaining;
@@ -460,9 +461,11 @@ Unless later promoted by an owner-approved decision:
 
 ## Payment Strategy
 
-All pricing economics are cash-first. The authoritative cash-equivalent price drives markup, margin/profit floors, Group Buy tiers, overrides, recalculation, and frozen campaign pricing. Cash-equivalent methods are **ACH, wire, Zelle, and check**.
+The **Bank Payment Price** is always the underlying calculated selling price. The bank-vs-card feature must not discount, inflate, or round that value.
 
-After the cash price is final, derive the credit-card price as **cash × 1.05** under a configurable/versioned rule. The **credit-card price is the primary displayed price**; the cash-equivalent price is shown as the discounted cash price. The 5% uplift must not feed back into product margin, minimum-profit, or Group Buy safety calculations, and card-processing fees must not silently reduce those cash floors. See `docs/CASH-CARD-PRICING.md`.
+Derive the **Regular/Card Price** from the Bank Payment Price using the locked price tiers in `docs/BANK-CARD-PRICING.md`, then round only the Regular/Card Price **up to the next $5 increment**. The Regular/Card Price is the primary advertised price. Show the Bank Payment Price and the exact savings amount, calculated as final rounded Regular/Card Price minus Bank Payment Price. Do not display the internal percentage or call the difference a credit-card fee/surcharge.
+
+Eligible Bank Payment methods include Zelle, bank transfer, designated ACH, wire transfer, and other explicitly approved bank/manual methods. Checkout must apply the Bank Payment Price only when an eligible method is selected and must clearly show the final amount before order completion, subject to supported Shopify/payment capabilities.
 
 ## Guiding Rule
 
