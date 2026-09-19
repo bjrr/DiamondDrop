@@ -309,21 +309,27 @@ Slice 1 ships `ManualEntryMetalPriceSource`, which returns an empty list and car
 | `cost.ts` | `orderCostSideComponents` | `(components: readonly ResolvedCostComponent[]) => readonly ResolvedCostComponent[]` | the load-bearing order of §5.2 steps 4–5, as one named function instead of an implicit array order |
 | `cost.ts` | `applyCostSideComponents` | `(subtotal: Dec, ordered: readonly ResolvedCostComponent[], stoneCount: number) => { total: Dec; perComponent: readonly { componentId: string; amount: Dec }[] }` | §5.2 steps 4–5, all three value kinds |
 | `cost.ts` | `calculateLandedCost` | `(input: LandedCostInput) => LandedCostBreakdown` | §5.2 end to end; composes the four above; returns exact unrounded decimals |
-| `cost.ts` | `partitionRevenueSide` | `(components: readonly ResolvedCostComponent[]) => { rate: Dec; fixedMinorUnits: Dec }` | the `r` and `f` of §5.3 |
-| `solve.ts` | `solveExactPrice` | `({ landedCostMinorUnits, targetGrossMarginRate, revenueRate, revenueFixedMinorUnits, minDollarProfitMinorUnits, variantFloorMinorUnits }) => { exact: Dec; binding: "margin" \| "min_profit" \| "variant_floor" }` | §5.3; throws `UnreachableMarginError` |
-| `solve.ts` | `evaluateFloors` | `({ priceMinorUnits: bigint, landedCostMinorUnits, revenueRate, revenueFixedMinorUnits, minGrossMarginRate, minDollarProfitMinorUnits, variantFloorMinorUnits }) => { satisfied: boolean; contribution: Dec; grossMargin: Dec; failing: readonly FloorId[] }` | §5.5 **predicate only — no loop** |
-| `solve.ts` | `enforceFloors` | `(input: same, maxBumps: number) => { priceMinorUnits: bigint; bumps: number; final: FloorEvaluation }` | §5.5 bounded loop; throws `MarginFloorUnreachableError` |
-| `priceEnding.ts` | `applyPriceEnding` | `(priceMinorUnits: bigint, ruleId: PriceEndingRuleId) => bigint` | §5.4 registry; `NONE_V1` only in slice 1 |
+| `cost.ts` | `partitionRevenueSide` | `(components: readonly ResolvedCostComponent[]) => { rate: Dec; fixedMinorUnits: Dec }` | the `r` and `f` of §5.3. **Reaches the margin MODEL only, never the floors** — see §5.5 |
+| `purity.ts` | `alloyedPricePerGram` | `(purePricePerGram: DecimalString, purity: PurityId) => Dec` | pure-metal reference x physical fineness; throws `UnknownPurityError` |
+| `labour.ts` | `calculateManufacturingLabour` | `({ ratePerGramMinorUnits, weightGrams }) => Dec` | grams x the rate for the variant's manufacturing source |
+| `solve.ts` | `solveExactBankPaymentPrice` | `({ profile, landedCostMinorUnits, revenueRate, revenueFixedMinorUnits, variantFloorMinorUnits }) => { exactBankPayment: Dec; binding: "margin" \| "min_profit" \| "variant_floor" }` | §5.3; throws `UnreachableMarginError`. Takes the profile WHOLE so the engine names no margin model |
+| `solve.ts` | `evaluateFloors` | `({ bankPaymentPriceMinorUnits: bigint, landedCostMinorUnits, minGrossMarginRate, minDollarProfitMinorUnits, variantFloorMinorUnits }) => { satisfied: boolean; basisId: string; bankPaymentContributionMinorUnits: Dec; bankPaymentGrossMarginRate: Dec; failing: readonly FloorId[] }` | §5.5 **predicate only — no loop**. Has NO revenue-side field, deliberately |
+| `solve.ts` | `enforceFloors` | `(input: same, maxBumps: number, stepMinorUnits: bigint) => { bankPaymentPriceMinorUnits: bigint; bumps: number; final: FloorEvaluation }` | §5.5 bounded loop; throws `MarginFloorUnreachableError`. Steps by the price-ending granularity |
+| `priceEnding.ts` | `applyPriceEnding` | `(priceMinorUnits: bigint, ruleId: PriceEndingRuleId) => bigint` | §5.4 registry; `NONE_V1` and `WHOLE_DOLLAR_UP_V1` |
+| `regularCardPrice.ts` | `deriveRegularCardPrice` | `(bankPaymentPriceMinorUnits: bigint, configuredRate: Dec, ruleId: RegularCardPriceRuleId) => RegularCardPriceResult` | §5.9 — the ONLY producer of a card price. Returns the bank price unchanged alongside the derived one |
+| `regularCardPrice.ts` | `selectCardUpliftTier` | `(bankPaymentPriceMinorUnits: bigint) => CardUpliftTier` | §5.9 tier selection, from the BANK price only |
 | `bands.ts` | `validateBandCoverage` | `(bands: readonly BandSpec[], spec: SizeSpec) => void` | §5.7 gapless, non-overlapping |
 | `bands.ts` | `enumerateBandSizes` | `(band: BandSpec, spec: SizeSpec) => readonly DecimalString[]` | §5.7; throws `InvalidBandError` when empty |
-| `bands.ts` | `selectBandPrice` | `(candidates: readonly DecimalString[], priceAtSize: (size: DecimalString) => BuyNowPriceResult) => { bandPrice: Money; costBasisSize: DecimalString; perSize: readonly …[] }` | §5.7 max-and-tie. **The per-size evaluation is injected**, so the max/tie logic is tested against a three-line stub and `bands.ts` never imports `engine.ts` |
+| `bands.ts` | `selectBandPrice` | `(candidates: readonly DecimalString[], bankPaymentPriceAtSize: (size) => { bankPaymentPriceMinorUnits: bigint; result: T }) => { bandBankPaymentPriceMinorUnits: bigint; costBasisSize: DecimalString; perSize: readonly …[] }` | §5.7 max-and-tie, selected on the BANK price because that is what the floors bind. **The per-size evaluation is injected**, so the max/tie logic is tested against a three-line stub and `bands.ts` never imports `engine.ts` |
 | `engine.ts` | `computeBuyNowPrice` | `(inputs: BuyNowPricingInputs) => BuyNowPriceResult` | §5.6 — composition only |
 | `engine.ts` | `computeBuyNowBandPrice` | `(inputs: BuyNowBandPricingInputs) => BuyNowBandPriceResult` | binds `computeBuyNowPrice` into `selectBandPrice` |
 | `types.ts`, `errors.ts`, `version.ts` | — | — | shared types; the named errors; `PRICING_ENGINE_VERSION` |
 
 Splitting `evaluateFloors` (predicate) from `enforceFloors` (loop) is what turns criterion 18's subtle requirement — *not* bumped merely for falling a fraction below the **target** — into a one-line test.
 
-**The anti-monolith rule.** `engine.ts` performs **no money or rate arithmetic of its own**: every `+ − × ÷` on a `Money` or decimal quantity lives in `cost.ts`, `solve.ts`, `weight.ts` or `Money` itself. `computeBuyNowPrice` is a sequence of named calls — validate size → weight → landed cost → revenue-side partition → solve → round once (§5.4) → price ending → enforce floors → assemble the breakdown. If it contains a formula, the formula is in the wrong file. An implementer tempted to inline "just this one subtraction" adds a named function instead. Checked at architect review and by criterion 35.
+**The anti-monolith rule.** `engine.ts` performs **no money or rate arithmetic of its own**: every `+ − × ÷` on a `Money` or decimal quantity lives in `cost.ts`, `solve.ts`, `weight.ts`, `regularCardPrice.ts` or `Money` itself. `computeBuyNowPrice` is a sequence of named calls — validate size → weight → landed cost → revenue-side partition → solve → round once (§5.4) → price ending → enforce floors → **derive the Regular/Card Price (§5.9)** → assemble the breakdown. If it contains a formula, the formula is in the wrong file. An implementer tempted to inline "just this one subtraction" adds a named function instead. Checked at architect review and by criterion 35.
+
+**The order of the last two steps is the business rule, not a convenience.** Everything up to and including the floors runs on the Bank Payment Price and finishes completely; only then is the card price derived from the settled figure, and nothing downstream feeds back. That is what keeps the card uplift out of cost, markup, margin and minimum profit — see `docs/BANK-CARD-PRICING.md` §2.
 
 ### 5.1 Weight (R8, R9)
 
@@ -383,27 +389,38 @@ price = Money.fromDecimalMinorUnits(P_exact, currency, profile.rounding_rule_id)
 
 `Money.fromDecimalMinorUnits(value, currency, roundingRuleId)` is a **new method added to `app/app/domain/money/money.ts` by this slice** — the minor-unit twin of the existing `fromDecimalMajorUnits`, which should be re-expressed in terms of it. It is the *only* place the pricing engine rounds.
 
-`profile.rounding_rule_id` is a `RoundingRuleId` from the existing registry; MVP1 uses `HALF_UP_MINOR_UNIT_V1`. The profile also carries `price_ending_rule_id`, a new registry in `app/app/domain/pricing/priceEnding.ts` containing exactly one entry in slice 1: `NONE_V1` (identity). Charm pricing (`.99` endings) is **not** introduced; the registry exists so that adding one later is a versioned, reviewable act rather than an edit to the engine. An id, once referenced by a stored calculation, may never change behaviour — the same rule the rounding registry already states.
+`profile.rounding_rule_id` is a `RoundingRuleId` from the existing registry; MVP1 uses `HALF_UP_MINOR_UNIT_V1`. The profile also carries `price_ending_rule_id`, a registry in `app/app/domain/pricing/priceEnding.ts`. Slice 1 ships two entries: `NONE_V1` (identity) and `WHOLE_DOLLAR_UP_V1` (ceiling to whole dollars), the latter added when D14 resolved to whole-dollar customer prices. Charm pricing (`.99` endings) is **not** introduced. An id, once referenced by a stored calculation, may never change behaviour — the same rule the rounding registry already states.
+
+Each rule also declares `stepMinorUnits`, the granularity it produces, which §5.5's floor loop bumps by.
 
 ### 5.5 Post-rounding floor re-validation (do not skip this)
 
-Rounding to the cent can land marginally below the target. The **floors** (R11) are hard and are therefore checked **after** rounding, against the rounded price, in exact decimal:
+Rounding can land marginally below the target. The **floors** (R11) are hard and are therefore checked **after** rounding, against the rounded **Bank Payment Price**, in exact decimal.
+
+**AMENDED 2026-09-18 — PAYMENT-PROCESSING EXPENSE IS NOT DEDUCTED.** `docs/BANK-CARD-PRICING.md` §4 states that card-processing fees are excluded from the 20% gross-margin floor and the $100 minimum-profit floor, and that no such deduction may be reintroduced without an explicit business rule. The earlier pseudocode here subtracted `r × price + f` before testing, which understated margin by roughly three points on every item and caused a 10% Group Buy tier to measure 17.8% and be refused publication when it in fact clears 20.63%.
 
 ```
-deductions   = r × price + f
-contribution = price − deductions − C          // exact decimal, not rounded
-grossMargin  = contribution / price
+contribution = bankPaymentPrice − C            // exact decimal, not rounded
+grossMargin  = contribution / bankPaymentPrice
 
 while (grossMargin < profile.min_gross_margin_rate
        || contribution < minProfit
-       || price < P_floor) {
-    price = price + 1 minor unit
-    recompute deductions/contribution/grossMargin
+       || bankPaymentPrice < P_floor) {
+    bankPaymentPrice = bankPaymentPrice + stepMinorUnits
+    recompute contribution/grossMargin
     if iterations > 100 -> throw MarginFloorUnreachableError
 }
 ```
 
-Note the deliberate distinction, which the implementer must preserve: `target_gross_margin_rate` is the pricing **objective** used in §5.3; `min_gross_margin_rate` is the hard **floor** checked here. The schema enforces `min_gross_margin_rate <= target_gross_margin_rate`. Comparing the rounded price against the target (rather than the floor) would make the loop bump nearly every price by a cent for no reason.
+The basis is named and versioned as `PROFITABILITY_BASIS_ID` and stamped on every evaluation, so a stored margin says which rule produced it. Adding a fee-aware floor later is a NEW basis id, not an edit.
+
+`FloorInput` has **no field** for a revenue-side rate or fixed fee. Their absence from the type is what stops payment expense re-entering profitability through a future caller — which is how it got in the first time. Re-admitting it is a visible change to that interface.
+
+`stepMinorUnits` comes from the price-ending rule. A whole-dollar price must be nudged by a whole dollar: stepping by one minor unit would turn $140 into $140.01 and quietly undo the ending rule applied a moment earlier.
+
+Note the deliberate distinction, which the implementer must preserve: `target_gross_margin_rate` is the pricing **objective** used in §5.3; `min_gross_margin_rate` is the hard **floor** checked here. The schema enforces `min_gross_margin_rate <= target_gross_margin_rate`. Comparing the rounded price against the target (rather than the floor) would make the loop bump nearly every price for no reason.
+
+The minimum-profit price in §5.3 is solved on the same basis — `bank >= C + minProfit`, not `(C + f + minProfit) / (1 − r)` — so the solve cannot produce a price its own floor then rejects.
 
 ### 5.6 Determinism, versioning and reproducibility
 
@@ -468,17 +485,78 @@ A 14K yellow gold ring, base size 6, base weight `3.2000` g, `+0.1500` g per ful
 | **Landed cost `C`** | **75365.25** |
 | `r` = 0.029, `f` = 30, `m` = 0.42 | denominator `= 0.551` |
 | `P_margin = (75365.25 + 30) / 0.551` | **136833.484573502722323…** |
-| `P_minProfit = (75365.25 + 30 + 15000) / 0.971` | **93095.005149330587…** |
+| `P_minProfit = 75365.25 + 15000` | **90365.25** |
 | `P_exact = max(...)` | **136833.484573502722323…** |
 | Round HALF_UP at the minor unit | **136833** = **$1,368.33** |
-| Post-round check: deductions `= 0.029 × 136833 + 30` | `3998.157` |
-| contribution `= 136833 − 3998.157 − 75365.25` | `57469.593` (= `$574.70`) |
-| gross margin `= 57469.593 / 136833` | `0.419998…` ≥ `0.35` floor ✔ |
-| dollar profit `$574.70` ≥ `$150.00` ✔ | no bump; final price **$1,368.33** |
+| Post-round check: contribution `= 136833 − 75365.25` | `61467.75` (= `$614.68`) |
+| gross margin `= 61467.75 / 136833` | `0.449217…` ≥ `0.35` floor ✔ |
+| dollar profit `$614.68` ≥ `$150.00` ✔ | no bump; final Bank Payment Price **$1,368.33** |
+| Regular/Card Price: `$1,368.33` is in the `$1,000–$2,499.99` band → 4.0% | `136833 × 1.04 = 142306.32` |
+| Ceiling to the next $5 | **142500** = **$1,425.00**; saving **$56.67** |
+
+**AMENDED 2026-09-18.** The last three rows of the post-round check changed with
+`docs/BANK-CARD-PRICING.md` §4: the floors no longer deduct `r × price + f`, so
+contribution is `61467.75` where it was `57469.593` and margin is `0.449217`
+where it was `0.419998`. The PRICE is unchanged — `TARGET_GROSS_MARGIN_V1` still
+solves net of the revenue-side rate, and this example uses that model. Only how
+the result is judged moved, and the card rows are new.
 
 Band `6.5–8` at increment `0.5` has candidates `6.5, 7, 7.5, 8`; size 8 is the maximum, so the band price is **$1,368.33** with `cost_basis_size = 8.00`.
 
 This exact case must appear as a unit test. The intermediate values above are the assertions.
+
+---
+
+### 5.9 Regular/Card Price derivation (owner amendment 2026-09-18)
+
+`docs/BANK-CARD-PRICING.md` controls. This section records how it is implemented; where the two differ, the policy wins and this is wrong.
+
+**The last step, and the only one that knows about cards.** Everything in §5.1–§5.7 produces the **Bank Payment Price**. Only after it is final — rounded, ended, and past every floor — is the Regular/Card Price derived from it:
+
+```
+tier      = the row of the locked table matching the BANK PAYMENT PRICE
+prelim    = bankPaymentPrice × (1 + tier.rate)
+cardPrice = CEILING(prelim, $5)
+savings   = cardPrice − bankPaymentPrice
+```
+
+| Bank Payment Price | rate |
+|---|---:|
+| under $500 | 5.0% |
+| $500 – $999.99 | 4.5% |
+| $1,000 – $2,499.99 | 4.0% |
+| $2,500 – $4,999.99 | 3.5% |
+| $5,000 and above | 3.0% |
+
+**Four properties the implementation must keep, each for a stated reason.**
+
+1. **The tier is chosen from the BANK price, never the card price.** A $990 item derives $1,035, which sits in the 4.0% band — but it stays at 4.5%, because otherwise the calculation would depend on its own output. Policy example C exists for this.
+
+2. **The Bank Payment Price is returned unchanged.** Not re-rounded, not nudged. Every floor, freeze and refund in the system is pinned to that exact number, so a rounding applied "harmlessly" here would silently disagree with all of them. `engine.ts` reads the bank price back *out of the rule* rather than re-sending its own copy, so a rule that modified it fails a test instead of being papered over.
+
+3. **Savings are computed after the $5 ceiling**, never from the rate. At $750 the rate gives $33.75 and the rounded prices give $35.00 — and $35.00 is the figure a customer can verify by subtracting the two prices in front of them.
+
+4. **The tier table lives in the RULE, not in profile data.** A table editable without a new rule id could silently re-price every historical calculation. Changing a threshold or a rate is a new rule id and a review.
+
+**Versioning.** `CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1` (one fixed profile rate, whole-dollar ceiling) remains registered and frozen so calculations stored under it still reproduce; `BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1` is current. The profile's `fixed_card_uplift_rate` column is read **only** by the superseded rule.
+
+**The schedule is NON-MONOTONIC, and that has consequences downstream.** One more cent of bank price can cross a band and make the card price cheaper:
+
+```
+  $999.99 bank -> 4.5% -> $1,045.00 card
+$1,000.00 bank -> 4.0% -> $1,040.00 card
+```
+
+Same at $2,500 and $5,000. Two things follow, and both are implemented:
+
+- **Group Buy publication validates the resulting price ladder** per variant and per adjacent tier pair: the Bank Payment Price must fall strictly and the Regular/Card Price must not rise. A breach blocks publication and is **not** overridable — the campaign is still a draft and the error names the variant, both tiers and both prices, so an override would never be a commercial judgement, only a way to skip an edit.
+- **A card-price TIE is permitted** (the owner's rule is `<=`) and therefore must not be described as a drop. The storefront gates its "N more and the price drops to $X" line on a strictly positive additional saving; the tier is still real for a bank-paying customer, whose price does fall.
+
+**Every consumer derives through the FROZEN rule.** A campaign records the pricing profile it froze at open; the storefront, the tier-safety check and the refund ledger all read the card rule, the rounding rule and the price-ending rule from it, never from today's active profile. A later profile change cannot re-price a campaign customers have already joined.
+
+**Customer-facing terminology is locked** (`docs/BANK-CARD-PRICING.md` §6): the Regular/Card Price is primary, the Bank Payment Price is shown alongside it with an exact dollar saving, and no internal percentage, "cash" wording, "card fee" or "surcharge" ever reaches a customer.
+
+**Checkout is display-only for MVP1.** Shopify cannot change the payable total at payment-method selection; see `docs/BANK-PAYMENT-CHECKOUT-FINDINGS.md`. Bank Payment is an advertised alternative arranged by contact, and the copy says so. Draft-order automation is deferred to a separate checkout/payment decision.
 
 ---
 
@@ -662,7 +740,7 @@ Numbered, testable. 1–8 are the inherited slice 0 findings and must be satisfi
 **Inherited findings (F-1, F-9, F-10, F-16)**
 
 1. The money-safety scan flags `Math.trunc(`, computed/aliased `Math` access, `.toFixed(`, `parseFloat(`, `~~`, `>> 0` and `| 0`, and within money-adjacent paths also `.toNumber(` and `Number(` — demonstrated by a fixture file per pattern that the scan rejects. (F-1)
-2. The scan no longer skips `*.test.ts`, and its allow-list contains exactly one entry: `app/app/domain/money/rounding.ts` for `.toFixed(`, with a stated reason. Running the scan against the current tree passes. (F-1)
+2. The scan no longer skips `*.test.ts`, and its allow-list contains exactly two entries, each with a stated reason: `app/app/domain/money/rounding.ts` for the exact decimal.js fixed-decimal call, and `app/app/jobs/pricing/decideSync.ts` for the basis-point integer written to an INTEGER column after the tolerance decision has been made on the exact decimal. Running the scan against the current tree passes. (F-1)
 3. The ESLint rule catches `Math["round"](x)` and `const r = Math.round`, proven by a lint run over a fixture. Both `npm run lint` and `npm run check:money-safety` still run in CI. (F-1)
 4. A type-level test asserts the engine's input and result types reject a JS `number` where a decimal quantity belongs; the comment at the top of `check-money-safety.mjs` states what the type boundary guarantees versus what the scan catches. (F-1)
 5. `multiplyByDecimal` has tests for factor 1, factor 0, a positive exact tie, a **negative** exact tie, a repeating decimal, string vs `MoneyDecimal` factors, and an amount above 2^53. (F-9)
@@ -684,7 +762,7 @@ Numbered, testable. 1–8 are the inherited slice 0 findings and must be satisfi
 15. An **absent** required cost component raises `MissingCostInputError` and fails only that variant; a component present with value `0` computes normally. (§4.5)
 16. A `revenue_side` percentage component enters the denominator and a `cost_side` one enters the cost: the same nominal rate configured each way yields different, individually-verified prices, and `1 − m − r ≤ 0` raises `UnreachableMarginError`.
 17. When the margin-derived price is below the minimum-dollar-profit price, the minimum-dollar-profit price wins; when a variant floor exceeds both, the floor wins.
-18. After rounding, a price violating `min_gross_margin_rate`, `min_dollar_profit` or the variant floor is bumped one minor unit at a time until it passes; the loop is bounded and raises `MarginFloorUnreachableError` at the bound. A price that satisfies the floors is **not** bumped merely for falling a fraction below the *target*.
+18. After rounding, a Bank Payment Price violating `min_gross_margin_rate`, `min_dollar_profit` or the variant floor is bumped by the price-ending granularity until it passes; the loop is bounded and raises `MarginFloorUnreachableError` at the bound. A price that satisfies the floors is **not** bumped merely for falling a fraction below the *target*. **The floors are measured gross of payment-processing expense** (§5.5, amended 2026-09-18) — a bump driven by a fee deduction is a defect, not a pass.
 19. `computeBuyNowPrice(snapshot.payload.inputs)` reproduces a stored result exactly when `engineVersion` matches; when it does not match, the verifier reports a difference instead of asserting equality.
 20. Rounding happens exactly once per price. The stored breakdown components are rounded projections and are never inputs to a later step — demonstrated by a case whose result differs if the metal cost is rounded before the margin is applied.
 21. A currency mismatch anywhere in the inputs throws rather than producing a price.
@@ -716,6 +794,20 @@ Numbered, testable. 1–8 are the inherited slice 0 findings and must be satisfi
 35. The §5.0 functions exist in the named files with the named responsibilities, and the split is real: `evaluateFloors` is tested without `enforceFloors`, `selectBandPrice` is tested against a stub `priceAtSize` with no engine and no database, and `orderCostSideComponents` is tested as a function in its own right. `engine.ts` contains no money or rate arithmetic of its own. (§5.0)
 36. Two `metal_price` rows differing only in `source` resolve identically — the later `effective_from` wins regardless of source — and `source` appears in no selection predicate and nowhere under `app/app/domain/pricing/**`. (§4.7 Seam A)
 37. A `stone_cost` row with a non-null `supplier_ref` is never selected by slice 1's supplier-agnostic lookup, and every effective-dated resolver goes through the one shared `selectMostSpecific` helper — its ambiguous-tie throw is tested once, at the helper, not re-tested per table. (§4.7 Seam B)
+
+**Bank Payment vs Regular/Card Price (owner amendment 2026-09-18, §5.9)**
+
+38. The Bank Payment Price is returned **byte-identical** by the card rule on every path — Buy Now, band pricing, Group Buy tiers, overrides and refunds. Asserted across every tier band, including a price that is neither a whole dollar nor a $5 multiple. (`docs/BANK-CARD-PRICING.md` §2)
+39. The tier is selected from the Bank Payment Price only. Exact boundary assertions at $499.99/$500.00, $999.99/$1,000.00, $2,499.99/$2,500.00 and $4,999.99/$5,000.00, each asserting the rate, the final card price **and** the saving — a rate-only test passes while the rounding is wrong. The $990 case from policy example C is asserted explicitly: it stays at 4.5% although its card price sits in the 4.0% band.
+40. The Regular/Card Price is ceilinged to the next $5, and a preliminary price already on a $5 multiple is left unchanged. Verified across a spread crossing every band that the result is always a $5 multiple and never overshoots by a full increment.
+41. Savings equal final rounded card price minus Bank Payment Price, computed after the ceiling. A test asserts the figure is **not** the rate applied to the bank price ($35.00, not $33.75, at $750).
+42. All six worked examples in `docs/BANK-CARD-PRICING.md` §5 reproduce exactly.
+43. `CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1` is unchanged: one fixed profile rate, whole-dollar ceiling. Verified against the pre-amendment implementation across thousands of values and several rates, and by a test showing the two rules diverge when handed the same absurd configured rate.
+44. The card rate, the tier label and the rule id appear on no customer-facing surface. Asserted structurally on the App Proxy response and on the theme source, where the only percentage bound into the DOM is the Group Buy saving against Buy Now.
+45. **The frozen rule governs, forever.** A campaign opened before the switch prices under the superseded card rule and one opened after under the tiered rule; the storefront, tier safety and the refund ledger all read the card, rounding and price-ending rules from the campaign's frozen profile; and a profile added later cannot move an open campaign's prices or a computed refund. Asserted by a dedicated regression suite, and by mutation — restoring any hardcoded rule id fails it.
+46. **The Group Buy price ladder only falls.** Validated on the resulting prices per variant and per adjacent tier pair: Bank Payment Price strictly down, Regular/Card Price not up. A breach blocks publication, names the variant, both tiers and both prices, and is **not** overridable — asserted including with an authorised `unsafeOverride` supplied.
+47. A permitted card-price TIE is never described as a drop: the storefront suppresses its next-tier line when the additional saving is zero. (§5.9)
+48. Refunds are payment-basis aware. A card-paid line settles against card-basis prices and a bank-paid line against bank-basis prices; asserted by mutation, since crossing the bases refunds the whole uplift on every card line at every tier drop.
 
 ---
 
@@ -762,9 +854,14 @@ To be folded into `docs/specs/SLICE-0-FINDINGS.md` as new register entries when 
 
 - **C-S1 (gate: slice 6).** Slice 6 must implement `OpenCampaignExclusionSource` so variants in an open campaign are excluded from Buy Now recalculation (R17). Until then the no-op implementation is correct because no campaign can exist.
 - **C-S2 (gate: slice 2).** Slice 2 must implement `ShopifyPriceSyncPort` over `productVariantsBulkUpdate`, must honour the `lastSyncedPriceCalculationId` compare-and-set, and must not reintroduce a JS `number` price anywhere between `Money` and the GraphQL variable.
-- **C-S3 (gate: slice 6).** A Group Buy `campaign_snapshot` must record `engineVersion`, `pricingProfileVersion` and `roundingRuleId` alongside the frozen prices, or a frozen price ceases to be reproducible — which defeats the purpose of freezing it (`CLAUDE.md` #7).
+  **PUBLISH THE FINAL ROUNDED REGULAR/CARD PRICE, NOT THE STORED PRICE.** `price_calculation` stores the **Bank Payment Price** — the lower of the two. Publishing it would undercharge every card customer by the uplift, on every item, silently. The port parameter is named `regularCardPrice` so the wrong one does not typecheck; do not widen it. "Final rounded" is load-bearing: the figure after the $5 ceiling, never the preliminary uplift.
+  The auto-apply delta in §9.3 is measured **bank-to-bank**. Comparing a new bank price against a previously published card price reads as a ~4% fall on every variant on every run, which at a 200 bps tolerance routes the whole catalogue to manual approval and makes each approval a real price cut.
+- **C-S3 (gate: slice 6).** A Group Buy `campaign_snapshot` must record `engineVersion`, `pricingProfileVersion`, `roundingRuleId`, `priceEndingRuleId` and `regularCardPriceRuleId` alongside the frozen prices, or a frozen price ceases to be reproducible — which defeats the purpose of freezing it (`CLAUDE.md` #7). Slice 1 satisfies this by freezing the whole pricing profile and reading every rule back from it; **no consumer may substitute today's active profile or a hardcoded rule id**, or a later pricing change will re-price a campaign customers have already joined.
 - **C-S4 (gate: slices 4 and 8).** **Refunds, restocking calculations and merchandise credit are computed from the amount the customer actually paid — the Shopify order line and its purchase snapshot — never from `price_calculation`.** `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md` §4 speaks of "the eligible merchandise amount", which is a historical fact about a transaction, not a current computation. A recalculated price must never reach a refund path.
-- **C-S5 (gate: any slice adding a price-bearing route).** No cost, margin, supplier or breakdown field may be exposed via metafield, Liquid, App Proxy JSON or log (R14).
+- **C-S5 (gate: any slice adding a price-bearing route).** No cost, margin, supplier or breakdown field may be exposed via metafield, Liquid, App Proxy JSON or log (R14). The card **tier rate** and the rule id are internal for the same reason (`docs/BANK-CARD-PRICING.md` §6): the storefront receives the two prices they produced, never the rule that produced them.
+- **C-S6 (gate: any slice adding a customer-facing price surface).** **Every surface showing a price must show BOTH prices, or neither.** Slice 1 ships this for the Group Buy block only; the Buy Now product page, cart, email and admin preview have not been built yet and are where it is easiest to regress.
+  Required on each: the Regular/Card Price visually dominant, the **Bank Payment Price** alongside it, the exact dollar saving, and an accurate statement of how the bank price is obtained. For MVP1 that statement is *"Available with Zelle, bank transfer, ACH, or wire. Contact us to arrange payment."* — owner-approved wording, reproduced verbatim.
+  Showing the Bank Payment Price **without** the contact line advertises a price the checkout will not honour, because Shopify cannot vary the payable total by payment method (`docs/BANK-PAYMENT-CHECKOUT-FINDINGS.md`). That is the outcome `docs/BANK-CARD-PRICING.md` §8 prohibits and the hidden-material-terms rule in `CLAUDE.md` forbids. The product page is the higher-traffic surface, so it matters more there than where it is currently implemented.
 
 ---
 
