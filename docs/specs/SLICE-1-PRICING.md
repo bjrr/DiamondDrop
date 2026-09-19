@@ -549,8 +549,10 @@ $1,000.00 bank -> 4.0% -> $1,040.00 card
 
 Same at $2,500 and $5,000. Two things follow, and both are implemented:
 
-- **Group Buy publication validates the resulting price ladder** per variant and per adjacent tier pair: the Bank Payment Price must fall strictly and the Regular/Card Price must not rise. A breach blocks publication and is **not** overridable — the campaign is still a draft and the error names the variant, both tiers and both prices, so an override would never be a commercial judgement, only a way to skip an edit.
-- **A card-price TIE is permitted** (the owner's rule is `<=`) and therefore must not be described as a drop. The storefront gates its "N more and the price drops to $X" line on a strictly positive additional saving; the tier is still real for a bank-paying customer, whose price does fall.
+- **Group Buy publication validates the resulting price ladder** per variant and per adjacent tier pair. **BOTH prices must fall STRICTLY** (owner decision, 2026-09-19): "a newly unlocked tier must produce a real decrease in the primary customer-facing Regular/Card Price". A breach blocks publication and is **not** overridable — the campaign is still a draft and the error names the variant, both tiers and **all four prices**, so an override would never be a commercial judgement, only a way to skip an edit.
+- **A card-price TIE is a breach, not a tolerated outcome.** The rule was `<=` for one day; `<=` admits a tier that lowers the Bank Payment Price while the $5 ceiling absorbs the change entirely, so a card customer reaching the threshold sees no movement at all. The two failure shapes are reported differently because the fixes differ: a TIE wants a deeper multiplier, a RISE may want the tier moved to one side of a band boundary.
+- **There is deliberately no minimum percentage gap between tiers.** A gap would be a rule about multipliers standing in for a fact about prices — simultaneously too strict (rejecting wide tiers that are fine) and too loose (passing narrow ones that are not), because whether a shallow tier survives the ceiling depends on where the variant s price sits. The resulting prices are validated instead, per variant.
+- The storefront still gates its "N more and the price drops to $X" line on a strictly positive saving. That is now redundant for new campaigns and retained for ones frozen under the earlier rule.
 
 **Every consumer derives through the FROZEN rule.** A campaign records the pricing profile it froze at open; the storefront, the tier-safety check and the refund ledger all read the card rule, the rounding rule and the price-ending rule from it, never from today's active profile. A later profile change cannot re-price a campaign customers have already joined.
 
@@ -807,8 +809,8 @@ Numbered, testable. 1–8 are the inherited slice 0 findings and must be satisfi
 43. `CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1` is unchanged: one fixed profile rate, whole-dollar ceiling. Verified against the pre-amendment implementation across thousands of values and several rates, and by a test showing the two rules diverge when handed the same absurd configured rate.
 44. The card rate, the tier label and the rule id appear on no customer-facing surface. Asserted structurally on the App Proxy response and on the theme source, where the only percentage bound into the DOM is the Group Buy saving against Buy Now.
 45. **The frozen rule governs, forever.** A campaign opened before the switch prices under the superseded card rule and one opened after under the tiered rule; the storefront, tier safety and the refund ledger all read the card, rounding and price-ending rules from the campaign's frozen profile; and a profile added later cannot move an open campaign's prices or a computed refund. Asserted by a dedicated regression suite, and by mutation — restoring any hardcoded rule id fails it.
-46. **The Group Buy price ladder only falls.** Validated on the resulting prices per variant and per adjacent tier pair: Bank Payment Price strictly down, Regular/Card Price not up. A breach blocks publication, names the variant, both tiers and both prices, and is **not** overridable — asserted including with an authorised `unsafeOverride` supplied.
-47. A permitted card-price TIE is never described as a drop: the storefront suppresses its next-tier line when the additional saving is zero. (§5.9)
+46. **The Group Buy price ladder falls STRICTLY on both prices.** Validated on the resulting prices per variant and per adjacent tier pair — never inferred from a minimum percentage gap between multipliers. The three named cases are asserted: bank lower and card lower is VALID; bank lower with the card price EQUAL because of the $5 rounding is INVALID; bank lower with the card price HIGHER from a Bank/Card boundary crossing is INVALID. A breach blocks publication, names the variant, both tiers and **all four prices**, distinguishes a tie from a rise, and is **not** overridable — asserted including with an authorised `unsafeOverride` supplied.
+47. A card-price tie can no longer be published (criterion 46). The storefront nonetheless suppresses its "the price drops to" line when the additional saving is zero, for campaigns frozen under the earlier `<=` rule whose tiers the database will not let anyone change. (§5.9)
 48. Refunds are payment-basis aware. A card-paid line settles against card-basis prices and a bank-paid line against bank-basis prices; asserted by mutation, since crossing the bases refunds the whole uplift on every card line at every tier drop.
 
 ---
@@ -916,6 +918,10 @@ Two near-conflicts, resolved here rather than escalated because neither changes 
 ## 15. Agent ownership and sequencing
 
 Serial where files overlap. Slices 0 and 1 are serial overall per `docs/ARCHITECTURE-MVP1.md` §10, so **no other slice runs concurrently with this one**.
+
+**ONE OWNER-AUTHORIZED EXCEPTION, recorded 2026-09-19.** Shopify integration work belonging to slice 2 — OAuth and session integration, the embedded admin shell, Admin API verification against the development store, and theme app extension / App Proxy verification — was carried out during this slice at the owner's direction, to verify the real Shopify environment and the integration boundary before more business functionality was built on assumptions about it. `git log` therefore shows those commits interleaved with slice 1's, which is expected and not a process violation.
+
+The full rationale and the constraints that remain in force are in `docs/ARCHITECTURE-MVP1.md` §10, under the parallel-safety rule. In short: the rule exists to prevent uncontrolled overlapping *feature* implementation, this was a bounded integration-validation exercise that touched the app shell rather than the pricing or ledger modules, future overlap still requires its own explicit decision, and no history is being rewritten.
 
 | # | Task | Owner (model) | Files | Depends on |
 |---|---|---|---|---|

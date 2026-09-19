@@ -444,9 +444,15 @@ describe("a broken price ladder blocks publication, and cannot be overridden", (
     expect(problem.masterVariantId).toBe(draft.variants[0]!.masterVariantId);
     expect(problem.priorTierNumber).toBe(1);
     expect(problem.tierNumber).toBe(2);
-    expect(problem.priceMinorUnits).toBe(problem.priorPriceMinorUnits);
-    expect(problem.detail).toMatch(/is not below tier 1/);
-    expect(problem.detail).toMatch(/\$\d+\.\d\d/); // the actual price, not a placeholder
+    expect(problem.bankPaymentPriceMinorUnits).toBe(problem.priorBankPaymentPriceMinorUnits);
+    expect(problem.detail).toMatch(/Bank Payment Price does not fall/);
+
+    // All four prices reach the caller, per the owner's reporting requirement,
+    // not only the pair on the failing basis.
+    expect(problem.priorRegularCardPriceMinorUnits).toBeGreaterThan(0n);
+    expect(problem.regularCardPriceMinorUnits).toBeGreaterThan(0n);
+    expect(problem.detail).toMatch(/Bank Payment \$\d+\.\d\d -> \$\d+\.\d\d/);
+    expect(problem.detail).toMatch(/Regular\/Card \$\d+\.\d\d -> \$\d+\.\d\d/);
 
     // The message names the fault and says it is not overridable, rather than
     // reading like an ordinary safety refusal.

@@ -236,17 +236,18 @@
       /*
        * ONLY CLAIM A DROP WHEN THERE IS ONE.
        *
-       * Publication requires the next tier's Regular/Card Price to be no HIGHER
-       * than the current one — but "no higher" permits EQUAL, and equal is
-       * reachable: the $5 ceiling can swallow a small tier difference, so a
-       * lower Bank Payment Price can round to the same card price.
+       * BELT AND BRACES since the owner tightened publication on 2026-09-19.
+       * A campaign whose next tier does not STRICTLY lower the Regular/Card
+       * Price can no longer be published, so on a campaign opened since then
+       * this cannot fire.
        *
-       * Without this guard the block renders "7 more and the price drops to
-       * $2,080.00" directly beneath a Group Buy Price of $2,080.00 — every
-       * figure individually correct, the sentence false. The tier is still real
-       * for a bank-paying customer, whose price does fall, and its marker still
-       * shows in the track; what is suppressed is a promise about the card
-       * price that the card price does not keep.
+       * Kept because campaigns opened under the earlier `<=` rule were
+       * validated when a tie was permitted, and their tiers are frozen — the
+       * database refuses to change them, correctly, so the only place left to
+       * be honest about such a campaign is here. Without the guard one renders
+       * "7 more and the price drops to $2,080.00" directly beneath a Group Buy
+       * Price of $2,080.00: every figure individually correct, the sentence
+       * false.
        */
       isPositiveMinorUnits(data.additionalRegularCardSavingsMinorUnits)
     ) {

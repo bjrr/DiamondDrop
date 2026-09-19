@@ -396,6 +396,29 @@ That same backend task also owns the three React Router configuration gaps recor
 
 **Parallel-safety rule.** Slices 0 and 1 are serial and touch shared foundations — no parallel work during them. From slice 2 onward, at most two slices run concurrently and only when they own disjoint files (theme vs app, or distinct app modules). Slices 6 and 8 never run alongside another slice that writes to the pricing or ledger modules.
 
+**OWNER-AUTHORIZED EXCEPTION — Slice 2 integration validation during Slice 1 (recorded 2026-09-19).**
+
+Shopify integration work belonging to slice 2 was carried out during slice 1, at the owner's direction. This records what happened and why, so that a future reviewer reading `git log` does not raise it as a process violation. It does **not** relax the rule above.
+
+What was done under the exception:
+
+- Shopify OAuth and session integration (`@shopify/shopify-app-react-router`, Prisma session storage);
+- the embedded admin shell;
+- Shopify Admin API verification against the development store;
+- theme app extension and App Proxy verification.
+
+**Rationale.** The owner directed this work explicitly, to verify the real Shopify development environment and the integration boundary *before* more business functionality was built on assumptions about it. That order is sound: the App Proxy signature contract, the theme-extension deployment path and the OAuth/session model are the kind of thing that is cheap to establish early and expensive to discover late — and slice 1's own risk register already anticipated two of them (F-23 and F-25 above, both of which surfaced exactly as predicted and were resolved because the work was done early rather than late).
+
+**Why this is not what the rule prohibits.** The parallel-safety rule exists to prevent *uncontrolled overlapping feature implementation* — two streams of business logic editing the same modules and producing conflicting edits or interleaved migrations. An owner-authorized, time-boxed integration-validation exercise is not that: it established a boundary rather than implementing a domain, and it touched the app shell, routes and configuration rather than the pricing or ledger modules the rule is written to protect.
+
+**What remains in force, unchanged:**
+
+- Future slice overlap still requires an explicit owner or architect decision, recorded like this one. This exception licenses nothing beyond what it describes.
+- Agents must still avoid concurrent edits to overlapping files and to shared database state. That constraint was not relaxed and was not violated.
+- Slices 6 and 8 still never run alongside a slice that writes to the pricing or ledger modules.
+
+**No history will be rewritten.** This is documentation of what actually occurred, not an attempt to make the history look like something else. The commits stand as they are; the record explains them.
+
 ### Phase 1 (requested for approval now)
 **Slices 0 → 1 → 2, executed in order.** This is the smallest sequence that produces a real, sellable Buy Now storefront on correct, audited, deterministic pricing, and it establishes the money, evidence, and idempotency primitives every later slice depends on. I recommend approving Phase 1 only, then re-reviewing before Phase 2 (slices 3–5).
 

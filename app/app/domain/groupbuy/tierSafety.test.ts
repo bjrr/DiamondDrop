@@ -312,15 +312,21 @@ describe("the credit-card uplift plays no part in tier safety", () => {
   });
 });
 
-describe("the price ladder must only ever fall", () => {
+describe("the price ladder must fall STRICTLY on BOTH prices", () => {
   /**
-   * Validated on the ACTUAL RESULTING PRICES, per variant, rather than inferred
-   * from the tier multipliers — because the multipliers cannot answer it.
+   * Owner decision, 2026-09-19: "A newly unlocked tier must produce a real
+   * decrease in the primary customer-facing Regular/Card Price."
    *
-   * A strictly falling multiplier always gives a falling Bank Payment Price,
-   * but the Bank/Card schedule is non-monotonic across its band boundaries, so
-   * a cheaper bank price can derive a DEARER card price. Whether a campaign
-   * trips that depends on the variant's frozen base and where its tiers land.
+   * Both prices, strictly, for every variant and every adjacent pair. The rule
+   * was `<=` on the card price for a day; a tie is now rejected outright rather
+   * than merely left undisplayed, because reaching a threshold and seeing the
+   * advertised price not move is a promise the campaign made and did not keep.
+   *
+   * Validated on the ACTUAL RESULTING PRICES, never inferred from a minimum
+   * percentage gap between multipliers. A gap would be both too strict — it
+   * would reject wide tiers that are fine — and too loose, since whether a
+   * narrow tier survives the $5 ceiling depends on where the variant's price
+   * happens to sit.
    */
   const ladder = (
     frozenBaseBankPaymentMinorUnits: bigint,
@@ -351,74 +357,110 @@ describe("the price ladder must only ever fall", () => {
       currency: "USD",
     });
 
-  it("BLOCKS a campaign whose card price rises across a Bank/Card threshold", () => {
-    // Base $1,000.00. Tier 2 at x0.999 gives $999.00 bank — one dollar cheaper,
-    // but across the $1,000 boundary, so it takes 4.5% instead of 4.0%:
-    //
-    //   tier 1: $1,000.00 bank -> 4.0% -> $1,040.00 card
-    //   tier 2:   $999.00 bank -> 4.5% = $1,043.955 -> ceil $5 -> $1,045.00  <- RISES
-    //
-    // Exactly the case the owner asked to be caught by validating the prices.
-    const report = ladder(100_000n, ["1.000000", "0.999000"]);
+  // ---------------------------------------------------------------------
+  // The three cases the owner named, in their words.
+  // ---------------------------------------------------------------------
 
-    expect(report.allSafe).toBe(false);
-    expect(report.unsafe).toHaveLength(0); // every floor is fine; the LADDER is not
-    expect(report.priceLadderProblems).toHaveLength(1);
+  it("VALID — bank lower AND card lower", () => {
+    // $2,000 -> $2,080 card; $1,800 -> x1.04 = $1,872 -> ceil $5 = $1,875.
+    // Both fall, so the tier delivers a real decrease to both kinds of customer.
+    const report = ladder(200_000n, ["1.000000", "0.900000"]);
 
-    const problem = report.priceLadderProblems[0]!;
-    expect(problem.basis).toBe("regular_card");
-    expect(problem.masterVariantId).toBe("v1");
-    expect(problem.priorTierNumber).toBe(1);
-    expect(problem.tierNumber).toBe(2);
-    expect(problem.priorPriceMinorUnits).toBe(104_000n);
-    expect(problem.priceMinorUnits).toBe(104_500n);
+    expect(report.results[0]!.groupBuyBankPaymentPriceMinorUnits).toBe(200_000n);
+    expect(report.results[0]!.groupBuyRegularCardPriceMinorUnits).toBe(208_000n);
+    expect(report.results[1]!.groupBuyBankPaymentPriceMinorUnits).toBe(180_000n);
+    expect(report.results[1]!.groupBuyRegularCardPriceMinorUnits).toBe(187_500n);
+
+    expect(report.priceLadderProblems).toHaveLength(0);
+    expect(report.allSafe).toBe(true);
   });
 
-  it("reports the exact variant, tiers and prices, not just that something failed", () => {
-    // The owner's requirement verbatim: "block publication and report the exact
-    // variant/tier/prices". A screen that says "unsafe" and nothing else leaves
-    // the operator to rediscover which tier, and by how much.
-    const detail = ladder(100_000n, ["1.000000", "0.999000"]).priceLadderProblems[0]!.detail;
-
-    expect(detail).toContain("v1");
-    expect(detail).toContain("tier 2");
-    expect(detail).toContain("$1045.00");
-    expect(detail).toContain("$1040.00");
-    expect(detail).toContain("$999.00"); // the bank price that crossed
-    expect(detail).toMatch(/crossed a Bank\/Card pricing threshold/);
-  });
-
-  it("BLOCKS a bank price that fails to fall at all", () => {
-    // Rounding can collapse a small multiplier difference to nothing, so two
-    // tiers can land on the same bank price without anyone configuring
-    // duplicates. A tier that rewards reaching a threshold with the same price
-    // is a promise not kept.
-    //
-    // $500.00 x 0.9999 = $499.95, which whole-dollar-UP returns to $500.00.
-    const report = ladder(50_000n, ["1.000000", "0.999900"]);
-
-    const bank = report.priceLadderProblems.filter((p) => p.basis === "bank_payment");
-    expect(bank).toHaveLength(1);
-    expect(bank[0]!.priorPriceMinorUnits).toBe(50_000n);
-    expect(bank[0]!.priceMinorUnits).toBe(50_000n);
-    expect(bank[0]!.detail).toMatch(/is not below tier 1/);
-  });
-
-  it("ALLOWS a card price that merely ties — the owner's rule is <=, not <", () => {
+  it("INVALID — bank lower, card EQUAL because of the $5 rounding", () => {
     // $2,000.00 -> $2,080.00 card. $1,999.00 -> x1.04 = $2,078.96 -> ceil $5 =
-    // $2,080.00. The card price is unchanged while the bank price fell.
-    //
-    // PERMITTED HERE, AND NOT ADVERTISED AS A DROP. The owner locked "next <=
-    // prior", so publication allows this. The storefront separately suppresses
-    // its "the price drops to" line when the additional saving is zero, because
-    // permitting a state is not licence to describe it falsely — see the guard
-    // in extensions/group-buy-progress and its source tests.
+    // $2,080.00. The bank price fell by a dollar and the advertised price did
+    // not move at all: the ceiling absorbed the whole tier.
     const report = ladder(200_000n, ["1.000000", "0.999500"]);
 
     expect(report.results[0]!.groupBuyRegularCardPriceMinorUnits).toBe(208_000n);
     expect(report.results[1]!.groupBuyRegularCardPriceMinorUnits).toBe(208_000n);
-    expect(report.priceLadderProblems).toHaveLength(0);
-    expect(report.allSafe).toBe(true);
+    expect(report.results[1]!.groupBuyBankPaymentPriceMinorUnits).toBeLessThan(
+      report.results[0]!.groupBuyBankPaymentPriceMinorUnits
+    );
+
+    expect(report.allSafe).toBe(false);
+    const problem = report.priceLadderProblems.find((p) => p.basis === "regular_card")!;
+    expect(problem).toBeDefined();
+    expect(problem.priorRegularCardPriceMinorUnits).toBe(problem.regularCardPriceMinorUnits);
+    expect(problem.detail).toMatch(/\$5 rounding absorbed this tier entirely/);
+  });
+
+  it("INVALID — bank lower, card HIGHER from a Bank/Card boundary crossing", () => {
+    // $1,000.00 bank -> 4.0% -> $1,040.00 card
+    //   $999.00 bank -> 4.5% -> $1,043.955 -> ceil $5 -> $1,045.00
+    // One dollar cheaper to a bank customer, five dollars DEARER to a card one.
+    const report = ladder(100_000n, ["1.000000", "0.999000"]);
+
+    expect(report.allSafe).toBe(false);
+    const problem = report.priceLadderProblems.find((p) => p.basis === "regular_card")!;
+    expect(problem.regularCardPriceMinorUnits).toBeGreaterThan(
+      problem.priorRegularCardPriceMinorUnits
+    );
+    expect(problem.detail).toMatch(/crossed a Bank\/Card pricing threshold/);
+  });
+
+  // ---------------------------------------------------------------------
+
+  it("reports variant, both tiers and ALL FOUR prices on every problem", () => {
+    // The owner's reporting requirement, itemised. Both bank prices appear on a
+    // CARD failure too: the card price is derived from them, so a boundary
+    // crossing is only legible with the pair in view.
+    const problem = ladder(100_000n, ["1.000000", "0.999000"]).priceLadderProblems.find(
+      (p) => p.basis === "regular_card"
+    )!;
+
+    expect(problem.masterVariantId).toBe("v1");
+    expect(problem.priorTierNumber).toBe(1);
+    expect(problem.tierNumber).toBe(2);
+    expect(problem.priorBankPaymentPriceMinorUnits).toBe(100_000n);
+    expect(problem.bankPaymentPriceMinorUnits).toBe(99_900n);
+    expect(problem.priorRegularCardPriceMinorUnits).toBe(104_000n);
+    expect(problem.regularCardPriceMinorUnits).toBe(104_500n);
+
+    // And all four are in the human-readable line, not only the structured fields.
+    for (const money of ["$1000.00", "$999.00", "$1040.00", "$1045.00"]) {
+      expect(problem.detail, `detail must quote ${money}`).toContain(money);
+    }
+    expect(problem.detail).toContain("v1");
+    expect(problem.detail).toContain("tier 1 -> tier 2");
+  });
+
+  it("distinguishes a TIE from a RISE, because the fixes differ", () => {
+    // A tie wants a deeper multiplier; a rise may want the tier moved to one
+    // side of the band boundary. An operator told only "the card price did not
+    // fall" would have to work out which.
+    const tie = ladder(200_000n, ["1.000000", "0.999500"]).priceLadderProblems.find(
+      (p) => p.basis === "regular_card"
+    )!;
+    const rise = ladder(100_000n, ["1.000000", "0.999000"]).priceLadderProblems.find(
+      (p) => p.basis === "regular_card"
+    )!;
+
+    expect(tie.detail).toMatch(/does not fall/);
+    expect(tie.detail).not.toMatch(/RISES/);
+    expect(rise.detail).toMatch(/RISES/);
+  });
+
+  it("BLOCKS a bank price that fails to fall at all", () => {
+    // $500.00 x 0.9999 = $499.95, which whole-dollar-UP returns to $500.00.
+    // Rounding can collapse a shallow tier to nothing without anyone
+    // configuring two identical ones.
+    const report = ladder(50_000n, ["1.000000", "0.999900"]);
+
+    const bank = report.priceLadderProblems.filter((p) => p.basis === "bank_payment");
+    expect(bank).toHaveLength(1);
+    expect(bank[0]!.priorBankPaymentPriceMinorUnits).toBe(50_000n);
+    expect(bank[0]!.bankPaymentPriceMinorUnits).toBe(50_000n);
+    expect(bank[0]!.detail).toMatch(/Bank Payment Price does not fall/);
   });
 
   it("passes the ordinary campaign shapes untouched", () => {
@@ -440,8 +482,14 @@ describe("the price ladder must only ever fall", () => {
     const report = evaluateTierSafety({
       variants: [
         {
+          // $10,000 base. A 0.1% tier is $10 here, twice the $5 increment, so
+          // the card price genuinely moves: $10,300 -> $10,290, both in the 3%
+          // band. Chosen deliberately — on a $2,387 base the same multiplier is
+          // worth $2.39, the ceiling swallows it, and the STRICT rule rejects
+          // it. Whether a shallow tier survives depends on the variant's price,
+          // which is the whole reason this is checked per variant.
           masterVariantId: "safe-variant",
-          frozenBaseBankPaymentMinorUnits: 238_700n,
+          frozenBaseBankPaymentMinorUnits: 1_000_000n,
           landedCostMinorUnits: new MoneyDecimal("1000"),
         },
         {
@@ -465,8 +513,9 @@ describe("the price ladder must only ever fall", () => {
       currency: "USD",
     });
 
-    expect(report.priceLadderProblems).toHaveLength(1);
-    expect(report.priceLadderProblems[0]!.masterVariantId).toBe("crosses-a-threshold");
+    const variants = new Set(report.priceLadderProblems.map((p) => p.masterVariantId));
+    expect(variants.has("crosses-a-threshold")).toBe(true);
+    expect(variants.has("safe-variant")).toBe(false);
   });
 
   it("is INDEPENDENT of the floors — a ladder fault with every floor cleared", () => {
@@ -508,5 +557,16 @@ describe("the price ladder must only ever fall", () => {
 
     expect(legacy.priceLadderProblems).toHaveLength(0);
     expect(legacy.allSafe).toBe(true);
+  });
+
+  it("uses NO minimum percentage gap between multipliers", () => {
+    // Explicitly not the rule the owner rejected. A 0.2% tier is fine on a base
+    // where it clears the ceiling, and a 0.2% tier is rejected on a base where
+    // it does not — the difference is the resulting price, not the multiplier.
+    const wideBase = ladder(1_000_000n, ["1.000000", "0.998000"]); // $10,000 -> $9,980
+    const narrowBase = ladder(20_000n, ["1.000000", "0.998000"]); //    $200 -> $200
+
+    expect(wideBase.priceLadderProblems).toHaveLength(0);
+    expect(narrowBase.priceLadderProblems.length).toBeGreaterThan(0);
   });
 });

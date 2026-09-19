@@ -95,9 +95,21 @@ export interface PriceLadderProblem {
   masterVariantId: string;
   priorTierNumber: number;
   tierNumber: number;
+  /** Which of the two prices failed to fall. */
   basis: "bank_payment" | "regular_card";
-  priorPriceMinorUnits: bigint;
-  priceMinorUnits: bigint;
+  /**
+   * BOTH prices on BOTH tiers, on every problem, whichever basis failed.
+   *
+   * An operator fixing a card-price failure needs the bank prices to see why —
+   * the card price is derived from them, and a boundary crossing is only
+   * visible in the pair. Reporting just the failing basis would send them to
+   * look the other two up, which is the sort of omission that turns a two-minute
+   * fix into a support thread.
+   */
+  priorBankPaymentPriceMinorUnits: bigint;
+  bankPaymentPriceMinorUnits: bigint;
+  priorRegularCardPriceMinorUnits: bigint;
+  regularCardPriceMinorUnits: bigint;
   detail: string;
 }
 
@@ -218,27 +230,29 @@ export function evaluateTierSafety(input: {
  *
  * Both directions are checked, and they are different rules:
  *
- *   BANK must fall STRICTLY. Two tiers at the same bank price is a campaign
- *   promising a reward for reaching a threshold and then not delivering one.
- *   Rounding can collapse a small multiplier difference to nothing, so this is
- *   reachable without anyone configuring two identical tiers.
+ * BOTH MUST FALL STRICTLY (owner decision, 2026-09-19). The rule was `<=` on
+ * the card price for one day; the owner tightened it to `<` on reading what
+ * `<=` admits:
  *
- *   CARD must be NON-INCREASING. Equal is tolerated, because that is the rule
- *   as the owner locked it ("next tier Regular/Card Price must be <= the prior
- *   tier"), and because the $5 ceiling makes ties ordinary: a lower Bank
- *   Payment Price can round to the same card price. An INCREASE is blocked.
+ *   "A newly unlocked tier must produce a real decrease in the primary
+ *    customer-facing Regular/Card Price."
  *
- * A TIE IS PERMITTED HERE AND MUST NOT BE ADVERTISED AS A DROP. Publication
- * allowing something is not the storefront being free to describe it however it
- * likes: at a tie the block would otherwise render "N more and the price drops
- * to $2,080.00" beneath a Group Buy Price of $2,080.00 — every figure correct,
- * the sentence false. The block therefore gates that line on a strictly
- * positive additional saving. The tier is still genuine for a bank-paying
- * customer, whose price does fall, and its marker still appears in the track.
+ * A tie is therefore rejected, not merely left undisplayed. Reaching a
+ * threshold and seeing the advertised price not move is a promise the campaign
+ * made and did not keep, and the $5 ceiling makes that reachable without anyone
+ * configuring two identical tiers — a tier shallow enough gets absorbed whole.
  *
- * If the owner would rather forbid ties outright, this comparison becomes `>=`
- * and the display guard becomes redundant — a one-word change here, and a
- * tightening of their stated rule, so it is theirs to make rather than ours.
+ * There is deliberately NO minimum percentage gap between tiers. A gap would be
+ * a rule about multipliers standing in for a fact about prices, and it would be
+ * both too strict (rejecting wide tiers that happen to be fine) and too loose
+ * (passing narrow ones that are not). The resulting prices are what get
+ * checked, per variant, because they are what a customer sees.
+ *
+ * The storefront ALSO gates its "the price drops to" line on a strictly
+ * positive saving. That is now belt and braces rather than the primary defence
+ * — publication can no longer produce a tie — but it is kept, because campaigns
+ * opened before this decision were validated under the looser rule and their
+ * tiers are frozen.
  */
 function findPriceLadderProblems(
   results: readonly TierSafetyResult[],
@@ -257,36 +271,52 @@ function findPriceLadderProblems(
       );
       if (!previous || !current) continue;
 
+      // Both prices on both tiers go on every problem, whichever failed.
+      const prices = {
+        priorBankPaymentPriceMinorUnits: previous.groupBuyBankPaymentPriceMinorUnits,
+        bankPaymentPriceMinorUnits: current.groupBuyBankPaymentPriceMinorUnits,
+        priorRegularCardPriceMinorUnits: previous.groupBuyRegularCardPriceMinorUnits,
+        regularCardPriceMinorUnits: current.groupBuyRegularCardPriceMinorUnits,
+      };
+      const where =
+        `variant ${masterVariantId}, tier ${previous.tierNumber} -> tier ${current.tierNumber}: ` +
+        `Bank Payment ${asMoney(prices.priorBankPaymentPriceMinorUnits)} -> ` +
+        `${asMoney(prices.bankPaymentPriceMinorUnits)}, ` +
+        `Regular/Card ${asMoney(prices.priorRegularCardPriceMinorUnits)} -> ` +
+        `${asMoney(prices.regularCardPriceMinorUnits)}`;
+
       if (current.groupBuyBankPaymentPriceMinorUnits >= previous.groupBuyBankPaymentPriceMinorUnits) {
         problems.push({
           masterVariantId,
           priorTierNumber: previous.tierNumber,
           tierNumber: current.tierNumber,
           basis: "bank_payment",
-          priorPriceMinorUnits: previous.groupBuyBankPaymentPriceMinorUnits,
-          priceMinorUnits: current.groupBuyBankPaymentPriceMinorUnits,
-          detail:
-            `variant ${masterVariantId} tier ${current.tierNumber} Bank Payment Price ` +
-            `${asMoney(current.groupBuyBankPaymentPriceMinorUnits)} is not below tier ` +
-            `${previous.tierNumber} (${asMoney(previous.groupBuyBankPaymentPriceMinorUnits)})`,
+          ...prices,
+          detail: `${where} — the Bank Payment Price does not fall`,
         });
       }
 
-      if (current.groupBuyRegularCardPriceMinorUnits > previous.groupBuyRegularCardPriceMinorUnits) {
+      if (current.groupBuyRegularCardPriceMinorUnits >= previous.groupBuyRegularCardPriceMinorUnits) {
+        // Equal counts as a failure, and the message says which of the two
+        // shapes it is, because the fixes differ: a TIE is the $5 ceiling
+        // swallowing a tier that is too shallow to survive it, and wants a
+        // deeper multiplier; a RISE is the bank price crossing a Bank/Card band
+        // boundary, and may need the tier moved to either side of it.
+        const tied =
+          current.groupBuyRegularCardPriceMinorUnits ===
+          previous.groupBuyRegularCardPriceMinorUnits;
+
         problems.push({
           masterVariantId,
           priorTierNumber: previous.tierNumber,
           tierNumber: current.tierNumber,
           basis: "regular_card",
-          priorPriceMinorUnits: previous.groupBuyRegularCardPriceMinorUnits,
-          priceMinorUnits: current.groupBuyRegularCardPriceMinorUnits,
-          detail:
-            `variant ${masterVariantId} tier ${current.tierNumber} Regular/Card Price ` +
-            `${asMoney(current.groupBuyRegularCardPriceMinorUnits)} RISES above tier ` +
-            `${previous.tierNumber} (${asMoney(previous.groupBuyRegularCardPriceMinorUnits)}) — ` +
-            `the Bank Payment Price crossed a Bank/Card pricing threshold ` +
-            `(${asMoney(previous.groupBuyBankPaymentPriceMinorUnits)} -> ` +
-            `${asMoney(current.groupBuyBankPaymentPriceMinorUnits)})`,
+          ...prices,
+          detail: tied
+            ? `${where} — the Regular/Card Price does not fall: the $5 rounding absorbed ` +
+              `this tier entirely, so a customer paying by card sees no change at all`
+            : `${where} — the Regular/Card Price RISES: the Bank Payment Price crossed a ` +
+              `Bank/Card pricing threshold into a lower uplift band`,
         });
       }
     }
