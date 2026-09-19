@@ -6,7 +6,7 @@
 Author: Principal Architect / Tech Lead. Date: 2026-09-15.
 **Amended 2026-09-16** against owner constraints issued the same day: added **§4.0** (the six-layer separation), **§4.7** (extension seams for automated metal-price feeds and supplier-specific overrides), **§5.0** (function-level decomposition, anti-monolith rule) and acceptance criteria **34–37**. The amendment makes explicit what the spec already required in substance; it changes no business rule, no existing criterion 1–33, and not the approval below.
 
-**OWNER AMENDMENT 2026-09-18 — CASH-FIRST PRICING.** `docs/CASH-CARD-PRICING.md` now controls D9 and supersedes any earlier language in this spec that treats card-processing expense as part of the cash price solve or cash floor predicate. Markup, 20% gross-margin floor, $100 minimum-profit floor, Group Buy tiers/freeze/refunds, overrides, and recalculation operate on the authoritative cash price. Cash-equivalent methods are ACH, wire, Zelle, and check. The card price is derived only after cash is final at the versioned/configurable +5% MVP1 uplift and is the primary customer-facing/Shopify price; cash is shown as the discounted cash-equivalent price. Payment-processing assumptions may be retained as data for analytics/future rules but do not reduce current cash margin/profit floors. Implementation branch: `slice-1-pricing` (owner directive — slice 1 is not developed on `main`).
+**OWNER AMENDMENT 2026-09-18 — BANK PAYMENT VS CARD PRICING.** `docs/BANK-CARD-PRICING.md` supersedes `docs/CASH-CARD-PRICING.md` for new behavior. The existing pricing engine's calculated selling price is now named the **Bank Payment Price** in customer-facing/business language and must remain unchanged by this feature. A new versioned rule derives the Regular/Card Price from the Bank Payment Price using the locked tiers (<$500 +5.0%; $500–$999.99 +4.5%; $1,000–$2,499.99 +4.0%; $2,500–$4,999.99 +3.5%; $5,000+ +3.0%) and then rounds only the Regular/Card Price UP to the next $5 increment. The final rounded Regular/Card Price is primary on storefront/Shopify; Bank Payment Price and exact dollar savings are shown alongside it. Internal percentages are never displayed. Historical fixed-5% rule ids remain immutable and reproducible. Implementation branch: `slice-1-pricing`.
 Controlling architecture: `docs/ARCHITECTURE-MVP1.md` (owner-approved 2026-09-13; D13 amendment 2026-09-15).
 Depends on: Slice 0 (`docs/specs/SLICE-0-FOUNDATION.md`), merged to `main` at `50ff90d`.
 Owner (implementation): **Backend & Pricing Engineer (`sonnet`)** with **Test Engineer (`haiku`)**.
@@ -18,15 +18,21 @@ Two owner decisions are requested in §13. **Neither blocks writing code** — b
 
 ### 2026-09-18 implementation reconciliation required
 
-The owner amendment above changes a live implementation assumption, not just wording. Before Slice 1/Group Buy pricing is accepted, reconcile the following runtime surfaces with `docs/CASH-CARD-PRICING.md` and add/adjust tests:
+The latest owner amendment changes both terminology and the actual card-price derivation. Before Slice 1/Group Buy pricing is accepted, reconcile these runtime surfaces with `docs/BANK-CARD-PRICING.md` and add/adjust tests:
 
-- `app/domain/pricing/cost.ts` / `engine.ts`: card `payment_processing` components must not enter the authoritative cash solve or cash floor predicate;
-- `app/jobs/groupbuy/openCampaign.server.ts` / `tierSafety.ts`: Group Buy safety must evaluate cash tier prices without card-processing deductions;
-- `app/domain/groupbuy/campaignProgress.ts` and the App Proxy DTO: expose explicit cash and card prices so storefront code cannot confuse them;
-- `extensions/group-buy-progress`: primary displayed Group Buy/Buy Now comparisons must be card-vs-card, with the discounted Group Buy cash price shown separately;
-- dev fixture `dev-group-buy-campaign.ts`: the current 7% tier is historical test data only and must not be treated as the maximum safe discount. A 10% cash tier is compatible with the 20% margin floor before the separate $100/variant floors.
+- preserve the existing historical fixed-5% rule id exactly as-is for reproducibility;
+- add a NEW versioned card-pricing rule (recommended id `BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1`) rather than changing the old rule's behavior;
+- derive the tier from Bank Payment Price only, including exact boundary tests at $499.99/$500, $999.99/$1,000, $2,499.99/$2,500, and $4,999.99/$5,000;
+- apply 5.0% / 4.5% / 4.0% / 3.5% / 3.0% respectively and enforce the 3% minimum;
+- round ONLY the Regular/Card Price up to the next $5; if already a multiple of $5, leave it unchanged;
+- never alter the Bank Payment Price because of this feature;
+- compute customer-facing savings only after card-price rounding: final card price minus Bank Payment Price;
+- update storefront/App Proxy DTOs and Group Buy UI to use **Bank Payment Price** terminology and never customer-facing "cash" wording;
+- Group Buy comparison remains like-for-like by payment basis; refund ledger stays payment-basis aware;
+- update Shopify sync boundaries so the published price is the final rounded Regular/Card Price;
+- verify product page, cart, and checkout can actually apply Bank Payment Price when an eligible bank/manual method is selected; do not simulate this only in display code if Shopify cannot support the payable-amount switch.
 
-This reconciliation is a release gate. Do not claim the cash/card policy is fully implemented merely because the documentation and card-price derivation exist.
+This reconciliation is a release gate. Do not claim the new Bank-vs-Card policy is implemented until the code and tests reflect the tiered rule and $5 card rounding.
 
 ## 1. Outcome
 
@@ -217,27 +223,31 @@ If any cost component required by a master variant's cost recipe has **no applic
 
 A row that exists with value `0` is a legitimate, auditable statement that the cost is zero. This distinction is the difference between "we decided this is free" and "we silently under-priced the product".
 
-### 4.6 D9 — authoritative cash price and derived card display price
+### 4.6 D9 — Bank Payment Price and tiered Regular/Card Price
 
-D9 is **RESOLVED and clarified 2026-09-18** by `docs/CASH-CARD-PRICING.md`.
+D9 is **RESOLVED and superseded 2026-09-18** by `docs/BANK-CARD-PRICING.md`.
 
-The pricing engine's authoritative result is the **cash-equivalent price**. Current cash-equivalent methods are ACH, wire, Zelle, and check. The 40% target markup, 20% gross-margin floor, $100 minimum-profit floor, variant floors, manual overrides, Group Buy tier multipliers, Group Buy freeze/refund economics, and recalculation decisions all bind the cash price.
+The pricing engine's already-calculated selling price is the **Bank Payment Price**. The Bank-vs-Card feature must not discount it, increase it, or round it.
 
-After the final cash price has been rounded/ended and clears its floors, derive the credit-card price:
+A new versioned pricing rule derives the Regular/Card Price:
 
-```
-credit_card_price = cash_price × (1 + card_uplift_rate)
-MVP1 card_uplift_rate = 0.05
-```
+1. choose the tier using Bank Payment Price only;
+2. multiply Bank Payment Price by 1 + the tier percentage;
+3. round the preliminary Regular/Card Price UP to the next $5 increment;
+4. if the preliminary price is already an exact multiple of $5, leave it there;
+5. calculate customer savings as final rounded Regular/Card Price − Bank Payment Price.
 
-The card uplift/rule is configurable and versioned. Card price is the primary price displayed to the customer and the price published to Shopify; cash is shown as the discounted cash-equivalent price. Never advertise a fixed "5% cash discount" because a 5% uplift is not the same percentage when measured down from the displayed card price.
+Locked tiers:
 
-**Payment-processing cost is not a cash-margin input.** Legacy `payment_processing` rows may exist for analytics/future policy, but the cash solve and floor evaluation must exclude them. Do not create a weighted payment-method blend and do not subtract card fees from cash margin/profit unless a later owner decision explicitly changes the controlling policy.
+- under $500 → +5.0%
+- $500–$999.99 → +4.5%
+- $1,000–$2,499.99 → +4.0%
+- $2,500–$4,999.99 → +3.5%
+- $5,000+ → +3.0%
 
-For Group Buy, tier multipliers apply to the frozen **cash** base price. Validate the resulting Group Buy cash price against cash floors, then derive the Group Buy card price. Customer-facing comparison must be like-for-like: card vs card for headline savings, cash vs cash for cash-specific savings.
+The percentage is internal only and is never customer-facing. Storefront wording uses **Bank Payment Price**, not cash/cash-equivalent terminology.
 
-A 10% Group Buy cash tier on a 40%-markup target is not inherently unsafe:
-`1.40 × 0.90 = 1.26`, giving a cash gross margin of approximately **20.6349%**, subject separately to the $100 minimum-profit and variant floors.
+The old fixed-5% card-price rule remains frozen under its historical rule id for reproducibility. New calculations use a new versioned rule; recommended id: `BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1`.
 
 ### 4.7 Extension seams — feeds and supplier overrides must not rewrite the engine
 
@@ -768,7 +778,7 @@ To be folded into `docs/specs/SLICE-0-FINDINGS.md` as new register entries when 
 
 ### Already-open decisions this slice is specified around
 
-**D9 — RESOLVED / CASH-FIRST.** See §4.6 and `docs/CASH-CARD-PRICING.md`. Do not build a payment-method-mix model. Cash methods are ACH, wire, Zelle, and check; derive card display price afterward at the versioned +5% MVP1 uplift.
+**D9 — RESOLVED / SUPERSEDED BY BANK PAYMENT PRICING.** See `docs/BANK-CARD-PRICING.md`. The existing calculated selling price is the Bank Payment Price. New card pricing uses the locked tier schedule and $5 upward rounding. Do not mutate the existing fixed-5% rule id; add a new versioned rule. Eligible bank methods are Zelle, bank transfer, designated ACH, wire, and future explicitly approved bank/manual methods.
 
 **D2 — automated metal-price feed (resolved as staff-entered).** Seamed per §4.7 Seam A. Does not block.
 
