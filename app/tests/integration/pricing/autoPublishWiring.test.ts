@@ -189,14 +189,18 @@ describe("criterion 8 — auto-publish OFF (the default) leaves an auto_apply de
     const variant = await priceableVariant();
 
     // First run establishes a real computed price.
-    await runPriceRecalculation({ asOf: ASOF, runId: randomUUID() });
+    await runPriceRecalculation({ asOf: ASOF, runId: randomUUID(), variantIds: [variant.id] });
     await anchorOnePercentBelow(variant.id, profile.id, profile.version);
 
     const port = new FakePort();
     // autoPublishEnabled deliberately omitted — must default to reading
     // PRICE_AUTO_PUBLISH_ENABLED from the environment, which is unset in
     // this test run (see app/.env), i.e. OFF.
-    await runPriceRecalculation({ asOf: ASOF, runId: randomUUID(), syncPort: port });
+    // variantIds scopes the run to this test's own fixture (headroom fix,
+    // spec §16.8) — every assertion below was already filtered to this
+    // variant's shopifyVariantGid, so scoping changes nothing this test
+    // proves, only how much of the shared catalogue it has to walk to prove it.
+    await runPriceRecalculation({ asOf: ASOF, runId: randomUUID(), syncPort: port, variantIds: [variant.id] });
 
     expect(port.callsFor(variant.shopifyVariantGid!)).toHaveLength(0);
 
@@ -212,7 +216,7 @@ describe("criterion 8 — auto-publish OFF (the default) leaves an auto_apply de
     const profile = await realisticProfile();
     const variant = await priceableVariant();
 
-    await runPriceRecalculation({ asOf: ASOF, runId: randomUUID() });
+    await runPriceRecalculation({ asOf: ASOF, runId: randomUUID(), variantIds: [variant.id] });
     await anchorOnePercentBelow(variant.id, profile.id, profile.version);
 
     const port = new FakePort();
@@ -221,6 +225,7 @@ describe("criterion 8 — auto-publish OFF (the default) leaves an auto_apply de
       runId: randomUUID(),
       syncPort: port,
       autoPublishEnabled: false,
+      variantIds: [variant.id],
     });
 
     expect(port.callsFor(variant.shopifyVariantGid!)).toHaveLength(0);
@@ -232,7 +237,7 @@ describe("criterion 9 — auto-publish ON reaches the port for an auto_apply, ch
     const profile = await realisticProfile();
     const variant = await priceableVariant();
 
-    await runPriceRecalculation({ asOf: ASOF, runId: randomUUID() });
+    await runPriceRecalculation({ asOf: ASOF, runId: randomUUID(), variantIds: [variant.id] });
     await anchorOnePercentBelow(variant.id, profile.id, profile.version);
 
     const port = new FakePort();
@@ -241,6 +246,7 @@ describe("criterion 9 — auto-publish ON reaches the port for an auto_apply, ch
       runId: randomUUID(),
       syncPort: port,
       autoPublishEnabled: true,
+      variantIds: [variant.id],
     });
 
     expect(port.callsFor(variant.shopifyVariantGid!)).toHaveLength(1);
@@ -262,7 +268,7 @@ describe("criterion 9 — auto-publish ON reaches the port for an auto_apply, ch
     await realisticProfile();
     const variant = await priceableVariant();
 
-    await runPriceRecalculation({ asOf: ASOF, runId: randomUUID() });
+    await runPriceRecalculation({ asOf: ASOF, runId: randomUUID(), variantIds: [variant.id] });
     const computed = await prisma.priceCalculation.findFirstOrThrow({
       where: { masterVariantId: variant.id, status: "computed" },
       orderBy: { createdAt: "desc" },
@@ -278,6 +284,7 @@ describe("criterion 9 — auto-publish ON reaches the port for an auto_apply, ch
       runId: randomUUID(),
       syncPort: port,
       autoPublishEnabled: true,
+      variantIds: [variant.id],
     });
 
     expect(port.callsFor(variant.shopifyVariantGid!)).toHaveLength(0);
@@ -300,7 +307,13 @@ describe("criterion 9 — auto-publish ON reaches the port for an auto_apply, ch
     const variant = await priceableVariant();
 
     const port = new FakePort();
-    await runPriceRecalculation({ asOf: ASOF, runId: randomUUID(), syncPort: port, autoPublishEnabled: true });
+    await runPriceRecalculation({
+      asOf: ASOF,
+      runId: randomUUID(),
+      syncPort: port,
+      autoPublishEnabled: true,
+      variantIds: [variant.id],
+    });
 
     expect(port.callsFor(variant.shopifyVariantGid!)).toHaveLength(0);
     const intent = await prisma.priceSyncIntent.findFirst({
@@ -317,7 +330,10 @@ describe("a sync failure during auto-publish fails only that variant's publish, 
     const profile = await realisticProfile();
     const variant = await priceableVariant();
 
-    await runPriceRecalculation({ asOf: ASOF, runId: randomUUID() });
+    // Setup call — establishes this test's own fixture's real computed price.
+    // Scoped for speed (headroom fix, spec §16.8); this step does not depend
+    // on any other variant.
+    await runPriceRecalculation({ asOf: ASOF, runId: randomUUID(), variantIds: [variant.id] });
     await anchorOnePercentBelow(variant.id, profile.id, profile.version);
 
     class ThrowingForThisVariantPort implements ShopifyPriceSyncPort {
@@ -329,6 +345,11 @@ describe("a sync failure during auto-publish fails only that variant's publish, 
       }
     }
 
+    // DELIBERATELY UNSCOPED. Unlike every other call in this file, this run's
+    // own comment below ("for every variant, including this one") is about
+    // OTHER variants in the same run staying unaffected by this one's sync
+    // failure — scoping to a single variant would remove the thing this
+    // specific assertion is about, not just speed it up.
     const summary = await runPriceRecalculation({
       asOf: ASOF,
       runId: randomUUID(),

@@ -4,12 +4,17 @@ import type { PriceRecalculationTrigger } from "@prisma/client";
 
 import { prisma } from "~/db/client.server";
 import {
+  recordCalculationFailure,
+  recordCalculationSuccess,
+} from "~/db/repositories/priceCalculationFailureRepository.server";
+import {
   createPriceCalculation,
   findCalculationForRun,
   findSnapshotByContentHash,
   getLastSyncedCalculation,
 } from "~/db/repositories/priceCalculationRepository.server";
 import { supersedeAndCreateIntent } from "~/db/repositories/priceSyncIntentRepository.server";
+import { expireOverrideIfMaterial } from "~/db/repositories/priceOverrideExpiryRepository.server";
 import { resolveActivePricingProfile } from "~/db/repositories/pricingProfileRepository.server";
 import { hashCanonicalJson } from "~/domain/evidence/hash";
 import type { JsonValue } from "~/domain/evidence";
@@ -90,6 +95,31 @@ export interface RunOptions {
    * without mutating process.env.
    */
   autoPublishEnabled?: boolean;
+  /**
+   * SCOPED RUN (owner §16 / spec criterion 17's eventual caller; §16.8's
+   * headroom finding). When supplied, the run processes exactly these
+   * `active` master_variant ids instead of scanning the whole catalogue —
+   * everything else about the run (campaign exclusion, the Luxury Steal skip,
+   * decideSync, intent creation, auto-publish) is IDENTICAL to an unscoped
+   * run; only the initial variant selection narrows.
+   *
+   * THIS IS A REAL PRODUCTION SHAPE, not a test convenience. Owner §16 says a
+   * material input change triggers immediate recalculation "of affected
+   * variants" — not a full-catalogue re-scan every time one metal price or
+   * one cost component changes. Nothing yet CALLS this with a real "which
+   * variants does this input affect" answer (that resolver — e.g. metal +
+   * purity -> variants, cost-component-type -> variants — does not exist yet
+   * and is separate work); this option is the seam such a caller needs, built
+   * now because `pricingInputChangeRepository.server.ts`'s bulk-approval
+   * grouping (criterion 11) already assumes a recalculation run can be scoped
+   * to what one input change affects.
+   *
+   * OMITTED (the default): scans every `active` variant, exactly as before.
+   * This is what D15's daily scheduled run always does — the daily full scan
+   * is not this option's job to replace, and nothing here changes what price
+   * comes out of either path for the variants it processes.
+   */
+  variantIds?: readonly string[];
 }
 
 /**
@@ -109,6 +139,19 @@ function isUniqueViolation(error: unknown): boolean {
     "code" in error &&
     (error as { code?: unknown }).code === "P2002"
   );
+}
+
+/**
+ * Owner §7 recovery step 5's attribution string for
+ * `recordCalculationSuccess` — REQUIRED there (unlike the sync-failure
+ * equivalent), because a calculation can be corrected by either the routine
+ * scheduler or a deliberate staff action and owner §7 requires telling those
+ * apart. Carries the trigger KIND as well as the actor, which is strictly
+ * more than the doc comment's own illustrative `"staff:alex"` example, so a
+ * `metal_price_entry` recovery is not misrecorded as an anonymous `"staff"` one.
+ */
+function calculationRecoveryTrigger(trigger: PriceRecalculationTrigger, triggeredBy?: string): string {
+  return trigger === "scheduled" ? "scheduled" : `${trigger}:${triggeredBy}`;
 }
 
 export class MissingTriggerActorError extends Error {
@@ -173,10 +216,18 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
     asOf: asOf.toISOString(),
     trigger,
     triggeredBy: options.triggeredBy ?? null,
+    scoped: options.variantIds !== undefined,
   });
 
+  // SCOPED vs FULL SCAN. See the RunOptions.variantIds doc comment — omitted
+  // (the overwhelmingly common, and D15's only, case today) scans every
+  // active variant exactly as this always has; supplied, it scans only those
+  // ids. No other line in this function branches on which path was taken.
   const variants = await prisma.masterVariant.findMany({
-    where: { status: "active" },
+    where:
+      options.variantIds !== undefined
+        ? { status: "active", id: { in: [...options.variantIds] } }
+        : { status: "active" },
     include: { masterProduct: true },
   });
 
@@ -311,6 +362,45 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
         status: "computed",
       });
 
+      // OVERRIDE EXPIRY (owner §2.4/§17; spec criteria 15/16). Judges the
+      // override in force for THIS variant, if any, against the calculation
+      // just computed — a no-op when there is none, when it cannot be judged,
+      // when `neverExpire` is set, or when the new price is IMMATERIAL (the
+      // owner-confirmed definition: identical to the price the override
+      // departed from). A daily no-change run therefore retires nothing.
+      // Its own try/catch: a bug in this bookkeeping must not retroactively
+      // turn an otherwise-successful calculation into a "failed" one below.
+      try {
+        await expireOverrideIfMaterial({
+          masterVariantId: variant.id,
+          newPriceCalculationId: calculation.id,
+        });
+      } catch (expiryError) {
+        logger.error("pricing.override_expiry_record_failed", {
+          runId,
+          masterVariantId: variant.id,
+          error: expiryError instanceof Error ? expiryError.name : "UnknownError",
+        });
+      }
+
+      // CALCULATION-FAILURE RECOVERY (owner §7). A genuinely successful
+      // calculation resolves any OPEN calculation-failure episode for this
+      // variant, restoring availability with no separate human action —
+      // `recordCalculationSuccess` is a cheap no-op when nothing is open.
+      // Same isolation reasoning as the override-expiry call above.
+      try {
+        await recordCalculationSuccess({
+          masterVariantId: variant.id,
+          trigger: calculationRecoveryTrigger(trigger, options.triggeredBy),
+        });
+      } catch (recoveryError) {
+        logger.error("pricing.calculation_recovery_record_failed", {
+          runId,
+          masterVariantId: variant.id,
+          error: recoveryError instanceof Error ? recoveryError.name : "UnknownError",
+        });
+      }
+
       // Resolved through the compare-and-set anchor, which names the specific
       // calculation that was synced — never "the latest computed", which after
       // the write above is this run's own row. Reading that made every price
@@ -414,6 +504,39 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
         // log to keep cost structure unlogged (criterion 30).
         error: errorName,
       });
+
+      // CALCULATION-FAILURE STATE MACHINE (owner §7). Opens a new episode or
+      // accumulates onto the open one; the full message (not logged, per
+      // criterion 30) is stored on this access-controlled row, distinct from
+      // the name-only log line above. Its own try/catch: this bookkeeping
+      // must never turn a single failed variant into an aborted run.
+      try {
+        const failure = await recordCalculationFailure({
+          masterVariantId: variant.id,
+          errorName,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        // Owner §7 "notify the admin immediately" — fired exactly once, only
+        // on the attempt that OPENS a new episode, never on a retry of an
+        // already-open one. No email/persistent-admin-alert delivery channel
+        // exists yet anywhere in this codebase (checked); this distinctly
+        // -named, durable log event is the notification until one is built —
+        // it must not be reported as an email having been sent, because none
+        // was.
+        if (failure.newEpisode) {
+          logger.error("pricing.calculation_failure_opened", {
+            runId,
+            masterVariantId: variant.id,
+            failureType: failure.failureType,
+          });
+        }
+      } catch (recordError) {
+        logger.error("pricing.calculation_failure_record_failed", {
+          runId,
+          masterVariantId: variant.id,
+          error: recordError instanceof Error ? recordError.name : "UnknownError",
+        });
+      }
 
       // Write the DURABLE failure record §4.5 and criterion 15 require.
       //

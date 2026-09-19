@@ -17,6 +17,16 @@
  * `--actor` is mandatory on approve, reject and override. There is no anonymous
  * approval: an unattributable sign-off on a price change is not a sign-off.
  *
+ * `approve` PUBLISHES (spec §16.8 criterion 59). Approving used to only record
+ * a decision and reach nobody — the same path every >2% price change takes,
+ * since only a human approval clears that bar. This now calls
+ * `decideAndSyncIntent`, which runs `decideIntent` and then the exact same
+ * `syncApprovedPriceSyncIntent` function the auto-apply job path calls, so
+ * this CLI and auto-apply cannot publish two different things for the same
+ * calculation. See `app/jobs/pricing/decideAndSyncIntent.server.ts`. This is
+ * additive wiring of an existing gap, not new CLI surface — the "do not build
+ * features onto it" note below still applies to everything else.
+ *
  * `override` is D14's manual owner override. Run WITHOUT --confirm-breach it
  * previews: it prints what floors the price would breach and writes nothing.
  * That is the default on purpose — the warning has to be seen before it can be
@@ -31,6 +41,7 @@ import "dotenv/config";
 
 import { prisma } from "~/db/client.server";
 import { MoneyDecimal } from "~/domain/money/decimal";
+import { decideAndSyncIntent } from "~/jobs/pricing/decideAndSyncIntent.server";
 import { decideIntent } from "~/jobs/pricing/intentTransitions.server";
 import {
   applyPriceOverride,
@@ -116,8 +127,73 @@ async function decide(status: "approved" | "rejected"): Promise<void> {
   // guard and the audit event all live in decideIntent. This CLI previously
   // carried its own inline transaction holding only some of them, which is how
   // a second approve path came to exist without the guard.
-  await decideIntent({ intentId, status, actor: actor ?? "", reason });
-  console.log(`intent ${intentId} ${status} by ${actor}.`);
+  if (status === "rejected") {
+    // A rejection never publishes — nothing to wire to Shopify, and no reason
+    // to require Shopify configuration just to clear a bad intent.
+    await decideIntent({ intentId, status, actor: actor ?? "", reason });
+    console.log(`intent ${intentId} rejected by ${actor}.`);
+    return;
+  }
+
+  // Dynamic import, same reasoning as productionPriceSyncPort.server.ts's own
+  // header and app/routes/internal.jobs.price-recalculation.tsx's wiring:
+  // importing ~/shopify.server at module scope would require Shopify OAuth
+  // configuration just to run `list`, `reject`, `verify`, `override` or
+  // `revoke` — none of which touch Shopify at all.
+  const { createProductionPriceSyncPort } = await import(
+    "~/shopify/admin/productionPriceSyncPort.server"
+  );
+  const port = await createProductionPriceSyncPort();
+
+  // THE SAME FUNCTION auto-apply uses to publish (criterion 59). An approval
+  // that stops at decideIntent records a decision and reaches nobody — the
+  // exact path every >2% change takes, since only a human clears that bar.
+  const result = await decideAndSyncIntent({ intentId, status, actor: actor ?? "", reason }, { port });
+
+  if (result.syncError) {
+    // The approval IS real and recorded — decideIntent already committed it.
+    // What failed is publishing it. Said plainly, because a bare "approved"
+    // here would be the same false claim of success this fix exists to close.
+    console.log(`intent ${intentId} approved by ${actor}.`);
+    console.log(`PUBLISHING TO SHOPIFY FAILED: ${result.syncError.message}`);
+    console.log(
+      "The intent is left mid-publish (status: syncing) for the sync-failure/retry " +
+        "path to pick up. It is NOT live on Shopify at the new price."
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  switch (result.sync?.kind) {
+    case "synced":
+      console.log(
+        `intent ${intentId} approved by ${actor} and published to Shopify: ` +
+          `regular/card price ${formatMinorUnits(BigInt(result.sync.regularCardPriceMinorUnits), result.sync.currency)}.`
+      );
+      break;
+    case "already_synced":
+      console.log(`intent ${intentId} approved by ${actor}; it was already synced — nothing further to publish.`);
+      break;
+    case "superseded":
+      console.log(
+        `intent ${intentId} approved by ${actor}, but a newer price calculation now exists for this ` +
+          "variant — nothing was published, and the intent is now superseded."
+      );
+      break;
+    case "placeholder_refused":
+      console.log(
+        `intent ${intentId} approved by ${actor}, but its pricing profile is a PLACEHOLDER (D14 ` +
+          "unresolved) — publishing was refused."
+      );
+      break;
+    case "not_applicable":
+      console.log(
+        `intent ${intentId} approved by ${actor}, but publishing did not proceed: ${result.sync.reason}`
+      );
+      break;
+    default:
+      console.log(`intent ${intentId} approved by ${actor}.`);
+  }
 }
 
 /**

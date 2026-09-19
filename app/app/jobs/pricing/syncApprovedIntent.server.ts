@@ -1,5 +1,7 @@
 import { prisma } from "~/db/client.server";
 import { getLatestComputedCalculation } from "~/db/repositories/priceCalculationRepository.server";
+import { recordPricingInputChangeIfPriceAffecting } from "~/db/repositories/pricingInputChangeRepository.server";
+import { recordSyncFailure, recordSyncSuccess } from "~/db/repositories/priceSyncFailureRepository.server";
 import { MoneyDecimal } from "~/domain/money/decimal";
 import { Money } from "~/domain/money/money";
 import { deriveRegularCardPrice } from "~/domain/pricing/regularCardPrice";
@@ -264,15 +266,60 @@ export async function syncApprovedPriceSyncIntent(
   );
   const regularCardPrice = Money.fromMinorUnits(derived.regularCardPriceMinorUnits, calc.currency);
 
-  // NOT try/caught. An Admin API failure propagates with the intent left in
-  // `syncing` — see the module comment for why that is T4's boundary, not
-  // this function's.
-  const { appliedAt } = await deps.port.applyVariantPrice({
-    shopifyProductGid,
-    shopifyVariantGid,
-    regularCardPrice,
-    priceCalculationId: intent.priceCalculationId,
-  });
+  // SYNC-FAILURE STATE MACHINE (owner §4/§15). The Admin API call is still
+  // NOT swallowed — an error still propagates with the intent left in
+  // `syncing`, exactly as before (the module comment's boundary is
+  // unchanged: retries/alerts/48h suspension are read from the failure row
+  // this records, not decided here). What is new is that the failure is now
+  // CLAIMED before it propagates, via the exact seam
+  // `priceSyncFailureRepository.server.ts` was built for.
+  let appliedAt: Date;
+  try {
+    const applied = await deps.port.applyVariantPrice({
+      shopifyProductGid,
+      shopifyVariantGid,
+      regularCardPrice,
+      priceCalculationId: intent.priceCalculationId,
+    });
+    appliedAt = applied.appliedAt;
+  } catch (syncError) {
+    try {
+      await recordSyncFailure({
+        masterVariantId: intent.masterVariantId,
+        error: syncError instanceof Error ? syncError.message : String(syncError),
+      });
+    } catch (recordError) {
+      // Recording the failure must never mask the ORIGINAL error below, and
+      // must never itself become the thing that propagates.
+      logger.error("pricing.sync_failure_record_failed", {
+        intentId: intent.id,
+        masterVariantId: intent.masterVariantId,
+        error: recordError instanceof Error ? recordError.name : "UnknownError",
+      });
+    }
+    throw syncError;
+  }
+
+  // A genuinely successful Admin API call resolves any OPEN sync-failure
+  // episode for this variant (owner §4 recovery / criterion 25), restoring
+  // availability with no human action. Resolved on the PUBLISH succeeding,
+  // not on the local bookkeeping transaction below winning its race — those
+  // are separate concerns (see `!committed` below): Shopify already carries
+  // the new price either way.
+  //
+  // READ AVAILABILITY AS `suspendedAt IS NOT NULL AND resolvedAt IS NULL`
+  // (R2) — never `alertState`. `recordSyncSuccess` only ever sets
+  // `resolvedAt`; it does not touch `alertState`'s dismissed/cleared split,
+  // which governs notification noise, not whether a variant may sell.
+  try {
+    await recordSyncSuccess({ masterVariantId: intent.masterVariantId, now: appliedAt });
+  } catch (recordError) {
+    logger.error("pricing.sync_success_record_failed", {
+      intentId: intent.id,
+      masterVariantId: intent.masterVariantId,
+      error: recordError instanceof Error ? recordError.name : "UnknownError",
+    });
+  }
 
   // Criterion 5: the status change to `synced` and the compare-and-set anchor
   // write happen in ONE transaction. If those could be separated by a crash,
@@ -325,6 +372,36 @@ export async function syncApprovedPriceSyncIntent(
       regularCardPriceRuleId: calc.pricingProfile.regularCardPriceRuleId,
       profileVersion: calc.profileVersion,
     });
+
+    // §16 / CRITERION 58'S TRAP, closed here. This IS a write to a covered
+    // model (`master_variant`, via the transaction above), so criterion 17
+    // says it must be classified — but the ONLY column that write ever
+    // touches is `lastSyncedPriceCalculationId`, which
+    // `priceAffectingColumns.ts` deliberately excludes from the allow-list
+    // (its own module comment explains why: classifying it would make every
+    // successful publish trigger the next recalculation, which publishes,
+    // which stamps again — catalogue-wide, forever). Passing the REAL,
+    // exact changed-column set below — never a placeholder, never "every
+    // column of MasterVariant" — is what keeps this call correctly inert.
+    // DO NOT widen `changedColumns` to make this "more complete"; that
+    // widening is the exact regression this comment (and
+    // `syncStampNeverTriggersInputChange` in this file's test) exists to catch.
+    try {
+      await recordPricingInputChangeIfPriceAffecting({
+        model: "MasterVariant",
+        changedColumns: ["lastSyncedPriceCalculationId"],
+        entityId: intent.masterVariantId,
+        changedBy: "system:price-sync",
+        changedAt: appliedAt,
+        note: "sync anchor stamped after a confirmed Shopify publish",
+      });
+    } catch (recordError) {
+      logger.error("pricing.input_change_record_failed", {
+        intentId: intent.id,
+        masterVariantId: intent.masterVariantId,
+        error: recordError instanceof Error ? recordError.name : "UnknownError",
+      });
+    }
   }
 
   logger.info("pricing.sync_completed", {
