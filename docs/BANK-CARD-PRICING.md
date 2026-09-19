@@ -440,3 +440,71 @@ The detailed owner decisions in `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` 
 - Group Buy comparison/options table shows Regular/Card prices only;
 - campaign-specific Group Buy option configuration through a future versioned JSON contract;
 - formal JSON Schema deferred until Group Buy campaign creation/upload tooling is built.
+
+
+## 14. Buy Now cart mode and Bank Payment Discount eligibility — owner locked 2026-09-19
+
+Bank Payment remains available as a payment method even when specific merchandise is not eligible for the lower Bank Payment Price.
+
+Use a per-product/per-variant **Bank Payment Discount Eligible** flag:
+
+- default ON for new products/variants;
+- eligible line + Bank Payment mode -> Bank Payment Price;
+- ineligible line + Bank Payment mode -> Regular/Card Price;
+- ineligible lines do not block Bank Payment for the order.
+
+A cart has one payment mode at a time: Card or Bank Payment.
+
+Buy Now product page actions:
+
+- **Add to Cart**
+- **Add to Cart with Bank Payment Discount**
+
+The Bank Payment action switches the entire cart to Bank Payment mode and reprices all eligible lines. Normal Add to Cart preserves the current cart mode.
+
+The cart presents:
+
+- **Card Checkout**
+- **Bank Payment Checkout**
+
+Switching modes must reprice all eligible lines and must never allow Card payment to complete at Bank Payment pricing.
+
+This path is money-critical and requires enhanced regression/integration/tamper-resistance testing.
+
+## 15. Buy Now Bank Payment order timing — owner locked 2026-09-19
+
+The Buy Now Bank Payment Price is guaranteed for 24 hours after order placement.
+
+Customer-facing disclosure must state that:
+
+- the price is locked for 24 hours;
+- after 24 hours pricing is subject to change and is not guaranteed;
+- the order is not committed and item availability is not guaranteed until Bank Payment is received and verified.
+
+After 24 hours:
+
+- if payment is still unreceived and the underlying price is unchanged, the order may remain open;
+- if payment is still unreceived and the underlying price changes by **any amount**, cancel the unpaid order and send a cancellation email.
+
+Do not reserve Buy Now inventory before payment receipt/verification.
+
+Bank Payment receipt is manually verified by admin. Record actual amount received, method, reference/confirmation number when available, verification timestamp, and verifying admin.
+
+## 16. Shopify publication safety — owner locked 2026-09-19
+
+After the real Shopify sync path passes money-critical integration testing, Bank Payment Price changes of 2% or less may auto-publish. Larger changes require human approval.
+
+If a valid approved price cannot be synced:
+
+- keep the last successfully published Shopify price authoritative and sellable for up to 48 hours;
+- retry automatically;
+- notify through email and persistent embedded-admin alert;
+- do not mark synced until Shopify confirms;
+- after 48 hours unresolved, make only the affected variant unavailable;
+- restore automatically after successful sync.
+
+Customers who purchase at the live price during the unresolved window are charged that valid published price. Do not automatically retro-refund if a lower price is published later.
+
+Bulk approval is allowed for many >2% changes caused by one pricing-input event. Bulk reject is not allowed; rejection is per item/variant with a replacement override price and reason.
+
+Temporary overrides expire on the next material pricing recalculation unless marked **Never Expire**.
