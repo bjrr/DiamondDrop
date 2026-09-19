@@ -310,3 +310,265 @@ For current MVP planning:
 - do not silently fake a checkout price switch that Shopify cannot honor.
 
 The exact supported transaction mechanism for carrying the required Group Buy Payment Type selection through cart/checkout remains an implementation design task subject to Shopify platform capabilities and must preserve the owner-facing UX decisions above.
+
+
+## 15. Shopify publication/sync failures
+
+If a valid newly approved price cannot be published to Shopify:
+
+- keep the last successfully published Shopify price live;
+- the currently published Shopify price remains the authoritative sale price until replacement publication succeeds;
+- retry synchronization automatically;
+- notify admin after repeated/meaningful sync failure through **both email and a persistent embedded-admin alert**;
+- start a 48-hour unresolved-sync timer;
+- do not mark a sync intent `synced` until Shopify confirms success;
+- if still unresolved after 48 hours, make only the affected variant unavailable;
+- automatically restore the variant when synchronization later succeeds.
+
+Customers may continue purchasing at the currently published Shopify price during the 48-hour window whether that price is higher or lower than the newly approved price.
+
+If a customer purchases at the currently valid higher published price and a lower price is published later, **do not automatically refund the difference**.
+
+The persistent admin alert should show the affected product/variant, failure type, first-failure timestamp, time remaining before the 48-hour cutoff, latest retry result, and current resolution status.
+
+## 16. Material pricing-input changes
+
+A material pricing-input change means **any persisted change to a field that can affect calculated selling price**. There is no separate dollar/percentage threshold for deciding whether to recalculate.
+
+Examples include:
+
+- metal/reference price;
+- stone cost/specification when price-bearing;
+- labor/manufacturing rate;
+- supplier/product cost;
+- product/variant weight;
+- pricing profile, markup, margin, or minimum-profit settings;
+- manual selling-price override;
+- any other persisted input consumed by the pricing engine.
+
+Such a change triggers immediate recalculation of affected variants.
+
+## 17. Automatic publication and approval
+
+After the real Shopify synchronization path has passed its money-critical integration tests:
+
+- enable automatic publication for recalculated **Bank Payment Price changes of 2% or less**;
+- changes above 2% require human approval;
+- tier-boundary inversion under §1 does not independently force manual approval.
+
+### Bulk approval
+
+When many variants exceed 2% because of the same pricing-input event, such as a large gold-price movement, admin may **Bulk Approve** the batch.
+
+The batch view should summarize the trigger/source, affected item count, price-change range, and safety-check exceptions. Bulk approval may include only variants that passed all required pricing safety checks.
+
+**Bulk Reject is not allowed.**
+
+Rejection is handled item-by-item/variant-by-variant. Rejecting the calculated price requires admin to enter a replacement override price and a reason/comment. Preserve the calculated price and override as separate auditable history.
+
+### Override lifetime
+
+A manual override expires automatically on the **next material pricing recalculation** unless admin explicitly marks the override **Never Expire**.
+
+Record override price, reason, admin, timestamp, expiration mode, and—when applicable—the recalculation event that expired/superseded it.
+
+## 18. Bank Payment pricing eligibility vs. ability to pay by bank
+
+Customers must **always be allowed to pay by Bank Payment**, including customers without a credit card.
+
+Bank Payment Discount eligibility is a separate per-product/per-variant pricing flag:
+
+- default for newly created products/variants: **ON**;
+- eligible line + Bank Payment mode -> use Bank Payment Price;
+- ineligible line + Bank Payment mode -> keep Regular/Card Price;
+- ineligible merchandise does not prevent Bank Payment for the order;
+- Bank Payment savings are calculated only from eligible merchandise lines.
+
+Internally, prefer terminology such as **Bank Payment Discount Eligible** rather than language implying that an ineligible item cannot be paid by bank.
+
+## 19. Cart payment mode and repricing
+
+A cart has **one Payment Type/payment mode** at a time:
+
+- Card; or
+- Bank Payment.
+
+Do not support mixed payment modes within one cart.
+
+Changing the cart payment mode reprices all eligible merchandise lines consistently:
+
+- Card -> Bank Payment: eligible lines move to their Bank Payment Price;
+- Bank Payment -> Card: eligible lines move back to their Regular/Card Price;
+- ineligible lines remain at Regular/Card Price in either mode.
+
+If a cart is already in Bank Payment mode, using normal **Add to Cart** on another product does **not** switch the cart back to Card mode. The cart preserves its existing payment mode and the new line receives Bank Payment pricing if eligible.
+
+A customer who selected Bank Payment pricing must never be able to complete a credit/debit-card payment at that lower Bank Payment Price. If the customer changes to Card, the cart/order must reprice to Regular/Card pricing before payment and show the updated total.
+
+### Money-critical test requirement
+
+Payment-mode switching is a money-critical path and requires enhanced automated regression coverage, including:
+
+- Card -> Bank and Bank -> Card repricing;
+- repeated switching without compounding/double-discount;
+- cart refresh/reload persistence;
+- quantity and variant/configuration changes;
+- mixed eligible/ineligible merchandise;
+- server-side rejection of client-supplied price tampering;
+- prevention of Card checkout at Bank Payment pricing;
+- exact order/payment-basis snapshot;
+- end-to-end cart -> checkout handoff.
+
+Changes to this flow require dedicated regression testing.
+
+## 20. Buy Now product-page and cart actions
+
+The Buy Now PDP uses **two add-to-cart actions**, not product-page checkout buttons:
+
+1. **Add to Cart**
+2. **Add to Cart with Bank Payment Discount**
+
+Behavior of **Add to Cart with Bank Payment Discount**:
+
+- add the selected configuration to cart;
+- immediately switch the entire cart to Bank Payment mode;
+- reprice every Bank Payment Discount-eligible cart line to its Bank Payment Price;
+- leave ineligible lines at Regular/Card Price.
+
+The normal **Add to Cart** action preserves the cart's existing mode rather than forcing Card mode.
+
+When the customer is finished shopping, the cart presents **two checkout options**:
+
+- Card Checkout;
+- Bank Payment Checkout.
+
+Each path must use the correct cart pricing basis.
+
+Buy Now items and Group Buy items must **not be mixed in the same cart/order**.
+
+## 21. Buy Now Bank Payment price lock and unpaid-order behavior
+
+For Buy Now Bank Payment orders:
+
+- the quoted Bank Payment Price is guaranteed for **24 hours** from order placement;
+- customer-facing copy must state that the price is locked for 24 hours and after that is subject to change/not guaranteed;
+- if payment is received within 24 hours, honor the locked price;
+- after 24 hours, if payment has not been received and the underlying Buy Now price has **not changed**, keep the order open at the existing price;
+- after 24 hours, if payment has not been received and the underlying Buy Now price changes by **any amount**, automatically cancel the unpaid order and send a cancellation email;
+- the customer must place a new order at the then-current price.
+
+There is no minimum price-change threshold after the 24-hour lock expires: **any change** cancels the unpaid order.
+
+## 22. Buy Now Bank Payment inventory and commitment
+
+Do **not** reserve Buy Now inventory merely because a Bank Payment order was placed.
+
+Customer must be told clearly:
+
+**The order is not committed and item availability is not guaranteed until Bank Payment is received and verified.**
+
+This disclosure must appear:
+
+- on the Bank Payment checkout page; and
+- in the order confirmation email.
+
+If payment is later received after inventory sold out, flag the case for admin handling rather than trying to invent an automatic resolution.
+
+## 23. Manual Bank Payment verification
+
+Bank Payment receipt is manual. The system must not assume or auto-detect that funds arrived.
+
+Admin verification is required before an order is considered paid/confirmed.
+
+The shared verification workflow for Buy Now and Group Buy should capture:
+
+- actual amount received;
+- Bank Payment method;
+- reference/confirmation number when available;
+- verification timestamp;
+- verifying admin.
+
+Payment proof may remain email/manual for MVP1.
+
+The same underlying admin verification workflow serves Buy Now and Group Buy, with each purchase path applying its own downstream business rules.
+
+## 24. Group Buy pending Bank Payments and tier progression
+
+A Group Buy Bank Payment order counts toward campaign units **immediately when the order is placed**, even before funds clear.
+
+Payment timing:
+
+- initial payment window: 48 hours;
+- if unpaid, automatically extend once for an additional 48 hours;
+- after 96 hours unpaid, the order may be marked internally inactive/canceled for nonpayment.
+
+Group Buy tier progression is **one-way only**:
+
+- an order that counted toward an unlock is never subtracted from the customer-facing campaign count because it later goes unpaid/canceled;
+- an unlocked tier never falls back;
+- other customers are never repriced upward because another participant failed to pay;
+- do not show another customer's cancellation in public campaign progress.
+
+If an unpaid Group Buy order becomes inactive after 96 hours, the same order remains eligible for staff reactivation while the Group Buy is still open. The customer requests reactivation by email; do not create a replacement order. While the campaign remains open, reactivation preserves the original locked order price.
+
+Once the Group Buy closes, automatic reactivation eligibility ends. A customer may still email CaratForUs, and staff may decide case-by-case whether the order can be fulfilled/reactivated and whether the original price can be honored.
+
+## 25. Group Buy close and tier-adjustment settlement
+
+When a Group Buy reaches a better tier after an order was placed, earlier customers benefit from the lower final tier, including customers who already paid.
+
+At campaign close:
+
+- determine the final unlocked tier;
+- calculate the final Group Buy price for every paid order using that order's original payment basis;
+- Card-paid order -> Card-basis final Group Buy price;
+- Bank-paid order -> Bank-basis final Group Buy price;
+- automatically calculate any tier-adjustment refund due;
+- **do not automatically send refunds**.
+
+Present an admin settlement report containing per-order detail and campaign-level totals.
+
+Per-order report should include, as applicable:
+
+- customer/order;
+- configuration;
+- quantity;
+- payment basis;
+- amount originally charged;
+- final Group Buy price;
+- refund due;
+- payment/refund status.
+
+Campaign summary should include:
+
+- total campaign orders/units used for public progress;
+- final unlocked tier;
+- total originally charged;
+- total final Group Buy value;
+- total refunds due;
+- Card-paid refunds due;
+- Bank-paid refunds due;
+- refunds processed;
+- refunds outstanding.
+
+Unpaid/inactive orders appear in a separate reconciliation section. An order that was never paid receives no refund calculation.
+
+Refunds require explicit admin approval before issuance. Admin may approve individually or as an approved batch. Record calculated amount, approval, processing status, completion, and processor/reference information.
+
+Tier-adjustment refunds should return money to the original payment method/basis:
+
+- Card-paid -> refund through the original card/payment processor;
+- Bank-paid -> refund by an approved bank-payment method.
+
+Merchandise credit is not the default substitute.
+
+## 26. Group Buy scheduled close
+
+A Group Buy stops accepting new orders automatically at its scheduled close time.
+
+Admin may explicitly extend the campaign **before** it closes.
+
+There is no automatic post-close grace period for new orders.
+
+Group Buy customer cancellations before close require **staff approval** for MVP1.
+
