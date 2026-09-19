@@ -228,6 +228,67 @@ describe("owner §6 — Bank Payment savings are merchandise-only and eligible-l
   });
 });
 
+describe("owner §3 'Cart' + §18 — per-line Bank Payment saving", () => {
+  it("an eligible line's saving is its Regular/Card line total minus its Bank Payment line total, quantity already applied", () => {
+    const line = fixtureLine({ lineId: "A", unitBankPaymentPriceMinorUnits: 40_000n, quantity: 3n }); // $420/unit card, $400/unit bank
+    const priced = priceCartLine("bank", line);
+
+    expect(priced.lineCardBasisTotalMinorUnits).toBe(126_000n); // 3 x $420.00
+    expect(priced.lineBankBasisTotalMinorUnits).toBe(120_000n); // 3 x $400.00
+    expect(priced.lineBankPaymentSavingsMinorUnits).toBe(6_000n); // 3 x $20.00 saving
+  });
+
+  it("an ineligible line's saving is exactly zero, not null or absent", () => {
+    const line = fixtureLine({
+      lineId: "A",
+      unitBankPaymentPriceMinorUnits: 70_000n,
+      quantity: 2n,
+      bankPaymentDiscountEligible: false,
+    });
+    const priced = priceCartLine("bank", line);
+
+    expect(priced.lineBankPaymentSavingsMinorUnits).toBe(0n);
+    expect(priced.lineBankPaymentSavingsMinorUnits).not.toBeNull();
+    expect(priced.lineBankPaymentSavingsMinorUnits).not.toBeUndefined();
+  });
+
+  it("the per-line saving does not depend on the cart's active mode — it is a basis comparison, not the active price", () => {
+    const line = fixtureLine({ lineId: "A", unitBankPaymentPriceMinorUnits: 40_000n });
+    const inCard = priceCartLine("card", line);
+    const inBank = priceCartLine("bank", line);
+
+    expect(inCard.lineBankPaymentSavingsMinorUnits).toBe(inBank.lineBankPaymentSavingsMinorUnits);
+  });
+
+  it("the cart-level bankPaymentSavingsMinorUnits equals the sum of the per-line savings, mixed eligibility and quantities", () => {
+    const lines = [
+      fixtureLine({ lineId: "A", unitBankPaymentPriceMinorUnits: 40_000n, quantity: 3n }),
+      fixtureLine({ lineId: "B", unitBankPaymentPriceMinorUnits: 70_000n, quantity: 2n }),
+      fixtureLine({
+        lineId: "C",
+        unitBankPaymentPriceMinorUnits: 100_000n,
+        quantity: 4n,
+        bankPaymentDiscountEligible: false,
+      }),
+    ];
+
+    const cart = priceCart({ mode: "bank", currency: USD, lines });
+
+    const summedPerLineSavings = cart.lines.reduce((sum, line) => sum + line.lineBankPaymentSavingsMinorUnits, 0n);
+    expect(summedPerLineSavings).toBe(cart.bankPaymentSavingsMinorUnits);
+    // And pinned to a concrete figure so a future change that breaks the
+    // agreement above cannot compensate by drifting both sides together.
+    expect(cart.bankPaymentSavingsMinorUnits).toBe(6_000n + 7_000n + 0n);
+  });
+
+  it("an empty cart's summed per-line savings is zero, agreeing with the cart-level figure", () => {
+    const cart = priceCart({ mode: "bank", currency: USD, lines: [] });
+    const summedPerLineSavings = cart.lines.reduce((sum, line) => sum + line.lineBankPaymentSavingsMinorUnits, 0n);
+    expect(summedPerLineSavings).toBe(cart.bankPaymentSavingsMinorUnits);
+    expect(summedPerLineSavings).toBe(0n);
+  });
+});
+
 describe("tier boundaries in cart context (BANK-CARD-PRICING §3), co-occurring lines", () => {
   const BOUNDARY_PAIRS: ReadonlyArray<{
     label: string;

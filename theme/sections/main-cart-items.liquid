@@ -120,26 +120,87 @@
                         -%}
                       </div>
 
-                      {%- if item.original_price != item.final_price -%}
-                        <div class="cart-item__discounted-prices">
-                          <span class="visually-hidden">
-                            {{ 'products.product.price.regular_price' | t }}
-                          </span>
-                          <s class="cart-item__old-price product-option">
-                            {{- item.original_price | money -}}
-                          </s>
-                          <span class="visually-hidden">
-                            {{ 'products.product.price.sale_price' | t }}
-                          </span>
-                          <strong class="cart-item__final-price product-option">
-                            {{ item.final_price | money }}
-                          </strong>
-                        </div>
-                      {%- else -%}
+                      {%- comment -%}
+                        R12 (docs/specs/SLICE-2B-CART-SURFACE-INVENTORY.md): the mode-aware unit
+                        price is never Shopify's line-item price objects (Card-basis only,
+                        L1-fenced) and never computed here — it is applied by JS from the
+                        /apps/carat/cart proxy response (activeUnitPriceMinorUnits), in either
+                        mode. This node starts pending in every mode: there is no arithmetic-free,
+                        fence-compliant server-rendered figure to fall back to. See the 2B-3
+                        handoff for why this diverges from R12's "Card mode needs no pending
+                        state" default.
+                      {%- endcomment -%}
+                      <div class="product-option cart-item__unit-price">
+                        <span
+                          class="cart-item__unit-price-value"
+                          data-carat-money="line-unit"
+                          data-carat-line-id="{{ item.key }}"
+                          data-carat-variant-id="{{ item.variant.id }}"
+                          data-carat-mode-pending
+                        >
+                          <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                          <span aria-hidden="true">&nbsp;</span>
+                        </span>
+                      </div>
+
+                      {%- comment -%}
+                        Owner §3 (docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md): the Regular/Card
+                        Price, the Bank Payment Price and the applicable saving are shown
+                        SIMULTANEOUSLY per line — this is not mode-toggled the way line-unit above
+                        is, so it is unconditional (rendered for every line, not only eligible
+                        ones): owner §18 requires an ineligible line's saving to read as an
+                        explicit $0, never be hidden or omitted — a missing figure reads as "we
+                        forgot", an explicit zero reads as "this line has none". No internal
+                        uplift percentage or forbidden payment-method terminology (per
+                        docs/BANK-CARD-PRICING.md) appears here or anywhere else in this file —
+                        dollar figures and plain labels only. Single occurrence
+                        per line, NOT duplicated across the responsive line-total columns below
+                        (see the 2B-3 handoff).
+                      {%- endcomment -%}
+                      <dl class="cart-item__bank-card-pricing">
                         <div class="product-option">
-                          {{ item.original_price | money }}
+                          <dt>{{ 'sections.cart.pricing.regular_card_price' | t }}:</dt>
+                          <dd>
+                            <span
+                              data-carat-money="line-card"
+                              data-carat-line-id="{{ item.key }}"
+                              data-carat-variant-id="{{ item.variant.id }}"
+                              data-carat-mode-pending
+                            >
+                              <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                              <span aria-hidden="true">&nbsp;</span>
+                            </span>
+                          </dd>
                         </div>
-                      {%- endif -%}
+                        <div class="product-option">
+                          <dt>{{ 'sections.cart.pricing.bank_payment_price' | t }}:</dt>
+                          <dd>
+                            <span
+                              data-carat-money="line-bank"
+                              data-carat-line-id="{{ item.key }}"
+                              data-carat-variant-id="{{ item.variant.id }}"
+                              data-carat-mode-pending
+                            >
+                              <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                              <span aria-hidden="true">&nbsp;</span>
+                            </span>
+                          </dd>
+                        </div>
+                        <div class="product-option">
+                          <dt>{{ 'sections.cart.pricing.bank_payment_saving' | t }}:</dt>
+                          <dd>
+                            <span
+                              data-carat-money="line-saving"
+                              data-carat-line-id="{{ item.key }}"
+                              data-carat-variant-id="{{ item.variant.id }}"
+                              data-carat-mode-pending
+                            >
+                              <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                              <span aria-hidden="true">&nbsp;</span>
+                            </span>
+                          </dd>
+                        </div>
+                      </dl>
 
                       {%- if item.product.has_only_default_variant == false
                         or item.properties.size != 0
@@ -190,28 +251,21 @@
                     <td class="cart-item__totals right medium-hide large-up-hide">
                       {%- render 'loading-spinner' -%}
                       <div class="cart-item__price-wrapper">
-                        {%- if item.original_line_price != item.final_line_price -%}
-                          <dl class="cart-item__discounted-prices">
-                            <dt class="visually-hidden">
-                              {{ 'products.product.price.regular_price' | t }}
-                            </dt>
-                            <dd>
-                              <s class="cart-item__old-price price price--end">
-                                {{ item.original_line_price | money }}
-                              </s>
-                            </dd>
-                            <dt class="visually-hidden">
-                              {{ 'products.product.price.sale_price' | t }}
-                            </dt>
-                            <dd class="price price--end">
-                              {{ item.final_line_price | money }}
-                            </dd>
-                          </dl>
-                        {%- else -%}
-                          <span class="price price--end">
-                            {{ item.original_line_price | money }}
-                          </span>
-                        {%- endif -%}
+                        {%- comment -%}
+                          R12: line total requires quantity multiplication, which must not be
+                          duplicated in Liquid (F-30 shape) - this node is always pending,
+                          applied by JS from the proxy own lineActiveTotalMinorUnits, in either mode.
+                        {%- endcomment -%}
+                        <span
+                          class="price price--end"
+                          data-carat-money="line-total"
+                          data-carat-line-id="{{ item.key }}"
+                          data-carat-variant-id="{{ item.variant.id }}"
+                          data-carat-mode-pending
+                        >
+                          <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                          <span aria-hidden="true">&nbsp;</span>
+                        </span>
 
                         {%- if item.variant.available and item.unit_price_measurement -%}
                           {% render 'unit-price', price: item.unit_price, measurement: item.unit_price_measurement %}
@@ -418,28 +472,21 @@
                     <td class="cart-item__totals right small-hide">
                       {%- render 'loading-spinner' -%}
                       <div class="cart-item__price-wrapper">
-                        {%- if item.original_line_price != item.final_line_price -%}
-                          <dl class="cart-item__discounted-prices">
-                            <dt class="visually-hidden">
-                              {{ 'products.product.price.regular_price' | t }}
-                            </dt>
-                            <dd>
-                              <s class="cart-item__old-price price price--end">
-                                {{ item.original_line_price | money }}
-                              </s>
-                            </dd>
-                            <dt class="visually-hidden">
-                              {{ 'products.product.price.sale_price' | t }}
-                            </dt>
-                            <dd class="price price--end">
-                              {{ item.final_line_price | money }}
-                            </dd>
-                          </dl>
-                        {%- else -%}
-                          <span class="price price--end">
-                            {{ item.original_line_price | money }}
-                          </span>
-                        {%- endif -%}
+                        {%- comment -%}
+                          R12: line total requires quantity multiplication, which must not be
+                          duplicated in Liquid (F-30 shape) - this node is always pending,
+                          applied by JS from the proxy own lineActiveTotalMinorUnits, in either mode.
+                        {%- endcomment -%}
+                        <span
+                          class="price price--end"
+                          data-carat-money="line-total"
+                          data-carat-line-id="{{ item.key }}"
+                          data-carat-variant-id="{{ item.variant.id }}"
+                          data-carat-mode-pending
+                        >
+                          <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                          <span aria-hidden="true">&nbsp;</span>
+                        </span>
 
                         {%- if item.variant.available and item.unit_price_measurement -%}
                           {% render 'unit-price', price: item.unit_price, measurement: item.unit_price_measurement %}

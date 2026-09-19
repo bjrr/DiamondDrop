@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { priceCart } from "./pricing";
 import { buildCartProxyResponseDto, buildUnpurchasableLineDto } from "./proxyResponseDto";
+import type { CartProxyPricedLineDto } from "./proxyResponseDto";
 import type { PricedCart } from "./types";
 import type { CartLineMerchandiseInput } from "./types";
 
@@ -84,6 +85,82 @@ describe("R10 fence — the App Proxy response DTO never leaks internal pricing 
     assertNoForbiddenFields(dto);
   });
 
+  it("a purchasable line's DTO carries the correct per-line Bank Payment saving as a string, zero for an ineligible line", () => {
+    const priced = priceCart({
+      mode: "bank",
+      currency: USD,
+      lines: [
+        line({ lineId: "A" }), // eligible: $420 - $400 = $20 saving
+        line({ lineId: "B", bankPaymentDiscountEligible: false, unitBankPaymentPriceMinorUnits: 70_000n, unitRegularCardPriceMinorUnits: 73_500n }),
+      ],
+    });
+    const dto = buildCartProxyResponseDto(
+      priced,
+      new Map([
+        ["A", "gid://shopify/ProductVariant/1"],
+        ["B", "gid://shopify/ProductVariant/2"],
+      ]),
+      []
+    );
+
+    const [lineA, lineB] = dto.lines as [CartProxyPricedLineDto, CartProxyPricedLineDto];
+    expect(lineA.lineBankPaymentSavingsMinorUnits).toBe("2000");
+    expect(lineB.lineBankPaymentSavingsMinorUnits).toBe("0");
+  });
+
+  it("a purchasable line's DTO carries per-line Card-basis and Bank-basis totals that reconcile with the saving and the cart totals", () => {
+    const priced = priceCart({
+      mode: "bank",
+      currency: USD,
+      lines: [
+        // eligible, quantity 10: card basis $420 x 10 = $4200, bank basis $400 x 10 = $4000, saving $200
+        line({ lineId: "A", quantity: 10n }),
+        // ineligible, quantity 3: both bases equal, saving zero
+        line({
+          lineId: "B",
+          quantity: 3n,
+          bankPaymentDiscountEligible: false,
+          unitBankPaymentPriceMinorUnits: 70_000n,
+          unitRegularCardPriceMinorUnits: 73_500n,
+        }),
+      ],
+    });
+    const dto = buildCartProxyResponseDto(
+      priced,
+      new Map([
+        ["A", "gid://shopify/ProductVariant/1"],
+        ["B", "gid://shopify/ProductVariant/2"],
+      ]),
+      []
+    );
+    const [lineA, lineB] = dto.lines as [CartProxyPricedLineDto, CartProxyPricedLineDto];
+
+    // Property 1: card basis minus bank basis equals the saving, on the DTO as serialised, for quantity > 1.
+    expect(
+      BigInt(lineA.lineCardBasisTotalMinorUnits) - BigInt(lineA.lineBankBasisTotalMinorUnits)
+    ).toBe(BigInt(lineA.lineBankPaymentSavingsMinorUnits));
+    expect(lineA.lineCardBasisTotalMinorUnits).toBe("420000");
+    expect(lineA.lineBankBasisTotalMinorUnits).toBe("400000");
+    expect(lineA.lineBankPaymentSavingsMinorUnits).toBe("20000");
+
+    // Property 2: an ineligible line's two basis totals are equal and its saving is "0".
+    expect(lineB.lineCardBasisTotalMinorUnits).toBe(lineB.lineBankBasisTotalMinorUnits);
+    expect(lineB.lineCardBasisTotalMinorUnits).toBe("220500");
+    expect(lineB.lineBankPaymentSavingsMinorUnits).toBe("0");
+
+    // Property 3: the per-line basis totals sum to the cart-level merchandise totals.
+    const cardSum = dto.lines.reduce(
+      (sum, l) => sum + BigInt((l as CartProxyPricedLineDto).lineCardBasisTotalMinorUnits),
+      0n
+    );
+    const bankSum = dto.lines.reduce(
+      (sum, l) => sum + BigInt((l as CartProxyPricedLineDto).lineBankBasisTotalMinorUnits),
+      0n
+    );
+    expect(cardSum).toBe(BigInt(dto.cardMerchandiseTotalMinorUnits));
+    expect(bankSum).toBe(BigInt(dto.bankMerchandiseTotalMinorUnits));
+  });
+
   it("an unpurchasable line's DTO never carries a price field", () => {
     const dto = buildUnpurchasableLineDto({
       lineId: "X",
@@ -155,6 +232,7 @@ describe("R10 fence — the App Proxy response DTO never leaks internal pricing 
       lineCardBasisTotalMinorUnits: 42_000n,
       lineBankBasisTotalMinorUnits: 40_000n,
       lineActiveTotalMinorUnits: 40_000n,
+      lineBankPaymentSavingsMinorUnits: 2_000n,
       // The contamination:
       appliedUpliftRate: "0.050000",
       appliedTierLabel: "Under $500",
@@ -182,6 +260,9 @@ describe("R10 fence — the App Proxy response DTO never leaks internal pricing 
         "activeUnitPriceMinorUnits",
         "bankPaymentDiscountEligible",
         "lineActiveTotalMinorUnits",
+        "lineBankBasisTotalMinorUnits",
+        "lineBankPaymentSavingsMinorUnits",
+        "lineCardBasisTotalMinorUnits",
         "lineId",
         "purchasable",
         "quantity",

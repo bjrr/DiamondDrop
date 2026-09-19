@@ -1,1 +1,18 @@
-{{ 'sections.cart.new_estimated_total' | t }}: {{ cart.total_price | money_with_currency }}
+{%- comment -%}
+  L2 / R12 (docs/specs/SLICE-2B-CART-SURFACE-INVENTORY.md): this is the accessibility
+  live-region announcement of the cart total. It must announce the APPLIED,
+  mode-correct total — never Shopify's raw Card total — because a screen-reader user
+  hearing the wrong figure gets no visual contradiction to catch the error the way a
+  sighted user does from the visual flash.
+
+  This node therefore never renders Shopify's raw cart total object (L1-fenced) or
+  computes a total itself. It starts pending, carrying the localized label as a data attribute so the
+  applying JS can compose "<label>: <amount>" without hardcoding English, and is filled
+  in only after the /apps/carat/cart response is applied (2B-4's responsibility to
+  trigger the announcement at that point, not at server render).
+{%- endcomment -%}
+<span
+  data-carat-money="cart-total"
+  data-carat-mode-pending
+  data-carat-live-region-label="{{ 'sections.cart.new_estimated_total' | t | escape }}"
+>{{ 'sections.cart.pricing.calculating' | t }}</span>

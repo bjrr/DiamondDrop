@@ -89,6 +89,17 @@ class CartDrawer extends HTMLElement {
       sectionElement.innerHTML = this.getSectionInnerHTML(parsedState.sections[section.id], section.selector);
     });
 
+    // D2 (docs/specs/SLICE-2B-CART-SURFACE-INVENTORY.md L3): this swap just
+    // wrote fresh Card-basis markup into #CartDrawer. `parsedState` here is
+    // the /cart/add.js response for the added line only — it has no
+    // `.attributes`/`.items` for the whole cart — so this calls apply() with
+    // no cart argument and lets it fetch the current cart itself, rather
+    // than passing an object shaped for a different caller. This also
+    // covers the quick-add-modal path, where renderContents() can run long
+    // after the cartUpdate event that originally triggered the add, so a
+    // pubsub-only fix would miss it.
+    window.CaratCartPricing?.apply();
+
     setTimeout(() => {
       this.querySelector('#CartDrawer-Overlay').addEventListener('click', this.close.bind(this));
       this.open();

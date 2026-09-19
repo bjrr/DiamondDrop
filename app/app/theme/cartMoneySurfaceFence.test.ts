@@ -79,37 +79,17 @@ const CART_MONEY_OBJECT_PATTERNS: ReadonlyArray<{ name: string; pattern: RegExp 
 ];
 
 /**
- * The four surfaces the C4 inventory found rendering these objects today,
- * unchanged since this fence is Task 1 of 2B-2 and runs BEFORE any template
- * is converted. Remove an entry here only when the corresponding surface has
- * been converted to read the single mode-aware pricing source instead.
+ * The four surfaces the C4 inventory found rendering these objects today, at the point
+ * this fence was written (Task 1 of 2B-2, BEFORE any template was converted). All four
+ * were converted in task 2B-3, per R12's DOM contract: every cart money node in these
+ * files now carries `data-carat-money` (one of `line-unit`, `line-total`, `cart-subtotal`,
+ * `cart-total`), starts `data-carat-mode-pending`, and is populated by client-side JS from
+ * the `/apps/carat/cart` proxy response rather than from any Shopify cart/line price
+ * object — so this map is empty. Remove an entry here only when the corresponding surface
+ * has been converted to read the single mode-aware pricing source instead; add one back,
+ * with its own reasoned entry, only for a surface genuinely mid-conversion.
  */
-const KNOWN_UNCONVERTED_CART_MONEY_SURFACES: Readonly<Record<string, { inventoryId: string; reason: string }>> = {
-  "sections/main-cart-items.liquid": {
-    inventoryId: "A1",
-    reason:
-      "Per-line original/final line price and per-line unit price, read directly from " +
-      "item.original_price/final_price/original_line_price/final_line_price. Card-basis always.",
-  },
-  "sections/main-cart-footer.liquid": {
-    inventoryId: "A2",
-    reason:
-      "Cart total next to the checkout CTA, read directly from cart.total_price. Must become the " +
-      "mode-correct sum of per-line totals per owner §5, not a re-tiered figure.",
-  },
-  "snippets/cart-drawer.liquid": {
-    inventoryId: "A3",
-    reason:
-      "Drawer line prices and drawer total — the same objects as A1/A2, in a separate file. Fixing " +
-      "the cart page does not fix the drawer.",
-  },
-  "sections/cart-live-region-text.liquid": {
-    inventoryId: "A4",
-    reason:
-      "Accessibility live-region announcement of cart.total_price. Invisible to a sighted reviewer — " +
-      "a screen-reader user in Bank mode hears the Card total with no visual contradiction to catch it.",
-  },
-};
+const KNOWN_UNCONVERTED_CART_MONEY_SURFACES: Readonly<Record<string, { inventoryId: string; reason: string }>> = {};
 
 function walkLiquidFiles(absoluteDir: string): string[] {
   const entries = readdirSync(absoluteDir, { withFileTypes: true });
@@ -178,9 +158,15 @@ describe("L1 fence — no cart money surface renders a Shopify cart money object
     }
   });
 
-  it("every known-unconverted entry names a real inventory row (A1-A4), not a made-up one", () => {
+  it("every known-unconverted entry (if any remain) names a real inventory row (A1-A4), not a made-up one", () => {
+    // All four original rows were converted in task 2B-3, so this is normally empty — see the
+    // map's own doc comment. Asserted as a subset rather than an exact-match set (the way this
+    // test read before 2B-3) so it keeps protecting against a fabricated inventory id on any
+    // FUTURE entry without itself requiring the map to be non-empty.
     const inventoryIds = Object.values(KNOWN_UNCONVERTED_CART_MONEY_SURFACES).map((v) => v.inventoryId);
-    expect(new Set(inventoryIds)).toEqual(new Set(["A1", "A2", "A3", "A4"]));
+    for (const id of inventoryIds) {
+      expect(["A1", "A2", "A3", "A4"]).toContain(id);
+    }
   });
 
   const knownUnconvertedKeys = new Set(Object.keys(KNOWN_UNCONVERTED_CART_MONEY_SURFACES));

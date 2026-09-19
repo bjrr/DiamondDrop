@@ -72,6 +72,17 @@ class CartNotification extends HTMLElement {
       );
     });
 
+    // D3 audit (docs/specs/SLICE-2B-CART-SURFACE-INVENTORY.md L3/L5): none of
+    // this notification's sections render a price today — verified against
+    // sections/cart-notification-button.liquid and sections/cart-icon-bubble
+    // (item count only); cart-notification-product.liquid does not exist in
+    // this Dawn version (C1). This call is therefore a no-op in the current
+    // theme. It is included anyway so (a) L5's "cart notification" coverage
+    // is real rather than "nothing to do here, trust me", and (b) a future
+    // template change that adds a price to this notification is covered
+    // automatically rather than silently reverting to Card pricing.
+    window.CaratCartPricing?.apply();
+
     if (this.header) this.header.reveal();
     this.open();
   }

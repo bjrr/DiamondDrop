@@ -291,6 +291,17 @@
       "new_estimated_total": "New estimated total",
       "note": "Order special instructions",
       "checkout": "Check out",
+      "card_checkout": "Card Checkout",
+      "bank_payment_checkout": "Bank Payment Checkout",
+      "bank_payment_checkout_note": "Bank Payment Checkout is arranged directly with our team after you submit your order — we'll follow up by email to complete payment at your Bank Payment Price.",
+      "pricing": {
+        "calculating": "Calculating your price…",
+        "regular_card_price": "Regular/Card Price",
+        "bank_payment_price": "Bank Payment Price",
+        "bank_payment_saving": "Bank Payment Savings",
+        "card_total": "Card Total",
+        "bank_payment_total": "Bank Payment Total"
+      },
       "empty": "Your cart is empty",
       "product_disclosure": "Product disclosure",
       "product_disclosures": "Product disclosures",

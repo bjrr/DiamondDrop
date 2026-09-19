@@ -163,26 +163,77 @@
                             -%}
                           </div>
 
-                          {%- if item.original_price != item.final_price -%}
-                            <div class="cart-item__discounted-prices">
-                              <span class="visually-hidden">
-                                {{ 'products.product.price.regular_price' | t }}
-                              </span>
-                              <s class="cart-item__old-price product-option">
-                                {{- item.original_price | money -}}
-                              </s>
-                              <span class="visually-hidden">
-                                {{ 'products.product.price.sale_price' | t }}
-                              </span>
-                              <strong class="cart-item__final-price product-option">
-                                {{ item.final_price | money }}
-                              </strong>
-                            </div>
-                          {%- else -%}
+                          {%- comment -%}
+                            R12 (docs/specs/SLICE-2B-CART-SURFACE-INVENTORY.md): same treatment
+                            as sections/main-cart-items.liquid (A1) — a separate file, so fixing
+                            the cart page does not fix the drawer (inventory A3). Always pending;
+                            never Shopify's line-item price objects; applied by JS from the
+                            /apps/carat/cart proxy.
+                          {%- endcomment -%}
+                          <div class="product-option cart-item__unit-price">
+                            <span
+                              class="cart-item__unit-price-value"
+                              data-carat-money="line-unit"
+                              data-carat-line-id="{{ item.key }}"
+                              data-carat-variant-id="{{ item.variant.id }}"
+                              data-carat-mode-pending
+                            >
+                              <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                              <span aria-hidden="true">&nbsp;</span>
+                            </span>
+                          </div>
+
+                          {%- comment -%}
+                            Owner §3: same treatment as sections/main-cart-items.liquid — Regular/
+                            Card Price, Bank Payment Price and the applicable saving, shown
+                            simultaneously and unconditionally (a $0 saving for an ineligible line
+                            still renders, never hidden, per owner §18). Single occurrence per line
+                            — the drawer has no responsive column duplication to worry about.
+                          {%- endcomment -%}
+                          <dl class="cart-item__bank-card-pricing">
                             <div class="product-option">
-                              {{ item.original_price | money }}
+                              <dt>{{ 'sections.cart.pricing.regular_card_price' | t }}:</dt>
+                              <dd>
+                                <span
+                                  data-carat-money="line-card"
+                                  data-carat-line-id="{{ item.key }}"
+                                  data-carat-variant-id="{{ item.variant.id }}"
+                                  data-carat-mode-pending
+                                >
+                                  <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                                  <span aria-hidden="true">&nbsp;</span>
+                                </span>
+                              </dd>
                             </div>
-                          {%- endif -%}
+                            <div class="product-option">
+                              <dt>{{ 'sections.cart.pricing.bank_payment_price' | t }}:</dt>
+                              <dd>
+                                <span
+                                  data-carat-money="line-bank"
+                                  data-carat-line-id="{{ item.key }}"
+                                  data-carat-variant-id="{{ item.variant.id }}"
+                                  data-carat-mode-pending
+                                >
+                                  <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                                  <span aria-hidden="true">&nbsp;</span>
+                                </span>
+                              </dd>
+                            </div>
+                            <div class="product-option">
+                              <dt>{{ 'sections.cart.pricing.bank_payment_saving' | t }}:</dt>
+                              <dd>
+                                <span
+                                  data-carat-money="line-saving"
+                                  data-carat-line-id="{{ item.key }}"
+                                  data-carat-variant-id="{{ item.variant.id }}"
+                                  data-carat-mode-pending
+                                >
+                                  <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                                  <span aria-hidden="true">&nbsp;</span>
+                                </span>
+                              </dd>
+                            </div>
+                          </dl>
 
                           {%- if item.product.has_only_default_variant == false
                             or item.properties.size != 0
@@ -245,26 +296,20 @@
                         <td class="cart-item__totals right" role="cell" headers="CartDrawer-ColumnTotal">
                           {%- render 'loading-spinner' -%}
                           <div class="cart-item__price-wrapper">
-                            {%- if item.original_line_price != item.final_line_price -%}
-                              <div class="cart-item__discounted-prices">
-                                <span class="visually-hidden">
-                                  {{ 'products.product.price.regular_price' | t }}
-                                </span>
-                                <s class="cart-item__old-price price price--end">
-                                  {{ item.original_line_price | money }}
-                                </s>
-                                <span class="visually-hidden">
-                                  {{ 'products.product.price.sale_price' | t }}
-                                </span>
-                                <span class="price price--end">
-                                  {{ item.final_line_price | money }}
-                                </span>
-                              </div>
-                            {%- else -%}
-                              <span class="price price--end">
-                                {{ item.original_line_price | money }}
-                              </span>
-                            {%- endif -%}
+                            {%- comment -%}
+                              R12: same "always pending" treatment as A1/A2 — line total needs
+                              quantity multiplication, which must not be duplicated in Liquid.
+                            {%- endcomment -%}
+                            <span
+                              class="price price--end"
+                              data-carat-money="line-total"
+                              data-carat-line-id="{{ item.key }}"
+                              data-carat-variant-id="{{ item.variant.id }}"
+                              data-carat-mode-pending
+                            >
+                              <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                              <span aria-hidden="true">&nbsp;</span>
+                            </span>
 
                             {%- if item.variant.available and item.unit_price_measurement -%}
                               {% render 'unit-price',
@@ -528,8 +573,50 @@
 
           <div class="totals" role="status">
             <h2 class="totals__total">{{ 'sections.cart.estimated_total' | t }}</h2>
-            <p class="totals__total-value">{{ cart.total_price | money_with_currency }}</p>
+            {%- comment -%}
+              R12: cross-line sum, always pending, applied by JS from the proxy's active
+              merchandise total — same treatment as sections/main-cart-footer.liquid (A2).
+            {%- endcomment -%}
+            <p class="totals__total-value">
+              <span data-carat-money="cart-total" data-carat-mode-pending>
+                <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                <span aria-hidden="true">&nbsp;</span>
+              </span>
+            </p>
           </div>
+
+          {%- comment -%}
+            Owner §3: same cart-level card/bank/saving breakdown as sections/main-cart-footer.liquid.
+          {%- endcomment -%}
+          <dl class="cart__bank-card-pricing">
+            <div class="cart__bank-card-pricing-row">
+              <dt>{{ 'sections.cart.pricing.card_total' | t }}:</dt>
+              <dd>
+                <span data-carat-money="cart-card-total" data-carat-mode-pending>
+                  <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                  <span aria-hidden="true">&nbsp;</span>
+                </span>
+              </dd>
+            </div>
+            <div class="cart__bank-card-pricing-row">
+              <dt>{{ 'sections.cart.pricing.bank_payment_total' | t }}:</dt>
+              <dd>
+                <span data-carat-money="cart-bank-total" data-carat-mode-pending>
+                  <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                  <span aria-hidden="true">&nbsp;</span>
+                </span>
+              </dd>
+            </div>
+            <div class="cart__bank-card-pricing-row">
+              <dt>{{ 'sections.cart.pricing.bank_payment_saving' | t }}:</dt>
+              <dd>
+                <span data-carat-money="cart-saving" data-carat-mode-pending>
+                  <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                  <span aria-hidden="true">&nbsp;</span>
+                </span>
+              </dd>
+            </div>
+          </dl>
 
           <small class="tax-note caption-large rte">
             {%- if cart.duties_included and cart.taxes_included -%}
@@ -575,6 +662,10 @@
         <!-- CTAs -->
 
         <div class="cart__ctas" {{ block.shopify_attributes }}>
+          {%- comment -%}
+            Owner §20 — same treatment as sections/main-cart-footer.liquid (A2). Card
+            Checkout is Shopify's own native checkout submit, unmodified.
+          {%- endcomment -%}
           <button
             type="submit"
             id="CartDrawer-Checkout"
@@ -585,8 +676,28 @@
               disabled
             {% endif %}
           >
-            {{ 'sections.cart.checkout' | t }}
+            {{ 'sections.cart.card_checkout' | t }}
           </button>
+
+          {%- comment -%}
+            Stage 2C builds the real Bank Payment Checkout flow. Clearly-marked stub only,
+            per the 2B-3 brief — present per owner §20, wired to no checkout path.
+          {%- endcomment -%}
+          <button
+            type="button"
+            id="CartDrawer-BankPaymentCheckout"
+            class="cart__checkout-button button button--secondary"
+            data-carat-checkout-stub="bank-payment"
+            aria-describedby="CartDrawer-BankPaymentCheckout-note"
+            {% if cart == empty %}
+              disabled
+            {% endif %}
+          >
+            {{ 'sections.cart.bank_payment_checkout' | t }}
+          </button>
+          <p id="CartDrawer-BankPaymentCheckout-note" class="caption-large rte">
+            {{ 'sections.cart.bank_payment_checkout_note' | t }}
+          </p>
         </div>
       </div>
     </div>

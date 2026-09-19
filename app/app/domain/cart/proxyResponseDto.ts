@@ -41,6 +41,12 @@ export interface CartProxyPricedLineDto {
   readonly unitRegularCardPriceMinorUnits: string;
   readonly activeUnitPriceMinorUnits: string;
   readonly lineActiveTotalMinorUnits: string;
+  /** unitRegularCardPriceMinorUnits x quantity — this line's Card-mode basis total, regardless of the cart's actual mode. */
+  readonly lineCardBasisTotalMinorUnits: string;
+  /** This line's Bank-mode basis total, regardless of the cart's actual mode. Equal to lineCardBasisTotalMinorUnits for an ineligible line (owner §18). */
+  readonly lineBankBasisTotalMinorUnits: string;
+  /** Owner §3 "Cart": this line's Bank Payment saving, quantity-extended. Zero (not absent) for an ineligible line. */
+  readonly lineBankPaymentSavingsMinorUnits: string;
 }
 
 export interface CartProxyUnpurchasableLineDto {
@@ -76,6 +82,9 @@ export function buildPricedLineDto(line: PricedCartLine, shopifyVariantId: strin
     unitRegularCardPriceMinorUnits: line.unitRegularCardPriceMinorUnits.toString(),
     activeUnitPriceMinorUnits: line.activeUnitPriceMinorUnits.toString(),
     lineActiveTotalMinorUnits: line.lineActiveTotalMinorUnits.toString(),
+    lineCardBasisTotalMinorUnits: line.lineCardBasisTotalMinorUnits.toString(),
+    lineBankBasisTotalMinorUnits: line.lineBankBasisTotalMinorUnits.toString(),
+    lineBankPaymentSavingsMinorUnits: line.lineBankPaymentSavingsMinorUnits.toString(),
   };
 }
 

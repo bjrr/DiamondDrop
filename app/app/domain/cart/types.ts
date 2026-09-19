@@ -73,6 +73,17 @@ export interface PricedCartLine {
   readonly lineBankBasisTotalMinorUnits: bigint;
   /** activeUnitPriceMinorUnits x quantity — what this line actually contributes to the cart total right now. */
   readonly lineActiveTotalMinorUnits: bigint;
+  /**
+   * This line's Bank Payment saving (owner §3 "Cart", §6, §18):
+   * lineCardBasisTotalMinorUnits - lineBankBasisTotalMinorUnits, i.e. the
+   * line total already extended by quantity. For an ineligible line the two
+   * bases are equal by construction (owner §18), so this is exactly zero —
+   * never null/absent, because zero is itself the fact a customer comparing
+   * lines needs. Summing this field across all lines must equal the cart's
+   * own `bankPaymentSavingsMinorUnits`; `pricing.test.ts` asserts that
+   * agreement rather than assuming it from the shared arithmetic.
+   */
+  readonly lineBankPaymentSavingsMinorUnits: bigint;
 }
 
 export interface PricedCart {

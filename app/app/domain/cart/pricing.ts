@@ -55,6 +55,11 @@ export function priceCartLine(mode: CartPaymentMode, line: CartLineMerchandiseIn
 
   const lineActiveTotalMinorUnits = activeUnitPriceMinorUnits * line.quantity;
 
+  // Owner §3 "Cart" + §18: card-basis minus bank-basis, already quantity
+  // extended. Zero for an ineligible line because its two bases are equal
+  // by construction above — never a separate branch here.
+  const lineBankPaymentSavingsMinorUnits = lineCardBasisTotalMinorUnits - lineBankBasisTotalMinorUnits;
+
   return {
     lineId: line.lineId,
     masterVariantId: line.masterVariantId,
@@ -67,6 +72,7 @@ export function priceCartLine(mode: CartPaymentMode, line: CartLineMerchandiseIn
     lineCardBasisTotalMinorUnits,
     lineBankBasisTotalMinorUnits,
     lineActiveTotalMinorUnits,
+    lineBankPaymentSavingsMinorUnits,
   };
 }
 

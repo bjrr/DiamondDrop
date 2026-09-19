@@ -43,11 +43,34 @@
         >
           {{- 'general.cart.view_empty_cart' | t -}}
         </a>
+        {%- comment -%}
+          Owner §20 / inventory C1 (docs/specs/SLICE-2B-CART-SURFACE-INVENTORY.md): this
+          popup renders no price (verified — cart-notification-product.liquid does not exist
+          in this Dawn version; the product block is injected by assets/cart-notification.js),
+          so only the checkout CTA needs mode-aware treatment here, same as A2/A3. Card
+          Checkout is Shopify's own native checkout submit, unmodified.
+        {%- endcomment -%}
         <form action="{{ routes.cart_url }}" method="post" id="cart-notification-form">
           <button class="button button--primary button--full-width" name="checkout">
-            {{ 'sections.cart.checkout' | t }}
+            {{ 'sections.cart.card_checkout' | t }}
           </button>
         </form>
+        {%- comment -%}
+          Stage 2C builds the real Bank Payment Checkout flow. Clearly-marked stub only,
+          per the 2B-3 brief — present per owner §20, wired to no checkout path.
+        {%- endcomment -%}
+        <button
+          type="button"
+          id="cart-notification-bank-payment-checkout"
+          class="button button--secondary button--full-width"
+          data-carat-checkout-stub="bank-payment"
+          aria-describedby="cart-notification-bank-payment-checkout-note"
+        >
+          {{ 'sections.cart.bank_payment_checkout' | t }}
+        </button>
+        <p id="cart-notification-bank-payment-checkout-note" class="caption-large rte">
+          {{ 'sections.cart.bank_payment_checkout_note' | t }}
+        </p>
         <button type="button" class="link button-label">{{ 'general.continue_shopping' | t }}</button>
       </div>
     </div>

@@ -60,8 +60,55 @@
 
                 <div class="totals">
                   <h2 class="totals__total">{{ 'sections.cart.estimated_total' | t }}</h2>
-                  <p class="totals__total-value">{{ cart.total_price | money_with_currency }}</p>
+                  {%- comment -%}
+                    R12 (docs/specs/SLICE-2B-CART-SURFACE-INVENTORY.md): the cart total is a
+                    cross-line sum, which must not be duplicated in Liquid — it is always
+                    pending here and applied by JS from the proxy's active merchandise total,
+                    in either mode. See the 2B-3 handoff for the "always pending" rationale.
+                  {%- endcomment -%}
+                  <p class="totals__total-value">
+                    <span data-carat-money="cart-total" data-carat-mode-pending>
+                      <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                      <span aria-hidden="true">&nbsp;</span>
+                    </span>
+                  </p>
                 </div>
+
+                {%- comment -%}
+                  Owner §3: card total, bank total and the applicable saving, shown
+                  simultaneously at cart level — same unconditional/zero-not-hidden treatment
+                  as the per-line breakdown in sections/main-cart-items.liquid. No line-id/
+                  variant-id: these are cart-level, not per-line.
+                {%- endcomment -%}
+                <dl class="cart__bank-card-pricing">
+                  <div class="cart__bank-card-pricing-row">
+                    <dt>{{ 'sections.cart.pricing.card_total' | t }}:</dt>
+                    <dd>
+                      <span data-carat-money="cart-card-total" data-carat-mode-pending>
+                        <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                        <span aria-hidden="true">&nbsp;</span>
+                      </span>
+                    </dd>
+                  </div>
+                  <div class="cart__bank-card-pricing-row">
+                    <dt>{{ 'sections.cart.pricing.bank_payment_total' | t }}:</dt>
+                    <dd>
+                      <span data-carat-money="cart-bank-total" data-carat-mode-pending>
+                        <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                        <span aria-hidden="true">&nbsp;</span>
+                      </span>
+                    </dd>
+                  </div>
+                  <div class="cart__bank-card-pricing-row">
+                    <dt>{{ 'sections.cart.pricing.bank_payment_saving' | t }}:</dt>
+                    <dd>
+                      <span data-carat-money="cart-saving" data-carat-mode-pending>
+                        <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
+                        <span aria-hidden="true">&nbsp;</span>
+                      </span>
+                    </dd>
+                  </div>
+                </dl>
 
                 <small class="tax-note caption-large rte">
                   {%- if cart.duties_included and cart.taxes_included -%}
@@ -105,6 +152,14 @@
               </div>
             {%- else -%}
               <div class="cart__ctas" {{ block.shopify_attributes }}>
+                {%- comment -%}
+                  Owner §20 (docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md): the cart offers
+                  Card Checkout and Bank Payment Checkout. Card Checkout is Shopify's own
+                  native checkout submit, unmodified — it always charges the published
+                  (Card) variant price regardless of the cart's payment-mode attribute, so
+                  owner §19's "never complete a card payment at Bank pricing" holds by
+                  construction here, with no code change needed.
+                {%- endcomment -%}
                 <button
                   type="submit"
                   id="checkout"
@@ -115,11 +170,43 @@
                   {% endif %}
                   form="cart"
                 >
-                  {{ 'sections.cart.checkout' | t }}
+                  {{ 'sections.cart.card_checkout' | t }}
                 </button>
+
+                {%- comment -%}
+                  Stage 2C (docs/specs/SLICE-2-BUY-NOW-STOREFRONT-AND-SYNC.md §3) builds the
+                  real Bank Payment Checkout flow (draft order + invoice). This button is a
+                  clearly-marked stub only — present per owner §20, wired to no checkout path,
+                  per the 2B-3 brief ("do not invent a checkout path"). type="button" so it
+                  cannot accidentally submit the Card checkout form.
+                {%- endcomment -%}
+                <button
+                  type="button"
+                  id="bank-payment-checkout"
+                  class="cart__checkout-button button button--secondary"
+                  data-carat-checkout-stub="bank-payment"
+                  aria-describedby="bank-payment-checkout-note"
+                  {% if cart == empty %}
+                    disabled
+                  {% endif %}
+                >
+                  {{ 'sections.cart.bank_payment_checkout' | t }}
+                </button>
+                <p id="bank-payment-checkout-note" class="caption-large rte">
+                  {{ 'sections.cart.bank_payment_checkout_note' | t }}
+                </p>
               </div>
 
-              {%- if additional_checkout_buttons -%}
+              {%- comment -%}
+                L4 (docs/specs/SLICE-2B-CART-SURFACE-INVENTORY.md): accelerated/dynamic
+                checkout bypasses the mode-aware cart entirely and always charges the
+                published Card price. In Bank mode that is a broken promise, not a pricing
+                error (the customer sees the lower Bank figure, then a one-click accelerated
+                button charges the higher Card price with no explanation) — so it is
+                suppressed while `carat_payment_mode` is "bank", per owner §19. Present
+                normally in Card mode.
+              {%- endcomment -%}
+              {%- if additional_checkout_buttons and cart.attributes.carat_payment_mode != 'bank' -%}
                 <div class="cart__dynamic-checkout-buttons additional-checkout-buttons">
                   {{ content_for_additional_checkout_buttons }}
                 </div>
