@@ -414,3 +414,55 @@ announcement is triggered after application, not on server render. Announcing
 a Card total and then silently correcting the DOM is worse for a screen-reader
 user than the visual flash is for a sighted one: they hear the wrong number
 with nothing to indicate it changed.
+
+
+---
+
+# R13 — discovery and PDP surfaces render from METAFIELDS, not the proxy
+
+Decided 2026-09-20, before 2B-6, because it looks like a reversal of R12 and is not.
+
+**R12 rejected metafield-driven Liquid for the CART.** The reason was specific:
+cart surfaces need quantity multiplication and cross-line summation, so
+rendering them from metafields would have put a second implementation of
+`priceCart`'s arithmetic into Liquid — untyped, unscanned, untested. The
+objection was to **duplicated arithmetic**, not to metafields.
+
+**Discovery and PDP surfaces need no arithmetic at all.** A collection card
+shows one precomputed figure. A PDP shows a precomputed pair and a precomputed
+saving. Nothing is multiplied, nothing is summed. So the objection does not
+apply, and the trade-offs invert:
+
+- these are **SEO-critical, server-rendered** pages, and a proxy round trip per
+  card would be slow and would flash;
+- a collection page holds 24+ products, so the cart's one-call-per-render model
+  does not scale to it;
+- the values are already published to Shopify, which is what R9's metafield
+  contract exists to carry.
+
+**So: cart surfaces read the proxy. Discovery and PDP surfaces read metafields.
+Both render figures computed once, server-side, by the same engine.** The rule
+that survives both is *one producer per money figure* — not *one transport*.
+
+## What this requires before any Liquid is written
+
+1. **The metafield writer must be wired into the publish path.** It exists and
+   is tested but has no caller, so no product currently carries these values.
+   Liquid written against absent metafields renders nothing and looks correct
+   in review.
+2. **An "as low as" aggregator** (criteria 28-31). The per-variant payload
+   builder exists; the product-level *lowest currently purchasable* figure does
+   not. "Currently purchasable" excludes out-of-stock, draft, unsynced and
+   sync-suspended variants — a variant nobody can buy must never set the
+   headline price, or the card advertises an unobtainable number.
+3. **Liquid read access must be confirmed**, not assumed. Verify against the
+   real dev store rather than reasoning about metafield definitions.
+
+## The coherence rule still binds (criterion 56 / R9)
+
+Each price-bearing metafield carries the `priceCalculationId` it was derived
+from. A surface renders the Bank Payment figure **only** when that id matches
+the variant's published calculation; on mismatch it shows the card price alone.
+That is what stops a partially-applied publish showing a card price from one
+calculation beside a bank price from another, with a saving computed across the
+two.
