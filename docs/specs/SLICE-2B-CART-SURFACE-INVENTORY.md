@@ -640,3 +640,68 @@ the answer might be no; a scope request backed by an observed failure is a
 different proposition from one backed by an assumption.
 
 The daily run remains **reconciliation for missed deliveries only**.
+
+
+---
+
+# R16 — SERIALIZED CONTRACT TEST (standing money-critical gate, owner 2026-09-20)
+
+## What went wrong, recorded because the gate exists to prevent a repeat
+
+The theme compared Liquid numbers (`variant.id`, `variant.price`) against
+metafield values with bare `==`. The producer emitted those values as
+**strings**. In Liquid `"123" == 123` is **false**, so every R14 gate evaluated
+false and Bank pricing would have been suppressed on every surface, everywhere.
+
+**Every gate was green.** Typecheck, lint, money-safety, build, and 1397 unit
+tests — over a storefront that would have rendered no Bank pricing at all.
+
+The tests passed because the theme fixtures were **hand-reconstructed** to match
+what the shape was believed to be, rather than derived from what the producer
+actually emits. When the producer's types changed, the fixtures did not, and the
+suite went on certifying agreement that no longer existed. **A test that agrees
+with the bug is worse than no test**, because it actively vouches for the broken
+state.
+
+No amount of unit testing on either side would have caught this. The defect
+lived precisely in the seam, and nothing tested the seam.
+
+## The standing gate
+
+**Generate the metafield JSON with the real TypeScript producer, feed that exact
+serialized output into the theme/Liquid consumer fixture, and assert the
+customer-facing Bank pricing renders.**
+
+**Theme tests may never hand-reconstruct a payload shape.** The producer's
+actual serialized output is the consumer's test input. If the producer changes a
+field's name, type or serialization, the consumer test must break — that
+breakage is the entire value of the gate.
+
+Minimum coverage:
+
+1. **valid current cache → Bank pricing renders**;
+2. **mismatched calculation id, variant identity or Card-price anchor → Bank
+   pricing suppresses**;
+3. **missing or malformed cache → no Bank-labelled fallback** (P4's rule, at the
+   serialized boundary);
+4. **product "As low as" payload → the correct source variant is accepted**.
+
+## Scope: this is not only about metafields
+
+The requirement generalises to **any** boundary where a TypeScript producer
+serializes a value a Liquid consumer reads. Metafields are the instance we found
+it in. App Proxy JSON consumed by theme JS is the same class of seam, and the
+same rule applies: the consumer's fixture comes from the producer, never from a
+developer's reading of the producer.
+
+## Why bare `==` is the specific hazard in Liquid
+
+Liquid has no type coercion in equality and no type errors. A comparison across
+types is simply **false** — silently, permanently, and in the direction that
+suppresses rather than shows. So the failure presents as *a feature that does
+not work* rather than as a bug, and investigation starts in the theme rather
+than in a type mismatch several files away.
+
+**Every Liquid comparison against a JSON metafield value must coerce
+explicitly**, and the established idiom is `| plus: 0` for numeric comparison,
+which the P4 proof-of-absence tests already permit and no other filter.
