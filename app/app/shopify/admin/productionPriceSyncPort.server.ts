@@ -1,4 +1,4 @@
-import type { ShopifyPriceSyncPort } from "~/jobs/pricing/ports";
+import type { PriceMetafieldPublishDeps, ShopifyPriceSyncPort } from "~/jobs/pricing/ports";
 import { getEnv } from "~/lib/env.server";
 
 import { ShopifyPriceSyncAdapter } from "./priceSyncAdapter.server";
@@ -64,4 +64,27 @@ export async function createProductionPriceSyncPort(): Promise<ShopifyPriceSyncP
   const { admin } = await unauthenticated.admin(SHOPIFY_SHOP_DOMAIN);
 
   return new ShopifyPriceSyncAdapter(admin);
+}
+
+/**
+ * Production wiring for `PriceMetafieldPublishDeps` (Stage 2B / R13) —
+ * mirrors `createProductionPriceSyncPort` above exactly, including the
+ * "throw loudly if unconfigured" behaviour and the dynamic `import()` of
+ * `~/shopify.server` for the same deferral reason documented on that
+ * function. A separate function rather than folding this into
+ * `createProductionPriceSyncPort`'s return value: the two dependencies are
+ * consumed independently (a caller may want the sync port without ever
+ * wanting metafield publish), and `SyncApprovedIntentDeps.metafields` is
+ * OPTIONAL specifically so the two can be wired one at a time.
+ */
+export async function createProductionMetafieldPublishDeps(): Promise<PriceMetafieldPublishDeps> {
+  const { SHOPIFY_SHOP_DOMAIN } = getEnv();
+  if (!SHOPIFY_SHOP_DOMAIN) {
+    throw new MissingShopDomainError();
+  }
+
+  const { unauthenticated } = await import("~/shopify.server");
+  const { admin } = await unauthenticated.admin(SHOPIFY_SHOP_DOMAIN);
+
+  return { client: admin };
 }

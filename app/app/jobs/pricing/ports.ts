@@ -1,4 +1,5 @@
 import type { Money } from "~/domain/money/money";
+import type { AdminGraphqlClient } from "~/shopify/admin/productClient.server";
 
 /**
  * Ports for the pricing job (spec §9.1, §9.6).
@@ -67,6 +68,25 @@ export interface ShopifyPriceSyncPort {
     regularCardPrice: Money;
     priceCalculationId: string;
   }): Promise<{ appliedAt: Date }>;
+}
+
+/**
+ * OPTIONAL dependency for `syncApprovedIntent.server.ts` (Stage 2B / R13).
+ * Carries the raw Admin API client the `~/shopify/metafields/*` writer and
+ * aggregator need — deliberately NOT folded into `ShopifyPriceSyncPort`,
+ * because the two writes are independent Admin API calls with different
+ * failure treatment: a failed `applyVariantPrice` must abort the sync
+ * (money-critical), while a failed metafield write must not (presentation
+ * cache only — see the module comment on `syncApprovedIntent.server.ts`'s
+ * `committed` branch for exactly how that isolation is kept).
+ *
+ * OMITTED ENTIRELY (undefined) means metafield publish is skipped for that
+ * call with no error and no log line — the money-critical publish this
+ * dependency sits beside must keep working identically whether or not a
+ * caller wires this in, exactly as it did before Stage 2B.
+ */
+export interface PriceMetafieldPublishDeps {
+  readonly client: AdminGraphqlClient;
 }
 
 export class PriceSyncNotImplementedError extends Error {

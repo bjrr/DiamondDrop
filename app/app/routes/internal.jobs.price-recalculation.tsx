@@ -96,15 +96,23 @@ export async function action({ request }: ActionFunctionArgs) {
     // recalculation) fail to load without Shopify OAuth configured, even
     // though auto-publish defaults off and the route works fine without it.
     const autoPublishEnabled = getEnv().PRICE_AUTO_PUBLISH_ENABLED === "true";
-    const syncPort = autoPublishEnabled
-      ? await (await import("~/shopify/admin/productionPriceSyncPort.server")).createProductionPriceSyncPort()
+    const productionShopifyModule = autoPublishEnabled
+      ? await import("~/shopify/admin/productionPriceSyncPort.server")
       : undefined;
+    const syncPort = await productionShopifyModule?.createProductionPriceSyncPort();
+    // Stage 2B / R13. Same module, same laziness reasoning as syncPort above
+    // — constructed only when auto-publish is actually on, never at module
+    // scope. A failure constructing this (e.g. no stored offline session)
+    // is as loud as the sync port's own — auto-publish being enabled without
+    // a working Shopify connection is a misconfiguration either way.
+    const metafields = await productionShopifyModule?.createProductionMetafieldPublishDeps();
 
     const summary = await runPriceRecalculation({
       trigger: options.trigger,
       triggeredBy: options.triggeredBy,
       reason: options.reason,
       syncPort,
+      metafields,
       autoPublishEnabled,
     });
     // Counts and references only — no price, cost or margin values (criterion 30).

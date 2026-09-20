@@ -1,19 +1,91 @@
 {% comment %}
-  Renders a list of product's price (regular, sale)
+  Renders a product's customer-facing price (Slice 2B / owner §3, criterion 56).
+
+  This snippet is the SHARED price renderer for the whole theme — PDP, cards,
+  search (docs/specs/SLICE-2B-CART-SURFACE-INVENTORY.md E1). It intentionally
+  no longer renders Dawn's native "regular / sale" price by default: every
+  caller in this theme now passes an explicit `mode`, because a caller that
+  fell through to an undeclared default here would silently render a bare
+  Shopify price where a Bank Payment figure was expected — exactly the wrong
+  kind of "looks correct in review" failure this stage exists to prevent.
 
   Accepts:
-  - product: {Object} Product Liquid object (optional)
-  - placeholder: {Boolean} Renders a placeholder price (optional)
-  - use_variant: {Boolean} Renders selected or first variant price instead of overall product pricing (optional)
-  - show_badges: {Boolean} Renders 'Sale' and 'Sold Out' tags if the product matches the condition (optional)
+  - product: {Object} Product Liquid object
+  - mode: {String} REQUIRED. One of:
+      'as_low_as' — collection/search discovery cards (owner §3 "collection
+        and search"). Reads the PRODUCT-LEVEL `carat.as_low_as_bank_minor_units`
+        metafield (R13/R9) and shows "As low as $X" labelled as the Bank
+        Payment Price. Never shows the Regular/Card Price. Renders the
+        unavailable state — never a stale or fallback figure — on ANY of:
+        the metafield being absent (R14/P2 — the backend actively DELETES
+        this metafield, rather than leaving it stale, the moment no variant
+        is currently purchasable, so absence is itself meaningful, not just
+        "not written yet"), the embedded source variant not being found or
+        not currently `available`, or its `cardPriceAnchorMinorUnits` no
+        longer matching that variant's live Shopify price (R14, see below).
+      'pdp'       — product detail page (owner §3 "Product page"). Reads the
+        VARIANT-LEVEL `carat.bank_payment_price_minor_units` metafield.
+        Shows the Regular/Card Price — always the native Shopify
+        `variant.price`, i.e. what checkout will actually charge — as the
+        primary figure. Shows the Bank Payment Price and the exact dollar
+        saving alongside ONLY when the metafield's `shopifyVariantId` names
+        the variant being rendered AND its `cardPriceAnchorMinorUnits`
+        agrees with that variant's live native price (criterion 56 /
+        R14's coherence rule, see below). On any mismatch — including the
+        metafield being entirely absent — renders the card price alone.
+  - use_variant: {Boolean} Selects `product.selected_or_first_available_variant`
+    as the pricing target. Required (and forced) for 'pdp' mode; ignored by
+    'as_low_as' mode, which is always product-level.
+  - placeholder: {Boolean} Onboarding/theme-editor placeholder only (no real
+    product selected) — renders placeholder figures, never real customer data.
+  - show_badges: {Boolean} Renders 'Sale' and 'Sold Out' tags (optional,
+    'pdp' mode only — see below for why 'as_low_as' does not use this).
   - price_class: {String} Adds a price class to the price element (optional)
-  - show_compare_at_price: {Boolean} Renders the compare at price if the product matches the condition (optional)
+
+  WHY 'as_low_as' DROPS THE NATIVE compare_at_price "on sale" TREATMENT THAT
+  THIS SNIPPET USED TO RENDER FOR CARDS. `compare_at_price` and `variant.price`
+  are both Card-basis Shopify fields. Showing that native "was $X" strike-
+  through beside a Bank-Payment-basis headline price would silently pair a
+  Card-basis figure with a Bank-basis one with no label distinguishing them —
+  the same class of mismatched-pair error criterion 56 exists to prevent,
+  just introduced by a different native feature instead of a sync failure.
+  'pdp' mode keeps the Sale/Sold-out badges because there both figures it
+  touches (`compare_at_price`, `variant.price`) are Card-basis — an
+  apples-to-apples comparison that never touches the Bank Payment pair.
+
+  THE R14 COHERENCE CHECK — A SELF-VALIDATING ANCHOR, VERIFIED AGAINST THE
+  LIVE STORE, NOT DERIVED. Earlier revisions of this file compared the
+  metafield's OWN `regularCardPriceMinorUnits`/`bankPaymentPriceMinorUnits`
+  against the native price, because the only identity in the payload
+  (`masterVariantId`) is this app's internal Postgres id — NOT a Shopify
+  variant id/GID — and Liquid has no way to resolve that against
+  `product.variants`. The owner's R14 ruling closed that gap by having the
+  backend embed TWO PURPOSE-BUILT fields alongside the display figures:
+  `shopifyVariantId` (the exact value Liquid's own `variant.id` returns,
+  confirmed against the live `ProductVariant.legacyResourceId`) and
+  `cardPriceAnchorMinorUnits` (a Card price snapshot in the same
+  raw-integer-minor-units form `variant.price` already is). Both are
+  decimal STRINGS, like every other field in this payload — an initial
+  number-typed version was rejected by the architect as an unnecessary
+  money-safety exemption — so both get the same `| plus: 0` numeric-cast
+  idiom already used for the display figures before comparing. Both fields
+  exist ONLY to validate the pair; never render either.
+  A metafield write can fail independently of the native price write and
+  leave an OLD value that is internally self-consistent (its own
+  `priceCalculationId` really was published once) — criterion 56's naive
+  "does the metafield agree with itself" framing would miss that. This
+  anchor closes it: the native price mutation succeeded, so Shopify's own
+  live `variant.price` already moved, and the stale anchor no longer equals
+  it. The check needs no extra failure signal because it is always compared
+  against the one value that cannot itself be stale — what Shopify is
+  currently serving.
 
   Usage:
-  {% render 'price', product: product %}
+  {% render 'price', product: product, mode: 'as_low_as' %}
+  {% render 'price', product: product, mode: 'pdp', use_variant: true, show_badges: true %}
 {% endcomment %}
 {%- liquid
-  if use_variant
+  if mode == 'pdp' or use_variant
     assign target = product.selected_or_first_available_variant
   elsif placeholder
     assign target = null
@@ -23,94 +95,172 @@
 
   assign compare_at_price = target.compare_at_price
   assign price = target.price | default: 1999
-  assign price_min = product.price_min
-  assign price_max = product.price_max
   assign available = target.available | default: false
-  assign money_price = price | money
-  assign money_price_min = price_min | money
-  assign money_price_max = price_max | money
-  if settings.currency_code_enabled
-    assign money_price = price | money_with_currency
-    assign money_price_min = price_min | money_with_currency
-    assign money_price_max = price_max | money_with_currency
-  endif
-
-  if target == product and product.price_varies
-    assign money_price = 'products.product.price.from_price_html' | t: price: money_price
-  endif
 -%}
 
-{%- unless target == null and placeholder == null -%}
+{%- if mode == 'as_low_as' -%}
+  {%- liquid
+    assign as_low_as_metafield = product.metafields.carat.as_low_as_bank_minor_units.value
+    assign as_low_as_bank_minor = as_low_as_metafield.bankPaymentPriceMinorUnits | plus: 0
+    assign as_low_as_metafield_variant_id = as_low_as_metafield.shopifyVariantId | plus: 0
+    assign as_low_as_metafield_card_anchor_minor = as_low_as_metafield.cardPriceAnchorMinorUnits | plus: 0
+
+    comment
+      R14 / P2. `as_low_as_metafield` being nil is ITSELF meaningful, not just
+      "not written yet": the backend actively DELETES this metafield the
+      moment no variant is currently purchasable, rather than leaving a
+      stale value behind. So the `!= blank` check below already covers that
+      case correctly with no separate "never written" branch needed.
+
+      The `for` loop resolves the metafield's `shopifyVariantId` — a real
+      Liquid-native variant id, unlike the internal-only `masterVariantId` —
+      against this product's actual variants, so the purchasability and
+      price-freshness checks below are an EXACT per-variant check, not the
+      coarse product-level proxy this file used before R14. `shopifyVariantId`
+      and `cardPriceAnchorMinorUnits` are decimal strings like every other
+      field in this payload (an earlier number-typed draft was rejected by
+      the architect), so both get the same `| plus: 0` cast as the display
+      figures before comparing — assigned once above rather than inline in
+      the `if`/`for` conditions below, to keep operator precedence unambiguous.
+    endcomment
+
+    assign as_low_as_source_variant = null
+    unless as_low_as_metafield == blank
+      for v in product.variants
+        if v.id == as_low_as_metafield_variant_id
+          assign as_low_as_source_variant = v
+        endif
+      endfor
+    endunless
+
+    assign as_low_as_purchasable = false
+    if placeholder == null and as_low_as_metafield != blank and as_low_as_source_variant != null and as_low_as_source_variant.available and as_low_as_source_variant.price == as_low_as_metafield_card_anchor_minor and as_low_as_bank_minor > 0
+      assign as_low_as_purchasable = true
+    endif
+
+    if settings.currency_code_enabled
+      assign as_low_as_money = as_low_as_bank_minor | money_with_currency
+    else
+      assign as_low_as_money = as_low_as_bank_minor | money
+    endif
+  -%}
+  <div
+    class="
+      price
+      {%- if price_class %} {{ price_class }}{% endif -%}
+      {%- if as_low_as_purchasable == false and placeholder == null %} price--sold-out{% endif -%}
+    "
+  >
+    <div class="price__container">
+      {%- if as_low_as_purchasable -%}
+        <div class="price__regular">
+          <span class="price-item price-item--regular carat-as-low-as">
+            {{- 'products.product.price.as_low_as_html' | t: price: as_low_as_money -}}
+          </span>
+          <span class="caption carat-as-low-as__label">
+            {{- 'products.product.price.bank_payment_price' | t -}}
+          </span>
+        </div>
+      {%- elsif placeholder -%}
+        {%- comment -%} Onboarding/theme-editor placeholder only — never real customer data. {%- endcomment -%}
+        {%- assign placeholder_money = 1999 | money -%}
+        <div class="price__regular">
+          <span class="price-item price-item--regular carat-as-low-as">
+            {{- 'products.product.price.as_low_as_html' | t: price: placeholder_money -}}
+          </span>
+          <span class="caption carat-as-low-as__label">
+            {{- 'products.product.price.bank_payment_price' | t -}}
+          </span>
+        </div>
+      {%- else -%}
+        <span class="price-item price-item--unavailable">
+          {{- 'products.product.price.as_low_as_unavailable' | t -}}
+        </span>
+      {%- endif -%}
+    </div>
+  </div>
+{%- elsif mode == 'pdp' -%}
+  {%- liquid
+    assign native_card_minor = target.price
+    assign bank_metafield = target.metafields.carat.bank_payment_price_minor_units.value
+    assign metafield_bank_minor = bank_metafield.bankPaymentPriceMinorUnits | plus: 0
+    assign metafield_saving_minor = bank_metafield.bankPaymentSavingsMinorUnits | plus: 0
+    assign bank_metafield_variant_id = bank_metafield.shopifyVariantId | plus: 0
+    assign bank_metafield_card_anchor_minor = bank_metafield.cardPriceAnchorMinorUnits | plus: 0
+
+    comment
+      R14. `shopifyVariantId` and `cardPriceAnchorMinorUnits` exist ONLY to
+      validate this pair — never rendered. Both are decimal strings like
+      every other field in this payload (an earlier number-typed draft was
+      rejected by the architect), so both get the same `| plus: 0` cast used
+      for the display figures — assigned once above rather than inline in
+      the `if` condition below, to keep operator precedence unambiguous —
+      before comparing against `target.id` / `native_card_minor`.
+    endcomment
+
+    assign bank_pair_coherent = false
+    if placeholder == null and bank_metafield != blank and bank_metafield_variant_id == target.id and bank_metafield_card_anchor_minor == native_card_minor
+      assign bank_pair_coherent = true
+    endif
+
+    if settings.currency_code_enabled
+      assign card_money = native_card_minor | money_with_currency
+      assign bank_money = metafield_bank_minor | money_with_currency
+      assign saving_money = metafield_saving_minor | money_with_currency
+    else
+      assign card_money = native_card_minor | money
+      assign bank_money = metafield_bank_minor | money
+      assign saving_money = metafield_saving_minor | money
+    endif
+  -%}
   <div
     class="
       price
       {%- if price_class %} {{ price_class }}{% endif -%}
       {%- if available == false %} price--sold-out{% endif -%}
-      {%- if compare_at_price > price and product.quantity_price_breaks_configured? != true %} price--on-sale{% endif -%}
-      {%- if compare_at_price > price and product.quantity_price_breaks_configured? %} volume-pricing--sale-badge{% endif -%}
-      {%- if product.price_varies == false and product.compare_at_price_varies %} price--no-compare{% endif -%}
+      {%- if compare_at_price > price %} price--on-sale{% endif -%}
       {%- if show_badges %} price--show-badge{% endif -%}
     "
   >
     <div class="price__container">
-      {%- comment -%}
-        Explanation of description list:
-          - div.price__regular: Displayed when there are no variants on sale
-          - div.price__sale: Displayed when a variant is a sale
-      {%- endcomment -%}
       <div class="price__regular">
-        {%- if product.quantity_price_breaks_configured? -%}
-          {%- if show_compare_at_price and compare_at_price -%}
-            {%- unless product.price_varies == false and product.compare_at_price_varies %}
-              <span class="visually-hidden visually-hidden--inline">
-                {{- 'products.product.price.regular_price' | t -}}
-              </span>
-              <span>
-                <s class="price-item price-item--regular variant-item__old-price">
-                  {% if settings.currency_code_enabled %}
-                    {{ compare_at_price | money_with_currency }}
-                  {% else %}
-                    {{ compare_at_price | money }}
-                  {% endif %}
-                </s>
-              </span>
-            {%- endunless -%}
+        <span class="visually-hidden visually-hidden--inline">{{ 'products.product.price.regular_price' | t }}</span>
+        <span class="price-item price-item--regular carat-card-price">
+          {%- if placeholder -%}
+            {{- 1999 | money -}}
+          {%- else -%}
+            {{- card_money -}}
           {%- endif -%}
-          <span class="visually-hidden visually-hidden--inline">{{ 'products.product.price.regular_price' | t }}</span>
-          <span class="price-item price-item--regular">
-            {{-
-              'products.product.volume_pricing.price_range'
-              | t: minimum: money_price_min, maximum: money_price_max
-            -}}
+        </span>
+        {%- if compare_at_price > price -%}
+          <span class="visually-hidden visually-hidden--inline">
+            {{- 'products.product.price.regular_price' | t -}}
           </span>
-        {%- else -%}
-          <span class="visually-hidden visually-hidden--inline">{{ 'products.product.price.regular_price' | t }}</span>
-          <span class="price-item price-item--regular">
-            {{ money_price }}
-          </span>
+          <s class="price-item price-item--regular variant-item__old-price">
+            {%- if settings.currency_code_enabled -%}
+              {{- compare_at_price | money_with_currency -}}
+            {%- else -%}
+              {{- compare_at_price | money -}}
+            {%- endif -%}
+          </s>
         {%- endif -%}
       </div>
-      <div class="price__sale">
-        {%- unless product.price_varies == false and product.compare_at_price_varies %}
-          <span class="visually-hidden visually-hidden--inline">{{ 'products.product.price.regular_price' | t }}</span>
-          <span>
-            <s class="price-item price-item--regular">
-              {% if settings.currency_code_enabled %}
-                {{ compare_at_price | money_with_currency }}
-              {% else %}
-                {{ compare_at_price | money }}
-              {% endif %}
-            </s>
-          </span>
-        {%- endunless -%}
-        <span class="visually-hidden visually-hidden--inline">{{ 'products.product.price.sale_price' | t }}</span>
-        <span class="price-item price-item--sale price-item--last">
-          {{ money_price }}
-        </span>
-      </div>
-      {%- if product.selected_or_first_available_variant.unit_price_measurement -%}
-        {% render 'unit-price', price: product.selected_or_first_available_variant.unit_price, measurement: product.selected_or_first_available_variant.unit_price_measurement %}
+      {%- if bank_pair_coherent -%}
+        <div class="carat-bank-payment-pair">
+          <div class="carat-bank-payment-price">
+            <span class="visually-hidden">{{ 'products.product.price.bank_payment_price' | t }}:</span>
+            <span class="price-item price-item--bank-payment">{{ bank_money }}</span>
+          </div>
+          <div class="carat-bank-payment-saving">
+            {{- 'products.product.price.bank_payment_saving_html' | t: amount: saving_money -}}
+          </div>
+        </div>
       {%- endif -%}
+      {%- unless placeholder -%}
+        {%- if target.unit_price_measurement -%}
+          {% render 'unit-price', price: target.unit_price, measurement: target.unit_price_measurement %}
+        {%- endif -%}
+      {%- endunless -%}
     </div>
     {%- if show_badges -%}
       <span class="badge price__badge-sale color-{{ settings.sale_badge_color_scheme }}">
@@ -122,4 +272,4 @@
       </span>
     {%- endif -%}
   </div>
-{% endunless %}
+{%- endif -%}

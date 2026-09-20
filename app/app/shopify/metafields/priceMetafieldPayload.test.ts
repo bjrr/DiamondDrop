@@ -4,6 +4,7 @@ import type { PublishedVariantPrice } from "~/db/repositories/publishedPriceRepo
 
 import {
   MalformedPriceMetafieldValueError,
+  MalformedShopifyGidError,
   PRICE_METAFIELD_NAMESPACE,
   buildProductAsLowAsMetafield,
   buildVariantBankPaymentEligibleMetafield,
@@ -11,6 +12,7 @@ import {
   buildVariantSyncSuspendedMetafield,
   compareMetafieldToPublishedCalculation,
   parsePriceBearingMetafieldValue,
+  shopifyLegacyIdFromGid,
 } from "./priceMetafieldPayload";
 
 function aPublishedPrice(overrides: Partial<PublishedVariantPrice> = {}): PublishedVariantPrice {
@@ -26,6 +28,19 @@ function aPublishedPrice(overrides: Partial<PublishedVariantPrice> = {}): Publis
     ...overrides,
   };
 }
+
+describe("shopifyLegacyIdFromGid (R14)", () => {
+  it("extracts the trailing numeric id from a well-formed variant gid, as a decimal string", () => {
+    // Verified live against caratforus-dev.myshopify.com, 2026-09-20:
+    // ProductVariant.legacyResourceId equals this exact trailing segment.
+    expect(shopifyLegacyIdFromGid("gid://shopify/ProductVariant/52379059290413")).toBe("52379059290413");
+  });
+
+  it("throws MalformedShopifyGidError for a gid with no trailing digits", () => {
+    expect(() => shopifyLegacyIdFromGid("gid://shopify/ProductVariant/")).toThrow(MalformedShopifyGidError);
+    expect(() => shopifyLegacyIdFromGid("not-a-gid")).toThrow(MalformedShopifyGidError);
+  });
+});
 
 describe("buildVariantBankPaymentPriceMetafield", () => {
   it("shapes namespace/key/type/ownerId and embeds the calculation id in the value", () => {
@@ -44,7 +59,35 @@ describe("buildVariantBankPaymentPriceMetafield", () => {
       bankPaymentPriceMinorUnits: "100000",
       regularCardPriceMinorUnits: "104000",
       bankPaymentSavingsMinorUnits: "4000",
+      shopifyVariantId: "9",
+      cardPriceAnchorMinorUnits: "104000",
     });
+  });
+
+  it("R14 (architect ruling 2026-09-20): shopifyVariantId and cardPriceAnchorMinorUnits are decimal strings, like every other field in this payload", () => {
+    const input = buildVariantBankPaymentPriceMetafield("gid://shopify/ProductVariant/9", aPublishedPrice());
+    const payload = JSON.parse(input.value);
+    expect(typeof payload.shopifyVariantId).toBe("string");
+    expect(typeof payload.cardPriceAnchorMinorUnits).toBe("string");
+  });
+
+  it("R14: the anchor tracks regularCardPriceMinorUnits exactly, in minor units", () => {
+    const input = buildVariantBankPaymentPriceMetafield(
+      "gid://shopify/ProductVariant/1",
+      aPublishedPrice({ regularCardPriceMinorUnits: 208_000n })
+    );
+    expect(JSON.parse(input.value).cardPriceAnchorMinorUnits).toBe("208000");
+  });
+
+  it("R14: shopifyVariantId is derived from the gid, matching Liquid's variant.id form", () => {
+    const input = buildVariantBankPaymentPriceMetafield("gid://shopify/ProductVariant/52379059290413", aPublishedPrice());
+    expect(JSON.parse(input.value).shopifyVariantId).toBe("52379059290413");
+  });
+
+  it("propagates MalformedShopifyGidError for a malformed variant gid", () => {
+    expect(() => buildVariantBankPaymentPriceMetafield("not-a-gid", aPublishedPrice())).toThrow(
+      MalformedShopifyGidError
+    );
   });
 
   it("never carries the internal uplift rate or tier label (C-S5 / R14)", () => {
@@ -59,23 +102,29 @@ describe("buildVariantBankPaymentPriceMetafield", () => {
     expect(input.value).not.toContain("SECRET TIER");
   });
 
-  it("serializes minor-unit amounts as decimal strings, never as JS numbers that could lose precision", () => {
+  it("serializes minor-unit money amounts (including the R14 anchor) as decimal strings, never as JS numbers that could lose precision", () => {
     const input = buildVariantBankPaymentPriceMetafield(
       "gid://shopify/ProductVariant/9",
       aPublishedPrice({
         bankPaymentPriceMinorUnits: 9_007_199_254_740_993n, // beyond Number.MAX_SAFE_INTEGER
+        regularCardPriceMinorUnits: 9_007_199_254_740_995n,
       })
     );
 
     expect(input.value).toContain('"bankPaymentPriceMinorUnits":"9007199254740993"');
+    // The R14 anchor is regularCardPriceMinorUnits, and must survive an
+    // absurdly large value exactly, since it is a decimal string with no
+    // numeric-widening conversion anywhere in this path.
+    expect(input.value).toContain('"cardPriceAnchorMinorUnits":"9007199254740995"');
   });
 });
 
 describe("buildProductAsLowAsMetafield", () => {
-  it("shapes the product-level payload around the winning variant's price", () => {
+  it("shapes the product-level payload around the winning variant's price and the SOURCE variant's Shopify id", () => {
     const input = buildProductAsLowAsMetafield(
       "gid://shopify/Product/1",
-      aPublishedPrice({ masterVariantId: "variant-cheapest", priceCalculationId: "calc-cheapest" })
+      aPublishedPrice({ masterVariantId: "variant-cheapest", priceCalculationId: "calc-cheapest" }),
+      "gid://shopify/ProductVariant/42"
     );
 
     expect(input.ownerId).toBe("gid://shopify/Product/1");
@@ -86,7 +135,28 @@ describe("buildProductAsLowAsMetafield", () => {
       priceCalculationId: "calc-cheapest",
       currency: "USD",
       bankPaymentPriceMinorUnits: "100000",
+      shopifyVariantId: "42",
+      cardPriceAnchorMinorUnits: "104000",
     });
+  });
+
+  it("R14: the source variant id is the SHOPIFY id, not masterVariantId — this is the whole point", () => {
+    const input = buildProductAsLowAsMetafield(
+      "gid://shopify/Product/1",
+      aPublishedPrice({ masterVariantId: "internal-uuid-not-liquid-resolvable" }),
+      "gid://shopify/ProductVariant/999"
+    );
+    const payload = JSON.parse(input.value);
+    expect(payload.shopifyVariantId).toBe("999");
+    // The internal uuid is still present (audit/admin correlation) but is a
+    // SEPARATE field the theme never resolves against product.variants.
+    expect(payload.masterVariantId).toBe("internal-uuid-not-liquid-resolvable");
+  });
+
+  it("propagates MalformedShopifyGidError for a malformed winning-variant gid", () => {
+    expect(() => buildProductAsLowAsMetafield("gid://shopify/Product/1", aPublishedPrice(), "bad-gid")).toThrow(
+      MalformedShopifyGidError
+    );
   });
 });
 
@@ -113,7 +183,7 @@ describe("non-price-bearing boolean metafields", () => {
 });
 
 describe("parsePriceBearingMetafieldValue", () => {
-  it("round-trips a value produced by a builder above", () => {
+  it("round-trips a value produced by a builder above, including the R14 fields", () => {
     const input = buildVariantBankPaymentPriceMetafield("gid://shopify/ProductVariant/9", aPublishedPrice());
     const parsed = parsePriceBearingMetafieldValue(input.value);
 
@@ -122,6 +192,8 @@ describe("parsePriceBearingMetafieldValue", () => {
       priceCalculationId: "calc-1",
       currency: "USD",
       bankPaymentPriceMinorUnits: "100000",
+      shopifyVariantId: "9",
+      cardPriceAnchorMinorUnits: "104000",
     });
   });
 
@@ -148,8 +220,26 @@ describe("parsePriceBearingMetafieldValue", () => {
           priceCalculationId: "c1",
           currency: "USD",
           bankPaymentPriceMinorUnits: 100000, // number, not string — the exact hazard this guards against
+          shopifyVariantId: "9",
+          cardPriceAnchorMinorUnits: "104000",
         })
       )
+    ).toThrow(MalformedPriceMetafieldValueError);
+  });
+
+  it("throws when shopifyVariantId or cardPriceAnchorMinorUnits is missing or the wrong type (R14)", () => {
+    const base = {
+      masterVariantId: "v1",
+      priceCalculationId: "c1",
+      currency: "USD",
+      bankPaymentPriceMinorUnits: "100000",
+    };
+    expect(() => parsePriceBearingMetafieldValue(JSON.stringify(base))).toThrow(MalformedPriceMetafieldValueError);
+    expect(() =>
+      parsePriceBearingMetafieldValue(JSON.stringify({ ...base, shopifyVariantId: 9, cardPriceAnchorMinorUnits: "104000" }))
+    ).toThrow(MalformedPriceMetafieldValueError);
+    expect(() =>
+      parsePriceBearingMetafieldValue(JSON.stringify({ ...base, shopifyVariantId: "9", cardPriceAnchorMinorUnits: 104000 }))
     ).toThrow(MalformedPriceMetafieldValueError);
   });
 });

@@ -1,7 +1,7 @@
 import type { AdminGraphqlClient } from "~/shopify/admin/productClient.server";
 import { AdminApiError } from "~/shopify/admin/productClient.server";
 
-import type { PriceMetafieldWriteInput } from "./priceMetafieldPayload";
+import type { PRICE_METAFIELD_NAMESPACE, PriceMetafieldWriteInput } from "./priceMetafieldPayload";
 
 /**
  * The Admin API writer for `carat.*` metafields (Slice 2 stage 2B entry
@@ -47,6 +47,13 @@ export class NoMetafieldsToWriteError extends Error {
   constructor() {
     super("setPriceMetafields called with an empty input list.");
     this.name = "NoMetafieldsToWriteError";
+  }
+}
+
+export class NoMetafieldsToDeleteError extends Error {
+  constructor() {
+    super("deletePriceMetafields called with an empty identifier list.");
+    this.name = "NoMetafieldsToDeleteError";
   }
 }
 
@@ -119,4 +126,93 @@ export async function setPriceMetafields(
     appliedAt: new Date(),
     writtenKeys: written.map((w) => `${w.namespace}.${w.key}`),
   };
+}
+
+/**
+ * Identifies a metafield to DELETE — no `value`/`type`, just the coordinate
+ * (Stage 2B / R13, criterion 31).
+ */
+export interface PriceMetafieldIdentifier {
+  readonly ownerId: string;
+  readonly namespace: typeof PRICE_METAFIELD_NAMESPACE;
+  readonly key: string;
+}
+
+const DELETE_MUTATION = `#graphql
+  mutation CaratDeletePriceMetafields($metafields: [MetafieldIdentifierInput!]!) {
+    metafieldsDelete(metafields: $metafields) {
+      deletedMetafields { key namespace ownerId }
+      userErrors { field message }
+    }
+  }`;
+
+interface MetafieldsDeletePayload {
+  deletedMetafields?: ({ key: string; namespace: string; ownerId: string } | null)[] | null;
+  userErrors?: { field?: string[] | null; message: string }[];
+}
+
+interface DeleteGraphqlEnvelope {
+  data?: { metafieldsDelete?: MetafieldsDeletePayload };
+  errors?: { message: string }[];
+}
+
+export interface DeletePriceMetafieldsResult {
+  readonly appliedAt: Date;
+}
+
+/**
+ * Deletes one or more `carat.*` metafields — used to clear a stale product-
+ * level "as low as" figure when NO variant remains currently purchasable
+ * (criterion 31: "the card shows the product's unavailable state — never a
+ * stale or fabricated 'As low as'"). Leaving the metafield in place would
+ * have Liquid keep rendering the last-computed figure for a product nothing
+ * can actually buy at that price any more.
+ *
+ * DELETING A METAFIELD THAT NEVER EXISTED IS NOT AN ERROR. Verified live
+ * against caratforus-dev.myshopify.com (Admin API 2026-07), 2026-09-20:
+ * `metafieldsDelete` on a coordinate with no existing metafield returns
+ * `deletedMetafields: [null]` with an EMPTY `userErrors` array — success,
+ * not failure. That is exactly the common case here (a product that has
+ * never had a purchasable variant has no "as low as" metafield to begin
+ * with), so — unlike `setPriceMetafields`'s count check above, which exists
+ * to catch a genuine partial-write hazard — a `null` entry in
+ * `deletedMetafields` is NOT treated as a failure here.
+ */
+export async function deletePriceMetafields(
+  client: AdminGraphqlClient,
+  identifiers: readonly PriceMetafieldIdentifier[]
+): Promise<DeletePriceMetafieldsResult> {
+  if (identifiers.length === 0) {
+    throw new NoMetafieldsToDeleteError();
+  }
+
+  const response = await client.graphql(DELETE_MUTATION, {
+    variables: {
+      metafields: identifiers.map((identifier) => ({
+        ownerId: identifier.ownerId,
+        namespace: identifier.namespace,
+        key: identifier.key,
+      })),
+    },
+  });
+  const body = (await response.json()) as DeleteGraphqlEnvelope;
+
+  if (body.errors?.length) {
+    throw new AdminApiError("metafieldsDelete", body.errors.map((e) => e.message));
+  }
+
+  const payload = body.data?.metafieldsDelete;
+  if (!payload) {
+    throw new AdminApiError("metafieldsDelete", ["response had no metafieldsDelete payload"]);
+  }
+
+  const userErrors = payload.userErrors ?? [];
+  if (userErrors.length > 0) {
+    throw new AdminApiError(
+      "metafieldsDelete",
+      userErrors.map((e) => `${(e.field ?? []).join(".") || "(general)"}: ${e.message}`)
+    );
+  }
+
+  return { appliedAt: new Date() };
 }

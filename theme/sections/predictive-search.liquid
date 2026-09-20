@@ -160,7 +160,13 @@
                         {%- endif -%}
                         <p class="predictive-search__item-heading h5">{{ product.title | escape }}</p>
                         {%- if settings.predictive_search_show_price -%}
-                          {% render 'price', product: product, use_variant: true, show_badges: false %}
+                          {%- comment -%}
+                            Owner §3 governs "collection and search" together — the search
+                            dropdown is the search half (SLICE-2B-CART-SURFACE-INVENTORY.md E7 /
+                            R13). Uses the same product-level "As low as" Bank Payment figure as
+                            the collection cards, not a single selected variant's Card price.
+                          {%- endcomment -%}
+                          {% render 'price', product: product, mode: 'as_low_as' %}
                         {%- endif -%}
                       </div>
                     </a>

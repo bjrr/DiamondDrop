@@ -120,6 +120,7 @@
                   <div id="price-{{ section.id }}" role="status" {{ block.shopify_attributes }}>
                     {%- render 'price',
                       product: product,
+                      mode: 'pdp',
                       placeholder: placeholder,
                       use_variant: true,
                       show_badges: true,

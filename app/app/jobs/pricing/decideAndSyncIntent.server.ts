@@ -3,7 +3,7 @@ import type { PriceSyncIntent } from "@prisma/client";
 import { logger } from "~/lib/logger.server";
 
 import { type DecisionInput, decideIntent } from "./intentTransitions.server";
-import type { ShopifyPriceSyncPort } from "./ports";
+import type { PriceMetafieldPublishDeps, ShopifyPriceSyncPort } from "./ports";
 import { type SyncOutcome, syncApprovedPriceSyncIntent } from "./syncApprovedIntent.server";
 
 /**
@@ -52,6 +52,8 @@ export interface DecideAndSyncResult {
 
 export interface DecideAndSyncDeps {
   port: ShopifyPriceSyncPort;
+  /** OPTIONAL — Stage 2B / R13. Threaded straight through to `syncApprovedPriceSyncIntent`; see that dependency's own doc comment in `./ports`. */
+  metafields?: PriceMetafieldPublishDeps;
 }
 
 export async function decideAndSyncIntent(
@@ -66,7 +68,7 @@ export async function decideAndSyncIntent(
   }
 
   try {
-    const sync = await syncApprovedPriceSyncIntent(intent.id, { port: deps.port });
+    const sync = await syncApprovedPriceSyncIntent(intent.id, { port: deps.port, metafields: deps.metafields });
     return { intent, sync };
   } catch (error) {
     const syncError = error instanceof Error ? error : new Error(String(error));

@@ -2,15 +2,19 @@ import { prisma } from "~/db/client.server";
 import { dispatchAdminAlert } from "~/db/repositories/adminAlertDispatch.server";
 import { getLatestComputedCalculation } from "~/db/repositories/priceCalculationRepository.server";
 import { recordPricingInputChangeIfPriceAffecting } from "~/db/repositories/pricingInputChangeRepository.server";
+import type { PublishedVariantPrice } from "~/db/repositories/publishedPriceRepository.server";
 import { recordSyncFailure, recordSyncSuccess } from "~/db/repositories/priceSyncFailureRepository.server";
 import { MoneyDecimal } from "~/domain/money/decimal";
 import { Money } from "~/domain/money/money";
 import { deriveRegularCardPrice } from "~/domain/pricing/regularCardPrice";
 import type { RegularCardPriceRuleId } from "~/domain/pricing/types";
 import { logger } from "~/lib/logger.server";
+import { recomputeAndPublishAsLowAs } from "~/shopify/metafields/asLowAsAggregator.server";
+import { buildVariantBankPaymentPriceMetafield } from "~/shopify/metafields/priceMetafieldPayload";
+import { setPriceMetafields } from "~/shopify/metafields/priceMetafieldWriter.server";
 
 import { assertTransitionAllowed } from "./intentTransitions.server";
-import type { ShopifyPriceSyncPort } from "./ports";
+import type { PriceMetafieldPublishDeps, ShopifyPriceSyncPort } from "./ports";
 
 /**
  * Closes F-26/F-27 and contract C-S2: the function that actually moves an
@@ -134,6 +138,16 @@ async function writeSyncAuditEvent(params: {
 
 export interface SyncApprovedIntentDeps {
   port: ShopifyPriceSyncPort;
+  /**
+   * OPTIONAL — Stage 2B / R13. When supplied, a `synced` outcome ALSO writes
+   * this variant's `carat.bank_payment_price_minor_units` metafield and
+   * recomputes/republishes the product's `carat.as_low_as_bank_minor_units`.
+   * See `PriceMetafieldPublishDeps`'s own doc comment in `./ports` for why
+   * this is a separate, optional dependency rather than part of
+   * `ShopifyPriceSyncPort`, and the `committed` branch below for the
+   * failure-isolation contract this function keeps when it is supplied.
+   */
+  metafields?: PriceMetafieldPublishDeps;
 }
 
 export async function syncApprovedPriceSyncIntent(
@@ -325,6 +339,30 @@ export async function syncApprovedPriceSyncIntent(
           error: alertError instanceof Error ? alertError.name : "UnknownError",
         });
       }
+
+      // OWNER EXIT PROOF P2 / R14 — a NEWLY-SUSPENDED variant is exactly
+      // exclusion 3 of the "as low as" aggregator (this app's own event, not
+      // an external one, so no webhook is needed to catch it immediately).
+      // If this variant was the product's winning "as low as" figure, that
+      // figure is now advertising a variant nobody can buy until this
+      // recompute runs. This function is ABOUT to throw `syncError` and
+      // never reach its own later metafield-publish block, so without this
+      // hook the product-level figure would only self-correct on the next
+      // unrelated publish or the daily reconciliation run. Own try/catch:
+      // must never mask the ORIGINAL sync error re-thrown below.
+      if (failure.newlySuspended && deps.metafields) {
+        try {
+          await recomputeAndPublishAsLowAs(intent.masterVariant.masterProductId, shopifyProductGid, {
+            client: deps.metafields.client,
+          });
+        } catch (recomputeError) {
+          logger.error("shopify.price_metafield_publish_failed", {
+            intentId: intent.id,
+            masterVariantId: intent.masterVariantId,
+            error: recomputeError instanceof Error ? recomputeError.name : "UnknownError",
+          });
+        }
+      }
     } catch (recordError) {
       // Recording the failure must never mask the ORIGINAL error below, and
       // must never itself become the thing that propagates.
@@ -459,6 +497,65 @@ export async function syncApprovedPriceSyncIntent(
         masterVariantId: intent.masterVariantId,
         error: recordError instanceof Error ? recordError.name : "UnknownError",
       });
+    }
+
+    // PRICE METAFIELD PUBLISH (Stage 2B / R13, criterion 56). Skipped
+    // entirely — no error, no log — when the caller supplied no
+    // `deps.metafields`, exactly as slice 1/early slice 2 behaved before this
+    // dependency existed.
+    //
+    // ITS OWN TRY/CATCH, OUTSIDE THE TRANSACTION ABOVE, on purpose: the
+    // variant price reaching Shopify (the `productVariantsBulkUpdate` call
+    // and the `synced` transaction, both already committed by this point) is
+    // the money-critical event. The metafield is a presentation cache
+    // (`priceMetafieldPayload.ts`'s own module doc comment) — a reader
+    // hitting this catch sees `shopify.price_metafield_publish_failed` in the
+    // log, the intent stays `synced`, sync state is untouched, and the
+    // product's Liquid surfaces simply keep showing whatever they showed
+    // before (stale, not wrong: the coherence check in
+    // `priceMetafieldCoherence.server.ts` is what a THEME-side read uses to
+    // detect and suppress a stale/absent Bank Payment figure rather than
+    // render a mismatched one). This mirrors the exact pattern already used
+    // for admin-alert dispatch and override-expiry above: own try/catch,
+    // distinct log line, no effect on the surrounding transaction.
+    if (deps.metafields) {
+      try {
+        // Built from what THIS call just published, not a fresh read —
+        // avoids a redundant round trip and guarantees the metafield names
+        // exactly the calculation that was just synced, never a
+        // theoretically-newer one a concurrent read could observe.
+        const publishedPrice: PublishedVariantPrice = {
+          masterVariantId: intent.masterVariantId,
+          priceCalculationId: intent.priceCalculationId,
+          bankPaymentPriceMinorUnits: calc.bankPaymentPriceMinorUnits,
+          regularCardPriceMinorUnits: derived.regularCardPriceMinorUnits,
+          bankPaymentSavingsMinorUnits: derived.bankPaymentSavingsMinorUnits,
+          currency: calc.currency,
+          appliedUpliftRate: derived.appliedUpliftRate,
+          appliedTierLabel: derived.appliedTierLabel,
+        };
+
+        await setPriceMetafields(deps.metafields.client, [
+          buildVariantBankPaymentPriceMetafield(shopifyVariantGid, publishedPrice),
+        ]);
+
+        // PRODUCT-SCOPED RECOMPUTE, not variant-scoped (criteria 28-31). This
+        // variant's own publish can move the PRODUCT's "as low as" even when
+        // no other variant changed — it may become the new winner, or (if a
+        // corrected calculation just recovered from suspension) restore a
+        // figure the product previously had none for. So the aggregator
+        // always re-evaluates the product's full current variant set rather
+        // than comparing only against the variant just published.
+        await recomputeAndPublishAsLowAs(intent.masterVariant.masterProductId, shopifyProductGid, {
+          client: deps.metafields.client,
+        });
+      } catch (metafieldError) {
+        logger.error("shopify.price_metafield_publish_failed", {
+          intentId: intent.id,
+          masterVariantId: intent.masterVariantId,
+          error: metafieldError instanceof Error ? metafieldError.name : "UnknownError",
+        });
+      }
     }
   }
 

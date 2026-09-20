@@ -24,12 +24,14 @@ import { computeBuyNowBandPrice, computeBuyNowPrice } from "~/domain/pricing/eng
 import { PRICING_ENGINE_VERSION } from "~/domain/pricing/version";
 import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
+import { recomputeAndPublishAsLowAs } from "~/shopify/metafields/asLowAsAggregator.server";
 
 import { decideSync } from "./decideSync";
 import {
   BandResolutionError,
   NoOpOpenCampaignExclusionSource,
   type OpenCampaignExclusionSource,
+  type PriceMetafieldPublishDeps,
   type ShopifyPriceSyncPort,
   UnimplementedPriceSyncPort,
 } from "./ports";
@@ -89,6 +91,15 @@ export interface RunOptions {
    * than silently claiming a publish that never happened.
    */
   syncPort?: ShopifyPriceSyncPort;
+  /**
+   * OPTIONAL — Stage 2B / R13. Threaded straight through to every auto-apply
+   * `syncApprovedPriceSyncIntent` call below, exactly like `syncPort` above
+   * and for the identical reason: this file must not construct a real Admin
+   * API client itself (criterion 29's fence). Omitted means the metafield
+   * publish half of a sync is skipped for this run, with no error — see
+   * `PriceMetafieldPublishDeps`'s own doc comment in `./ports`.
+   */
+  metafields?: PriceMetafieldPublishDeps;
   /**
    * Defaults to reading `PRICE_AUTO_PUBLISH_ENABLED` from the environment
    * (criterion 8: unset or anything other than the literal string "true"
@@ -416,6 +427,30 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
               error: alertError instanceof Error ? alertError.name : "UnknownError",
             });
           }
+
+          // OWNER EXIT PROOF P2 / R14 — a variant newly RESTORED from
+          // calculation-failure suspension may now be eligible to win its
+          // product's "as low as" again (it can still have a perfectly good
+          // OLD published price even though today's recalculation is what
+          // just recorded the recovery). This is NOT guaranteed to be
+          // followed by a metafield publish for this variant below — that
+          // only happens when auto-publish is on AND this run's decision is
+          // `approved` AND changed; a `synced`/`unchanged` or
+          // `pending_approval` outcome reaches neither. So the recompute is
+          // hooked here directly, own try/catch, non-critical.
+          if (options.metafields && variant.masterProduct.shopifyProductGid) {
+            try {
+              await recomputeAndPublishAsLowAs(variant.masterProductId, variant.masterProduct.shopifyProductGid, {
+                client: options.metafields.client,
+              });
+            } catch (recomputeError) {
+              logger.error("shopify.price_metafield_publish_failed", {
+                runId,
+                masterVariantId: variant.id,
+                error: recomputeError instanceof Error ? recomputeError.name : "UnknownError",
+              });
+            }
+          }
         }
       } catch (recoveryError) {
         logger.error("pricing.calculation_recovery_record_failed", {
@@ -500,7 +535,7 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
       // which before this slice it never did (F-27).
       if (autoPublishEnabled && intentStatus === "approved") {
         try {
-          await syncApprovedPriceSyncIntent(newIntent.id, { port: syncPort });
+          await syncApprovedPriceSyncIntent(newIntent.id, { port: syncPort, metafields: options.metafields });
         } catch (syncError) {
           logger.error("pricing.auto_publish_failed", {
             runId,
@@ -586,6 +621,28 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
             event: failure.newEpisode ? "opened" : "suspended",
             error: alertError instanceof Error ? alertError.name : "UnknownError",
           });
+        }
+
+        // OWNER EXIT PROOF P2 / R14 — a NEWLY-SUSPENDED variant is exclusion
+        // 3 of the "as low as" aggregator, and this run's own event (no
+        // webhook needed). This variant just failed to calculate, so
+        // nothing below in this run publishes anything for it — without this
+        // hook, a product whose winning variant just got suspended here
+        // would keep advertising that variant's stale figure until an
+        // unrelated event triggers a recompute. Own try/catch: must never
+        // turn a single failed variant into an aborted run.
+        if (failure.newlySuspended && options.metafields && variant.masterProduct.shopifyProductGid) {
+          try {
+            await recomputeAndPublishAsLowAs(variant.masterProductId, variant.masterProduct.shopifyProductGid, {
+              client: options.metafields.client,
+            });
+          } catch (recomputeError) {
+            logger.error("shopify.price_metafield_publish_failed", {
+              runId,
+              masterVariantId: variant.id,
+              error: recomputeError instanceof Error ? recomputeError.name : "UnknownError",
+            });
+          }
         }
       } catch (recordError) {
         logger.error("pricing.calculation_failure_record_failed", {

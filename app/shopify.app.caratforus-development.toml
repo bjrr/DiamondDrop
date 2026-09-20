@@ -99,9 +99,44 @@ api_version = "2026-07"
   customer_deletion_url = "/webhooks/customers/redact"
   shop_deletion_url = "/webhooks/shop/redact"
 
-# No business webhook subscriptions yet. Slice 2 introduces the first (product
-# and order topics); declaring one before its handler exists would have Shopify
-# deliver to a 404 and retry.
+  # Stage 2B / owner ruling R15 (2026-09-20, owner exit proof P2). These
+  # three topics are the event-driven trigger for recomputing a product's
+  # "as low as" figure — see app/shopify/webhooks/inventoryPurchasabilityHandler.server.ts.
+  # Every one of them fires under the EXISTING `read_products`/`write_products`
+  # scope above: `read_inventory` is deliberately NOT requested. R15 also
+  # explicitly rejected `inventory_levels/update` (the more obviously
+  # "correct" topic) for exactly that reason — it needs a scope this app does
+  # not hold. Verified live against caratforus-dev.myshopify.com that
+  # `webhookSubscriptionCreate` accepts all three topics below with zero
+  # userErrors under the current offline session's scope.
+  #
+  # THE WEBHOOK IS AN INVALIDATION SIGNAL, NEVER A DATA SOURCE (R15's own
+  # wording). The handler never reads a price, quantity or availability value
+  # out of the delivered payload — only an identifier telling it which
+  # product to re-check. Purchasability and the "as low as" figure are always
+  # re-resolved from Shopify's and our own current state afterward. This is
+  # also what makes a redelivered or out-of-order webhook harmless: it just
+  # triggers another recompute from current state.
+  #
+  # products/update covers product/variant lifecycle changes (create, delete,
+  # status change) that can also flip purchasability, per Shopify's own
+  # documentation of when this topic fires.
+  #
+  # Routed through OUR OWN receiveShopifyWebhook (HMAC-verified, deduplicated,
+  # idempotent — see app/shopify/webhooks/boundaryPreserved.test.ts), never
+  # the library's authenticate.webhook, exactly like the compliance topics
+  # above.
+  [[webhooks.subscriptions]]
+  topics = ["variants/out_of_stock"]
+  uri = "/webhooks/carat/variants-out-of-stock"
+
+  [[webhooks.subscriptions]]
+  topics = ["variants/in_stock"]
+  uri = "/webhooks/carat/variants-in-stock"
+
+  [[webhooks.subscriptions]]
+  topics = ["products/update"]
+  uri = "/webhooks/carat/products-update"
 
 [app_proxy]
 # Storefront requests to

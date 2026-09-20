@@ -10,6 +10,8 @@ import {
   syncApprovedPriceSyncIntent,
 } from "~/jobs/pricing/syncApprovedIntent.server";
 import { InvalidIntentTransitionError } from "~/jobs/pricing/intentTransitions.server";
+import type { AdminGraphqlClient } from "~/shopify/admin/productClient.server";
+import { PRICE_METAFIELD_NAMESPACE } from "~/shopify/metafields/priceMetafieldPayload";
 
 /**
  * Spec §11, test plan cases 1-6 — the money-critical suite that gates
@@ -94,6 +96,14 @@ interface FixtureOptions {
 
 async function makeFixture(opts: FixtureOptions) {
   const suffix = randomUUID().slice(0, 8);
+  // shopifyLegacyIdFromGid (R14, Stage 2B-6) requires a PURE-DIGIT trailing
+  // gid segment, matching a real Shopify id. `suffix` above is hex and can
+  // contain a-f, which intermittently failed that parse once the metafield
+  // -publish wiring started deriving a Liquid-native numeric id from these
+  // fixtures' gids — a latent bug in this shared builder that simply never
+  // mattered before that requirement existed. `suffix` still names things
+  // (never asserted on for its literal value); only the gids need digits.
+  const shopifyLegacyId = uniqueInt();
   const linked = opts.linked ?? true;
 
   const product = await prisma.masterProduct.create({
@@ -107,7 +117,7 @@ async function makeFixture(opts: FixtureOptions) {
       baseSize: "0",
       offeredMetals: ["gold"],
       status: "active",
-      shopifyProductGid: linked ? `gid://shopify/Product/${suffix}` : null,
+      shopifyProductGid: linked ? `gid://shopify/Product/${shopifyLegacyId}` : null,
     },
   });
   const variant = await prisma.masterVariant.create({
@@ -119,7 +129,7 @@ async function makeFixture(opts: FixtureOptions) {
       weightPerFullSizeGrams: "0.0000",
       status: "active",
       laborSource: "india",
-      shopifyVariantGid: linked ? `gid://shopify/ProductVariant/${suffix}` : null,
+      shopifyVariantGid: linked ? `gid://shopify/ProductVariant/${shopifyLegacyId}` : null,
     },
   });
   createdVariantIds.push(variant.id);
@@ -430,5 +440,143 @@ describe("boundary and error conditions", () => {
 
     const variantAfter = await prisma.masterVariant.findUnique({ where: { id: intent.masterVariantId } });
     expect(variantAfter?.lastSyncedPriceCalculationId).toBeNull();
+  });
+});
+
+/**
+ * Stage 2B-6 — the metafield-publish wiring INSIDE `syncApprovedIntent.server.ts`,
+ * flagged in the 2B-6 handoff as covered only by unit tests with injected
+ * fakes. Real Prisma, a real committed `synced` intent, and a fake Admin API
+ * client at the network boundary (matching the pattern `asLowAsAggregator.test.ts`
+ * and `inventoryPurchasabilityWebhook.test.ts` already use) — the property
+ * under test is the ISOLATION contract the module comment on the metafield
+ * -publish block documents: a metafield failure must leave sync state
+ * (the money-critical half) completely untouched.
+ */
+function fakeMetafieldClient(opts: { failSet?: boolean } = {}) {
+  const calls: { document: string; variables: Record<string, unknown> }[] = [];
+  const client: AdminGraphqlClient = {
+    async graphql(document, options) {
+      const variables = (options?.variables ?? {}) as Record<string, unknown>;
+      calls.push({ document, variables });
+
+      if (document.includes("CaratVariantsAvailability")) {
+        const ids = variables.ids as string[];
+        return { json: async () => ({ data: { nodes: ids.map((id) => ({ id, availableForSale: true })) } }) };
+      }
+
+      if (document.includes("CaratSetPriceMetafields")) {
+        if (opts.failSet) {
+          return { json: async () => ({ errors: [{ message: "simulated metafield write failure" }] }) };
+        }
+        const inputs = variables.metafields as { namespace: string; key: string }[];
+        return {
+          json: async () => ({
+            data: {
+              metafieldsSet: {
+                metafields: inputs.map((input, i) => ({
+                  id: `gid://shopify/Metafield/${i}`,
+                  namespace: input.namespace,
+                  key: input.key,
+                  ownerType: "PRODUCTVARIANT",
+                })),
+                userErrors: [],
+              },
+            },
+          }),
+        };
+      }
+
+      if (document.includes("CaratDeletePriceMetafields")) {
+        const identifiers = variables.metafields as { namespace: string; key: string; ownerId: string }[];
+        return {
+          json: async () => ({
+            data: { metafieldsDelete: { deletedMetafields: identifiers.map((i) => ({ ...i })), userErrors: [] } },
+          }),
+        };
+      }
+
+      throw new Error(`fakeMetafieldClient received an unexpected document: ${document.slice(0, 80)}`);
+    },
+  };
+  return { client, calls };
+}
+
+describe("2B-6 — the metafield-publish wiring inside syncApprovedIntent.server.ts", () => {
+  it("a committed synced outcome attempts the variant metafield write", async () => {
+    const { intent } = await makeFixture({ bankPaymentPriceMinorUnits: 100_000n });
+    const port = new FakeShopifyPriceSyncPort();
+    const { client, calls } = fakeMetafieldClient();
+
+    const outcome = await syncApprovedPriceSyncIntent(intent.id, { port, metafields: { client } });
+
+    expect(outcome.kind).toBe("synced");
+    const setCalls = calls.filter((c) => c.document.includes("CaratSetPriceMetafields"));
+    expect(setCalls.length).toBeGreaterThanOrEqual(1);
+    const variantWrite = setCalls
+      .flatMap((c) => c.variables.metafields as { namespace: string; key: string }[])
+      .find((m) => m.key === "bank_payment_price_minor_units");
+    expect(variantWrite).toMatchObject({ namespace: PRICE_METAFIELD_NAMESPACE });
+  });
+
+  it("skips metafield publish entirely — no Admin API call for it — when no metafields dependency is supplied, exactly as before this dependency existed", async () => {
+    const { intent } = await makeFixture({ bankPaymentPriceMinorUnits: 100_000n });
+    const port = new FakeShopifyPriceSyncPort();
+
+    const outcome = await syncApprovedPriceSyncIntent(intent.id, { port });
+
+    expect(outcome.kind).toBe("synced");
+    // No fake to inspect here — the point is that omitting `metafields`
+    // changes nothing else about a successful sync, which case 1 above
+    // already fully verifies. This test exists to guard against a future
+    // edit making `deps.metafields` load-bearing for the sync itself.
+  });
+
+  it("a metafield write failure leaves sync state COMPLETELY untouched — the intent is still synced, the anchor is still written, and nothing throws", async () => {
+    const { intent, variant, calc } = await makeFixture({ bankPaymentPriceMinorUnits: 100_000n });
+    const port = new FakeShopifyPriceSyncPort();
+    const { client } = fakeMetafieldClient({ failSet: true });
+
+    // The money-critical call succeeds; only the metafield write fails.
+    // syncApprovedPriceSyncIntent must not throw, must not roll back, and
+    // must not leave the intent anywhere other than `synced`.
+    const outcome = await syncApprovedPriceSyncIntent(intent.id, { port, metafields: { client } });
+
+    expect(outcome.kind).toBe("synced");
+    expect(port.calls).toHaveLength(1); // the real publish still happened, exactly once
+
+    const after = await prisma.priceSyncIntent.findUnique({ where: { id: intent.id } });
+    expect(after?.status).toBe("synced");
+    expect(after?.syncedAt).not.toBeNull();
+
+    const variantAfter = await prisma.masterVariant.findUnique({ where: { id: variant.id } });
+    expect(variantAfter?.lastSyncedPriceCalculationId).toBe(calc.id);
+
+    // The money-critical audit event still exists — a metafield failure
+    // must not suppress or corrupt the evidence trail for the real publish.
+    const audit = await prisma.auditEvent.findMany({
+      where: { entityType: "price_sync_intent", entityId: intent.id, action: "price_sync_intent.synced" },
+    });
+    expect(audit).toHaveLength(1);
+  });
+
+  it("a metafield write failure does not prevent a LATER, independent sync from publishing its own metafield successfully", async () => {
+    // Proves the isolation is per-attempt, not a latched/sticky failure —
+    // a transient metafield error on one publish must not poison the next.
+    const first = await makeFixture({ bankPaymentPriceMinorUnits: 100_000n });
+    await syncApprovedPriceSyncIntent(first.intent.id, {
+      port: new FakeShopifyPriceSyncPort(),
+      metafields: { client: fakeMetafieldClient({ failSet: true }).client },
+    });
+
+    const second = await makeFixture({ bankPaymentPriceMinorUnits: 150_000n });
+    const { client, calls } = fakeMetafieldClient();
+    const outcome = await syncApprovedPriceSyncIntent(second.intent.id, {
+      port: new FakeShopifyPriceSyncPort(),
+      metafields: { client },
+    });
+
+    expect(outcome.kind).toBe("synced");
+    expect(calls.some((c) => c.document.includes("CaratSetPriceMetafields"))).toBe(true);
   });
 });
