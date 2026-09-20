@@ -107,6 +107,8 @@
   "products": {
     "product": {
       "add_to_cart": "Add to cart",
+      "add_to_cart_bank_payment": "Add to Cart with Bank Payment Discount",
+      "add_to_cart_bank_payment_note": "Switches your whole cart to Bank Payment pricing",
       "choose_options": "Choose options",
       "choose_product_options": "Choose options for {{ product_name }}",
       "description": "Description",
@@ -292,6 +294,7 @@
       "note": "Order special instructions",
       "checkout": "Check out",
       "card_checkout": "Card Checkout",
+      "card_checkout_confirm": "Continue to Card Checkout",
       "bank_payment_checkout": "Bank Payment Checkout",
       "bank_payment_checkout_note": "Bank Payment Checkout is arranged directly with our team after you submit your order — we'll follow up by email to complete payment at your Bank Payment Price.",
       "pricing": {
@@ -300,7 +303,13 @@
         "bank_payment_price": "Bank Payment Price",
         "bank_payment_saving": "Bank Payment Savings",
         "card_total": "Card Total",
-        "bank_payment_total": "Bank Payment Total"
+        "bank_payment_total": "Bank Payment Total",
+        "card_checkout_reprice_notice": "Your cart is now set to Card pricing. The Card Total above is what you'll be charged — Bank Payment pricing applies only when you complete Bank Payment Checkout. Continue below when you're ready.",
+        "switch_to_bank_payment": "Switch to Bank Payment Pricing",
+        "switch_to_bank_payment_note": "Applies the Bank Payment Savings shown above. No confirmation needed — switching to Card later will show the updated total before you pay.",
+        "price_unavailable": "Price unavailable. Please refresh.",
+        "checkout_reprice_failed": "We could not switch your cart to Card pricing. Please try again.",
+        "switch_to_bank_failed": "We could not switch your cart to Bank Payment pricing. Please try again."
       },
       "empty": "Your cart is empty",
       "product_disclosure": "Product disclosure",

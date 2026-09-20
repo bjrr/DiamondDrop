@@ -228,6 +228,37 @@ window.CaratCartPricing = (function () {
   }
 
   function applyDtoToDocument(dto) {
+    // L3 applies to every "hidden while the cart is in Bank mode" control
+    // exactly as it does to money: a full drawer/notification innerHTML
+    // replacement (add-to-cart, quick-add, ...) re-renders such a control
+    // from Liquid's OWN snapshot of `cart.attributes.carat_payment_mode` at
+    // THAT render's request time — which can be stale by the time this
+    // apply() call resolves (e.g. product-form.js's Bank-flavored add calls
+    // setPaymentMode('bank') BEFORE CartDrawer#renderContents() swaps in a
+    // response whose sections were rendered from the PRE-switch cart; a PDP
+    // has no equivalent re-render at all, so the F1 dynamic-checkout wrapper
+    // would otherwise never correct itself post-add). Driven here,
+    // unconditionally, from dto.mode on every apply() — the
+    // server-authoritative mode this whole file already treats as ground
+    // truth — so both controls self-correct after every swap the same way
+    // money nodes do, rather than needing every call site to remember to
+    // re-sync them separately. syncModeRedundantControls is what makes this
+    // "derive from the DTO, not patch the one call site that found the bug"
+    // (team-lead ruling, 2026-09-19) apply to any FUTURE such control too —
+    // add its selector there, not a third copy of this branch.
+    if (dto && (dto.mode === 'bank' || dto.mode === 'card')) {
+      syncModeRedundantControls(dto.mode);
+    }
+
+    // The Card Checkout confirm panel does NOT get the same treatment: its
+    // correct resting state is not a pure function of mode (a card-mode
+    // customer who never touched Bank Payment must never see it), so it
+    // stays the sole responsibility of the one confirmed interception that
+    // reveals it — see revealCardCheckoutConfirm's own comment. That control
+    // CAN go stale across a full drawer replacement in the same way; tracked
+    // as a named gap in the 2B-5 handoff rather than "fixed" by relaxing the
+    // rule that protects the more common case.
+
     var nodes = document.querySelectorAll(MONEY_SELECTOR);
     nodes.forEach(function (node) {
       var kind = node.getAttribute('data-carat-money');
@@ -322,6 +353,330 @@ window.CaratCartPricing = (function () {
       });
   }
 
+  // ===========================================================================
+  // MODE SWITCHING AND CARD CHECKOUT INTERCEPTION (Stage 2B task 2B-5, owner
+  // §19/§20 — docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md).
+  //
+  // THE PROPERTY THIS SECTION EXISTS TO PROVE: a customer cannot end up
+  // seeing one pricing basis while being charged another, through any
+  // sequence of switching, adding, changing quantity or reloading. Every
+  // function below either (a) tells Shopify's OWN cart what the mode is, via
+  // the `carat_payment_mode` attribute written through /cart/update.js — the
+  // one and only place mode is stored — or (b) reads that attribute back
+  // through fetchCart()/apply(), same as every other path in this file.
+  // Nothing here keeps its own notion of "the current mode" between calls.
+  // ===========================================================================
+
+  var CARD_CHECKOUT_ACTION_SELECTOR = '[data-carat-checkout-action="card"]';
+  var CARD_CHECKOUT_CONFIRM_SELECTOR = '[data-carat-card-checkout-confirm]';
+  var SWITCH_TO_BANK_WRAPPER_SELECTOR = '[data-carat-payment-mode-action-wrapper]';
+  var SWITCH_TO_BANK_BUTTON_SELECTOR = '[data-carat-payment-mode-action="bank"]';
+  // F1 (docs/specs/SLICE-2B-CART-SURFACE-INVENTORY.md) — buy-buttons.liquid's
+  // accelerated/dynamic checkout wrapper. Same visibility rule as the
+  // switch-to-bank wrapper above (hidden while Bank mode, visible
+  // otherwise), so it is driven by the same syncModeRedundantControls below
+  // rather than a third bespoke pair of functions.
+  var DYNAMIC_CHECKOUT_WRAPPER_SELECTOR = '[data-carat-dynamic-checkout-wrapper]';
+
+  // Extracts one element's innerHTML out of a Section Rendering API HTML
+  // string, mirroring getSectionInnerHTML() on CartItems/CartDrawer/
+  // CartNotification below — duplicated rather than shared because those are
+  // instance methods on classes this IIFE runs before any are defined.
+  function extractSectionInnerHTML(sectionHtml, selector) {
+    var parsed = new DOMParser().parseFromString(sectionHtml, 'text/html').querySelector(selector);
+    return parsed ? parsed.innerHTML : null;
+  }
+
+  // Resting state: the plain Card Checkout button is the only checkout
+  // action visible, and the "your cart just repriced to Card" panel is gone.
+  // NEVER touches `disabled` — main-cart-footer.liquid/cart-drawer.liquid
+  // already render `disabled` on this button for an EMPTY cart, and blindly
+  // clearing it here would silently re-enable checkout on an empty cart.
+  // `hidden` alone is sufficient: it removes the element from the
+  // accessibility tree, tab order and click surface.
+  function hideCardCheckoutConfirm() {
+    document.querySelectorAll(CARD_CHECKOUT_CONFIRM_SELECTOR).forEach(function (panel) {
+      panel.setAttribute('hidden', '');
+    });
+    document.querySelectorAll(CARD_CHECKOUT_ACTION_SELECTOR).forEach(function (button) {
+      button.removeAttribute('hidden');
+    });
+  }
+
+  // The one moment this is shown: immediately after a Bank-mode Card
+  // Checkout click has actually repriced the cart to Card (see
+  // handleCardCheckoutSubmit below). Never driven by apply()/mode alone —
+  // an ordinary Card-mode customer who never touched Bank Payment must never
+  // see this gate, so nothing calls this except that one confirmed
+  // transition.
+  function revealCardCheckoutConfirm() {
+    document.querySelectorAll(CARD_CHECKOUT_CONFIRM_SELECTOR).forEach(function (panel) {
+      panel.removeAttribute('hidden');
+    });
+    document.querySelectorAll(CARD_CHECKOUT_ACTION_SELECTOR).forEach(function (button) {
+      button.setAttribute('hidden', '');
+    });
+  }
+
+  // Owner ruling, 2026-09-19: Card -> Bank is asymmetric with Bank -> Card
+  // on purpose. Bank -> Card RAISES what the customer pays, so it is gated
+  // behind the reprice-confirm panel above (owner §19). Card -> Bank only
+  // ever LOWERS it, so `data-carat-payment-mode-action="bank"` needs no
+  // confirmation at all — one plain button, one click, handled entirely by
+  // handleSwitchToBankClick below.
+  //
+  // Both this wrapper and the F1 dynamic-checkout wrapper are redundant (or
+  // outright unsafe — see F1's own comment in buy-buttons.liquid) while the
+  // cart is already in Bank mode, and both are rendered `hidden` at that
+  // point per each file's own DOM contract test. Grouped into one pair of
+  // functions — team-lead ruling, 2026-09-19: "derive its hidden state from
+  // the DTO's mode on every apply()... rather than depending on one call
+  // site remembering" — rather than one bespoke pair per control, so a
+  // FUTURE control with the identical "hidden only in Bank mode" rule is a
+  // one-line addition to MODE_REDUNDANT_IN_BANK_SELECTORS, not a new pair of
+  // functions and a new call site to remember. Unlike the checkout-confirm
+  // panel, both these controls' visibility is a plain function of the
+  // CURRENT mode, not a one-shot reveal tied to a single interception.
+  var MODE_REDUNDANT_IN_BANK_SELECTORS = [SWITCH_TO_BANK_WRAPPER_SELECTOR, DYNAMIC_CHECKOUT_WRAPPER_SELECTOR];
+
+  function hideModeRedundantControls() {
+    MODE_REDUNDANT_IN_BANK_SELECTORS.forEach(function (selector) {
+      document.querySelectorAll(selector).forEach(function (wrapper) {
+        wrapper.setAttribute('hidden', '');
+      });
+    });
+  }
+
+  function showModeRedundantControls() {
+    MODE_REDUNDANT_IN_BANK_SELECTORS.forEach(function (selector) {
+      document.querySelectorAll(selector).forEach(function (wrapper) {
+        wrapper.removeAttribute('hidden');
+      });
+    });
+  }
+
+  // Single dispatcher so applyDtoToDocument (L3's self-correction) and every
+  // direct mode-switch caller share one "what does mode X mean for these
+  // controls" decision rather than each re-deriving it.
+  function syncModeRedundantControls(mode) {
+    if (mode === 'bank') {
+      hideModeRedundantControls();
+    } else {
+      showModeRedundantControls();
+    }
+  }
+
+  // Writes `carat_payment_mode` through /cart/update.js — the single place
+  // this attribute is ever set — then reprices the WHOLE document from the
+  // resulting cart via apply(), exactly as any other apply() caller does.
+  //
+  // Also refreshes main-cart-footer's server-rendered HTML when that section
+  // is on the page, and ONLY that section: it is the one cart-page surface
+  // whose Liquid actually branches on `cart.attributes.carat_payment_mode`
+  // (the L4 accelerated-checkout suppression around
+  // content_for_additional_checkout_buttons — verified by grep, not
+  // assumed). Every other A-surface's money nodes are always-pending
+  // (R12) and neither read nor branch on the mode attribute in Liquid, so
+  // apply() alone is sufficient to bring them current; re-fetching their
+  // markup on every mode switch would be a needless round trip. The
+  // cart-drawer's own Card Checkout confirm panel is handled the same way
+  // apply() handles drawer money nodes — hideCardCheckoutConfirm/
+  // revealCardCheckoutConfirm query the WHOLE document, so the drawer's
+  // (unreplaced) nodes are covered for free without a drawer-specific fetch.
+  //
+  // Switching TO bank mode also resets the Card Checkout confirm gate to its
+  // resting state — this is what stops a stale "your cart repriced to Card"
+  // panel (left over from an earlier bank->card interception this session)
+  // from surviving a later switch back to Bank mode via a fresh Add to Cart
+  // with Bank Payment Discount. Switching to card mode does NOT reveal the
+  // gate itself — that stays the sole responsibility of
+  // handleCardCheckoutSubmit, which is the only caller allowed to decide
+  // "this transition was a Bank Checkout interception".
+  function setPaymentMode(mode) {
+    var footerEl = document.getElementById('main-cart-footer');
+    var body = { attributes: {} };
+    body.attributes[MODE_ATTRIBUTE] = mode;
+    if (footerEl) {
+      body.sections = [footerEl.dataset.id];
+      body.sections_url = window.location.pathname;
+    }
+
+    var updateUrl = (typeof routes !== 'undefined' && routes && routes.cart_update_url) || '/cart/update.js';
+
+    return fetch(updateUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(function (response) {
+        if (!response.ok) throw new Error('CaratCartPricing: setPaymentMode failed with status ' + response.status);
+        return response.json();
+      })
+      .then(function (cart) {
+        if (cart && cart.errors) {
+          throw new Error('CaratCartPricing: setPaymentMode returned cart errors: ' + JSON.stringify(cart.errors));
+        }
+
+        if (footerEl && cart && cart.sections && cart.sections[footerEl.dataset.id]) {
+          var refreshedFooter = extractSectionInnerHTML(cart.sections[footerEl.dataset.id], '#main-cart-footer');
+          if (refreshedFooter != null) footerEl.innerHTML = refreshedFooter;
+        }
+
+        // apply() (via applyDtoToDocument) already syncs the switch-to-bank
+        // control to dto.mode unconditionally — see that function's own
+        // comment for why driving it from the DTO there, rather than from
+        // `mode` here, is what makes it self-correct after a later stale
+        // drawer/notification replacement too. Only the Card Checkout
+        // confirm gate remains this function's own responsibility, because
+        // its correct resting state is NOT a pure function of mode.
+        return apply({ cart: cart }).then(function () {
+          if (mode === 'bank') hideCardCheckoutConfirm();
+          return cart;
+        });
+      });
+  }
+
+  // Owner §19's second sentence, and the whole reason this section exists:
+  // "the cart/order must reprice to Regular/Card pricing before payment and
+  // show the updated total" — a promise about the customer's own
+  // understanding of their order, not about the amount Shopify charges.
+  // Shopify's native checkout submit already ONLY EVER charges the
+  // published Card price for this button (unmodified, unconditional on any
+  // cart attribute) — that half of owner §19 ("never complete a card
+  // payment at Bank pricing") already holds with no code here at all. This
+  // listener exists purely to satisfy the OTHER half.
+  //
+  // A WeakSet, not a boolean, because more than one Card Checkout button can
+  // exist in the document at once (cart page + drawer), each needing its own
+  // independent one-shot bypass.
+  var checkoutInterceptBypass = new WeakSet();
+
+  function handleCardCheckoutSubmit(event) {
+    var submitter = event.submitter;
+    // `data-carat-checkout-action="card-confirm"` (the second, explicit
+    // action in the confirm panel) is deliberately NOT matched here — per
+    // its own Liquid contract, it never needs interception, because by the
+    // time it is reachable the cart is already in Card mode.
+    if (!submitter || submitter.getAttribute('data-carat-checkout-action') !== 'card') return;
+
+    // Our own programmatic resubmission (the "already Card mode" branch
+    // below) re-dispatches a real submit event through the same submitter
+    // so the browser performs its normal navigation — this is what lets it
+    // through exactly once rather than looping back into this same check.
+    if (checkoutInterceptBypass.delete(submitter)) return;
+
+    var form = event.target;
+    event.preventDefault();
+
+    // Returned (rather than fire-and-forget) so callers — including the
+    // Vitest sandbox harness under app/app/theme/ — can await completion.
+    // The real 'submit' event dispatch ignores a listener's return value, so
+    // this changes nothing about production behaviour.
+    return fetchCart()
+      .then(function (cart) {
+        if (readModeFromCart(cart) !== 'bank') {
+          // Nothing to intercept: submit exactly as Dawn's own button does.
+          // `requestSubmit` (not `.submit()`) preserves the submitter's
+          // name/value pair (`name="checkout"`), which `.submit()` would
+          // silently drop — that field is what tells Shopify's cart form to
+          // proceed to checkout rather than just posting a plain update.
+          checkoutInterceptBypass.add(submitter);
+          form.requestSubmit(submitter);
+          return;
+        }
+
+        return setPaymentMode('card').then(function () {
+          // cart-notification.liquid (C1) deliberately carries a
+          // `data-carat-checkout-action="card"` marker with NO confirm
+          // panel — pdp-actions' own ruling: "close the popup and hand off
+          // to the full cart, which already carries the panel." Rather than
+          // hardcode "this surface is the notification", detect the actual
+          // condition that matters: no confirm panel is reachable ANYWHERE
+          // on the current page. The reprice is already complete (the
+          // setPaymentMode above just persisted and applied it), so the
+          // cart page's own footer will render the confirm panel — and the
+          // already-Card total — the moment it loads.
+          var hasReachableConfirmPanel = document.querySelectorAll(CARD_CHECKOUT_CONFIRM_SELECTOR).length > 0;
+          if (hasReachableConfirmPanel) {
+            revealCardCheckoutConfirm();
+          } else {
+            window.location = (typeof routes !== 'undefined' && routes && routes.cart_url) || '/cart';
+          }
+        });
+      })
+      .catch(function (error) {
+        if (typeof console !== 'undefined' && console.error) {
+          console.error('[CaratCartPricing] Card Checkout interception failed', error);
+        }
+        // Fail closed on the UX promise, not on money: leave the plain Card
+        // Checkout button exactly as it was (still able to charge only the
+        // correct Card price, per the module note above) and surface a
+        // visible error rather than silently retrying or guessing a mode.
+        var errors = document.getElementById('cart-errors') || document.getElementById('CartDrawer-CartErrors');
+        if (errors) {
+          errors.textContent =
+            (window.cartStrings && window.cartStrings.caratCheckoutRepriceFailed) ||
+            'We could not switch your cart to Card pricing. Please try again.';
+        }
+      });
+  }
+
+  // Resolves the actual `data-carat-payment-mode-action="bank"` element for
+  // a click, tolerating a click that lands on a future nested child (icon,
+  // span, ...) even though today's markup has none — `closest()` when the
+  // browser supports it (always, in practice), a direct attribute check
+  // otherwise so this degrades to "only matches when the button itself was
+  // the exact target" rather than throwing.
+  function findSwitchToBankTarget(eventTarget) {
+    if (!eventTarget) return null;
+    if (typeof eventTarget.closest === 'function') {
+      return eventTarget.closest(SWITCH_TO_BANK_BUTTON_SELECTOR);
+    }
+    return eventTarget.getAttribute && eventTarget.getAttribute('data-carat-payment-mode-action') === 'bank'
+      ? eventTarget
+      : null;
+  }
+
+  // Card -> Bank's one-click control (owner ruling, 2026-09-19). No
+  // confirmation gate, no interception of an existing submit — this is a
+  // plain `type="button"` with its own click, and switching cart mode only
+  // ever LOWERS what the customer pays, so there is nothing here to guard
+  // the way handleCardCheckoutSubmit guards the reverse direction.
+  function handleSwitchToBankClick(event) {
+    var target = findSwitchToBankTarget(event.target);
+    if (!target) return;
+
+    // Returned so callers (including the Vitest sandbox harness) can await
+    // completion — a real click listener ignores a returned value.
+    return setPaymentMode('bank').catch(function (error) {
+      if (typeof console !== 'undefined' && console.error) {
+        console.error('[CaratCartPricing] Card -> Bank switch failed', error);
+      }
+      var errors = document.getElementById('cart-errors') || document.getElementById('CartDrawer-CartErrors');
+      if (errors) {
+        errors.textContent =
+          (window.cartStrings && window.cartStrings.caratSwitchToBankFailed) ||
+          'We could not switch your cart to Bank Payment pricing. Please try again.';
+      }
+    });
+  }
+
+  // Delegated on `document` for the same reason as the submit listener
+  // below: it covers every current AND future surface carrying this
+  // attribute without needing to know Dawn's per-surface ids.
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('click', handleSwitchToBankClick);
+  }
+
+  // Delegated on `document` (submit events bubble) rather than bound to any
+  // specific button/form, for the same reason apply() re-scans the whole
+  // document by attribute: it covers every current AND future surface that
+  // carries `data-carat-checkout-action="card"` without this file needing to
+  // know Dawn's per-surface form ids (#cart, #CartDrawer-Form, ...).
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('submit', handleCardCheckoutSubmit);
+  }
+
   function initGlobalCartUpdateSubscription() {
     if (typeof subscribe !== 'function' || typeof PUB_SUB_EVENTS === 'undefined') return;
     // Every cart mutation in this theme (add-to-cart, quick-add,
@@ -346,10 +701,16 @@ window.CaratCartPricing = (function () {
 
   return {
     apply: apply,
+    // Public API, used from OTHER theme files: product-form.js calls this
+    // after a successful "Add to Cart with Bank Payment Discount" add
+    // (owner §20) to switch the whole cart to Bank mode. Callers should
+    // treat the resolved value (the /cart/update.js cart object) as
+    // informational only — never re-derive a price from it.
+    setPaymentMode: setPaymentMode,
     // Exposed only for the Vitest sandbox harness under app/app/theme/ to
     // unit test this file's real pure logic without duplicating it — see
     // that suite's header comment. Not a public API for other theme
-    // scripts; call apply() from there.
+    // scripts; call apply()/setPaymentMode() from there.
     _internal: {
       formatMoneyFromMinorUnits: formatMoneyFromMinorUnits,
       readModeFromCart: readModeFromCart,
@@ -357,6 +718,13 @@ window.CaratCartPricing = (function () {
       selectDisplayMinorUnits: selectDisplayMinorUnits,
       applyDtoToDocument: applyDtoToDocument,
       markPendingNodesAsFailed: markPendingNodesAsFailed,
+      hideCardCheckoutConfirm: hideCardCheckoutConfirm,
+      revealCardCheckoutConfirm: revealCardCheckoutConfirm,
+      handleCardCheckoutSubmit: handleCardCheckoutSubmit,
+      hideModeRedundantControls: hideModeRedundantControls,
+      showModeRedundantControls: showModeRedundantControls,
+      syncModeRedundantControls: syncModeRedundantControls,
+      handleSwitchToBankClick: handleSwitchToBankClick,
     },
   };
 })();

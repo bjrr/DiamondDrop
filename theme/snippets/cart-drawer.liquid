@@ -618,6 +618,32 @@
             </div>
           </dl>
 
+          {%- comment -%}
+            Owner ruling, 2026-09-19 — same treatment as sections/main-cart-footer.liquid.
+            Card -> Bank needs no confirmation (it only ever lowers what the customer pays);
+            Bank -> Card does (owner §19), via the reprice-confirm panel below. Hidden with
+            a plain `hidden` attribute, toggled by JS in place alongside that panel, rather
+            than gated by Liquid conditional existence. References the always-visible
+            `cart-saving` figure above rather than adding an eleventh `data-carat-money`
+            kind.
+          {%- endcomment -%}
+          <p
+            class="cart__switch-to-bank-payment"
+            data-carat-payment-mode-action-wrapper
+            {% if cart.attributes.carat_payment_mode == 'bank' %}
+              hidden
+            {% endif %}
+          >
+            <button
+              type="button"
+              class="link underlined-link"
+              data-carat-payment-mode-action="bank"
+            >
+              {{ 'sections.cart.pricing.switch_to_bank_payment' | t }}
+            </button>
+            {{ 'sections.cart.pricing.switch_to_bank_payment_note' | t }}
+          </p>
+
           <small class="tax-note caption-large rte">
             {%- if cart.duties_included and cart.taxes_included -%}
               {%- if shop.shipping_policy.body == blank -%}
@@ -664,7 +690,19 @@
         <div class="cart__ctas" {{ block.shopify_attributes }}>
           {%- comment -%}
             Owner §20 — same treatment as sections/main-cart-footer.liquid (A2). Card
-            Checkout is Shopify's own native checkout submit, unmodified.
+            Checkout is Shopify's own native checkout submit; Shopify itself always charges
+            the published Card variant price for it, so a card payment can never complete at
+            the lower Bank Payment figure.
+
+            UPDATED 2026-09-19, matching main-cart-footer.liquid: owner §19 additionally
+            requires the cart/order to reprice to Card and show the updated total BEFORE
+            payment, which is about the order's own record and the customer's understanding,
+            not the amount charged. So in Bank mode this button's click is intercepted (JS,
+            not owned here, keyed off `data-carat-checkout-action="card"`): switch the cart
+            to Card mode, reprice, reveal the confirmation panel below, and require the
+            separate `data-carat-checkout-action="card-confirm"` action to proceed. In Card
+            mode there is nothing to intercept — the button submits exactly as Dawn's does
+            today.
           {%- endcomment -%}
           <button
             type="submit"
@@ -672,12 +710,38 @@
             class="cart__checkout-button button"
             name="checkout"
             form="CartDrawer-Form"
+            data-carat-checkout-action="card"
             {% if cart == empty %}
               disabled
             {% endif %}
           >
             {{ 'sections.cart.card_checkout' | t }}
           </button>
+
+          {%- comment -%}
+            Owner §19 / 2B-5 handoff — same treatment as main-cart-footer.liquid. Hidden by
+            default; JS reveals it once the drawer's cart has actually repriced to Card mode.
+            `role="status"`, not an alert: this is the expected consequence of paying by
+            card, not an error. Points at the drawer's own always-visible Card Total
+            (`cart-card-total`) rather than duplicating a new money figure.
+          {%- endcomment -%}
+          <div class="cart__card-checkout-confirm" data-carat-card-checkout-confirm hidden>
+            <p class="cart__card-checkout-confirm-message" role="status">
+              {{ 'sections.cart.pricing.card_checkout_reprice_notice' | t }}
+            </p>
+            <button
+              type="submit"
+              class="cart__checkout-button button"
+              name="checkout"
+              form="CartDrawer-Form"
+              data-carat-checkout-action="card-confirm"
+              {% if cart == empty %}
+                disabled
+              {% endif %}
+            >
+              {{ 'sections.cart.card_checkout_confirm' | t }}
+            </button>
+          </div>
 
           {%- comment -%}
             Stage 2C builds the real Bank Payment Checkout flow. Clearly-marked stub only,

@@ -110,6 +110,44 @@
                   </div>
                 </dl>
 
+                {%- comment -%}
+                  Owner ruling, 2026-09-19 (relayed via the 2B-5 handoff): Card -> Bank is
+                  asymmetric with Bank -> Card, on purpose. Bank -> Card raises what the
+                  customer pays, so it is gated behind the reprice-confirm panel below
+                  (owner §19). Card -> Bank only ever lowers it, so it needs no confirmation
+                  -- one control, one click, entirely the JS owner's behaviour, keyed off
+                  `data-carat-payment-mode-action="bank"`.
+
+                  Shown only in Card mode (redundant in Bank mode -- the cart is already
+                  there). Hidden with a plain `hidden` attribute rather than by Liquid
+                  conditional existence, matching the reprice-confirm panel's own pattern
+                  below rather than the accelerated-checkout suppression's pattern above:
+                  this lets JS toggle both this control and that panel in place, from the
+                  same mode-switch action, without depending on a full Section Rendering
+                  re-fetch to keep them in sync -- see the reprice-confirm panel's own
+                  comment for why that matters here.
+
+                  References the Bank Payment Savings figure owner §3 already renders
+                  unconditionally above (`cart-saving`) instead of adding an eleventh
+                  `data-carat-money` kind for a duplicate number.
+                {%- endcomment -%}
+                <p
+                  class="cart__switch-to-bank-payment"
+                  data-carat-payment-mode-action-wrapper
+                  {% if cart.attributes.carat_payment_mode == 'bank' %}
+                    hidden
+                  {% endif %}
+                >
+                  <button
+                    type="button"
+                    class="link underlined-link"
+                    data-carat-payment-mode-action="bank"
+                  >
+                    {{ 'sections.cart.pricing.switch_to_bank_payment' | t }}
+                  </button>
+                  {{ 'sections.cart.pricing.switch_to_bank_payment_note' | t }}
+                </p>
+
                 <small class="tax-note caption-large rte">
                   {%- if cart.duties_included and cart.taxes_included -%}
                     {%- if shop.shipping_policy.body == blank -%}
@@ -154,17 +192,36 @@
               <div class="cart__ctas" {{ block.shopify_attributes }}>
                 {%- comment -%}
                   Owner §20 (docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md): the cart offers
-                  Card Checkout and Bank Payment Checkout. Card Checkout is Shopify's own
-                  native checkout submit, unmodified — it always charges the published
-                  (Card) variant price regardless of the cart's payment-mode attribute, so
-                  owner §19's "never complete a card payment at Bank pricing" holds by
-                  construction here, with no code change needed.
+                  Card Checkout and Bank Payment Checkout.
+
+                  UPDATED 2026-09-19 per owner §19's second sentence and the 2B-5 handoff.
+                  The price-safety half of the original note still holds unchanged: this
+                  button is Shopify's own native checkout submit, and Shopify always charges
+                  the published (Card) variant price for it regardless of any cart attribute,
+                  so a card payment can never complete at the lower Bank Payment figure. What
+                  the original note missed is the OTHER half of §19 -- "the cart/order must
+                  reprice to Regular/Card pricing before payment and show the updated total"
+                  -- which is about the customer's own cart/order record and their
+                  understanding, not about the amount charged. Left alone, a Bank-mode
+                  customer could click straight through to checkout while
+                  `cart.attributes.carat_payment_mode` still said "bank" on the order, and
+                  would see the higher Card total appear only once already at Shopify's
+                  checkout, with nothing on this page explaining why.
+
+                  So in Bank mode this button's click is intercepted (JS, not owned here,
+                  keyed off `data-carat-checkout-action="card"`): switch the cart to Card
+                  mode, reprice, reveal the confirmation panel below with the updated total
+                  already visible in this page's own Card Total figure, and require the
+                  separate `data-carat-checkout-action="card-confirm"` action to actually
+                  proceed. In Card mode there is nothing to intercept -- the button submits
+                  exactly as Dawn's does today.
                 {%- endcomment -%}
                 <button
                   type="submit"
                   id="checkout"
                   class="cart__checkout-button button"
                   name="checkout"
+                  data-carat-checkout-action="card"
                   {% if cart == empty %}
                     disabled
                   {% endif %}
@@ -172,6 +229,42 @@
                 >
                   {{ 'sections.cart.card_checkout' | t }}
                 </button>
+
+                {%- comment -%}
+                  Owner §19 (docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md) / 2B-5 handoff.
+                  Hidden by default; the JS above reveals it once the cart has actually
+                  repriced to Card mode, and hides/disables the plain Card Checkout button
+                  above so only one action is available at a time. This is the customer's
+                  SECOND, EXPLICIT action -- ordinary native submit, no further interception
+                  -- because by the time this panel is visible the cart is already in Card
+                  mode. `role="status"` because this is the expected, correct consequence of
+                  choosing to pay by card, not an error or a warning; the message says what
+                  changed and why rather than sounding like something went wrong. It does not
+                  duplicate the total as a new money figure -- the Card Total already shown
+                  unconditionally above (owner §3's simultaneous breakdown) is the same
+                  number and updates in place, so the copy points to it instead of adding an
+                  eleventh `data-carat-money` kind the R12 DOM contract does not define.
+
+                  COPY FLAGGED FOR OWNER SIGN-OFF (2B-5 handoff): both strings below are
+                  material, customer-facing pricing communication.
+                {%- endcomment -%}
+                <div class="cart__card-checkout-confirm" data-carat-card-checkout-confirm hidden>
+                  <p class="cart__card-checkout-confirm-message" role="status">
+                    {{ 'sections.cart.pricing.card_checkout_reprice_notice' | t }}
+                  </p>
+                  <button
+                    type="submit"
+                    class="cart__checkout-button button"
+                    name="checkout"
+                    form="cart"
+                    data-carat-checkout-action="card-confirm"
+                    {% if cart == empty %}
+                      disabled
+                    {% endif %}
+                  >
+                    {{ 'sections.cart.card_checkout_confirm' | t }}
+                  </button>
+                </div>
 
                 {%- comment -%}
                   Stage 2C (docs/specs/SLICE-2-BUY-NOW-STOREFRONT-AND-SYNC.md §3) builds the
@@ -205,9 +298,38 @@
                 button charges the higher Card price with no explanation) — so it is
                 suppressed while `carat_payment_mode` is "bank", per owner §19. Present
                 normally in Card mode.
+
+                UNIFIED WITH F1 (2026-09-19, team-lead ruling). Previously gated purely by
+                existence (`additional_checkout_buttons and cart.attributes.carat_payment_mode
+                != 'bank'`). That is safe here specifically because a cart-level mode switch
+                always goes through `/cart/update.js` and the existing L3 cart-section
+                resync, so the next server render corrects it — but it leaves a real, if
+                narrow, window: that resync is a network call, and if it fails, times out, or
+                races a concurrent cart update, the cart genuinely IS in Bank mode server-side
+                while this DOM is still stale Card-mode markup, with an accelerated-checkout
+                button live in it. Same bypass F1 closed, smaller probability, identical
+                consequence — and two different treatments of the same requirement in two
+                files is itself a hazard (a future maintainer has no way to tell the
+                difference is meaningful rather than accidental).
+
+                So this now matches F1's pattern (and the confirm panel / switch-to-bank
+                control) exactly, using the SAME wrapper attribute so `mode-switch`'s existing
+                selector-driven hide logic (already run on every apply, already covering both
+                the switch-to-bank control and F1) covers this surface for free: the element
+                always renders whenever `additional_checkout_buttons` is true (that alone
+                gates existence), wrapped in `data-carat-dynamic-checkout-wrapper` -- wrapped,
+                not reimplemented, since `content_for_additional_checkout_buttons` is
+                Shopify-generated -- with `hidden` set at render time purely from
+                `cart.attributes.carat_payment_mode`.
               {%- endcomment -%}
-              {%- if additional_checkout_buttons and cart.attributes.carat_payment_mode != 'bank' -%}
-                <div class="cart__dynamic-checkout-buttons additional-checkout-buttons">
+              {%- if additional_checkout_buttons -%}
+                <div
+                  class="cart__dynamic-checkout-buttons additional-checkout-buttons"
+                  data-carat-dynamic-checkout-wrapper
+                  {% if cart.attributes.carat_payment_mode == 'bank' %}
+                    hidden
+                  {% endif %}
+                >
                   {{ content_for_additional_checkout_buttons }}
                 </div>
               {%- endif -%}

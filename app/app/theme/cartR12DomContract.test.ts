@@ -186,12 +186,19 @@ describe("R12 DOM contract — cart money nodes", () => {
     });
 
     it("suppresses accelerated/dynamic checkout in Bank mode and allows it in Card mode (L4)", () => {
-      expect(source).toContain("cart.attributes.carat_payment_mode != 'bank'");
+      // 2026-09-19 (unified with F1): previously an existence gate
+      // (`cart.attributes.carat_payment_mode != 'bank'` deciding whether the element
+      // rendered at all); now always renders when `additional_checkout_buttons` is true,
+      // wrapped in a stable `data-carat-dynamic-checkout-wrapper` with `hidden` driven by
+      // mode — see cartDynamicCheckoutWrapper.test.ts for the full contract, parameterised
+      // over both this file and buy-buttons.liquid's F1 treatment.
+      expect(source).toContain("data-carat-dynamic-checkout-wrapper");
+      expect(source).toContain("cart.attributes.carat_payment_mode == 'bank'");
       // The suppression must wrap the actual accelerated-checkout output, not just exist nearby.
-      const suppressionIndex = source.indexOf("cart.attributes.carat_payment_mode != 'bank'");
+      const wrapperIndex = source.indexOf("data-carat-dynamic-checkout-wrapper");
       const contentForIndex = source.indexOf("content_for_additional_checkout_buttons");
-      expect(suppressionIndex).toBeGreaterThan(-1);
-      expect(contentForIndex).toBeGreaterThan(suppressionIndex);
+      expect(wrapperIndex).toBeGreaterThan(-1);
+      expect(contentForIndex).toBeGreaterThan(wrapperIndex);
     });
   });
 

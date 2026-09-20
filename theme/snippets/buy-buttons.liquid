@@ -69,16 +69,19 @@
             if product.selected_or_first_available_variant.quantity_rule.min > product.selected_or_first_available_variant.inventory_quantity and check_against_inventory
               assign quantity_rule_soldout = true
             endif
+
+            assign add_to_cart_unavailable = false
+            if product.selected_or_first_available_variant.available == false or quantity_rule_soldout or product.selected_or_first_available_variant == null
+              assign add_to_cart_unavailable = true
+            endif
           -%}
           <button
             id="ProductSubmitButton-{{ section_id }}"
             type="submit"
             name="add"
             class="product-form__submit button button--full-width {% if show_dynamic_checkout %}button--secondary{% else %}button--primary{% endif %}"
-            {% if product.selected_or_first_available_variant.available == false
-              or quantity_rule_soldout
-              or product.selected_or_first_available_variant == null
-            %}
+            data-carat-add-to-cart="default"
+            {% if add_to_cart_unavailable %}
               disabled
             {% endif %}
           >
@@ -93,8 +96,100 @@
             </span>
             {%- render 'loading-spinner' -%}
           </button>
+
+          {%- comment -%}
+            Owner §20 (docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md): a second add-to-cart
+            action that adds the selected configuration AND immediately switches the WHOLE
+            CART to Bank Payment mode, repricing every eligible line -- not just this one.
+            It is an add-to-cart action, not a product-page checkout button, so it stays
+            inside the same product form. `data-carat-add-to-cart="bank"` is the only hook
+            the JS layer (owned elsewhere) needs; it must read `event.submitter` to tell
+            this button apart from the default one, since both share the same form and the
+            same `name="add"` field.
+
+            ACCESSIBILITY (2026-09-19 handoff): a screen-reader user landing on this control
+            directly -- e.g. via forms-mode/rotor navigation -- only hears its accessible
+            name, not the surrounding page copy. So the cart-wide consequence has to live in
+            the button's own text, not just nearby prose. Both spans below are ordinary
+            visible text (no `visually-hidden`, no `aria-hidden`), so together they form one
+            accessible name that states the effect plainly. Distinguishing this button from
+            "Add to Cart" by wording, not colour or position alone, is the requirement this
+            satisfies.
+          {%- endcomment -%}
+          <button
+            type="submit"
+            name="add"
+            class="product-form__submit product-form__submit--bank-payment button button--full-width button--secondary"
+            data-carat-add-to-cart="bank"
+            {% if add_to_cart_unavailable %}
+              disabled
+            {% endif %}
+          >
+            <span class="product-form__submit-bank-label">
+              {%- if product.selected_or_first_available_variant == null -%}
+                {{ 'products.product.unavailable' | t }}
+              {%- elsif product.selected_or_first_available_variant.available == false or quantity_rule_soldout -%}
+                {{ 'products.product.sold_out' | t }}
+              {%- else -%}
+                {{ 'products.product.add_to_cart_bank_payment' | t }}
+              {%- endif -%}
+            </span>
+            {%- unless add_to_cart_unavailable -%}
+              <span class="product-form__submit-bank-note">
+                {{ 'products.product.add_to_cart_bank_payment_note' | t }}
+              </span>
+            {%- endunless -%}
+            {%- render 'loading-spinner' -%}
+          </button>
+
+          {%- comment -%}
+            L4 / F1 (docs/specs/SLICE-2B-CART-SURFACE-INVENTORY.md): dynamic/accelerated
+            checkout (Shop Pay and friends) goes straight to checkout, bypassing the cart
+            entirely -- there is no cart at that point, so no cart payment mode, and it would
+            always charge the published Card price no matter what a Bank-mode cart is
+            showing. Same suppression as sections/main-cart-footer.liquid's
+            `content_for_additional_checkout_buttons` block (F2), applied here for F1 -- and,
+            as of this revision, the SAME pattern, not merely an analogous one.
+
+            THE SUBTLETY: this section renders before the current product is ever added to
+            a cart, so "the cart's mode" here can only mean whatever cart already exists --
+            there is no other cart to consult. That is exactly the right thing to read: a
+            customer browsing a new product with an existing Bank-mode cart must not see an
+            accelerated button that would silently check them out at Card price for just
+            this one item, leaving their Bank-mode cart behind.
+
+            WHY ALWAYS-RENDER-PLUS-`hidden`, NOT CONDITIONAL EXISTENCE (2026-09-19, final
+            round). An earlier revision gated the whole element's existence on
+            `cart.attributes.carat_payment_mode != 'bank'`, reasoning that the merchant
+            setting (`show_dynamic_checkout`) and the mode belonged in one condition. That
+            broke the one thing a wrapper attribute exists to enable: this page's own "Add to
+            Cart with Bank Payment Discount" action switches the cart to Bank mode from THIS
+            SAME page load, with no navigation and no re-render of main-product -- if the
+            element is only ever conditionally PRESENT, an element rendered Card-mode-visible
+            stays exactly as first rendered, and an element never rendered in the first place
+            (because mode was already Bank at load) leaves nothing for JS to act on either
+            way. So this now matches sections/main-cart-footer.liquid's F2 treatment and the
+            confirm panel / switch-to-bank control exactly: the element always renders
+            whenever `show_dynamic_checkout` is true (that merchant setting alone gates
+            existence), wrapped in `data-carat-dynamic-checkout-wrapper` -- unmodified,
+            wrapped rather than reimplemented, since `payment_button` is Shopify-generated
+            markup -- with `hidden` set at render time purely from
+            `cart.attributes.carat_payment_mode`. `mode-switch` derives this wrapper's hidden
+            state from the DTO's mode on every apply (the same self-correcting pattern used
+            for the switch-to-bank control and, now, for F2), so it also recovers after a
+            stale HTML swap rather than only ever reacting to the one click that first
+            triggered it.
+          {%- endcomment -%}
           {%- if show_dynamic_checkout -%}
-            {{ form | payment_button }}
+            <div
+              class="product-form__dynamic-checkout-wrapper"
+              data-carat-dynamic-checkout-wrapper
+              {% if cart.attributes.carat_payment_mode == 'bank' %}
+                hidden
+              {% endif %}
+            >
+              {{ form | payment_button }}
+            </div>
           {%- endif -%}
         </div>
       {%- endform -%}
