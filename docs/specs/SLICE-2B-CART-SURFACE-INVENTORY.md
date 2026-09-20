@@ -581,3 +581,62 @@ the "still currently purchasable" test, so the card suppresses its "As low as"
 rather than advertising an unbuyable price. **Event-driven recompute keeps the
 figure fresh; the self-validating cache keeps it honest when freshness has not
 arrived yet.** Belt and braces, and the braces hold on their own.
+
+
+---
+
+# R15 — purchasability webhooks (owner ruling, 2026-09-20)
+
+**No `read_inventory` for 2B-6.** Subscribe under the existing product scope to:
+
+- `variants/out_of_stock`
+- `variants/in_stock`
+- `products/update`
+
+The first two give the inventory boundary transitions that actually matter for
+advertised purchasability. `products/update` covers product and variant
+lifecycle changes — Shopify documents it as firing when a product is updated or
+variants are added, removed or updated.
+
+## The webhook is an INVALIDATION SIGNAL, never a data source
+
+On any of those events: identify the affected product, **re-query the
+authoritative current variant state**, recompute purchasability, recompute the
+product-level "As low as", and write the aggregate metafield or remove it when
+no qualifying variant exists.
+
+**Do not derive the new figure from the webhook payload.** This is the same
+principle as criterion 43 for cart lines: an inbound payload may tell us *what
+to look at*, never *what a thing costs*. It also sidesteps every question about
+payload completeness, ordering and replay — a redelivered or out-of-order
+webhook simply triggers another recompute from current state, which makes the
+handler idempotent by construction rather than by careful bookkeeping.
+
+## Use our own webhook receiver, not the library's
+
+`ARCHITECTURE-MVP1.md` §2.1: inbound webhook receipt stays with
+`receiveShopifyWebhook` and `claimWebhookEventForProcessing`, **not**
+`authenticate.webhook`. That boundary is deliberate and gives three things the
+library does not: dedup on a UNIQUE constraint over the delivery id, dedup keyed
+on *successful* processing so a previously failed attempt is reprocessed rather
+than swallowed, and a 5xx rather than 200 for an ambiguous in-flight claim so
+Shopify keeps retrying.
+
+## Live verification required before P2 closes
+
+Against `caratforus-dev`, and observed rather than reasoned:
+
+1. cheapest eligible variant in-stock → out-of-stock produces the expected
+   webhook and recomputes the aggregate;
+2. restoring it to in-stock recomputes again;
+3. changing product status so it is no longer purchasable removes it from the
+   aggregate;
+4. **no additional inventory scope is required** for any of those paths.
+
+**If Shopify does not deliver the required transition through these
+product-scoped topics for our actual configuration, STOP and bring back
+evidence before requesting `read_inventory`.** The point of verifying is that
+the answer might be no; a scope request backed by an observed failure is a
+different proposition from one backed by an assumption.
+
+The daily run remains **reconciliation for missed deliveries only**.
