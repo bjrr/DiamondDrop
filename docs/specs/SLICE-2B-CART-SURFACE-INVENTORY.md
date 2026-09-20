@@ -521,3 +521,63 @@ so Liquid reads parsed objects rather than bare numbers, and a theme written
 against the wrong shape fails silently by rendering nothing.
 
 **Auto-publish stays OFF until all five are green and reviewed.**
+
+
+---
+
+# R14 — self-validating price cache (owner ruling, 2026-09-20)
+
+Resolves P1 and P2 together, and is stronger than either the coherence check or
+the event-driven recompute alone.
+
+## P2 ruling: event-driven, with daily reconciliation as repair only
+
+Recompute "As low as" on **inventory and purchasability change events**, not on
+the daily run. The daily recalculation is **reconciliation** — it repairs a
+missed event — and is explicitly **not** the normal freshness mechanism. A
+24-hour stale advertised starting price is not acceptable.
+
+## The fail-safe: the cache validates itself against Shopify
+
+The insight that makes this work with no round trip: **Shopify's live variant
+price is the Regular/Card Price.** So Liquid already holds an authoritative
+anchor it can check the cache against.
+
+**Variant metafield carries, in addition to the price data:**
+- the **Card-price anchor** — the Regular/Card Price as published at write time;
+- the **variant identity**.
+
+**Before rendering any Bank Payment price or saving**, the surface must confirm:
+- the cached Card-price anchor **equals Shopify's current variant price**;
+- the variant identity matches the variant being rendered.
+
+**Product aggregate metafield carries, in addition to the "As low as" figure:**
+- the **source variant id** it was derived from;
+- that variant's **Card-price anchor**.
+
+**Before rendering "As low as"**, the surface must confirm:
+- the source variant is **still currently purchasable**;
+- its Card-price anchor still matches that variant's current Shopify price.
+
+**On stale, missing or malformed cache: suppress Bank pricing.** Never fall
+back, never substitute, never render a partial pair.
+
+## Why this closes P1 without a generation counter
+
+A failed metafield write leaves an old value that is internally consistent —
+its `priceCalculationId` names a calculation that really was published once,
+so nothing about it looks wrong. But the **native variant price mutation
+succeeded**, so Shopify now holds the new Card price while the metafield holds
+the old anchor. **They disagree, and that disagreement is the detection.**
+
+The check needs no extra state, no counter and no timestamp, because it
+compares the cache against the one thing that cannot be stale: the live value
+Shopify itself is serving.
+
+## Why it also covers P2's window
+
+Even before an inventory event is processed, a sold-out source variant fails
+the "still currently purchasable" test, so the card suppresses its "As low as"
+rather than advertising an unbuyable price. **Event-driven recompute keeps the
+figure fresh; the self-validating cache keeps it honest when freshness has not
+arrived yet.** Belt and braces, and the braces hold on their own.
