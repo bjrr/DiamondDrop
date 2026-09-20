@@ -466,3 +466,58 @@ the variant's published calculation; on mismatch it shows the card price alone.
 That is what stops a partially-applied publish showing a card price from one
 calculation beside a bank price from another, with a saving computed across the
 two.
+
+
+---
+
+# 2B-6 EXIT PROOFS — owner-required, 2026-09-20
+
+Five properties that must be **proven**, not argued, before 2B-6 closes and
+before auto-publish may be enabled. Two of them name failures the design as
+currently sketched would actually have.
+
+**P1 — A failed or stale metafield cache can never render as current Bank
+Payment pricing.** Criterion 56's coherence check covers a *mismatched* id. It
+does not by itself cover the case where a metafield write **failed** and the
+old value is still present and internally consistent — its id matches an older
+calculation that was legitimately published at the time. Prove the surface
+degrades to the card price alone in that case too, not just on a mismatch.
+
+**P2 — "As low as" stays correct when PURCHASABILITY changes, not only when
+price changes.** This is the sharp one.
+
+The aggregator recomputes when a variant's price is published. **A variant
+selling out publishes no price.** So a product whose cheapest variant goes
+out of stock keeps advertising that variant's figure until something else
+triggers a recompute — a card showing a price nobody can buy, which is
+criterion 29's exact failure and is worse than showing a higher one.
+
+The same applies to a variant becoming draft, or being suspended by the
+48-hour sync or calculation failure rules. **Every transition that changes
+purchasability must recompute the product-level figure, or the staleness
+window must be explicitly bounded and owner-accepted.** Name the mechanism;
+do not leave it implied by the daily run.
+
+**P3 — Variant switching updates Card price, Bank price and saving as ONE
+coherent set.** On the PDP and featured-product surfaces, changing variant must
+never leave a new card price beside a stale bank price, or a saving computed
+across the two. A partial update is worse than a slow one: all three figures
+move together or none does. Note the hazard — Dawn's variant picker updates
+price from its own product JSON, which carries only the Shopify (card) price,
+so the bank figure and saving must be driven from the same switch rather than
+left to catch up.
+
+**P4 — No surface ever substitutes the native Shopify price under a Bank
+Payment label.** Collection, search, predictive search, featured product and
+PDP. The Shopify variant price **is** the Regular/Card Price, so a fallback
+that renders it where a Bank figure belongs produces a plausible number that is
+wrong by the uplift — silently, and in the customer's favour, which means
+nobody complains and the margin simply leaks. Prove absence rather than
+asserting it.
+
+**P5 — Liquid read access and the exact JSON metafield shape are verified
+against `caratforus-dev`**, not reasoned about. R9 made these `type: "json"`,
+so Liquid reads parsed objects rather than bare numbers, and a theme written
+against the wrong shape fails silently by rendering nothing.
+
+**Auto-publish stays OFF until all five are green and reviewed.**
