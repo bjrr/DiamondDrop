@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { prisma } from "~/db/client.server";
+import { __resetEnvCacheForTests } from "~/lib/env.server";
 import type { ShopifyPriceSyncPort } from "~/jobs/pricing/ports";
 import { runPriceRecalculation } from "~/jobs/pricing/runRecalculation.server";
 
@@ -184,6 +185,37 @@ async function anchorOnePercentBelow(variantId: string, profileId: string, profi
 }
 
 describe("criterion 8 — auto-publish OFF (the default) leaves an auto_apply decision at approved", () => {
+  /**
+   * THIS BLOCK OWNS ITS OWN ENVIRONMENT, and that is the point of it.
+   *
+   * These tests assert what happens when `PRICE_AUTO_PUBLISH_ENABLED` is
+   * absent. They used to prove that by INHERITING an ambient environment that
+   * happened to have it unset — so the moment the owner legitimately enabled
+   * auto-publish in `app/.env` for dev verification, a test about the DEFAULT
+   * started failing because of a deployment setting, and reported it as a
+   * money-critical regression.
+   *
+   * A test of a default must not be able to read anything else. The variable
+   * is deleted here and restored afterwards, and the cached env is reset on
+   * both edges because `loadEnv()` memoises after the first read — without
+   * the reset the delete would land after the value had already been cached
+   * and change nothing.
+   */
+  const KEY = "PRICE_AUTO_PUBLISH_ENABLED";
+  let ambient: string | undefined;
+
+  beforeEach(() => {
+    ambient = process.env[KEY];
+    delete process.env[KEY];
+    __resetEnvCacheForTests();
+  });
+
+  afterEach(() => {
+    if (ambient === undefined) delete process.env[KEY];
+    else process.env[KEY] = ambient;
+    __resetEnvCacheForTests();
+  });
+
   it("never calls the port when autoPublishEnabled is not set", async () => {
     const profile = await realisticProfile();
     const variant = await priceableVariant();
@@ -194,8 +226,8 @@ describe("criterion 8 — auto-publish OFF (the default) leaves an auto_apply de
 
     const port = new FakePort();
     // autoPublishEnabled deliberately omitted — must default to reading
-    // PRICE_AUTO_PUBLISH_ENABLED from the environment, which is unset in
-    // this test run (see app/.env), i.e. OFF.
+    // PRICE_AUTO_PUBLISH_ENABLED from the environment, which THIS BLOCK
+    // deletes in beforeEach rather than assuming app/.env leaves unset.
     // variantIds scopes the run to this test's own fixture (headroom fix,
     // spec §16.8) — every assertion below was already filtered to this
     // variant's shopifyVariantGid, so scoping changes nothing this test
