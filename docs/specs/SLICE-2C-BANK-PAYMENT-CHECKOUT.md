@@ -113,8 +113,9 @@ change which mode is requested, never what a line costs (criterion 43).
 means a silent 400 before validation runs.
 
 **75.** Creation is **idempotent** (criterion 53): an `idempotency_key` row is
-committed **before** the Admin API call, keyed on cart token + mode + a content
-hash of the recomputed lines. A repeat returns the stored draft order and sends
+committed **before** the Admin API call, keyed per **criterion 105** on the
+resolved customer email + mode + a content hash of the recomputed lines. **Not
+the cart token**, which can rotate — see C2C-4. A repeat returns the stored draft order and sends
 **no** second invoice.
 
 **76.** A Buy Now cart and a Group Buy cart may **never** produce one bank order
@@ -132,14 +133,20 @@ current price is.
 **79.** After 24 hours, unpaid, **price unchanged** → the order stays open at
 the quoted price (§21).
 
-**80.** After 24 hours, unpaid, **any line's price changed by any amount** →
-the order is **cancelled** and the customer emailed (§21). No tolerance band —
-one cent qualifies.
+**80 and 81 are SUPERSEDED by owner decision D22 (§13). Implement §13's
+versions, not the two struck paragraphs below — they are kept only so the
+change stays legible.** The difference is material: D22 cancels only on
+**human-approved** publications, and asks the question **historically** rather
+than of the current published calculation.
 
-**81.** "Changed" compares the quoted price against the **currently published**
-price (`lastSyncedPriceCalculationId`), never the newest computed one. A price
-awaiting approval has not changed for this purpose, because it is not what a
-customer could buy at.
+> ~~**80.** After 24 hours, unpaid, any line's price changed by any amount →
+> the order is cancelled and the customer emailed (§21). No tolerance band —
+> one cent qualifies.~~
+>
+> ~~**81.** "Changed" compares the quoted price against the currently published
+> price (`lastSyncedPriceCalculationId`), never the newest computed one. A
+> price awaiting approval has not changed for this purpose, because it is not
+> what a customer could buy at.~~
 
 **82.** Per D21, a variant whose price is **unresolvable** (suspended, failed)
 counts as **unchanged**; the order stays open and is flagged.
@@ -200,8 +207,8 @@ Mostly present. Three additions:
 
 | # | Change | Why |
 |---|---|---|
-| M8 | `bank_payment_order.customer_email`, and shipping address fields (or a JSON address column) | D20. A draft order cannot be created without an email, and tax needs an address. Not currently on the model |
-| M9 | `bank_payment_order.idempotency_key` unique, or reuse the existing `idempotency_key` table | Criterion 75 |
+| M8 | `bank_payment_order.customer_email` **only** | D20 plus **criterion 97**: the address is sent to Shopify and **never persisted by us**. Email is the argued exception — the cancellation email must be sendable after the draft order is gone |
+| M9 | `bank_payment_order.idempotency_key` unique, or reuse the existing `idempotency_key` table | Criteria 75 and **105** — email + mode + line hash, not cart token |
 | M10 | Extend the append-only trigger to the new quote-adjacent columns if any are added to the line | Consistency with R1 |
 
 **Not stored:** the card price for eligible lines beyond
