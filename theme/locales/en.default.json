@@ -308,9 +308,9 @@
         "bank_payment_saving": "Bank Payment Savings",
         "card_total": "Card Total",
         "bank_payment_total": "Bank Payment Total",
-        "card_checkout_reprice_notice": "Your cart is now set to Card pricing. The Card Total above is what you'll be charged — Bank Payment pricing applies only when you complete Bank Payment Checkout. Continue below when you're ready.",
+        "card_checkout_reprice_notice": "Your cart is now set to Card pricing. The Card Total above is the amount you'll pay if you continue to Card Checkout. To use Bank Payment pricing, switch back to Bank Payment.",
         "switch_to_bank_payment": "Switch to Bank Payment Pricing",
-        "switch_to_bank_payment_note": "Applies the Bank Payment Savings shown above. No confirmation needed — switching to Card later will show the updated total before you pay.",
+        "switch_to_bank_payment_note": "Eligible items will update to their Bank Payment Price.",
         "price_unavailable": "Price unavailable. Please refresh.",
         "checkout_reprice_failed": "We could not switch your cart to Card pricing. Please try again.",
         "switch_to_bank_failed": "We could not switch your cart to Bank Payment pricing. Please try again."
