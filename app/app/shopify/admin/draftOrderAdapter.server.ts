@@ -137,6 +137,20 @@ const ZERO_SHIPPING_LINE_TITLE = "Shipping (included in item price)";
  */
 const MAX_VERIFIABLE_LINE_ITEMS = 50;
 
+/**
+ * Shopify's built-in "Due on receipt" payment term. These templates are
+ * platform-global rather than per-shop, so the id is stable across stores —
+ * confirmed by querying `paymentTermsTemplates` on caratforus-dev, where
+ * template 1 is RECEIPT.
+ *
+ * It is hardcoded rather than resolved per request because a lookup on every
+ * checkout buys nothing: if the id were ever wrong, the request would fail
+ * loudly at `draftOrderCreate`, and the completed order's financial status is
+ * asserted end to end by the live gate. A silent wrong answer is not among the
+ * failure modes.
+ */
+const DUE_ON_RECEIPT_TEMPLATE_GID = "gid://shopify/PaymentTermsTemplate/1";
+
 export interface DraftOrderLineItemInput {
   /** The Shopify product variant this line charges for. */
   shopifyVariantGid: string;
@@ -399,6 +413,20 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
           title: ZERO_SHIPPING_LINE_TITLE,
           price: minorUnitsToDecimalString(Money.zero(currency).amountMinorUnits),
         },
+        // PAYMENT TERMS ARE WHAT KEEP THE COMPLETED ORDER UNPAID, and the
+        // live gate caught their absence the hard way: completing a draft
+        // with no payment terms produced an order Shopify marked PAID. It had
+        // processed nothing — the bank transfer happens outside Shopify
+        // entirely — so the order was asserting a receipt that did not exist,
+        // which is precisely what §22 forbids. `paymentPending: false` used to
+        // express this and no longer exists on draftOrderComplete (2026-07);
+        // payment terms are its replacement.
+        //
+        // "Due on receipt" is the honest term for a Bank Payment order: the
+        // money is owed now, it has not arrived yet, and the resulting order
+        // shows PENDING until an admin verifies the transfer. Net-N terms
+        // would misstate the deal as credit we have not extended.
+        paymentTerms: { paymentTermsTemplateId: DUE_ON_RECEIPT_TEMPLATE_GID },
         note: input.note,
         tags: input.tags ? [...input.tags] : undefined,
       },

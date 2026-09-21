@@ -178,6 +178,31 @@ describe("ShopifyDraftOrderAdapter.createDraftOrder", () => {
     });
   });
 
+  /**
+   * THE ABSENCE OF THIS FIELD SILENTLY MARKS THE ORDER PAID.
+   *
+   * Completing a draft that carries no payment terms produced an order
+   * Shopify reported as PAID, against a bank transfer it had never seen and
+   * that had not arrived. Nothing errored; the money was simply asserted. §22
+   * exists to prevent exactly that, so the field is pinned here and the
+   * resulting financial status is asserted end to end by the live gate.
+   */
+  it("sets Due-on-receipt payment terms, so the completed order is not marked paid (§22)", async () => {
+    const { client, calls } = fakeClient(
+      createDraftOrderOkReply({
+        lines: [{ variantGid: "gid://shopify/ProductVariant/1", quantity: 1, price: "1500.00" }],
+      })
+    );
+    const adapter = new ShopifyDraftOrderAdapter(client);
+
+    await adapter.createDraftOrder(baseInput());
+
+    const variables = calls[0]?.variables as { input: { paymentTerms?: { paymentTermsTemplateId: string } } };
+    expect(variables.input.paymentTerms).toEqual({
+      paymentTermsTemplateId: "gid://shopify/PaymentTermsTemplate/1",
+    });
+  });
+
   it("sends email and shipping address but never persists them (this test only proves transport, not non-persistence)", async () => {
     const { client, calls } = fakeClient(
       createDraftOrderOkReply({
