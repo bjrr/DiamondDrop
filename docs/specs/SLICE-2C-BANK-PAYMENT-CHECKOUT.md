@@ -604,3 +604,64 @@ otherwise produce two draft orders and two invoices for one customer.
 **106.** The key is committed **before** the Admin API call, per
 `ARCHITECTURE-MVP1.md` §6.7 and criterion 75. A repeat returns the stored draft
 order and sends no second invoice.
+
+---
+
+## 15. Architecture follow-ups raised by 2C-a
+
+These are recorded here because they were discovered while building 2C-a, but
+each belongs to a later slice. None blocks 2C.
+
+### F-2C-1 — one source of truth for "is this variant sold through an open Group Buy?"
+
+**Owner-directed follow-up, 2026-09-21. Due with Slice 6.**
+
+Two places in the system now answer the same question, independently:
+
+| Asker | Why it asks | Where it looks today |
+|---|---|---|
+| The pricing engine | An open campaign's pricing is **frozen** (`CLAUDE.md` #7), so recalculation must skip the variant | `OpenCampaignExclusionSource` (`app/jobs/pricing/ports.ts`) — currently a **no-op**; Slice 6 implements it |
+| Bank Payment Checkout | A Buy Now cart and a Group Buy cart may never produce one order (criterion 76) | a direct `group_buy_campaign_variant` query scoped to `campaign.status = open`, inside `apps.carat.bank-checkout.tsx` |
+
+They agree **right now** only because 2C-a was corrected to match the engine's
+boundary. It first shipped asking "has this variant **ever** been in a
+campaign", which would have refused checkout for variants in `draft`, `closed`
+and `cancelled` campaigns — variants the engine keeps pricing, Shopify keeps
+publishing and the storefront keeps advertising. The customer would have
+reached the address form before being told no.
+
+**The requirement: when Slice 6 implements the real `OpenCampaignExclusionSource`,
+the checkout query must be deleted and replaced by a call to it.** Not
+"kept in sync" — collapsed into one implementation, so there is no second
+answer to drift.
+
+Two divergent answers is not a tidiness problem. The engine skipping a variant
+that checkout still sells means selling at a stale frozen price; checkout
+refusing a variant the engine still prices means losing a sale that is
+advertised as available. Both are silent, and both look like someone else's bug.
+
+### F-2C-2 — `shopify.server` is eagerly bundled, so the deferral comments overstate what they achieve
+
+`productionPriceSyncPort.server.ts` and `internal.jobs.price-recalculation.tsx`
+both dynamically import `~/shopify.server` so the pricing cron can boot without
+Shopify OAuth configured. It cannot: `app/entry.server.tsx` imports the module
+**statically** and is loaded on every cold start, so the bundler keeps it in the
+main chunk regardless. The build says so explicitly.
+
+The dynamic import still usefully defers `requireShopifyConfig()`'s *throw* to
+the moment auto-publish is used. It just cannot deliver the bootability the
+comments claim. Corrected in the comment at `productionPriceSyncPort.server.ts`
+rather than fixed, because the fix is to `entry.server.tsx` and has its own
+blast radius. **Out of scope for 2C by owner direction unless it blocks
+deployment.**
+
+### F-2C-3 — the manual payment gateway is not yet named at completion
+
+`draftOrderComplete` in 2026-07 takes `(id, paymentGatewayId, sourceName)`.
+2C-a completes with the id alone, which leaves the order **unpaid** — verified
+live as `displayFinancialStatus: PENDING` — and that is what §22 requires.
+
+Naming a specific manual gateway belongs with the verification surface
+(**2C-c**), where an admin records which method the money actually arrived by.
+Attaching gateway metadata at creation would assert a payment nobody has
+verified.

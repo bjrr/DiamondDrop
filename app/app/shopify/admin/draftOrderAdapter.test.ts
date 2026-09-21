@@ -97,7 +97,19 @@ describe("ShopifyDraftOrderAdapter.createDraftOrder", () => {
     expect(calls[0]?.document).toMatch(/draftOrderCreate/);
   });
 
-  it("sends the exact recomputed price as originalUnitPrice, not a rounded or intermediate value", async () => {
+  /**
+   * THE FIELD NAME IS ASSERTED, not just the value, because sending the wrong
+   * one is invisible from inside a mock. The adapter first shipped with
+   * `originalUnitPrice`, which does not exist on `DraftOrderLineItemInput` in
+   * 2026-07 — the live store neither errored nor coerced, it ignored the field
+   * and priced every line at the variant's catalogue price. A fake client
+   * echoes back whatever it was handed, so the whole suite stayed green while
+   * the real draft orders would have charged the wrong amount.
+   *
+   * Hence both halves: `priceOverride` present WITH its currency, and
+   * `originalUnitPrice` absent from the serialised payload entirely.
+   */
+  it("sends the exact recomputed price as priceOverride, with currency, and never as originalUnitPrice", async () => {
     const { client, calls } = fakeClient(
       createDraftOrderOkReply({
         lines: [{ variantGid: "gid://shopify/ProductVariant/1", quantity: 2, price: "1500.00" }],
@@ -117,10 +129,15 @@ describe("ShopifyDraftOrderAdapter.createDraftOrder", () => {
       })
     );
 
-    const variables = calls[0]?.variables as { input: { lineItems: { variantId: string; quantity: number; originalUnitPrice: string }[] } };
+    const variables = calls[0]?.variables as { input: { lineItems: unknown[] } };
     expect(variables.input.lineItems).toEqual([
-      { variantId: "gid://shopify/ProductVariant/1", quantity: 2, originalUnitPrice: "1500.00" },
+      {
+        variantId: "gid://shopify/ProductVariant/1",
+        quantity: 2,
+        priceOverride: { amount: "1500.00", currencyCode: "USD" },
+      },
     ]);
+    expect(JSON.stringify(variables)).not.toContain("originalUnitPrice");
   });
 
   /**
@@ -441,7 +458,16 @@ describe("ShopifyDraftOrderAdapter.sendInvoice", () => {
 });
 
 describe("ShopifyDraftOrderAdapter.completeDraftOrder", () => {
-  it("completes via the manual gateway (paymentPending: false) and returns the resulting order", async () => {
+  /**
+   * COMPLETES WITHOUT ASSERTING PAYMENT. `paymentPending` does not exist on
+   * `draftOrderComplete` in 2026-07, and its historical meaning — `false` for
+   * "this order is paid" — is the opposite of what §22 wants: nothing is paid
+   * until an admin verifies the transfer. Sending nothing leaves the order
+   * unpaid, which the live gate confirms by reading displayFinancialStatus
+   * back as PENDING. This test pins only that we send the id and nothing else,
+   * since anything extra here would be an assertion about money.
+   */
+  it("completes with the id alone, asserting no payment state, and returns the resulting order", async () => {
     const { client, calls } = fakeClient({
       data: {
         draftOrderComplete: {
@@ -458,7 +484,7 @@ describe("ShopifyDraftOrderAdapter.completeDraftOrder", () => {
     const result = await adapter.completeDraftOrder({ draftOrderGid: "gid://shopify/DraftOrder/1" });
 
     expect(result).toEqual({ orderGid: "gid://shopify/Order/9", orderName: "#1042" });
-    expect(calls[0]?.variables).toEqual({ id: "gid://shopify/DraftOrder/1", paymentPending: false });
+    expect(calls[0]?.variables).toEqual({ id: "gid://shopify/DraftOrder/1" });
   });
 
   it("throws when no order is present on the completed draft order", async () => {

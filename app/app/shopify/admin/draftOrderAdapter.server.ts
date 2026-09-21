@@ -67,7 +67,11 @@ const CREATE_DRAFT_ORDER_MUTATION = `#graphql
   }`;
 
 const SEND_INVOICE_MUTATION = `#graphql
-  mutation CaratSendDraftOrderInvoice($id: ID!, $email: DraftOrderInvoiceSendInput) {
+  # The invoice recipient is an EmailInput (to / subject / from / body / bcc /
+  # customMessage), NOT a DraftOrderInvoiceSendInput — that type does not exist
+  # in 2026-07, and the server rejected it outright. Verified by introspection
+  # against caratforus-dev, not inferred.
+  mutation CaratSendDraftOrderInvoice($id: ID!, $email: EmailInput) {
     draftOrderInvoiceSend(id: $id, email: $email) {
       draftOrder { id invoiceSentAt }
       userErrors { field message }
@@ -75,8 +79,13 @@ const SEND_INVOICE_MUTATION = `#graphql
   }`;
 
 const COMPLETE_DRAFT_ORDER_MUTATION = `#graphql
-  mutation CaratCompleteDraftOrder($id: ID!, $paymentPending: Boolean) {
-    draftOrderComplete(id: $id, paymentPending: $paymentPending) {
+  # NO paymentPending ARGUMENT. It does not exist on draftOrderComplete in
+  # 2026-07 — the argument list is (id, paymentGatewayId, sourceName), verified
+  # by introspection. Completing without a payment gateway leaves the order
+  # unpaid, which is what §22 requires: nothing is committed until an admin has
+  # verified the bank transfer by hand. See completeDraftOrder below.
+  mutation CaratCompleteDraftOrder($id: ID!) {
+    draftOrderComplete(id: $id) {
       draftOrder {
         id
         order { id name }
@@ -337,7 +346,29 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
       return {
         variantId: line.shopifyVariantGid,
         quantity: line.quantity,
-        originalUnitPrice: priceDecimalString,
+        // `priceOverride`, NOT `originalUnitPrice`, AND THE DIFFERENCE IS THE
+        // WHOLE PRICE. This adapter originally sent `originalUnitPrice`, which
+        // does not exist on `DraftOrderLineItemInput` in 2026-07 — Shopify
+        // neither errored nor coerced, it simply ignored the field and priced
+        // the line at the variant's catalogue price. The live gate caught it
+        // only because step 5 compares the echoed price against the sent one;
+        // a mocked client echoes back whatever it was handed, so no unit test
+        // could ever have found this.
+        //
+        // The API's own descriptions settle which field is correct:
+        // `priceOverride` is "used in place of the product variant's catalog
+        // price in this draft order", while `originalUnitPriceWithCurrency` is
+        // for custom line items and is explicitly "ignored when variantId is
+        // provided" — which every line here provides.
+        //
+        // Currency travels WITH the amount because Shopify converts a price
+        // override whose presentment currency differs from the draft order's.
+        // Sending the amount alone would leave that conversion to a default we
+        // do not control.
+        priceOverride: {
+          amount: priceDecimalString,
+          currencyCode: currency,
+        },
       };
     });
 
@@ -459,16 +490,25 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
   }
 
   async completeDraftOrder(input: CompleteDraftOrderInput): Promise<CompletedDraftOrder> {
-    const variables = {
-      id: input.draftOrderGid,
-      // MANUAL PAYMENT GATEWAY (criterion 89): `paymentPending: false` tells
-      // Shopify the order is fully paid now. There is no online payment
-      // method attached to a draft order created by this app, so Shopify
-      // records the resulting order's payment as its manual gateway — this
-      // app never touches funds or card data; it only reports a fact an
-      // admin already verified by hand (spec §5.4).
-      paymentPending: false,
-    };
+    // CRITERION 89, AS THE API ACTUALLY WORKS. The original implementation
+    // sent `paymentPending: false`, which is wrong twice over: the argument
+    // does not exist on `draftOrderComplete` in 2026-07, and its historical
+    // meaning was "this order is PAID" — the opposite of what §22 requires.
+    // Nothing about a Bank Payment order is paid until an admin has verified
+    // the transfer by hand, so an order marked paid at completion would assert
+    // a receipt nobody has seen.
+    //
+    // Completing with neither `paymentPending` nor a `paymentGatewayId` leaves
+    // the resulting order unpaid, which is the state we want and which the
+    // live gate asserts by reading `displayFinancialStatus` back as PENDING
+    // rather than trusting this comment.
+    //
+    // Naming a specific manual gateway via `paymentGatewayId` is a refinement
+    // for the verification surface (2C-c), where an admin records WHICH method
+    // the money actually arrived by. It is not needed to create the order in
+    // the correct unpaid state, and guessing a gateway id here would attach
+    // payment metadata before anyone has verified a payment.
+    const variables = { id: input.draftOrderGid };
 
     const payload = await this.runDraftOrderMutation<{
       draftOrder?: { id: string; order?: { id: string; name: string | null } | null } | null;
