@@ -60,6 +60,7 @@ async function aBankPaymentOrderLine() {
   const order = await prisma.bankPaymentOrder.create({
     data: {
       shopifyDraftOrderGid: `gid://shopify/DraftOrder/${randomUUID()}`,
+      customerEmail: "schema-guard@example.com",
       quotedAt: ASOF,
       guaranteeExpiresAt: new Date(ASOF.getTime() + 24 * 60 * 60 * 1000),
     },
@@ -176,6 +177,7 @@ describe("guards the guard: the MUTABLE tables next to the new append-only ones"
     const order = await prisma.bankPaymentOrder.create({
       data: {
         shopifyDraftOrderGid: `gid://shopify/DraftOrder/${randomUUID()}`,
+        customerEmail: "schema-guard@example.com",
         quotedAt: ASOF,
         guaranteeExpiresAt: new Date(ASOF.getTime() + 24 * 60 * 60 * 1000),
       },

@@ -1356,6 +1356,19 @@ model BankPaymentOrder {
   shopifyDraftOrderGid String                 @unique @map("shopify_draft_order_gid")
   status               BankPaymentOrderStatus @default(open)
 
+  /// Slice 2C, M8 (docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md §6, criteria
+  /// 97-98). THE ONE STORED EXCEPTION to "do not duplicate what Shopify
+  /// already holds on the draft order" -- the shipping address is sent to
+  /// Shopify at draft-order creation and deliberately NOT persisted here
+  /// (criterion 99: read it back from Shopify when something needs it).
+  /// Email earns its own column instead of following the address off this
+  /// table because the cancellation email (criterion 80/D22) must be
+  /// sendable when the draft order it would otherwise be read from may
+  /// already be gone -- the address of the person to notify cannot live
+  /// only on the record being cancelled. Do NOT "tidy up" by adding the
+  /// postal address beside it; that reasoning does not extend to it.
+  customerEmail String @map("customer_email")
+
   /// The instant the 24-hour guarantee (criterion 44) starts counting from.
   quotedAt           DateTime @map("quoted_at") @db.Timestamptz(6)
   guaranteeExpiresAt DateTime @map("guarantee_expires_at") @db.Timestamptz(6)
