@@ -705,3 +705,73 @@ than in a type mismatch several files away.
 **Every Liquid comparison against a JSON metafield value must coerce
 explicitly**, and the established idiom is `| plus: 0` for numeric comparison,
 which the P4 proof-of-absence tests already permit and no other filter.
+
+
+---
+
+# R17 — inventory_levels/update with read_inventory (owner ruling, 2026-09-21)
+
+## The evidence that justified reversing R15's scope decision
+
+R15 declined `read_inventory` and chose product-scoped topics. Live verification
+against `caratforus-dev` disproved that path:
+
+- `variants/out_of_stock` and `variants/in_stock` **did not fire** for real
+  inventory transitions on a product that was ACTIVE, **published**
+  (`publishedAt 2026-09-21T02:59:27Z`), and inventory-tracked;
+- the control: `products/update` delivered in **~1 second** on the same app,
+  tunnel, session and product — including a Shopify redelivery our UNIQUE
+  constraint caught as a duplicate.
+
+Positive on one topic, negative on another, identical conditions. The scope
+request is therefore backed by an observed failure, which is what R15 said it
+would take.
+
+## Ruling
+
+Add **`read_inventory`**. Do **not** request `write_inventory` — we never
+change stock, only observe it. Keep `products/update` for status and
+variant-lifecycle changes; it works and covers a different class of event.
+
+## Still an invalidation signal, never a data source
+
+**Do not compute purchasability from the webhook's `available` field.**
+Inventory spans locations, so a single level going to zero does not mean the
+variant is unpurchasable. On receipt:
+
+1. verify HMAC and idempotency through the **existing** webhook path;
+2. take `inventory_item_id` as an **opaque string**;
+3. resolve the affected variant and product;
+4. **re-query authoritative current availability** from Shopify;
+5. recompute the product-level "As low as" from all currently purchasable
+   variants;
+6. update or remove the aggregate metafield;
+7. preserve R14's fail-safe behaviour throughout.
+
+## Never parse the inventory id as a JS number
+
+`inventory_item_id` is 64-bit. `Number` loses precision above 2^53, and the
+corruption is **silent** — a plausible-looking id that resolves to nothing, or
+worse, to something else. Carry the raw digit string, convert deterministically
+to `gid://shopify/InventoryItem/<raw-id>`, and look up by GID.
+
+This is the same failure class as the metafield string/number bug: a type
+mismatch across a boundary that fails quietly rather than loudly.
+
+## Mapping
+
+Add a **nullable, unique `shopifyInventoryItemGid` (string)** to
+`master_variant`, populated from Shopify's `InventoryItem.id`.
+
+Use `InventoryItem`'s **`variants` connection**, not the deprecated singular
+`variant` field.
+
+**Backfill existing variants before relying on the webhook** — an unpopulated
+mapping means every delivery resolves nothing and logs `unresolved`, which
+looks like the handler working correctly.
+
+## Re-verification required before P2 and Stage 2B close
+
+Live, against `caratforus-dev`: 0 → 5, then 5 → 0; confirm
+`inventory_levels/update` is delivered; confirm the aggregate, metafield and
+storefront change; confirm redelivery remains idempotent.
