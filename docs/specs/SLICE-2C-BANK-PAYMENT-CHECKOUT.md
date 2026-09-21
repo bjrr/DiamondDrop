@@ -428,3 +428,95 @@ components that already exist and are tested. Approval is conditioned on:
    required.
 
 No implementation begins until conditions 1 and 2 are resolved.
+
+
+---
+
+## 13. D22 — auto-published changes do not cancel an unpaid bank order
+
+**OWNER RULING, 2026-09-21. Approved option 2.**
+
+An unpaid Bank Payment order past its 24-hour guarantee is cancelled only when
+the published price changed through a **human-approved** publication. A change
+that reached the storefront through **automatic publication** does not cancel
+it.
+
+### Why this does not contradict §21
+
+§21 says *"any change, of any amount"* cancels, with no minimum threshold. That
+rule was written before automatic publication existed, to stop us honouring a
+stale quote after the price had genuinely moved. Its target was **a price we
+decided to change**.
+
+Automatic publication creates a class §21 could not have contemplated: a price
+that changes with nobody deciding anything, from ordinary metal-market drift,
+inside a tolerance chosen precisely because such moves are unremarkable. With
+daily recalculation on live prices, that is the expected overnight outcome for
+any unpaid order — so applying §21 literally would make cancellation the
+**normal** ending for a bank order rather than an exception.
+
+§21's "no minimum threshold" is preserved exactly where it bites: **once a
+human has approved a repricing, any amount cancels.** One cent still qualifies.
+The threshold was never the point; the decision behind the change was.
+
+### THE PRECISION THAT MATTERS: it is not "was the latest publication automatic"
+
+The naive implementation checks how the **current** published calculation was
+published. That is wrong, and it fails in the customer's favour in a way nobody
+would notice:
+
+> A human approves a 6% rise. Overnight, gold drifts and a 0.3% change
+> auto-publishes on top. The latest publication is now automatic — so the
+> naive check says "do not cancel", and the order survives a repricing a human
+> explicitly approved.
+
+**The rule is therefore historical, not current-state.** Cancel when **any
+human-approved publication occurred between the quote and now**, regardless of
+what published most recently. `price_sync_intent` already records `decision`
+(`auto_apply` vs `needs_approval`) and `syncedAt`, so the query is: did any
+intent for these variants reach `synced` with `decision = needs_approval` after
+`quotedAt`?
+
+### What counts as human-approved
+
+- an intent decided `needs_approval` and approved by an admin;
+- a **manual price override** (§17's rejection-with-override path) — a human set
+  that price deliberately, which is the strongest form of the signal.
+
+### What does not
+
+- an intent decided `auto_apply` and published automatically;
+- no change at all;
+- an **unresolvable** price (suspended or failed), which per **D21** counts as
+  unchanged.
+
+### Acceptance criteria, replacing 80 and 81
+
+**80 (revised).** After 24 hours, unpaid, with **at least one human-approved
+publication** for any line since `quotedAt` → cancel and email the customer.
+No tolerance band: one cent of human-approved change qualifies.
+
+**81 (revised).** The check is **historical**: any `price_sync_intent` for the
+order's variants that reached `synced` with `decision = needs_approval` after
+`quotedAt`. Not "how was the current published calculation published". A test
+must cover human-approval-then-auto-publish and assert the order **is**
+cancelled — that ordering is the one a current-state check gets wrong.
+
+**82 (unchanged).** An unresolvable price counts as unchanged (D21).
+
+**96 (new).** After 24 hours, unpaid, with **only automatic publications**
+since `quotedAt` → the order **stays open at the quoted price**, and the
+customer is not emailed. The quoted price is honoured on later payment.
+
+### The residual, stated plainly
+
+An order can now outlive an unbounded accumulation of small automatic moves —
+twenty 0.4% days compound to roughly 8% while remaining individually
+auto-publishable. We would honour the original quote against a materially
+different current price.
+
+This is bounded in practice by the 200 bps tolerance queuing anything larger
+for a human, which then cancels. It is not bounded in theory. If it proves
+material, the fix is a cumulative-drift ceiling on the guarantee rather than
+reverting to §21's literal reading — but that is a new decision and is not
+being made now.
