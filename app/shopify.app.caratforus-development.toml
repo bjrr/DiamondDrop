@@ -53,6 +53,13 @@ embedded = true
 #                    on identical conditions. Deliberately NOT
 #                    write_inventory — this app only ever OBSERVES stock,
 #                    never changes it.
+#   write_draft_orders
+#                    Slice 2C. Bank Payment Checkout creates a draft order,
+#                    sends its invoice and completes it through the manual
+#                    gateway once payment is verified by hand. Shopify grants
+#                    read with write, so read_draft_orders is not requested
+#                    separately. NOT write_orders: the app never edits a real
+#                    order, only the draft it created.
 #
 # Architecture §5 documents a wider set. That is a ROADMAP, not a day-one
 # grant: nothing in the codebase exercises any of it yet, and requesting
@@ -63,7 +70,7 @@ embedded = true
 # app/shopify.server.ts passes to the library.
 #
 # ADDING THIS SCOPE RE-PROMPTS OAUTH on the dev store — expected, not a bug.
-scopes = "read_products,write_products,read_inventory"
+scopes = "read_products,write_products,read_inventory,write_draft_orders"
 optional_scopes = [ ]
 
 # Token exchange rather than the legacy OAuth redirect dance.
