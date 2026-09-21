@@ -2,11 +2,25 @@
 
 ## Status
 
-**DRAFT — awaiting owner approval. No implementation has begun.**
+**APPROVED. Phase 2C-a in progress.**
 
 Author: Principal Architect / Tech Lead
 Date: 2026-09-21
 Predecessor: Stage 2B, accepted and closed at `34bc303`
+
+| Gate | State |
+|---|---|
+| D19, D20, D21 | Approved 2026-09-21 (§4) |
+| D22 | Approved 2026-09-21 (§13) — **unblocks 2C-b** |
+| Architecture review | Approve with conditions (§12) |
+| C2C-1 … C2C-4 | Closed as criteria 97–106 (§14) |
+| `write_draft_orders` | Requested; OAuth re-consent pending |
+| Email channel | **Not configured — blocks 2C-b** |
+| Customer-facing copy | **Not approved — blocks 2C-c** |
+
+**Criteria 80 and 81 in §5.2 are SUPERSEDED by §13.** They are struck through
+in place rather than deleted, so the change stays legible; implement §13's
+versions.
 
 ---
 
