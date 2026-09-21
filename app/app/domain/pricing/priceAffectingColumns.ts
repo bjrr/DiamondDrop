@@ -197,6 +197,8 @@ export const NOT_PRICE_AFFECTING_COLUMNS: Readonly<Record<CoveredModel, Readonly
   MasterVariant: {
     id: "identity, not a value",
     shopifyVariantGid: "Shopify linkage, not a pricing input",
+    shopifyInventoryItemGid:
+      "R17 — Shopify inventory-item linkage the inventory_levels/update webhook resolves through, not a pricing input",
     bankPaymentDiscountEligible:
       "Slice 2 checkout/payment-mode eligibility flag — governs which price a bank-mode cart line is CHARGED, never what the engine COMPUTES",
     status: "lifecycle state (draft/active/archived); does not change the computed price value itself",

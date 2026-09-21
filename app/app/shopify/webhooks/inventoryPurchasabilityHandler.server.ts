@@ -8,19 +8,37 @@ import { recomputeAndPublishAsLowAs } from "~/shopify/metafields/asLowAsAggregat
 import type { ReceivedWebhookEvent } from "./receive.server";
 
 /**
- * R15 (owner ruling, 2026-09-20, owner exit proof P2) — the event-driven
- * recompute trigger for the "as low as" aggregate.
+ * R15, superseded in part by R17 (owner rulings, 2026-09-20, owner exit
+ * proof P2) — the event-driven recompute trigger for the "as low as"
+ * aggregate.
+ *
+ * TOPIC HISTORY, RECORDED BECAUSE IT IS LOAD-BEARING. R15 originally chose
+ * `variants/out_of_stock`/`variants/in_stock` specifically to avoid
+ * requesting `read_inventory`. Live verification against a real product
+ * (ACTIVE, published, inventory-tracked) proved those two topics DO NOT FIRE
+ * for a real transition — `products/update`, tested as the control on the
+ * identical product/app/tunnel/session, delivered in ~1 second, including a
+ * genuine Shopify redelivery our dedup caught. R17 replaces them with
+ * `inventory_levels/update` under a newly-approved `read_inventory` scope,
+ * on the strength of that observed negative, not an assumption. This module
+ * now handles TWO webhook shapes: `products/update` (kind: "product") and
+ * `inventory_levels/update` (kind: "inventory_item").
  *
  * THE PAYLOAD IS AN INVALIDATION SIGNAL, NEVER A DATA SOURCE. R15's own
- * wording, and criterion 43's principle applied to an INBOUND event this
- * time: a webhook payload may tell us WHAT TO LOOK AT, never WHAT A THING
- * COSTS or WHETHER IT IS IN STOCK. Every field this module reads from a
- * payload below is an IDENTIFIER used to find which product to re-check —
- * never a price, quantity or availability value taken at face value.
- * Purchasability and the resulting "as low as" figure are ALWAYS re-resolved
- * from Shopify's and our own current state afterward, via
- * `computeAsLowAsForProduct` (which itself makes a fresh `availableForSale`
- * Admin API call — see `variantAvailability.server.ts`).
+ * wording, reaffirmed by R17, and criterion 43's principle applied to an
+ * INBOUND event this time: a webhook payload may tell us WHAT TO LOOK AT,
+ * never WHAT A THING COSTS or WHETHER IT IS IN STOCK. Every field this
+ * module reads from a payload is an IDENTIFIER used to find which
+ * product/variant to re-check — never a price, quantity or availability
+ * value taken at face value. In particular, `inventory_levels/update`'s own
+ * `available` field is NEVER READ AT ALL: inventory spans multiple
+ * locations, so one location's level reaching zero does not mean the
+ * variant is unpurchasable overall, and a stale/partial payload value must
+ * never stand in for a real re-check. Purchasability and the resulting
+ * "as low as" figure are ALWAYS re-resolved from Shopify's and our own
+ * current state afterward, via `computeAsLowAsForProduct` (which itself
+ * makes a fresh `availableForSale` Admin API call — see
+ * `variantAvailability.server.ts`).
  *
  * THIS IS WHAT MAKES THE HANDLER IDEMPOTENT BY CONSTRUCTION, NOT BY
  * BOOKKEEPING. A duplicate delivery (already deduplicated one layer up by
@@ -31,25 +49,46 @@ import type { ReceivedWebhookEvent } from "./receive.server";
  * ordering problem to solve, because the payload is never trusted for
  * anything but routing.
  *
- * EXACT PAYLOAD SHAPE — HONESTLY STATED, NOT ASSUMED. `products/update`'s
- * payload shape is Shopify's well-documented product resource (top-level
- * `id`/`admin_graphql_api_id`). `variants/out_of_stock` and
- * `variants/in_stock` are newer, thinly-documented topics, and THIS SLICE
- * WAS NOT ABLE TO VERIFY THEIR EXACT PAYLOAD SHAPE AGAINST A REAL DELIVERED
- * WEBHOOK — no publicly reachable endpoint was available in this working
- * session to receive one (see the 2B-6 handoff for what WAS verified live:
- * both topics exist as real `WebhookSubscriptionTopic` enum values, and
- * `webhookSubscriptionCreate` accepts both under the app's current
- * `write_products` scope with zero userErrors). Extraction below is
- * therefore DELIBERATELY DEFENSIVE: it tries every plausible identifier
- * field, in a fixed priority order, and — if none resolves to a product we
- * know — logs loudly and returns WITHOUT THROWING, rather than either
- * guessing or endlessly retrying a delivery that can never resolve. A
- * genuinely missed event is still caught by the daily recalculation run
- * (R15: reconciliation for missed deliveries, never the freshness
- * mechanism), so failing this one delivery softly is the correct trade-off,
- * not a hidden bug — but it is exactly the seam to check first against a
- * real captured payload if these routes ever look like they are not firing.
+ * `inventory_item_id` MUST NEVER BE PARSED AS A JS NUMBER (R17). It is a
+ * 64-bit Shopify id; `Number(...)` silently loses precision above
+ * `2^53 - 1` and produces a DIFFERENT, still-plausible-looking id — the
+ * lookup then either resolves to nothing (indistinguishable from "not our
+ * catalogue") or, worse, to the WRONG variant. This is the exact failure
+ * class R14 already forced a fix for once in this stage (a money-comparison
+ * field silently going through a JS number) — here on the READ side of a
+ * webhook instead of a metafield WRITE. The fix is the same shape: never let
+ * the value pass through a JS number at all. `event.payload` has ALREADY
+ * been through `JSON.parse` by the time this module sees it (in
+ * `receive.server.ts`), which is itself lossy for a >2^53 field — so this
+ * module reads `inventory_item_id` OUT OF THE RAW BODY TEXT directly, via a
+ * targeted regex, and never off `event.payload` at all. See
+ * `extractInventoryItemGidFromRawBody` below.
+ *
+ * `inventory_levels/update`'s payload shape (Shopify's long-documented,
+ * stable REST shape — this is one of the OLDER inventory topics, not the
+ * newer/thinly-documented ones R15 originally reached for) is flat:
+ * `{ inventory_item_id, location_id, available, updated_at }`, with no
+ * nested object and no `admin_graphql_api_id` field at all — unlike most
+ * newer resource webhooks. The regex extraction below assumes exactly that
+ * flat shape.
+ *
+ * `products/update`'s payload shape remains Shopify's well-documented
+ * product resource (top-level `id`/`admin_graphql_api_id`) and is still
+ * read the ordinary way (through `event.payload`) — a product's own numeric
+ * id is well within the safe-integer range in every real Shopify catalogue,
+ * and `admin_graphql_api_id` is already a string with no numeric parsing at
+ * all, so `products/update` carries none of the 64-bit hazard
+ * `inventory_item_id` does.
+ *
+ * AN UNRESOLVED IDENTIFIER LOGS AND RETURNS, NEVER THROWS. Not necessarily
+ * a bug — Shopify fires these topics for products/variants outside our
+ * catalogue too, and (before a backfill runs) for every variant whose
+ * `shopify_inventory_item_gid` mapping is not yet populated. Logged loudly
+ * so a genuinely wrong extraction is discoverable, but never thrown:
+ * throwing would mark the delivery failed and have Shopify retry
+ * indefinitely for something that can never resolve. A genuinely missed
+ * event is still caught by the daily recalculation run (R15: reconciliation
+ * for missed deliveries, never the freshness mechanism).
  */
 
 const identifierSchema = z.union([z.string(), z.number()]);
@@ -58,18 +97,16 @@ const webhookIdentifierPayloadSchema = z
   .object({
     id: identifierSchema,
     admin_graphql_api_id: z.string(),
-    product_id: identifierSchema,
-    variant_id: identifierSchema,
   })
   .partial()
   .passthrough();
 
 /** Which shape of payload a route is wired to receive — set by the CALLER from the route it lives in, never inferred from payload content. */
-export type InventoryWebhookKind = "product" | "variant";
+export type InventoryWebhookKind = "product" | "inventory_item";
 
 export interface ExtractedShopifyIdentifiers {
   readonly productGid?: string;
-  readonly variantGid?: string;
+  readonly inventoryItemGid?: string;
 }
 
 function isGidOfType(value: string, type: string): boolean {
@@ -80,49 +117,46 @@ function toProductGid(legacyId: string | number): string {
   return `gid://shopify/Product/${legacyId}`;
 }
 
-function toVariantGid(legacyId: string | number): string {
-  return `gid://shopify/ProductVariant/${legacyId}`;
-}
-
 /**
- * PURE — no I/O, unit-testable with no database or network. Extracts
- * whatever Shopify identifiers a payload names for the given webhook KIND.
- * Returns `{}` (nothing resolvable) rather than throwing on an unfamiliar
- * shape — HMAC verification already proved this came from Shopify one layer
- * up, so an unrecognised shape means an evolving/unmodeled payload, not an
- * attack, and must not crash the handler.
+ * PURE — no I/O, unit-testable with no database or network. Extracts the
+ * Product identifier a `products/update` payload names. Returns `{}`
+ * (nothing resolvable) rather than throwing on an unfamiliar shape — HMAC
+ * verification already proved this came from Shopify one layer up, so an
+ * unrecognised shape means an evolving/unmodeled payload, not an attack,
+ * and must not crash the handler.
  */
-export function extractShopifyIdentifiers(
-  kind: InventoryWebhookKind,
-  payload: unknown
-): ExtractedShopifyIdentifiers {
+export function extractShopifyIdentifiers(kind: "product", payload: unknown): ExtractedShopifyIdentifiers {
   const result = webhookIdentifierPayloadSchema.safeParse(payload);
   if (!result.success) return {};
   const p = result.data;
 
-  if (kind === "product") {
-    // products/update: the payload IS the product resource. Prefer the GID
-    // form (unambiguous); fall back to constructing one from the legacy id.
-    if (p.admin_graphql_api_id && isGidOfType(p.admin_graphql_api_id, "Product")) {
-      return { productGid: p.admin_graphql_api_id };
-    }
-    if (p.id !== undefined) return { productGid: toProductGid(p.id) };
-    return {};
+  // products/update: the payload IS the product resource. Prefer the GID
+  // form (unambiguous); fall back to constructing one from the legacy id —
+  // safe here because a product's own numeric id is always well within
+  // Number's safe-integer range in a real catalogue (unlike inventory_item_id).
+  if (p.admin_graphql_api_id && isGidOfType(p.admin_graphql_api_id, "Product")) {
+    return { productGid: p.admin_graphql_api_id };
   }
-
-  // kind === "variant" (variants/out_of_stock, variants/in_stock).
-  if (p.admin_graphql_api_id && isGidOfType(p.admin_graphql_api_id, "ProductVariant")) {
-    return { variantGid: p.admin_graphql_api_id };
-  }
-  // A parent product_id, if the payload carries one, resolves in ONE query
-  // rather than two (skips the variant->product join below).
-  if (p.product_id !== undefined) return { productGid: toProductGid(p.product_id) };
-  if (p.variant_id !== undefined) return { variantGid: toVariantGid(p.variant_id) };
-  // Last resort: for a variant-shaped topic, a bare top-level `id` is most
-  // plausibly the variant's own id (REST webhook payloads commonly put the
-  // primary resource's id at top level).
-  if (p.id !== undefined) return { variantGid: toVariantGid(p.id) };
+  if (p.id !== undefined) return { productGid: toProductGid(p.id) };
   return {};
+}
+
+/**
+ * PURE — no I/O, unit-testable with no database or network. Extracts
+ * `inventory_item_id` from the RAW webhook body TEXT (never from the
+ * already-`JSON.parse`d payload) and returns it as a fully-formed
+ * `gid://shopify/InventoryItem/<digits>` string. The digit sequence never
+ * passes through a JS number at any point in this function — see the
+ * module doc comment for why that is the entire point.
+ *
+ * Returns `null` when the field is absent or malformed, never throws — same
+ * reasoning as `extractShopifyIdentifiers`.
+ */
+export function extractInventoryItemGidFromRawBody(rawBody: string): string | null {
+  const match = /"inventory_item_id"\s*:\s*(\d+)/.exec(rawBody);
+  const digits = match?.[1];
+  if (!digits) return null;
+  return `gid://shopify/InventoryItem/${digits}`;
 }
 
 async function resolveMasterProduct(
@@ -138,9 +172,14 @@ async function resolveMasterProduct(
     }
     return null;
   }
-  if (identifiers.variantGid) {
+  if (identifiers.inventoryItemGid) {
+    // R17 mapping: master_variant.shopifyInventoryItemGid, populated by the
+    // backfill (backfillInventoryItemGids.server.ts) from the Admin API's
+    // InventoryItem.id. An unpopulated mapping resolves nothing here — see
+    // the module doc comment's warning about that looking identical to a
+    // correctly-working handler.
     const variant = await prisma.masterVariant.findUnique({
-      where: { shopifyVariantGid: identifiers.variantGid },
+      where: { shopifyInventoryItemGid: identifiers.inventoryItemGid },
       select: { masterProduct: { select: { id: true, shopifyProductGid: true } } },
     });
     if (variant?.masterProduct.shopifyProductGid) {
@@ -155,9 +194,9 @@ async function resolveMasterProduct(
 }
 
 /**
- * The handler all three R15 webhook routes call. Same function regardless
- * of which topic fired — every one of them means the same thing here:
- * "some product's purchasability may have changed; recompute it."
+ * The handler both R17 webhook routes call. Same function regardless of
+ * which topic fired — every one of them means the same thing here: "some
+ * product's purchasability may have changed; recompute it."
  *
  * Resolves its Admin API client from `event.shopDomain` (the webhook's own
  * `X-Shopify-Shop-Domain`, not a re-read of a configured env value) — this
@@ -189,16 +228,14 @@ export async function handleInventoryPurchasabilityWebhook(
   event: ReceivedWebhookEvent,
   deps: HandleInventoryPurchasabilityWebhookDeps = {}
 ): Promise<void> {
-  const identifiers = extractShopifyIdentifiers(kind, event.payload);
+  const identifiers: ExtractedShopifyIdentifiers =
+    kind === "product"
+      ? extractShopifyIdentifiers("product", event.payload)
+      : { inventoryItemGid: extractInventoryItemGidFromRawBody(event.rawBody) ?? undefined };
+
   const resolved = await resolveMasterProduct(identifiers);
 
   if (!resolved) {
-    // Not necessarily a bug — Shopify fires these topics for products/
-    // variants outside our catalogue too (e.g. a theme's own sample data).
-    // Logged loudly so a genuinely wrong extraction is discoverable against
-    // a real payload, but never thrown: throwing would mark this delivery
-    // failed and have Shopify retry indefinitely for something that will
-    // never resolve.
     logger.warn("webhook.inventory_recompute_unresolved", {
       topic: event.topic,
       shopifyEventId: event.shopifyEventId,

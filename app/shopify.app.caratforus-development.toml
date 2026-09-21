@@ -42,8 +42,17 @@ embedded = true
 # so no Admin API call could have succeeded. These are the scopes Slice 2
 # actually needs and no more:
 #
-#   read_products   read variant ids/prices to compare before publishing
-#   write_products  publish a recalculated price to a variant
+#   read_products    read variant ids/prices to compare before publishing
+#   write_products   publish a recalculated price to a variant
+#   read_inventory   R17 (owner ruling, 2026-09-20) — resolve
+#                    inventory_levels/update deliveries and re-query real
+#                    availability. Added ONLY after live evidence against
+#                    caratforus-dev showed variants/out_of_stock and
+#                    variants/in_stock (product-scope topics) simply do not
+#                    fire for a real transition, while products/update did,
+#                    on identical conditions. Deliberately NOT
+#                    write_inventory — this app only ever OBSERVES stock,
+#                    never changes it.
 #
 # Architecture §5 documents a wider set. That is a ROADMAP, not a day-one
 # grant: nothing in the codebase exercises any of it yet, and requesting
@@ -52,7 +61,9 @@ embedded = true
 #
 # Must stay in step with SHOPIFY_SCOPES in app/.env, which is what
 # app/shopify.server.ts passes to the library.
-scopes = "read_products,write_products"
+#
+# ADDING THIS SCOPE RE-PROMPTS OAUTH on the dev store — expected, not a bug.
+scopes = "read_products,write_products,read_inventory"
 optional_scopes = [ ]
 
 # Token exchange rather than the legacy OAuth redirect dance.
@@ -99,40 +110,46 @@ api_version = "2026-07"
   customer_deletion_url = "/webhooks/customers/redact"
   shop_deletion_url = "/webhooks/shop/redact"
 
-  # Stage 2B / owner ruling R15 (2026-09-20, owner exit proof P2). These
-  # three topics are the event-driven trigger for recomputing a product's
+  # Stage 2B / owner rulings R15 then R17 (2026-09-20, owner exit proof P2).
+  # These two topics are the event-driven trigger for recomputing a product's
   # "as low as" figure — see app/shopify/webhooks/inventoryPurchasabilityHandler.server.ts.
-  # Every one of them fires under the EXISTING `read_products`/`write_products`
-  # scope above: `read_inventory` is deliberately NOT requested. R15 also
-  # explicitly rejected `inventory_levels/update` (the more obviously
-  # "correct" topic) for exactly that reason — it needs a scope this app does
-  # not hold. Verified live against caratforus-dev.myshopify.com that
-  # `webhookSubscriptionCreate` accepts all three topics below with zero
-  # userErrors under the current offline session's scope.
   #
-  # THE WEBHOOK IS AN INVALIDATION SIGNAL, NEVER A DATA SOURCE (R15's own
-  # wording). The handler never reads a price, quantity or availability value
-  # out of the delivered payload — only an identifier telling it which
-  # product to re-check. Purchasability and the "as low as" figure are always
-  # re-resolved from Shopify's and our own current state afterward. This is
-  # also what makes a redelivered or out-of-order webhook harmless: it just
-  # triggers another recompute from current state.
+  # R15 ORIGINALLY CHOSE variants/out_of_stock + variants/in_stock, precisely
+  # to avoid requesting `read_inventory`. R17 SUPERSEDES THAT, on live
+  # evidence rather than assumption: driven against a real product
+  # (caratforus-dev, ACTIVE + published + inventory-tracked), a real
+  # out-of-stock/in-stock transition, identical app/tunnel/session, those two
+  # topics DID NOT FIRE. products/update, tested as the control on the same
+  # product under the same conditions, delivered in ~1 second, including a
+  # genuine Shopify redelivery our own unique-constraint dedup caught. That
+  # positive/negative pair under identical conditions is what justified
+  # requesting `read_inventory` (see [access_scopes] above) rather than
+  # continuing to guess. inventory_levels/update replaces the two topics
+  # below it did not verify.
+  #
+  # THE WEBHOOK IS STILL AN INVALIDATION SIGNAL, NEVER A DATA SOURCE (R15's
+  # wording, reaffirmed by R17). The handler never reads a price, quantity or
+  # availability value out of the delivered payload — only an identifier
+  # telling it which variant to re-check, and even that identifier
+  # (`inventory_item_id`) is read from the RAW webhook body as a digit
+  # string, never through JSON.parse's already-lossy `number`, because it is
+  # a 64-bit id (see the handler's own module comment). Purchasability and
+  # the "as low as" figure are always re-resolved from Shopify's and our own
+  # CURRENT state afterward — inventory spans locations, so this handler
+  # never treats the payload's own `available` field as the answer, only as
+  # a hint about which variant to re-check.
   #
   # products/update covers product/variant lifecycle changes (create, delete,
   # status change) that can also flip purchasability, per Shopify's own
-  # documentation of when this topic fires.
+  # documentation of when this topic fires, and per the live control above.
   #
   # Routed through OUR OWN receiveShopifyWebhook (HMAC-verified, deduplicated,
   # idempotent — see app/shopify/webhooks/boundaryPreserved.test.ts), never
   # the library's authenticate.webhook, exactly like the compliance topics
   # above.
   [[webhooks.subscriptions]]
-  topics = ["variants/out_of_stock"]
-  uri = "/webhooks/carat/variants-out-of-stock"
-
-  [[webhooks.subscriptions]]
-  topics = ["variants/in_stock"]
-  uri = "/webhooks/carat/variants-in-stock"
+  topics = ["inventory_levels/update"]
+  uri = "/webhooks/carat/inventory-levels-update"
 
   [[webhooks.subscriptions]]
   topics = ["products/update"]

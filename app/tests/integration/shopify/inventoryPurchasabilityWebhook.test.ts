@@ -60,6 +60,7 @@ async function makePurchasableFixture() {
       shopifyProductGid: `gid://shopify/Product/${productLegacyId}`,
     },
   });
+  const inventoryItemLegacyId = uniqueInt();
   const variant = await prisma.masterVariant.create({
     data: {
       masterProductId: product.id,
@@ -70,6 +71,8 @@ async function makePurchasableFixture() {
       status: "active",
       laborSource: "india",
       shopifyVariantGid: `gid://shopify/ProductVariant/${variantLegacyId}`,
+      // R17 — the mapping inventory_levels/update resolves through.
+      shopifyInventoryItemGid: `gid://shopify/InventoryItem/${inventoryItemLegacyId}`,
     },
   });
   createdVariantIds.push(variant.id);
@@ -223,22 +226,71 @@ describe("handleInventoryPurchasabilityWebhook — a payload naming a PRODUCT we
   });
 });
 
-describe("handleInventoryPurchasabilityWebhook — a payload naming a VARIANT we own", () => {
-  it("resolves to the parent product and recomputes THAT product's aggregate", async () => {
+describe("handleInventoryPurchasabilityWebhook — an inventory_levels/update payload naming an INVENTORY ITEM we own (R17)", () => {
+  it("resolves the owning variant's parent product and recomputes THAT product's aggregate", async () => {
     const { product, variant } = await makePurchasableFixture();
     const { client, setCalls } = fakeAdminClient();
+    const inventoryItemLegacyId = variant.shopifyInventoryItemGid!.split("/").pop();
 
     await handleInventoryPurchasabilityWebhook(
-      "variant",
+      "inventory_item",
       anEvent({
-        topic: "variants/out_of_stock",
-        payload: { id: 456, admin_graphql_api_id: variant.shopifyVariantGid },
+        topic: "inventory_levels/update",
+        // The REAL, flat, documented inventory_levels/update shape — no
+        // admin_graphql_api_id, unlike products/update. rawBody is what the
+        // handler actually reads inventory_item_id from (R17); payload is
+        // set too so a regression that reverts to reading payload would
+        // still resolve correctly and hide the bug, which is deliberately
+        // avoided in the next test instead.
+        rawBody: `{"inventory_item_id":${inventoryItemLegacyId},"location_id":1,"available":0}`,
+        payload: { inventory_item_id: Number(inventoryItemLegacyId), location_id: 1, available: 0 },
       }),
       deps(client)
     );
 
     expect(setCalls).toHaveLength(1);
     expect(setCalls[0]?.ownerId).toBe(product.shopifyProductGid);
+  });
+
+  it("resolves correctly even when event.payload is EMPTY — proves resolution truly comes from rawBody, not the parsed object", async () => {
+    const { product, variant } = await makePurchasableFixture();
+    const { client, setCalls } = fakeAdminClient();
+    const inventoryItemLegacyId = variant.shopifyInventoryItemGid!.split("/").pop();
+
+    await handleInventoryPurchasabilityWebhook(
+      "inventory_item",
+      anEvent({
+        topic: "inventory_levels/update",
+        rawBody: `{"inventory_item_id":${inventoryItemLegacyId},"location_id":1,"available":0}`,
+        payload: {}, // deliberately empty
+      }),
+      deps(client)
+    );
+
+    expect(setCalls).toHaveLength(1);
+    expect(setCalls[0]?.ownerId).toBe(product.shopifyProductGid);
+  });
+
+  it("does NOT resolve when the mapping is unpopulated (the exact backfill hazard R17 warns about)", async () => {
+    const { variant } = await makePurchasableFixture();
+    // Simulate an un-backfilled variant: clear the mapping this fixture
+    // otherwise sets.
+    await prisma.masterVariant.update({ where: { id: variant.id }, data: { shopifyInventoryItemGid: null } });
+    const { client, setCalls } = fakeAdminClient();
+
+    await expect(
+      handleInventoryPurchasabilityWebhook(
+        "inventory_item",
+        anEvent({
+          topic: "inventory_levels/update",
+          rawBody: `{"inventory_item_id":999999999999999,"location_id":1,"available":0}`,
+          payload: {},
+        }),
+        deps(client)
+      )
+    ).resolves.toBeUndefined();
+
+    expect(setCalls).toHaveLength(0);
   });
 });
 
@@ -291,20 +343,23 @@ describe("handleInventoryPurchasabilityWebhook — redelivery (R15 idempotency-b
     expect(payload.priceCalculationId).toBe(calc.id);
   });
 
-  it("out-of-stock then a redelivered stale 'in stock' signal both still resolve to CURRENT state, not to whatever the payload implied", async () => {
-    // R15's actual hazard: a payload is an invalidation signal, never a data
-    // source. This proves it — the SAME "in_stock" topic is delivered while
-    // the variant is ACTUALLY out of stock (a plausible out-of-order/racy
-    // delivery), and the aggregate still reflects reality, not the topic name.
-    await makePurchasableFixture(); // an unrelated purchasable product, never asserted on directly
-    const { product } = await makePurchasableFixture();
+  it("a redelivered/stale 'available: 5' payload does NOT override reality (R17: the payload's own available field is never read)", async () => {
+    // R17's actual hazard, spelled out: inventory spans locations, and one
+    // level reaching a positive number does not mean the variant is
+    // purchasable overall. This delivers a payload whose OWN `available`
+    // field says "5 in stock" while the fake Shopify state (what a fresh
+    // availableForSale re-check would actually see) says NOT purchasable —
+    // and proves the aggregate follows reality, not the field.
+    const { product, variant } = await makePurchasableFixture();
+    const inventoryItemLegacyId = variant.shopifyInventoryItemGid!.split("/").pop();
     const { client, deleteCalls, setCalls } = fakeAdminClient({ available: false });
 
     await handleInventoryPurchasabilityWebhook(
-      "product",
+      "inventory_item",
       anEvent({
-        topic: "variants/in_stock", // the topic SAYS "back in stock"...
-        payload: { id: 2, admin_graphql_api_id: product.shopifyProductGid },
+        topic: "inventory_levels/update",
+        rawBody: `{"inventory_item_id":${inventoryItemLegacyId},"location_id":1,"available":5}`,
+        payload: {},
       }),
       deps(client)
     );

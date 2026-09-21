@@ -632,6 +632,17 @@ model MasterVariant {
   minBankPaymentPriceMinorUnits       BigInt?             @map("min_bank_payment_price_minor_units")
   minBankPaymentPriceCurrency         String?             @map("min_bank_payment_price_currency") @db.Char(3)
   shopifyVariantGid            String?             @unique @map("shopify_variant_gid")
+  /// R17 (owner ruling, 2026-09-20) — the mapping the `inventory_levels/update`
+  /// webhook resolves through. Populated from the Admin API's
+  /// `InventoryItem.id` (via `ProductVariant.inventoryItem.id`, never the
+  /// deprecated singular `InventoryItem.variant` field — see
+  /// `backfillInventoryItemGids.server.ts`). NULLABLE and requires an
+  /// explicit BACKFILL for every already-linked variant before the webhook
+  /// is relied on: an unpopulated mapping resolves nothing and looks
+  /// identical to the handler correctly finding no match, which is exactly
+  /// what cost the live-verification session real time before R15/R17's
+  /// root cause was found.
+  shopifyInventoryItemGid      String?             @unique @map("shopify_inventory_item_gid")
   /// Slice 2 M1 (owner §7.3). Per-variant escape hatch from the Bank Payment
   /// Discount: a bank-mode cart still charges an ineligible line the Regular/
   /// Card Price (owner §7.4, criterion 41). Defaults ON — most variants are
