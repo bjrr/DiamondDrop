@@ -28,6 +28,23 @@ import { ShopifyPriceSyncAdapter } from "./priceSyncAdapter.server";
  * file or anything Shopify-shaped, for the same reason criterion 29's fence
  * (layering.test.ts) exists: app/jobs/pricing is forbidden from reaching the
  * Admin API directly.
+ *
+ * THE DEFERRAL ABOVE DOES NOT CURRENTLY ACHIEVE WHAT IT DESCRIBES, and saying
+ * so here is cheaper than letting someone rely on it. `app/entry.server.tsx`
+ * imports `~/shopify.server` STATICALLY, and entry.server is loaded on every
+ * cold start — so the bundler resolves the module into the main chunk
+ * regardless of how any single route imports it, and the server already
+ * requires Shopify configuration to boot. The build says as much: "dynamically
+ * imported by apps.carat.bank-checkout.tsx ... but also statically imported by
+ * entry.server.tsx ... dynamic import will not move module into another
+ * chunk."
+ *
+ * The dynamic import is still correct and worth keeping — it defers
+ * `requireShopifyConfig()`'s THROW to the moment auto-publish is actually
+ * used, which is a real property. What it cannot do on its own is keep the
+ * process bootable without Shopify credentials; that needs entry.server's
+ * static import addressed too, and that is a separate change with its own
+ * blast radius. Recorded rather than quietly fixed here.
  */
 export class MissingShopDomainError extends Error {
   constructor() {
