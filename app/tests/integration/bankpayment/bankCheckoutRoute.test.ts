@@ -105,25 +105,27 @@ afterEach(async () => {
   createdMasterProductIds.length = 0;
 });
 
+/**
+ * USES THE SEEDED PROFILE; DOES NOT MINT ONE.
+ *
+ * This used to create a fresh `pricing_profile` with code "buy_now", a
+ * Date.now()-derived version and effectiveFrom 2020, once per fixture. That
+ * quietly hijacked profile resolution for EVERY OTHER FILE in the suite: the
+ * engine resolves "the active buy_now profile", and these fixtures kept
+ * becoming it. Other suites then reproduced their stored calculations against
+ * a profile they had never seen and reported "diverged" — a failure that
+ * pointed at the pricing engine and was actually this fixture.
+ *
+ * It is also how carat_dev accumulated 110 junk profiles (finding F-29).
+ *
+ * Nothing here needs a bespoke profile: the calculations are written directly
+ * with an explicit pricingProfileId, so the seeded active profile serves, and
+ * it carries the real tiered card rule the price assertions depend on.
+ */
 async function makeProfile() {
-  return prisma.pricingProfile.create({
-    data: {
-      code: "buy_now",
-      version: Date.now() % 900_000 + (fixtureSequence += 1),
-      marginModel: "TARGET_GROSS_MARGIN_V1",
-      targetGrossMarginRate: "0.420000",
-      minGrossMarginRate: "0.350000",
-      minDollarProfitMinorUnits: 15000n,
-      currency: "USD",
-      roundingRuleId: "HALF_UP_MINOR_UNIT_V1",
-      regularCardPriceRuleId: "BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1",
-      fixedCardUpliftRate: "0.050000",
-      priceEndingRuleId: "NONE_V1",
-      autoApplyToleranceBps: 200,
-      effectiveFrom: new Date("2020-01-01T00:00:00Z"),
-      createdBy: "integration-test",
-      isPlaceholder: false,
-    },
+  return prisma.pricingProfile.findFirstOrThrow({
+    where: { code: "buy_now", isPlaceholder: false },
+    orderBy: { version: "desc" },
   });
 }
 

@@ -6,10 +6,10 @@
  */
 import { createHmac, randomUUID } from "node:crypto";
 
-import { prisma } from "./app/db/client.server";
-import { action } from "./app/routes/apps.carat.bank-checkout";
-import { ShopifyDraftOrderAdapter } from "./app/shopify/admin/draftOrderAdapter.server";
-import { Money } from "./app/domain/money/money";
+import { prisma } from "~/db/client.server";
+import { action } from "~/routes/apps.carat.bank-checkout";
+import { ShopifyDraftOrderAdapter } from "~/shopify/admin/draftOrderAdapter.server";
+import { Money } from "~/domain/money/money";
 
 const SHOP = process.env.SHOPIFY_SHOP_DOMAIN!;
 const SECRET = process.env.SHOPIFY_API_SECRET!;
@@ -64,7 +64,7 @@ const SHIPPING_ADDRESS = {
 };
 
 async function main() {
-  const { unauthenticated } = await import("./app/shopify.server");
+  const { unauthenticated } = await import("~/shopify.server");
   const { admin } = await unauthenticated.admin(SHOP);
   gql = async (q: string, variables: Record<string, unknown>) => {
     const r = await admin.graphql(q, { variables });
@@ -388,11 +388,12 @@ async function main() {
     return c;
   }
 
+  let attemptSequence = 0;
   async function attempt(label: string) {
     const r = await action({
       request: signedPost({
         mode: "bank",
-        email: `gb-${Date.now()}-${Math.floor(performance.now())}@example.com`,
+        email: `gb-${Date.now()}-${(attemptSequence += 1)}@example.com`,
         shippingAddress: SHIPPING_ADDRESS,
         lines: [{ shopifyVariantId: variantGid, quantity: 1 }],
       }),

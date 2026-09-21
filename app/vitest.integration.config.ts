@@ -11,8 +11,19 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/integration/**/*.test.ts"],
-    testTimeout: 20_000,
-    hookTimeout: 20_000,
+    // 20s was sized when the seeded catalogue was small. Several pricing tests
+    // call runPriceRecalculation with no variantIds, which sweeps EVERY active
+    // variant in the shared disposable database — so their cost grows with the
+    // suite, not with what they assert, and slice 2C's fixtures pushed two of
+    // them past the limit. They fail as timeouts, never as wrong answers, and
+    // they pass when run alone.
+    //
+    // Raised rather than scoped because scoping those runs means giving tests
+    // that deliberately assert run-wide behaviour their own priceable
+    // fixtures, which is slice-1 work. Recorded as follow-up F-2C-4 so the
+    // real fix is not lost behind a bigger number.
+    testTimeout: 45_000,
+    hookTimeout: 45_000,
     fileParallelism: false,
     globalSetup: ["./tests/integration/globalSetup.ts"],
     // setupFiles (unlike globalSetup) run inside each test worker's own

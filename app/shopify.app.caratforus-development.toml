@@ -60,6 +60,13 @@ embedded = true
 #                    read with write, so read_draft_orders is not requested
 #                    separately. NOT write_orders: the app never edits a real
 #                    order, only the draft it created.
+#   read_orders      Slice 2C, discovered by live verification rather than
+#                    planned. draftOrderComplete returns the order it created
+#                    (draftOrder { order { id name } }) and that field is
+#                    gated on read_orders, so without it the lifecycle stops
+#                    at completion and bank_payment_order.shopify_order_gid
+#                    can never be filled. READ only: the app records which
+#                    order its draft became and never edits one.
 #
 # Architecture §5 documents a wider set. That is a ROADMAP, not a day-one
 # grant: nothing in the codebase exercises any of it yet, and requesting
@@ -70,7 +77,7 @@ embedded = true
 # app/shopify.server.ts passes to the library.
 #
 # ADDING THIS SCOPE RE-PROMPTS OAUTH on the dev store — expected, not a bug.
-scopes = "read_products,write_products,read_inventory,write_draft_orders"
+scopes = "read_products,write_products,read_inventory,write_draft_orders,read_orders"
 optional_scopes = [ ]
 
 # Token exchange rather than the legacy OAuth redirect dance.
