@@ -520,3 +520,66 @@ for a human, which then cancels. It is not bounded in theory. If it proves
 material, the fix is a cumulative-drift ceiling on the guarantee rather than
 reverting to §21's literal reading — but that is a new decision and is not
 being made now.
+
+
+---
+
+## 14. Review conditions C2C-1 … C2C-4 — closed as acceptance criteria
+
+Folded into §5 rather than left as review prose, because a condition that lives
+only in a verdict is a condition nobody tests.
+
+### C2C-1 — do not duplicate the shipping address (PII)
+
+**97.** The shipping address is sent to Shopify at draft-order creation and
+**never persisted by us**. `CLAUDE.md` requires minimising PII and says to
+reference Shopify ids rather than duplicating profiles. An address stored in
+`bank_payment_order` is a second copy we must then secure, retain and redact,
+for no capability Shopify does not already give us through the draft order.
+
+**98. `customer_email` is the one stored exception, and it is argued rather
+than assumed.** The cancellation email (criterion 80) must be sendable when the
+draft order may already have been deleted, so the address of the person to tell
+cannot live only on the thing being removed. The schema comment must state that
+reasoning, so a later reader does not "tidy up" by adding the postal address
+beside it.
+
+**99.** Anything else needing the address — an admin reviewing a payment, say —
+**reads it from Shopify at the time**, never from our tables.
+
+### C2C-2 — the guarantee sweep runs hourly and is idempotent
+
+**100.** The sweep runs **hourly**, not on the daily recalculation. A 24-hour
+rule on a daily job can leave an order live a full day past expiry, during
+which a customer may pay against a quote we intended to withdraw.
+
+**101.** The sweep is **idempotent**: a double run cancels once and emails
+once. It must be safe to run concurrently with itself, since an hourly
+scheduler eventually overlaps a slow run.
+
+**102.** The sweep never cancels on its own failure. If the current published
+price cannot be resolved, the order is left open and flagged — D21 and
+criterion 82, applied to the sweep rather than only to the guarantee rule.
+
+### C2C-3 — sold-out is checked at verification, before the admin confirms
+
+**103.** At verification, every line's current `availableForSale` is re-queried
+from Shopify and **shown to the verifying admin before they confirm**.
+Criterion 86 says a payment arriving after a sell-out is flagged for admin
+handling; that is only possible if the admin is told **while deciding**, not
+after an order exists.
+
+**104.** A sold-out line does not block verification. Recording that payment
+arrived is a fact, and §22 requires human handling rather than an automatic
+resolution — the admin decides, with the information in front of them.
+
+### C2C-4 — idempotency does not key on the cart token alone
+
+**105.** The idempotency key is derived from the **resolved customer email**
+plus a content hash of the server-recomputed lines — not the Shopify cart
+token, which can rotate. Two submissions either side of a rotation would
+otherwise produce two draft orders and two invoices for one customer.
+
+**106.** The key is committed **before** the Admin API call, per
+`ARCHITECTURE-MVP1.md` §6.7 and criterion 75. A repeat returns the stored draft
+order and sends no second invoice.
