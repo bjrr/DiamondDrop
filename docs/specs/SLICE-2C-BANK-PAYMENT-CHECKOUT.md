@@ -2,7 +2,7 @@
 
 ## Status
 
-**APPROVED. Phase 2C-a in progress.**
+**APPROVED. Phase 2C-a CLOSED 2026-09-21. Phase 2C-b in progress.**
 
 Author: Principal Architect / Tech Lead
 Date: 2026-09-21
@@ -665,3 +665,68 @@ Naming a specific manual gateway belongs with the verification surface
 (**2C-c**), where an admin records which method the money actually arrived by.
 Attaching gateway metadata at creation would assert a payment nobody has
 verified.
+
+---
+
+## 16. Phase 2C-a — closed 2026-09-21
+
+Closed on live evidence against `caratforus-dev`, not on a green unit suite.
+The reproducible harnesses are `app/tests/live/slice2cA.livegate.ts` (26 checks)
+and `app/tests/live/slice2cA.completion.ts` (14 checks).
+
+### What is proven
+
+| Criterion | Proven by |
+|---|---|
+| 71, 72 — line prices are the recomputed Bank Payment Price | draft read back from Shopify at `1234.56` against a `1300.00` catalogue price |
+| 73 — `reserveInventoryUntil` never sent | asserted on the serialised payload |
+| 74 — resource route, no default export | `csrfResourceRouteFence.test.ts` |
+| 75, 105, 106 — idempotent creation | replay returned the same draft, `invoiceSentAt` unchanged |
+| 76 — Group Buy separation | all four campaign states exercised live: open blocks, draft/closed/cancelled do not |
+| 77 — quote and guarantee stored | 24h window asserted |
+| 87, 89 — verified completion through to a real order | `#1003`, exact gid persisted |
+| 95, D19 — explicit zero shipping line | present at zero on the live draft |
+| 97-99 — no duplicated PII | address at Shopify, absent from every column and every quote line |
+
+### What the live gate found that no unit test could
+
+Three of the adapter's assumed API shapes were wrong, and **a mocked client
+agrees with every assumption you hand it**. Two were silent:
+
+1. **`originalUnitPrice` does not exist** on `DraftOrderLineItemInput` in
+   2026-07. Shopify dropped the field and priced the line at the variant's
+   **catalogue price**. Caught only by the echo check. The correct field is
+   `priceOverride`.
+2. **Completion marked the order PAID.** Against a transfer that had not
+   arrived and that Shopify had never processed. Fixed with Due-on-receipt
+   payment terms; the order is now `PENDING`.
+3. `draftOrderInvoiceSend` takes `EmailInput`, and `draftOrderComplete` has no
+   `paymentPending` argument. Both rejected outright — loud, not silent.
+
+**The standing lesson, and it outlives 2C:** a fixture that echoes its input
+can only confirm what you already believe. Any adapter that writes a
+customer-facing price must be proven against the real API before it is
+trusted, and must verify the echo rather than assume it.
+
+### Scopes as granted
+
+`read_products, write_products, read_inventory, write_draft_orders,
+read_orders, write_payment_terms`. `read_orders` captures the order id;
+`write_payment_terms` is what keeps the order unpaid. Neither is customer PII.
+Deliberately **not** granted: `write_orders`, `read_all_orders`,
+`read_customers`, any protected name/email/phone/address field, `write_inventory`.
+
+Operational note: `shopify app dev` re-pushes its own app configuration over a
+deploy made while it is running. Deploy with it stopped.
+
+### Left on the dev store
+
+Three test orders (`#1001`, `#1002` PAID from before the payment-terms fix;
+`#1003` PENDING) cannot be removed without `write_orders` and are for the owner
+to delete by hand. Products and draft orders are at zero. Database fixtures are
+archived; their quote lines and price calculations are append-only and remain.
+
+`#1001` is worth remembering: it was created by the run reported as *blocked*.
+`draftOrderComplete` had in fact succeeded and only the `order { id }` read was
+denied — the same write-succeeded-read-failed shape as the orphaned draft, one
+level up.
