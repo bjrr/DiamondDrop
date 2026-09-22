@@ -345,6 +345,13 @@ describe("criterion 80/D22 — a human-approved change cancels, no tolerance ban
     expect(sent).toHaveLength(1);
     expect(sent[0]!.to).toEqual([order.customerEmail]);
     expect(sent[0]!.text).toContain(order.id);
+
+    // The delivery outcome is a PERSISTED record, not merely a log line
+    // (owner verification list) — including the provider's own message id,
+    // proof Resend actually accepted the send.
+    expect(after.cancellationEmailStatus).toBe("sent");
+    expect(after.cancellationEmailProviderMessageId).toBe("fake-1");
+    expect(after.cancellationEmailAttemptedAt).not.toBeNull();
   });
 
   /**
@@ -821,6 +828,11 @@ describe("the cancellation stands even when the notification cannot be delivered
     const after = await prisma.bankPaymentOrder.findUniqueOrThrow({ where: { id: order.id } });
     // The cancellation itself is unaffected by the mail server being down.
     expect(after.status).toBe("cancelled");
+    // The outcome is PERSISTED, not just logged — "which cancelled orders
+    // never reached their customer" must be a queryable question.
+    expect(after.cancellationEmailStatus).toBe("skipped_unconfigured");
+    expect(after.cancellationEmailProviderMessageId).toBeNull();
+    expect(after.cancellationEmailAttemptedAt).not.toBeNull();
   });
 
   it("cancels the order and raises an admin alert when the send itself fails", async () => {
@@ -855,6 +867,112 @@ describe("the cancellation stands even when the notification cannot be delivered
     expect(summary.cancelled).toBe(1);
     const after = await prisma.bankPaymentOrder.findUniqueOrThrow({ where: { id: order.id } });
     expect(after.status).toBe("cancelled");
+    expect(after.cancellationEmailStatus).toBe("failed");
+    expect(after.cancellationEmailProviderMessageId).toBeNull();
+    expect(after.cancellationEmailAttemptedAt).not.toBeNull();
+  });
+
+  it("PERSISTENCE ITSELF throwing does not reverse the cancellation, even though the send succeeded", async () => {
+    const profile = await aPricingProfile();
+    const { variant } = await aVariant(profile.id);
+    const quotedAt = new Date(Date.now() - 25 * HOUR_MS);
+    const guaranteeExpiresAt = new Date(quotedAt.getTime() + DAY_MS);
+    const baseCalc = await aComputedCalculation({
+      masterVariantId: variant.id,
+      profileId: profile.id,
+      bankPaymentPriceMinorUnits: 100_000n,
+    });
+    await publish(variant.id, baseCalc.id);
+    const order = await aQuotedOrder({
+      masterVariantId: variant.id,
+      priceCalculationId: baseCalc.id,
+      quotedBankPaymentPriceMinorUnits: 100_000n,
+      quotedAt,
+      guaranteeExpiresAt,
+    });
+    await republish({
+      masterVariantId: variant.id,
+      profileId: profile.id,
+      bankPaymentPriceMinorUnits: 130_000n,
+      decision: "needs_approval",
+      syncedAt: new Date(quotedAt.getTime() + HOUR_MS),
+    });
+
+    const { sent, resolveEmailPort } = fakeEmailPort();
+    // A throwing write, standing in for a genuine DB hiccup AFTER the
+    // compare-and-set has already committed the cancellation and the email
+    // has already been sent — exactly the ordering the module doc comment
+    // requires never to roll the cancellation back.
+    const throwingRecordCancellationEmail = async (): Promise<void> => {
+      throw new Error("simulated write failure recording the cancellation email outcome");
+    };
+
+    const summary = await runGuaranteeSweep({
+      now: new Date(),
+      resolveEmailPort,
+      recordCancellationEmailOutcome: throwingRecordCancellationEmail,
+    });
+
+    expect(summary.cancelled).toBe(1);
+    // The email was sent — this failure is purely in RECORDING that fact.
+    expect(sent).toHaveLength(1);
+
+    const after = await prisma.bankPaymentOrder.findUniqueOrThrow({ where: { id: order.id } });
+    // The cancellation stands, unconditionally.
+    expect(after.status).toBe("cancelled");
+    expect(after.cancelledAt).not.toBeNull();
+    // The delivery record simply never got written — a real, if unwelcome,
+    // state (see the migration's own CHECK-constraint comment), not an
+    // error this function may correct by inventing a value.
+    expect(after.cancellationEmailStatus).toBeNull();
+    expect(after.cancellationEmailProviderMessageId).toBeNull();
+    expect(after.cancellationEmailAttemptedAt).toBeNull();
+  });
+
+  it("a SECOND sweep does not re-cancel, re-email, or re-persist an already-cancelled order", async () => {
+    const profile = await aPricingProfile();
+    const { variant } = await aVariant(profile.id);
+    const quotedAt = new Date(Date.now() - 25 * HOUR_MS);
+    const guaranteeExpiresAt = new Date(quotedAt.getTime() + DAY_MS);
+    const baseCalc = await aComputedCalculation({
+      masterVariantId: variant.id,
+      profileId: profile.id,
+      bankPaymentPriceMinorUnits: 100_000n,
+    });
+    await publish(variant.id, baseCalc.id);
+    const order = await aQuotedOrder({
+      masterVariantId: variant.id,
+      priceCalculationId: baseCalc.id,
+      quotedBankPaymentPriceMinorUnits: 100_000n,
+      quotedAt,
+      guaranteeExpiresAt,
+    });
+    await republish({
+      masterVariantId: variant.id,
+      profileId: profile.id,
+      bankPaymentPriceMinorUnits: 130_000n,
+      decision: "needs_approval",
+      syncedAt: new Date(quotedAt.getTime() + HOUR_MS),
+    });
+
+    const { sent, resolveEmailPort } = fakeEmailPort();
+    const first = await runGuaranteeSweep({ now: new Date(), resolveEmailPort });
+    expect(first.cancelled).toBe(1);
+    const afterFirst = await prisma.bankPaymentOrder.findUniqueOrThrow({ where: { id: order.id } });
+    expect(afterFirst.cancellationEmailStatus).toBe("sent");
+    const firstAttemptedAt = afterFirst.cancellationEmailAttemptedAt;
+
+    const second = await runGuaranteeSweep({ now: new Date(), resolveEmailPort });
+    // The order left the `status: "open"` set the sweep queries, so a
+    // second run does not even see it — the strongest form of "does nothing".
+    expect(second.ordersConsidered).toBe(0);
+
+    const afterSecond = await prisma.bankPaymentOrder.findUniqueOrThrow({ where: { id: order.id } });
+    expect(afterSecond.status).toBe("cancelled");
+    expect(afterSecond.cancellationEmailStatus).toBe("sent");
+    expect(afterSecond.cancellationEmailAttemptedAt).toEqual(firstAttemptedAt);
+    // Exactly one customer email, ever.
+    expect(sent).toHaveLength(1);
   });
 });
 

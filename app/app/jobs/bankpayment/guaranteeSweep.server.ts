@@ -71,6 +71,15 @@ export interface GuaranteeSweepDeps {
    * `runGuaranteeSweep`, not a substitute for it.
    */
   gatherVariantPriceFacts?: typeof gatherVariantPriceFacts;
+  /**
+   * Defaults to the real `recordCancellationEmailOutcome`. Injectable for
+   * the SAME reason `gatherVariantPriceFacts` above is: a test proving the
+   * cancellation stands even when PERSISTING the delivery outcome throws
+   * needs a genuine failure mode in that specific write, which ordinary
+   * fixture data cannot produce (the row and its id are always valid by
+   * the time this is called — the compare-and-set already succeeded).
+   */
+  recordCancellationEmailOutcome?: typeof recordCancellationEmailOutcome;
 }
 
 type EmailDeliveryOutcome = "sent" | "skipped_unconfigured" | "failed";
@@ -91,7 +100,7 @@ export async function runGuaranteeSweep(deps: GuaranteeSweepDeps = {}): Promise<
   const now = deps.now ?? new Date();
   const resolvePort = deps.resolveEmailPort ?? resolveRealEmailPort;
   const gatherFacts = deps.gatherVariantPriceFacts ?? gatherVariantPriceFacts;
-
+  const recordCancellationEmail = deps.recordCancellationEmailOutcome ?? recordCancellationEmailOutcome;
 
   const openOrders: OpenOrderForSweep[] = await prisma.bankPaymentOrder.findMany({
     where: { status: "open" },
@@ -113,7 +122,7 @@ export async function runGuaranteeSweep(deps: GuaranteeSweepDeps = {}): Promise<
 
   for (const order of openOrders) {
     try {
-      const outcome = await processOneOrder(order, now, resolvePort, gatherFacts);
+      const outcome = await processOneOrder(order, now, resolvePort, gatherFacts, recordCancellationEmail);
       if (outcome === "kept") kept += 1;
       else if (outcome === "cancelled") cancelled += 1;
       else flagged += 1;
@@ -162,7 +171,8 @@ async function processOneOrder(
   order: OpenOrderForSweep,
   now: Date,
   resolvePort: () => EmailPortResolution,
-  gatherFacts: typeof gatherVariantPriceFacts
+  gatherFacts: typeof gatherVariantPriceFacts,
+  recordCancellationEmail: typeof recordCancellationEmailOutcome
 ): Promise<OrderOutcome> {
   const uniqueVariantIds = [...new Set(order.lines.map((line) => line.masterVariantId))];
   const factsByVariant = new Map<string, VariantPriceFacts>();
@@ -269,20 +279,70 @@ async function processOneOrder(
   // honouring a withdrawn price must not depend on the mail server being
   // up. An undelivered cancellation email is a real duty left undischarged,
   // so it raises its own, separate admin alert loud enough for a human to
-  // contact the customer by hand. "Cancelled" and "told them" are recorded
-  // as two distinct facts (this log line plus the alert below), never
-  // conflated into one.
-  if (delivery !== "sent") {
+  // contact the customer by hand. "Cancelled" and "told them" are now
+  // recorded as two distinct facts by two distinct writes — the
+  // compare-and-set above, and `recordCancellationEmailOutcome` below —
+  // never conflated into one.
+  //
+  // RETRY SEMANTICS, STATED PLAINLY (owner verification list). Once
+  // cancelled, `order.status` is no longer `"open"`, and this function's
+  // caller queries only `status: "open"` — so a cancelled order is NEVER
+  // revisited by a later sweep run, and a failed or skipped cancellation
+  // email is NEVER retried automatically. That is correct: retrying would
+  // risk a second email for one cancellation, and there is exactly one
+  // cancellation to report. It is also WHY the row written below must be
+  // durable rather than a log line — manual follow-up is the ONLY path
+  // back for an undelivered email, and the persisted
+  // `cancellationEmailStatus`/`cancellationEmailProviderMessageId` is the
+  // entire mechanism that makes "which cancelled orders never reached
+  // their customer" an answerable, queryable question.
+  try {
+    await recordCancellationEmail(order.id, delivery, now);
+  } catch (persistError) {
+    // The cancellation (already committed above) MUST stand regardless —
+    // see the module doc comment. A failure to RECORD the delivery outcome
+    // is itself a gap the owner's list cares about, so it is logged loudly
+    // rather than silently swallowed, but it must never propagate and
+    // never be mistaken for a reason to reconsider the cancellation.
+    logger.error("bank_payment.guarantee_cancellation_email_record_failed", {
+      bankPaymentOrderId: order.id,
+      error: persistError instanceof Error ? persistError.name : "UnknownError",
+    });
+  }
+
+  if (delivery.outcome !== "sent") {
     await sendAdminAlert(resolvePort, {
       subject: `[CaratForUs admin] Cancellation email NOT delivered — bank payment order ${order.id}`,
       text:
         `Bank payment order ${order.id} was cancelled (24-hour guarantee expired; price changed via a ` +
         `human-approved publication or override) but the customer cancellation email to ` +
-        `${order.customerEmail} was NOT delivered (${delivery}). Please contact the customer directly.`,
+        `${order.customerEmail} was NOT delivered (${delivery.outcome}). Please contact the customer directly.`,
     });
   }
 
   return "cancelled";
+}
+
+/**
+ * Persists the cancellation email's delivery outcome onto the order it
+ * belongs to — a plain `update` by id, never a compare-and-set, because the
+ * cancellation this row documents already happened and committed
+ * (`claimed.count === 1` above is the only caller of this function, and it
+ * is only ever called once per order for exactly that reason).
+ */
+async function recordCancellationEmailOutcome(
+  bankPaymentOrderId: string,
+  delivery: CustomerEmailDeliveryResult,
+  attemptedAt: Date
+): Promise<void> {
+  await prisma.bankPaymentOrder.update({
+    where: { id: bankPaymentOrderId },
+    data: {
+      cancellationEmailStatus: delivery.outcome,
+      cancellationEmailProviderMessageId: delivery.providerMessageId,
+      cancellationEmailAttemptedAt: attemptedAt,
+    },
+  });
 }
 
 function buildCancellationReason(lines: readonly GuaranteeCancellingLine[]): string {
@@ -431,24 +491,40 @@ async function resolveClearedGuaranteeAlerts(
   }
 }
 
+interface CustomerEmailDeliveryResult {
+  outcome: EmailDeliveryOutcome;
+  /**
+   * The provider's own message id — "proof of acceptance, not merely of an
+   * attempt" (`EmailPort.send`'s own doc comment). Non-null exactly when
+   * `outcome === "sent"`; enforced in the database by
+   * `bank_payment_order_cancellation_email_message_id_only_when_sent`.
+   */
+  providerMessageId: string | null;
+}
+
 async function sendCustomerEmail(
   resolvePort: () => EmailPortResolution,
   toEmail: string,
   content: { subject: string; text: string }
-): Promise<EmailDeliveryOutcome> {
+): Promise<CustomerEmailDeliveryResult> {
   const resolution = resolvePort();
   if (!resolution.configured) {
     logger.error("bank_payment.guarantee_cancellation_email_unconfigured", { reason: resolution.reason });
-    return "skipped_unconfigured";
+    return { outcome: "skipped_unconfigured", providerMessageId: null };
   }
   try {
-    await resolution.port.send({ from: resolution.from, to: [toEmail], subject: content.subject, text: content.text });
-    return "sent";
+    const sent = await resolution.port.send({
+      from: resolution.from,
+      to: [toEmail],
+      subject: content.subject,
+      text: content.text,
+    });
+    return { outcome: "sent", providerMessageId: sent.providerMessageId };
   } catch (error) {
     logger.error("bank_payment.guarantee_cancellation_email_failed", {
       error: error instanceof Error ? error.name : "UnknownError",
     });
-    return "failed";
+    return { outcome: "failed", providerMessageId: null };
   }
 }
 

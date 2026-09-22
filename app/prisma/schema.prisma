@@ -1365,6 +1365,21 @@ enum BankPaymentOrderStatus {
   @@map("bank_payment_order_status")
 }
 
+/// The 24-hour guarantee sweep's CUSTOMER cancellation email delivery record
+/// (spec §13/§14; owner verification list). Same member names as
+/// `AdminAlertEmailDeliveryStatus` on purpose (both describe a real email
+/// send's three possible outcomes), but kept as a SEPARATE type -- see
+/// `BankPaymentOrder.cancellationEmailStatus`'s own doc comment for why
+/// coupling the customer-email record to the admin-alert one would be a
+/// false relationship.
+enum BankPaymentCancellationEmailStatus {
+  sent
+  skipped_unconfigured
+  failed
+
+  @@map("bank_payment_cancellation_email_status")
+}
+
 /// Slice 2 stage 2C, M6 (docs/specs/SLICE-2-BUY-NOW-STOREFRONT-AND-SYNC.md §6,
 /// owner §8). The header/order-level record: one Shopify draft order, one
 /// 24-hour price guarantee, one manual payment verification, one eventual
@@ -1425,6 +1440,39 @@ model BankPaymentOrder {
 
   cancelledAt        DateTime? @map("cancelled_at") @db.Timestamptz(6)
   cancellationReason String?   @map("cancellation_reason")
+
+  /// The 24-hour guarantee sweep's own delivery record for the CUSTOMER
+  /// cancellation email (spec §13/§14; owner verification list). NULL means
+  /// "no cancellation email was ever attempted" -- true of every non
+  /// -cancelled order, and also of a cancelled order whose email-send
+  /// attempt itself never got as far as being recorded (see
+  /// `cancellationEmailAttemptedAt`'s own comment).
+  ///
+  /// A SEPARATE enum from `AdminAlertEmailDeliveryStatus` on purpose, even
+  /// though the members are identical (`sent`/`skipped_unconfigured`/
+  /// `failed`): that enum is the ADMIN alert channel's delivery record: this
+  /// column is the CUSTOMER cancellation email's. Reusing one enum for both
+  /// would assert a relationship between "did the admin get told" and "did
+  /// the customer get told" that does not exist -- they are two independent
+  /// sends, on two different recipients, that can each succeed or fail on
+  /// their own. Naming and typing them the same would make a future
+  /// migration that adds a member to one look correct while silently
+  /// changing the other's meaning too.
+  cancellationEmailStatus BankPaymentCancellationEmailStatus? @map("cancellation_email_status")
+  /// The provider's own message id (proof Resend ACCEPTED the send, not
+  /// merely that this code attempted one -- see `EmailPort.send`'s own doc
+  /// comment). Set ONLY when `cancellationEmailStatus` is `sent`; enforced by
+  /// `bank_payment_order_cancellation_email_message_id_only_when_sent`.
+  cancellationEmailProviderMessageId String? @map("cancellation_email_provider_message_id")
+  /// Set together with `cancellationEmailStatus`, always -- the sweep
+  /// records both in the same write. This is the retry story in full:
+  /// completion is a compare-and-set to `cancelled`, and the sweep's order
+  /// query is scoped to `status = "open"`, so a cancelled order is NEVER
+  /// revisited by a later sweep run. A failed or skipped cancellation email
+  /// is therefore never retried automatically -- this row is the ONLY
+  /// record that it needs manual follow-up, which is why it must be
+  /// durable rather than a log line (owner verification list).
+  cancellationEmailAttemptedAt DateTime? @map("cancellation_email_attempted_at") @db.Timestamptz(6)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
