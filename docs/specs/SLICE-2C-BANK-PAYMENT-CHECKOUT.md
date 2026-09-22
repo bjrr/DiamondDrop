@@ -1014,3 +1014,55 @@ loader half is proven; the action half needs a human click.
 This is a genuine gap, not a formality. 2C-a's live gate found three wrong API
 shapes in exactly this kind of path, and the unit tests that cover this action
 use a memory router, which is what hid the routing defect above.
+
+---
+
+## 20. Phase 2C-c — closed 2026-09-22
+
+Closed on live evidence: a real verification performed by a real human in the
+embedded admin, against `caratforus-dev`.
+
+### What the live run recorded
+
+| | Evidence |
+|---|---|
+| Verifier (D23) | `orders@caratforus.com`, Shopify user `127289196845` — from the authenticated session, **not a typed field** |
+| Amount | `64200` minor units, equal to expected; the match is asserted before anything is written |
+| Method | `zelle`, from the closed enum |
+| Timestamps | verified `20:22:24`, completed `20:22:26` — system-generated |
+| Shopify order | `#1004`, **`PENDING`** — unpaid, as §22 requires |
+| Draft order | `COMPLETED`, pointing at exactly that order |
+| Duplicates | exactly **one** order for that customer |
+| Audit trail | `bank_payment_order.verified` naming the person, then `.completed` |
+
+`PENDING` is the row that matters most: 2C-a's payment-terms fix is holding in
+a real completion. Before it, Shopify asserted a receipt for money it had never
+processed.
+
+**F-2C-5 is closed.** The identity in the record is one Shopify vouched for, so
+the weakness recorded when `verified_by` was typed no longer exists.
+
+### Found by this gate, invisible to every unit test
+
+The detail route **never rendered**. `app.bank-payments.tsx` and
+`app.bank-payments.$id.tsx` formed a parent/child pair under flat routes, the
+parent had no `<Outlet />`, and `/app/bank-payments/:id` silently served the
+**list**. All 27 route tests passed, because they render the component directly
+with a memory router and supplied loader data — which never exercises
+flat-route nesting at all. Fixed by renaming the list to
+`app.bank-payments._index.tsx`, making them siblings.
+
+### Not proven live
+
+**D24's mismatch refusal.** The owner verified the matching amount directly, so
+the refusal path has integration coverage but no real submission behind it. It
+refuses before any write, so the blast radius of being wrong is a bad error
+message rather than a bad record — but it is untested against the real form and
+is recorded as such rather than implied.
+
+### Left for the owner
+
+Orders `#1001`-`#1004` on the dev store need manual deletion; removing an order
+requires `write_orders`, which is deliberately not granted. All fixture
+products and draft orders are at zero; database fixtures are archived, and
+their append-only quote lines and calculations remain by design.
