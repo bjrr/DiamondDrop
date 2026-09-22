@@ -62,9 +62,16 @@ describe("the §22 not-committed disclosure", () => {
   });
 
   it("carries no money figure and no forbidden pricing vocabulary", () => {
-    expect(NOT_COMMITTED_DISCLOSURE).not.toMatch(/\$|\d/);
+    // The rule is NO MONEY FIGURE, not "no digits" — the approved copy names
+    // the 24-hour guarantee, which is a duration, not a price. An earlier
+    // version of this test banned every digit and would have blocked the
+    // owner's own wording, which is the wrong kind of strictness: it enforces
+    // the letter of a rule against the thing the rule exists to protect.
+    expect(NOT_COMMITTED_DISCLOSURE).not.toMatch(/\$|\d+(\.\d{2})|\d+\s*(USD|dollars)/i);
     expect(NOT_COMMITTED_DISCLOSURE).not.toMatch(
       /surcharge|card fee|cash discount|uplift|tier|margin|markup|landed cost|%/i
     );
+    // The only number the approved text uses is the guarantee window.
+    expect(NOT_COMMITTED_DISCLOSURE.match(/\d+/g)).toEqual(["24"]);
   });
 });

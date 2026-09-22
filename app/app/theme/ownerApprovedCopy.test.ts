@@ -50,6 +50,33 @@ const APPROVED: ReadonlyArray<readonly [string, string]> = [
     "sections.cart.pricing.switch_to_bank_payment_note",
     "Eligible items will update to their Bank Payment Price.",
   ],
+  // Slice 2C phase 2C-6, owner-approved 2026-09-22. The Bank Payment
+  // checkout surface: what the button promises, what the customer is told
+  // before submitting, the two errors that need to be actionable rather than
+  // generic, and what success actually means.
+  //
+  // The success string is the owner's own correction: the screen used to say
+  // "Your order was submitted" while simultaneously disclosing that no order
+  // exists until payment is verified. Two contradictory claims on one screen
+  // is worse than either alone, so the wording now says a REQUEST was
+  // submitted.
+  ["sections.cart.bank_payment_checkout_note", "Choosing Bank Payment switches your entire cart to Bank Payment pricing. Eligible items will use their Bank Payment Price."],
+  [
+    "sections.cart.bank_payment_checkout_form.not_committed_disclosure",
+    "Your Bank Payment Price is guaranteed for 24 hours. Submitting this form does not complete your order or reserve your items. Your order is not committed and availability is not guaranteed until your Bank Payment is received and verified. We’ll email you an invoice with payment instructions, and nothing is charged when you submit this form.",
+  ],
+  [
+    "sections.cart.bank_payment_checkout_form.error_unpurchasable_lines",
+    "One or more items in your cart are no longer available for Bank Payment Checkout. Please refresh your cart to see the latest availability and pricing before continuing.",
+  ],
+  [
+    "sections.cart.bank_payment_checkout_form.error_group_buy_variant_present",
+    "Your cart includes a Group Buy item. Group Buy purchases are placed separately and can’t be combined with Buy Now Bank Payment Checkout. Please remove the Group Buy item from this cart to continue.",
+  ],
+  [
+    "sections.cart.bank_payment_checkout_form.success_check_email",
+    "Your Bank Payment request was submitted. We’ve emailed you an invoice with payment instructions. Your order is not committed and your items are not reserved until your Bank Payment is received and verified.",
+  ],
 ];
 
 describe("owner-approved customer-facing copy is pinned verbatim", () => {

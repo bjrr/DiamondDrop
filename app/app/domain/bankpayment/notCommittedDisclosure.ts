@@ -14,12 +14,15 @@
  * `theme/locales/en.default.json`'s key is character-for-character identical.
  * Edit one without the other and the test fails.
  *
- * DRAFT — PENDING OWNER APPROVAL. Criterion 84 requires owner-approved copy
- * and no wording has been approved. It is deliberately not pinned as a
- * character-for-character expectation the way the cancellation email's is;
- * pinning unapproved wording would dress a draft as a decision. What IS
- * pinned is that the two surfaces agree, and that the text carries no
- * forbidden term — both of which stay true through an approval edit.
+ * OWNER-APPROVED 2026-09-22, and pinned character-for-character in
+ * `app/theme/ownerApprovedCopy.test.ts` alongside the cart strings. Criterion
+ * 84 is satisfied by this exact wording and nothing else — an edit here is new
+ * unapproved copy however small, and it must go back for approval.
+ *
+ * Two tests guard it from different directions: that file pins the words, and
+ * this module's own test proves the STOREFRONT copy is byte-identical to it.
+ * Neither alone is enough — identical-but-wrong and approved-but-divergent are
+ * both failures a customer would feel.
  */
 
 /** The locale key the storefront reads the identical text from. */
@@ -31,8 +34,7 @@ export const NOT_COMMITTED_DISCLOSURE_LOCALE_PATH = [
 ] as const;
 
 export const NOT_COMMITTED_DISCLOSURE =
-  "Your order is not placed and your item is not reserved until we receive and verify your Bank Payment. " +
-  "We'll email you an invoice for your Bank Payment Price — nothing is charged now.";
+  "Your Bank Payment Price is guaranteed for 24 hours. Submitting this form does not complete your order or reserve your items. Your order is not committed and availability is not guaranteed until your Bank Payment is received and verified. We’ll email you an invoice with payment instructions, and nothing is charged when you submit this form.";
 
 /**
  * What rides along with the Shopify-sent invoice (criterion 85).
