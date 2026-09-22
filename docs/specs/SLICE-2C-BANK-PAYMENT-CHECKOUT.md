@@ -1066,3 +1066,61 @@ Orders `#1001`-`#1004` on the dev store need manual deletion; removing an order
 requires `write_orders`, which is deliberately not granted. All fixture
 products and draft orders are at zero; database fixtures are archived, and
 their append-only quote lines and calculations remain by design.
+
+---
+
+## 21. 2C-6 storefront live gate, 2026-09-22
+
+Run against `caratforus-dev` through the CLI theme dev server, on the vendored
+theme. Harnesses: `app/tests/live/slice2c6.{fixture,remap,teardown}.ts`.
+
+The vendored theme had **never been on the store** — the live theme is
+`test-data`. Everything in `theme/` up to this point had only ever been
+rendered by `liquidjs` in Node.
+
+### Proven live, end to end
+
+A customer reached a Shopify invoice for the Bank Payment Price without
+touching the admin:
+
+| | Evidence |
+|---|---|
+| PDP renders both Buy Now actions | "Add to cart" and "Add to Cart with Bank Payment Discount" (§20) |
+| Cart prices from OUR engine, not Shopify's | Bank **$1,188.00** against a native catalogue price of $699.95 |
+| Card price derived correctly | **$1,240.00** — 4.0% tier on $1,188, ceilinged to the next $5 |
+| Savings merchandise-only | **$52.00** |
+| Approved copy live | the button note, and the disclosure in the dialog |
+| Proxy round trip | dialog → `/apps/carat/bank-checkout` → draft order → invoice |
+| D19 zero shipping line | invoice shows "Shipping (included in item price) · FREE" |
+| Payment terms | invoice shows "Choose payment method later · **Due on receipt**" |
+| Invoice total | **$1,188.00** — the Bank Payment Price, not the card or native price |
+| Quote persisted | 24-hour window, bank `118800` / card `124000`, eligible |
+| No PII duplicated | the address reached Shopify; no part of it is in our row |
+
+### BLOCKER FOUND — the PDP Bank Payment button does not switch the cart
+
+`window.CaratCartPricing` lives in `theme/assets/cart.js`, which is loaded
+**only** by `main-cart-items.liquid` and `cart-drawer.liquid`. The "Add to Cart
+with Bank Payment Discount" button renders on **every product page**, where
+neither is present. So on a `cart_type: page` store:
+
+> the customer clicks the Bank Payment button, the item is added, and the cart
+> stays in **Card** mode — silently.
+
+`applyCaratPaymentModeIfRequested` degrades deliberately when the module is
+absent, and that fallback is right in itself. What is wrong is that the module
+is absent exactly where the button lives, so the graceful path is the ONLY
+path on a PDP. Verified live: after clicking, `/cart.js` returned
+`attributes: {}`.
+
+This breaks criterion 21 / owner §20 — *"the latter switches the entire cart to
+Bank Payment mode"*.
+
+**It is a Stage 2B surface defect (2B-5/§20), surfaced by 2C's gate**, and the
+fix mirrors one 2C-6 already made for itself: `bank-payment-checkout.js` loads
+from `header.liquid` precisely because its trigger can appear on any page. The
+same reasoning applies to whatever defines `CaratCartPricing`. Not fixed here —
+the owner scoped this phase to Stage 2C.
+
+Unit tests could not catch it: they render Liquid in Node, where no script tag
+is ever evaluated and `window` does not exist.
