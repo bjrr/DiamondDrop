@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildGuaranteeCancellationEmail,
   PINNED,
-  UNAPPROVED_FALLBACK_GREETING_NAME,
+  APPROVED_FALLBACK_GREETING_NAME,
 } from "./guaranteeCancellationEmail";
 
 /**
@@ -83,14 +83,42 @@ describe("the owner-approved cancellation email", () => {
     expect(whole.match(/\d+/g)).toEqual(["24", "24"]);
   });
 
-  it("falls back to a neutral greeting when the first name cannot be read", () => {
+  /**
+   * BOTH GREETINGS ARE APPROVED COPY, so both are pinned as literals. The
+   * owner approved "Hi there," on 2026-09-22 as the fallback for when Shopify
+   * cannot supply a first name; asserting it via the exported constant would
+   * only prove the module agrees with itself, and would let a rename quietly
+   * change what a customer reads.
+   */
+  it("greets 'Hi there,' — the approved fallback — when the first name cannot be read", () => {
     for (const missing of [null, "", "   "]) {
       const { text } = buildGuaranteeCancellationEmail({
         bankPaymentOrderId: "order-7",
         customerFirstName: missing,
       });
-      expect(text.startsWith(`Hi ${UNAPPROVED_FALLBACK_GREETING_NAME},`)).toBe(true);
+      expect(text.startsWith("Hi there,")).toBe(true);
     }
+    expect(APPROVED_FALLBACK_GREETING_NAME).toBe("there");
+  });
+
+  /**
+   * The fallback must differ from the dynamic greeting in the greeting line
+   * ONLY. Everything after it is the same approved body, so a future edit
+   * cannot quietly grow a separate, unapproved variant of the email for
+   * customers whose name we could not read.
+   */
+  it("changes nothing but the greeting line when it falls back", () => {
+    const named = buildGuaranteeCancellationEmail({
+      bankPaymentOrderId: "order-9",
+      customerFirstName: "Ada",
+    });
+    const anonymous = buildGuaranteeCancellationEmail({
+      bankPaymentOrderId: "order-9",
+      customerFirstName: null,
+    });
+
+    expect(anonymous.subject).toBe(named.subject);
+    expect(anonymous.text.split("\n").slice(1)).toEqual(named.text.split("\n").slice(1));
   });
 
   it("trims a name that arrives padded, rather than greeting 'Hi  Ada ,'", () => {

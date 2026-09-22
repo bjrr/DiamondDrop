@@ -828,8 +828,10 @@ deleted draft, an API failure or an order with no first name falls back to
 withdrawn price contingent on an unrelated outage, and storing the name would
 re-duplicate exactly the PII criterion 98 argued down to one field.
 
-`Hi there,` is the single string in this email the owner has not approved, and
-it is flagged in the module rather than buried.
+**`Hi there,` was approved on 2026-09-22** alongside the dynamic form, and is
+pinned as a literal in its own right. The owner also ruled the mechanism: the
+first name is never persisted for personalisation, and a failure to retrieve it
+must neither delay nor reverse a cancellation.
 
 The main gate could only prove the fallback, because its fixtures carry
 synthetic draft-order gids. `slice2cB.firstName.ts` closes that hole against a
