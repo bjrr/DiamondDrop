@@ -730,3 +730,62 @@ archived; their quote lines and price calculations are append-only and remain.
 `draftOrderComplete` had in fact succeeded and only the `order { id }` read was
 denied — the same write-succeeded-read-failed shape as the orphaned draft, one
 level up.
+
+---
+
+## 17. Phase 2C-b — the guarantee sweep
+
+### 17.1 D22 notification behaviour — OWNER APPROVED 2026-09-21
+
+**The cancellation is authoritative even when the email fails.** Protecting us
+from honouring a withdrawn price must not be contingent on our mail server
+being reachable.
+
+**A notification failure is recorded separately and escalated to admin for
+manual contact.** An undelivered cancellation is a real duty left undischarged,
+not a rounding error. "Cancelled" and "told them" are two facts and the data
+must never let them look like one.
+
+**107.** A cancellation persists regardless of the email outcome.
+
+**108.** The delivery outcome is recorded distinctly from the cancellation, and
+a failed send raises an admin alert explicit enough that someone contacts the
+customer by hand.
+
+### 17.2 The human-approval test stays historical — OWNER CONFIRMED
+
+**109.** The check asks whether **any** human-approved publication occurred
+between `quotedAt` and now. It must **not** be reduced to inspecting how the
+latest publication happened.
+
+The reduction is tempting and fails silently in the customer's favour: a human
+approves a 6% rise, gold drifts 0.3% overnight and auto-publishes on top, the
+most recent publication is now automatic, and the order survives a repricing a
+human explicitly approved. A test must cover that exact ordering —
+human approval, then an automatic publication on top — and assert the order
+**is** cancelled.
+
+### 17.3 Cancellation requires BOTH halves
+
+**110.** Cancel only when the published price **differs** from the quoted price
+**and** that difference arrived through a human-approved publication.
+
+Either half alone is wrong. Without the price comparison, a human re-approving
+the same price cancels an order for nothing. Without the human-approval test,
+ordinary overnight metal drift cancels nearly every unpaid bank order, which is
+the outcome D22 exists to prevent.
+
+### 17.4 Shippability gate — OWNER-SET, NOT NEGOTIABLE BY THE IMPLEMENTER
+
+**111. 2C-b is NOT shippable until all three hold:**
+
+1. `EMAIL_API_KEY`, `EMAIL_FROM` and `STAFF_EMAIL_ALLOWLIST` are configured;
+2. a **real cancellation email is proven end to end**, not mocked, not
+   `skipped_unconfigured`;
+3. the owner has approved the cancellation email's customer-facing copy (§12.2
+   condition 4).
+
+Code landing and passing its tests does **not** close 2C-b. The cancellation
+email is locked customer-facing behaviour, and a sweep that silently cancels
+orders without telling anyone is worse than no sweep at all — it would look
+like it was working.
