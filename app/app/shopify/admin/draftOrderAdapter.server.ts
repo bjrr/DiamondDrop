@@ -210,6 +210,13 @@ export interface SendDraftOrderInvoiceInput {
   draftOrderGid: string;
   /** The recipient. Shopify defaults to the draft order's own `email` field when omitted; this app always supplies it explicitly. */
   email: string;
+  /**
+   * Words to place inside the invoice Shopify composes and sends — criterion
+   * 85's §22 disclosure. Optional at this layer because the adapter transports
+   * whatever it is given and decides no copy of its own; the caller owns what
+   * the customer reads.
+   */
+  customMessage?: string;
 }
 
 export interface CompleteDraftOrderInput {
@@ -489,7 +496,15 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
   async sendInvoice(input: SendDraftOrderInvoiceInput): Promise<{ invoiceSentAt: Date }> {
     const variables = {
       id: input.draftOrderGid,
-      email: { to: input.email },
+      email: {
+        to: input.email,
+        // CRITERION 85 RIDES HERE. Shopify composes and sends the invoice
+        // email; `customMessage` is the only place we can put words into it.
+        // The §22 disclosure therefore travels WITH the invoice rather than as
+        // a separate email of our own, which would arrive detached from the
+        // thing it qualifies — exactly when a customer would miss it.
+        ...(input.customMessage ? { customMessage: input.customMessage } : {}),
+      },
     };
 
     const payload = await this.runDraftOrderMutation<{

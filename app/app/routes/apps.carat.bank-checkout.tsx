@@ -11,6 +11,7 @@ import {
   type QuotedLineForResult,
 } from "~/domain/bankpayment/checkoutResponseDto";
 import { computeBankCheckoutIdempotencyKey } from "~/domain/bankpayment/idempotencyKey";
+import { buildInvoiceCustomMessage } from "~/domain/bankpayment/notCommittedDisclosure";
 import { normalizeShopifyVariantGid } from "~/domain/cart/shopifyVariantId";
 import {
   executeIdempotent,
@@ -218,6 +219,7 @@ async function performBankCheckout(input: {
   await input.draftOrderPort.sendInvoice({
     draftOrderGid: created.draftOrderGid,
     email: input.resolvedEmail,
+    customMessage: buildInvoiceCustomMessage(),
   });
 
   const quotedAt = new Date();

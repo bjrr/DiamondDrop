@@ -482,6 +482,50 @@ describe("ShopifyDraftOrderAdapter.sendInvoice", () => {
   });
 });
 
+describe("sendInvoice carries the §22 disclosure (criterion 85)", () => {
+  /**
+   * Shopify composes and sends the invoice, so `customMessage` is the only
+   * way words of ours reach it. Asserted on the SERIALISED variables, because
+   * an intermediate object proves nothing about what left the process.
+   */
+  it("sends a custom message inside EmailInput when one is supplied", async () => {
+    const { client, calls } = fakeClient({
+      data: {
+        draftOrderInvoiceSend: {
+          draftOrder: { id: "gid://shopify/DraftOrder/1", invoiceSentAt: "2026-09-22T00:00:00Z" },
+          userErrors: [],
+        },
+      },
+    });
+    const adapter = new ShopifyDraftOrderAdapter(client);
+
+    await adapter.sendInvoice({
+      draftOrderGid: "gid://shopify/DraftOrder/1",
+      email: "ada@example.com",
+      customMessage: "Nothing is charged now.",
+    });
+
+    const variables = calls[0]?.variables as { email: { to: string; customMessage?: string } };
+    expect(variables.email).toEqual({ to: "ada@example.com", customMessage: "Nothing is charged now." });
+  });
+
+  it("omits customMessage entirely when none is supplied, rather than sending an empty one", async () => {
+    const { client, calls } = fakeClient({
+      data: {
+        draftOrderInvoiceSend: {
+          draftOrder: { id: "gid://shopify/DraftOrder/1", invoiceSentAt: "2026-09-22T00:00:00Z" },
+          userErrors: [],
+        },
+      },
+    });
+    const adapter = new ShopifyDraftOrderAdapter(client);
+
+    await adapter.sendInvoice({ draftOrderGid: "gid://shopify/DraftOrder/1", email: "ada@example.com" });
+
+    expect(JSON.stringify(calls[0]?.variables)).not.toContain("customMessage");
+  });
+});
+
 describe("ShopifyDraftOrderAdapter.completeDraftOrder", () => {
   /**
    * COMPLETES WITHOUT ASSERTING PAYMENT. `paymentPending` does not exist on
