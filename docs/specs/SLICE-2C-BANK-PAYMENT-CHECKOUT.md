@@ -782,10 +782,73 @@ the outcome D22 exists to prevent.
 1. `EMAIL_API_KEY`, `EMAIL_FROM` and `STAFF_EMAIL_ALLOWLIST` are configured;
 2. a **real cancellation email is proven end to end**, not mocked, not
    `skipped_unconfigured`;
-3. the owner has approved the cancellation email's customer-facing copy (§12.2
-   condition 4).
+3. ~~the owner has approved the cancellation email's customer-facing copy~~ —
+   **SATISFIED 2026-09-22.** The approved text is pinned character-for-character
+   in `app/app/domain/bankpayment/guaranteeCancellationEmail.ts` and asserted by
+   its test.
 
 Code landing and passing its tests does **not** close 2C-b. The cancellation
 email is locked customer-facing behaviour, and a sweep that silently cancels
 orders without telling anyone is worse than no sweep at all — it would look
 like it was working.
+
+---
+
+## 18. Phase 2C-b — closed 2026-09-22
+
+Closed on live evidence against `caratforus-dev` and a real Resend send, not on
+a green suite. Harnesses: `app/tests/live/slice2cB.cancellationEmail.ts` (13
+checks) and `app/tests/live/slice2cB.firstName.ts` (5 checks).
+
+### Criterion 111, item by item
+
+| Gate | Evidence |
+|---|---|
+| Email channel configured | Resend, `CaratForUs <orders@caratforus.com>`, staff `orders@caratforus.com` |
+| A real cancellation email proven end to end | Resend accepted it; provider message id `01a0c78c-5594-73be-9731-3aa73b01e75b` persisted to `cancellation_email_provider_message_id` |
+| Owner approval of the copy | Approved 2026-09-22; pinned character-for-character, curly apostrophes and the US spelling "canceled" included |
+
+### The owner's seven verification items
+
+1. **Cancellation happens** — one order cancelled, reason naming the variant and both prices.
+2. **Resend accepts the email** — status persisted as `sent`.
+3. **Provider message id recorded** — persisted, and byte-identical after a re-run.
+4. **The customer receives the approved copy** — the exact body printed by the harness; the greeting is proven separately, below.
+5. **A failed delivery does not reverse the cancellation** — a recipient **Resend itself rejected**: order still `cancelled`, status `failed`, and no message id falsely claimed.
+6. **Failure creates a persistent record** — queryable as `status = cancelled AND cancellation_email_status <> 'sent'`, not a log line.
+7. **Retry does not duplicate** — the re-run considered **zero** open orders; nothing re-cancelled, nothing re-sent.
+
+### The first name cost a design decision
+
+The approved copy greets the customer by name, and criterion 97 deliberately
+does **not** store one — the shipping address stays at Shopify. So the name is
+read from the draft order at send time (criterion 99), **best-effort**: a
+deleted draft, an API failure or an order with no first name falls back to
+`Hi there,`. Holding a cancellation until Shopify answers would make a
+withdrawn price contingent on an unrelated outage, and storing the name would
+re-duplicate exactly the PII criterion 98 argued down to one field.
+
+`Hi there,` is the single string in this email the owner has not approved, and
+it is flagged in the module rather than buried.
+
+The main gate could only prove the fallback, because its fixtures carry
+synthetic draft-order gids. `slice2cB.firstName.ts` closes that hole against a
+**real** draft order created through the real checkout route, and reads back
+`Hi Ada,`.
+
+### Two test defects the real configuration exposed
+
+Configuring Resend turned four integration tests red — tests asserting the
+honest `skipped_unconfigured` path that were passing only because the
+developer's machine happened to have no email credentials. They were **sending
+real email** during the suite.
+
+The fix assigns empty strings in `tests/integration/setupEnv.ts` rather than
+deleting the variables: a delete is undone the next time anything pulls in
+`dotenv`, which is why the first attempt left the suite still sending. `dotenv`
+never overwrites an existing key, so an empty string survives, and
+`resolveEmailPort` treats empty exactly as missing.
+
+This is the second time an operational setting has broken tests asserting a
+default — `PRICE_AUTO_PUBLISH_ENABLED` was the first. Both now live in the
+harness.

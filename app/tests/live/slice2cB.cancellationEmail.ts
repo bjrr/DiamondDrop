@@ -183,7 +183,7 @@ async function main() {
   console.log("  subject:", PINNED.subject);
   console.log(
     "  body   :\n" +
-      PINNED.body(goodOrder.id)
+      PINNED.body("<customer first name from Shopify>", goodOrder.id)
         .split("\n")
         .map((l) => `    ${l}`)
         .join("\n")

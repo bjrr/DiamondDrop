@@ -1,36 +1,38 @@
 /**
- * The customer-facing cancellation email content (criterion 80, §13/D22).
- * PURE — no I/O, no clock; every fact printed was already resolved by the
- * caller (`~/jobs/bankpayment/guaranteeSweep.server.ts`).
+ * The Bank Payment cancellation email (criterion 80 / D22, §17.1).
  *
- * ==========================================================================
- * THIS WORDING IS NOT OWNER-APPROVED. READ BEFORE SHIPPING.
- * ==========================================================================
- * `docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md`'s status table lists
- * "Customer-facing copy — Not approved" as a blocker for phase 2C-c (the
- * checkout/email disclosures). This is a DIFFERENT email — the guarantee
- * -expiry cancellation notice, owned by 2C-b/criterion 80 — but it is just
- * as materially customer-facing, and nobody has signed off on its exact
- * wording the way `app/theme/ownerApprovedCopy.test.ts` pins the cart
- * strings.
+ * OWNER-APPROVED COPY, 2026-09-22. Every character below is the owner's,
+ * including the curly apostrophes and the US spelling "canceled" — do not
+ * "correct" either. Criterion 111.3's blocker is satisfied by this text and
+ * nothing else: an edit here is new unapproved copy, however small, so it
+ * needs owner sign-off before it ships. `guaranteeCancellationEmail.test.ts`
+ * pins it character-for-character so a well-meaning tidy-up fails loudly.
  *
- * This copy is deliberately minimal and factual — no marketing language, no
- * dollar figures (a specific new price is exactly the kind of "material
- * pricing communication" `CLAUDE.md` says must not be invented), and no
- * forbidden terminology (`cash`, `card fee`, `surcharge` — see
- * `ownerApprovedCopy.test.ts`'s own prohibition sweep). It states only that
- * the quoted price is no longer available, the order was cancelled with
- * nothing charged, and how to reach support or reorder.
+ * TWO SUBSTITUTIONS, AND ONE OF THEM COSTS A ROUND TRIP. The order reference
+ * we hold. The customer's first name we deliberately DO NOT: criterion 97
+ * keeps the shipping address — first name included — at Shopify rather than
+ * duplicating it into a table we would then have to secure, retain and
+ * redact. So the name is read from the draft order at send time (criterion
+ * 99's "reads it from Shopify at the time"), best-effort.
  *
- * ARCHITECT / OWNER REVIEW REQUIRED before this ships to a real customer.
- * If the wording changes, update `PINNED` below in the same commit — same
- * discipline as `ownerApprovedCopy.test.ts`.
+ * WHEN THE NAME CANNOT BE READ, the greeting falls back to "Hi there,". That
+ * single string is the one piece of this email the owner has not approved,
+ * and it exists because the alternative is worse in both directions: holding
+ * the cancellation until Shopify answers would make a withdrawn price
+ * contingent on an unrelated outage, and storing the first name to avoid the
+ * lookup would re-duplicate exactly the PII criterion 98 argued down to a
+ * single field. Flagged rather than assumed.
  */
 
 export interface GuaranteeCancellationEmailInput {
-  /** `bank_payment_order.id` — the only reference a customer received at quote time (`BankCheckoutResultDto.bankPaymentOrderId`). */
+  /** Printed as the order reference the customer can quote back to us. */
   bankPaymentOrderId: string;
-  customerEmail: string;
+  /**
+   * Read from the Shopify draft order at send time, or `null` when it could
+   * not be read — a deleted draft, an API failure, or an order placed with no
+   * first name at all. Never sourced from our own tables, which do not hold it.
+   */
+  customerFirstName: string | null;
 }
 
 export interface GuaranteeCancellationEmailContent {
@@ -38,29 +40,39 @@ export interface GuaranteeCancellationEmailContent {
   text: string;
 }
 
-/** Not owner-approved — see the module doc comment. Kept as a single named constant so a future approval is a one-line diff against a visible string, not a rewrite spread across this file. */
+/** Used only when the first name cannot be read. See the module comment. */
+export const UNAPPROVED_FALLBACK_GREETING_NAME = "there";
+
 export const PINNED = {
-  subject: "Your CaratForUs Bank Payment order has been cancelled",
-  body: (orderReference: string): string =>
+  subject: "An update on your CaratForUs Bank Payment order",
+  body: (greetingName: string, orderReference: string): string =>
     [
-      `Order reference: ${orderReference}`,
+      `Hi ${greetingName},`,
       "",
-      "The Bank Payment price quoted for this order was guaranteed for 24 hours. " +
-        "That guarantee has now expired, the price has since changed, and no payment " +
-        "was received in time, so this order has been cancelled.",
+      `We’re writing to let you know that your CaratForUs Bank Payment order ${orderReference} has been canceled.`,
       "",
-      "Nothing was charged to you.",
+      "When you placed your order, your Bank Payment Price was guaranteed for 24 hours. Because payment was not received and verified within that guarantee period, and the price of your order changed after the 24-hour window expired, we’re no longer able to honor the original quoted price.",
       "",
-      "You're welcome to place a new order at the current price, or reply to this " +
-        "email if you have any questions.",
+      "Rather than automatically changing your order to a different price, we canceled it so you can review the current price and decide whether you’d like to place a new order.",
+      "",
+      "No payment has been processed by CaratForUs for this order.",
+      "",
+      "If you already sent a bank payment, please reply to this email and we’ll review it for you.",
+      "",
+      "You’re welcome to place a new order at the current price at any time. If you have any questions, simply reply to this email and we’ll be happy to help.",
+      "",
+      "Thank you,",
+      "CaratForUs Customer Care",
+      "orders@caratforus.com",
     ].join("\n"),
 } as const;
 
 export function buildGuaranteeCancellationEmail(
   input: GuaranteeCancellationEmailInput
 ): GuaranteeCancellationEmailContent {
+  const trimmed = input.customerFirstName?.trim();
   return {
     subject: PINNED.subject,
-    text: PINNED.body(input.bankPaymentOrderId),
+    text: PINNED.body(trimmed && trimmed.length > 0 ? trimmed : UNAPPROVED_FALLBACK_GREETING_NAME, input.bankPaymentOrderId),
   };
 }

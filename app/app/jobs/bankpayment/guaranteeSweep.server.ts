@@ -9,6 +9,7 @@ import {
 } from "~/domain/bankpayment/guaranteeDecision";
 import { buildGuaranteeCancellationEmail } from "~/domain/bankpayment/guaranteeCancellationEmail";
 import { resolveEmailPort as resolveRealEmailPort, type EmailPortResolution } from "~/lib/email/configuredPort.server";
+import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
 
 import { gatherVariantPriceFacts } from "./guaranteeFacts.server";
@@ -72,6 +73,24 @@ export interface GuaranteeSweepDeps {
    */
   gatherVariantPriceFacts?: typeof gatherVariantPriceFacts;
   /**
+   * Defaults to reading the customer's first name off the Shopify draft
+   * order. Injectable so tests need no Shopify client at all.
+   *
+   * THIS IS A NETWORK CALL FOR A GREETING, and it is deliberate. Criterion 97
+   * keeps the shipping address — first name included — at Shopify instead of
+   * duplicating it into a table we would then have to secure, retain and
+   * redact; criterion 99 says whatever needs it reads it from Shopify at the
+   * time. The owner-approved copy addresses the customer by name, so that
+   * read happens here.
+   *
+   * It is BEST-EFFORT by design: a null return (deleted draft, API failure,
+   * an order placed without a first name) falls back to a neutral greeting.
+   * Holding a cancellation until Shopify answers would make a withdrawn
+   * price contingent on an unrelated outage, which inverts the owner's
+   * ruling that the cancellation is authoritative.
+   */
+  resolveCustomerFirstName?: (draftOrderGid: string) => Promise<string | null>;
+  /**
    * Defaults to the real `recordCancellationEmailOutcome`. Injectable for
    * the SAME reason `gatherVariantPriceFacts` above is: a test proving the
    * cancellation stands even when PERSISTING the delivery outcome throws
@@ -88,6 +107,11 @@ interface OpenOrderForSweep {
   id: string;
   status: string;
   customerEmail: string;
+  /**
+   * Carried only so the customer's first name can be read off Shopify at send
+   * time (criteria 97/99). It is a lookup key, not stored customer data.
+   */
+  shopifyDraftOrderGid: string;
   quotedAt: Date;
   guaranteeExpiresAt: Date;
   verifiedAt: Date | null;
@@ -100,6 +124,7 @@ export async function runGuaranteeSweep(deps: GuaranteeSweepDeps = {}): Promise<
   const now = deps.now ?? new Date();
   const resolvePort = deps.resolveEmailPort ?? resolveRealEmailPort;
   const gatherFacts = deps.gatherVariantPriceFacts ?? gatherVariantPriceFacts;
+  const resolveFirstName = deps.resolveCustomerFirstName ?? resolveCustomerFirstNameFromShopify;
   const recordCancellationEmail = deps.recordCancellationEmailOutcome ?? recordCancellationEmailOutcome;
 
   const openOrders: OpenOrderForSweep[] = await prisma.bankPaymentOrder.findMany({
@@ -108,6 +133,9 @@ export async function runGuaranteeSweep(deps: GuaranteeSweepDeps = {}): Promise<
       id: true,
       status: true,
       customerEmail: true,
+      // Needed only to look the customer's first name up on Shopify at send
+      // time — criterion 99. Never stored by us.
+      shopifyDraftOrderGid: true,
       quotedAt: true,
       guaranteeExpiresAt: true,
       verifiedAt: true,
@@ -122,7 +150,14 @@ export async function runGuaranteeSweep(deps: GuaranteeSweepDeps = {}): Promise<
 
   for (const order of openOrders) {
     try {
-      const outcome = await processOneOrder(order, now, resolvePort, gatherFacts, recordCancellationEmail);
+      const outcome = await processOneOrder(
+        order,
+        now,
+        resolvePort,
+        gatherFacts,
+        recordCancellationEmail,
+        resolveFirstName
+      );
       if (outcome === "kept") kept += 1;
       else if (outcome === "cancelled") cancelled += 1;
       else flagged += 1;
@@ -172,7 +207,8 @@ async function processOneOrder(
   now: Date,
   resolvePort: () => EmailPortResolution,
   gatherFacts: typeof gatherVariantPriceFacts,
-  recordCancellationEmail: typeof recordCancellationEmailOutcome
+  recordCancellationEmail: typeof recordCancellationEmailOutcome,
+  resolveFirstName: (draftOrderGid: string) => Promise<string | null>
 ): Promise<OrderOutcome> {
   const uniqueVariantIds = [...new Set(order.lines.map((line) => line.masterVariantId))];
   const factsByVariant = new Map<string, VariantPriceFacts>();
@@ -268,9 +304,10 @@ async function processOneOrder(
     reason: decision.reason,
   });
 
+  const customerFirstName = await resolveFirstName(order.shopifyDraftOrderGid);
   const email = buildGuaranteeCancellationEmail({
     bankPaymentOrderId: order.id,
-    customerEmail: order.customerEmail,
+    customerFirstName,
   });
   const delivery = await sendCustomerEmail(resolvePort, order.customerEmail, email);
 
@@ -500,6 +537,43 @@ interface CustomerEmailDeliveryResult {
    * `bank_payment_order_cancellation_email_message_id_only_when_sent`.
    */
   providerMessageId: string | null;
+}
+
+/**
+ * Reads the first name off the Shopify draft order, returning null on ANY
+ * problem rather than throwing.
+ *
+ * Swallowing every error is the correct behaviour here and nowhere else in
+ * this file: the value is a greeting. A deleted draft, an expired session, a
+ * Shopify outage — none of them are reasons to leave a customer holding a
+ * withdrawn price, and none of them should turn into an uncaught rejection
+ * inside a sweep whose whole contract is that one order's trouble cannot
+ * touch another's. The fallback greeting is the designed outcome, not a
+ * degradation to be reported.
+ */
+async function resolveCustomerFirstNameFromShopify(draftOrderGid: string): Promise<string | null> {
+  try {
+    const { unauthenticated } = await import("~/shopify.server");
+    const shop = getEnv().SHOPIFY_SHOP_DOMAIN;
+    if (!shop) return null;
+    const { admin } = await unauthenticated.admin(shop);
+    const response = await admin.graphql(
+      `#graphql
+       query CaratDraftOrderCustomerName($id: ID!) {
+         draftOrder(id: $id) { shippingAddress { firstName } }
+       }`,
+      { variables: { id: draftOrderGid } }
+    );
+    const body = (await response.json()) as {
+      data?: { draftOrder?: { shippingAddress?: { firstName?: string | null } | null } | null };
+    };
+    return body.data?.draftOrder?.shippingAddress?.firstName ?? null;
+  } catch (error) {
+    logger.warn("bank_payment.cancellation_first_name_unavailable", {
+      error: error instanceof Error ? error.name : "UnknownError",
+    });
+    return null;
+  }
 }
 
 async function sendCustomerEmail(
