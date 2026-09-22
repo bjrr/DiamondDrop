@@ -145,3 +145,69 @@ export function buildAlertViewModel(input: AlertEpisodeInput): AlertViewModel {
     status,
   };
 }
+
+export interface BankPaymentGuaranteeAlertInput {
+  /**
+   * The failure episode's own id (`price_calculation_failure.id` /
+   * `price_sync_failure.id`) — NEVER `bank_payment_order.id`. Keying on the
+   * order would let `admin_alert_notification`'s unique `(sourceKind,
+   * sourceId, event)` index permit only one `opened`/`resolved` pair for the
+   * whole life of that order, silently swallowing a second flag after a
+   * resolve. See the `AdminAlertSourceKind` enum's own doc comment.
+   */
+  sourceId: string;
+  masterVariantId: string;
+  product: string;
+  variant: string;
+  /**
+   * The guarantee decision's own reason string — already customer/cost-safe
+   * (see `guaranteeDecision.ts`) — and, for an `opened` event, already
+   * naming every bank payment order this episode currently blocks (one
+   * episode can block several orders at once).
+   */
+  reason: string;
+  /** The failure episode's own `firstFailedAt`, when a real episode row backs this alert; an approximation otherwise (see `guaranteeFacts.server.ts`). */
+  flaggedSince: Date;
+  now: Date;
+  /** True when this episode has stopped being unresolvable (the `resolved` transition); false for `opened`. */
+  resolved: boolean;
+}
+
+/**
+ * The `bank_payment_guarantee` sibling of `buildAlertViewModel`, deliberately
+ * NOT built by routing through it. That function's suspension-threshold
+ * arithmetic (`SUSPENSION_THRESHOLD_MS`, `timeRemainingBeforeSuspensionMs`)
+ * answers "how long until this variant is automatically withdrawn" — a real
+ * question for a calculation/sync failure episode, and not one that applies
+ * here: a flagged bank order has no automatic 48-hour transition of its own,
+ * it simply stays open and flagged until a human or a later sweep resolves
+ * it. Forcing this input through `AlertEpisodeInput`'s failure-episode
+ * -shaped fields (`suspendedAt`, `attemptCount`, ...) to get a meaningless
+ * number would be worse than a small, honest, parallel builder.
+ *
+ * `timeRemainingBeforeSuspensionMs` is set to 0 unconditionally and is NOT
+ * rendered for this `sourceKind` — see `emailContent.ts`'s dedicated
+ * `bank_payment_guarantee` branch.
+ */
+export function buildBankPaymentGuaranteeAlertViewModel(input: BankPaymentGuaranteeAlertInput): AlertViewModel {
+  const ageMs = Math.max(0, input.now.getTime() - input.flaggedSince.getTime());
+
+  return {
+    sourceKind: "bank_payment_guarantee",
+    sourceId: input.sourceId,
+    masterVariantId: input.masterVariantId,
+    product: input.product,
+    variant: input.variant,
+    failureType: "guarantee_price_unresolvable",
+    reason: input.reason,
+    firstFailedAt: input.flaggedSince,
+    ageMs,
+    timeRemainingBeforeSuspensionMs: 0,
+    latestRetry: {
+      attemptedAt: input.now,
+      attemptCount: 1,
+      outcome: input.resolved ? "succeeded" : "failed",
+    },
+    status: input.resolved ? "resolved" : "open",
+  };
+}

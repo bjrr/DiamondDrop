@@ -25,6 +25,7 @@ export interface AlertEmailContent {
 const KIND_LABEL: Record<AlertViewModel["sourceKind"], string> = {
   calculation_failure: "Pricing calculation failure",
   sync_failure: "Shopify price sync failure",
+  bank_payment_guarantee: "Bank Payment guarantee — unresolvable price",
 };
 
 const EVENT_LABEL: Record<AlertEvent, string> = {
@@ -65,6 +66,34 @@ export function renderAlertEmail(viewModel: AlertViewModel, event: AlertEvent): 
   const eventLabel = EVENT_LABEL[event];
 
   const subject = `[CaratForUs admin] ${eventLabel} — ${kindLabel}: ${viewModel.product} (${viewModel.variant})`;
+
+  // `bank_payment_guarantee` gets its OWN body, not the shared one below.
+  // `viewModel.timeRemainingBeforeSuspensionMs` is always 0 for this kind
+  // and printing "time remaining before 48h cutoff" would assert an
+  // automatic transition that does not exist for a flagged bank order (see
+  // `buildBankPaymentGuaranteeAlertViewModel`'s own doc comment).
+  //
+  // `viewModel.sourceId` is the UNDERLYING FAILURE EPISODE's id here, never
+  // a bank order's (see the `AdminAlertSourceKind` enum's own doc comment
+  // for why) — printed as "Unresolvable pricing episode", not "Bank payment
+  // order", so a reader is never told a `price_calculation_failure`/
+  // `price_sync_failure` row's id is an order to open. The bank orders this
+  // episode is actually blocking are named inside `Reason`, which the
+  // caller (`guaranteeSweep.server.ts`) already built to list every one.
+  if (viewModel.sourceKind === "bank_payment_guarantee") {
+    const lines = [
+      `${kindLabel} — ${eventLabel}`,
+      "",
+      `Unresolvable pricing episode: ${viewModel.sourceId}`,
+      `Product: ${viewModel.product}`,
+      `Variant: ${viewModel.variant}`,
+      `Reason: ${viewModel.reason}`,
+      `Flagged since: ${viewModel.firstFailedAt.toISOString()}`,
+      `Age: ${formatDuration(viewModel.ageMs)}`,
+      `Status: ${viewModel.status}`,
+    ];
+    return { subject, text: lines.join("\n") };
+  }
 
   const lines = [
     `${kindLabel} — ${eventLabel}`,

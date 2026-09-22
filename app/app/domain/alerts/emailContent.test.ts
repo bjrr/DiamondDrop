@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { renderAlertEmail } from "./emailContent";
-import { buildAlertViewModel, SUSPENSION_THRESHOLD_MS, type AlertEpisodeInput } from "./viewModel";
+import {
+  buildAlertViewModel,
+  buildBankPaymentGuaranteeAlertViewModel,
+  SUSPENSION_THRESHOLD_MS,
+  type AlertEpisodeInput,
+} from "./viewModel";
 
 const HOUR_MS = 60 * 60 * 1000;
 const FIRST_FAILED_AT = new Date("2026-09-19T00:00:00.000Z");
@@ -96,5 +101,84 @@ describe("renderAlertEmail — body content", () => {
     const email = renderAlertEmail(vm, "resolved");
     expect(email.text).toContain("Time remaining before 48h cutoff: n/a — resolved");
     expect(email.text).toContain("succeeded");
+  });
+});
+
+/**
+ * The `bank_payment_guarantee` branch has its OWN body (spec §13/§14
+ * criterion 102; D22 review). Pinned separately from the shared body above
+ * because it fixes a real regression: `sourceId` for this kind is a failure
+ * EPISODE id, never a `bank_payment_order.id` (see the `AdminAlertSourceKind`
+ * enum's own doc comment) — an earlier version of this branch printed
+ * "Bank payment order: <episode id>", which is simply false. These tests
+ * pin the corrected label and guard the shared body's kind-generic line
+ * never creeping back in here.
+ */
+describe("renderAlertEmail — bank_payment_guarantee gets its own body", () => {
+  const FLAGGED_SINCE = new Date("2026-09-20T00:00:00.000Z");
+
+  it("labels sourceId as the unresolvable pricing EPISODE, never a bank payment order", () => {
+    const vm = buildBankPaymentGuaranteeAlertViewModel({
+      sourceId: "episode-77",
+      masterVariantId: "variant-77",
+      product: "Solitaire Ring",
+      variant: "14k Gold, US 6.5",
+      reason: "at least one line's price changed via a human-approved publication (D22). Blocking 2 open bank payment order(s): order-a, order-b.",
+      flaggedSince: FLAGGED_SINCE,
+      now: FLAGGED_SINCE,
+      resolved: false,
+    });
+    const email = renderAlertEmail(vm, "opened");
+
+    expect(email.text).toContain("Unresolvable pricing episode: episode-77");
+    expect(email.text).not.toContain("Bank payment order:");
+    // The affected orders travel inside Reason, not a separate field.
+    expect(email.text).toContain("Reason: at least one line's price changed via a human-approved publication (D22). Blocking 2 open bank payment order(s): order-a, order-b.");
+  });
+
+  it("never prints a 48h-cutoff countdown — no automatic suspension applies to this kind", () => {
+    const vm = buildBankPaymentGuaranteeAlertViewModel({
+      sourceId: "episode-77",
+      masterVariantId: "variant-77",
+      product: "Solitaire Ring",
+      variant: "14k Gold, US 6.5",
+      reason: "unresolvable",
+      flaggedSince: FLAGGED_SINCE,
+      now: new Date(FLAGGED_SINCE.getTime() + HOUR_MS),
+      resolved: false,
+    });
+    const email = renderAlertEmail(vm, "opened");
+    expect(email.text).not.toContain("Time remaining before 48h cutoff");
+  });
+
+  it("distinguishes 'opened' from 'resolved' in the subject and status line", () => {
+    const opened = buildBankPaymentGuaranteeAlertViewModel({
+      sourceId: "episode-77",
+      masterVariantId: "variant-77",
+      product: "Solitaire Ring",
+      variant: "14k Gold, US 6.5",
+      reason: "unresolvable",
+      flaggedSince: FLAGGED_SINCE,
+      now: FLAGGED_SINCE,
+      resolved: false,
+    });
+    const resolved = buildBankPaymentGuaranteeAlertViewModel({
+      sourceId: "episode-77",
+      masterVariantId: "variant-77",
+      product: "Solitaire Ring",
+      variant: "14k Gold, US 6.5",
+      reason: "the variant's published price is resolvable again",
+      flaggedSince: FLAGGED_SINCE,
+      now: new Date(FLAGGED_SINCE.getTime() + HOUR_MS),
+      resolved: true,
+    });
+
+    const openedEmail = renderAlertEmail(opened, "opened");
+    const resolvedEmail = renderAlertEmail(resolved, "resolved");
+
+    expect(openedEmail.subject).toContain("New");
+    expect(openedEmail.text).toContain("Status: open");
+    expect(resolvedEmail.subject).toContain("Resolved");
+    expect(resolvedEmail.text).toContain("Status: resolved");
   });
 });

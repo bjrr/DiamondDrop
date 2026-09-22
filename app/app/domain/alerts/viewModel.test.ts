@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { SUSPENSION_THRESHOLD_MS, buildAlertViewModel, type AlertEpisodeInput } from "./viewModel";
+import {
+  SUSPENSION_THRESHOLD_MS,
+  buildAlertViewModel,
+  buildBankPaymentGuaranteeAlertViewModel,
+  type AlertEpisodeInput,
+  type BankPaymentGuaranteeAlertInput,
+} from "./viewModel";
 
 const HOUR_MS = 60 * 60 * 1000;
 const FIRST_FAILED_AT = new Date("2026-09-19T00:00:00.000Z");
@@ -131,6 +137,64 @@ describe("buildAlertViewModel — source-kind distinctness", () => {
     const vm = buildAlertViewModel(baseInput({ detail: { sourceKind: "sync_failure" } }));
     expect(vm.sourceKind).toBe("sync_failure");
     expect(vm.failureType).toBe("sync_rejected");
+  });
+});
+
+describe("buildBankPaymentGuaranteeAlertViewModel — the dedicated sibling, not buildAlertViewModel", () => {
+  const EPISODE_FIRST_FAILED_AT = new Date("2026-09-20T00:00:00.000Z");
+
+  function baseGuaranteeInput(
+    overrides: Partial<BankPaymentGuaranteeAlertInput> = {}
+  ): BankPaymentGuaranteeAlertInput {
+    return {
+      sourceId: "episode-99", // a failure episode id, never a bank_payment_order id
+      masterVariantId: "variant-99",
+      product: "Solitaire Ring",
+      variant: "14k Gold, US 6.5",
+      reason: "at least one line's price changed via a human-approved publication (D22)",
+      flaggedSince: EPISODE_FIRST_FAILED_AT,
+      now: EPISODE_FIRST_FAILED_AT,
+      resolved: false,
+      ...overrides,
+    };
+  }
+
+  it("carries sourceKind, sourceId (the EPISODE id) and every passthrough field", () => {
+    const vm = buildBankPaymentGuaranteeAlertViewModel(baseGuaranteeInput());
+    expect(vm.sourceKind).toBe("bank_payment_guarantee");
+    expect(vm.sourceId).toBe("episode-99");
+    expect(vm.masterVariantId).toBe("variant-99");
+    expect(vm.product).toBe("Solitaire Ring");
+    expect(vm.variant).toBe("14k Gold, US 6.5");
+    expect(vm.reason).toBe("at least one line's price changed via a human-approved publication (D22)");
+    expect(vm.firstFailedAt).toEqual(EPISODE_FIRST_FAILED_AT);
+    expect(vm.failureType).toBe("guarantee_price_unresolvable");
+  });
+
+  it("status is 'open' when not resolved, 'resolved' when it is — never 'suspended'", () => {
+    expect(buildBankPaymentGuaranteeAlertViewModel(baseGuaranteeInput({ resolved: false })).status).toBe("open");
+    expect(buildBankPaymentGuaranteeAlertViewModel(baseGuaranteeInput({ resolved: true })).status).toBe("resolved");
+  });
+
+  it("timeRemainingBeforeSuspensionMs is ALWAYS zero — no automatic 48h transition applies to this kind", () => {
+    const vm = buildBankPaymentGuaranteeAlertViewModel(
+      baseGuaranteeInput({ now: new Date(EPISODE_FIRST_FAILED_AT.getTime() + HOUR_MS) })
+    );
+    expect(vm.timeRemainingBeforeSuspensionMs).toBe(0);
+  });
+
+  it("ageMs is elapsed time since flaggedSince, floored at zero", () => {
+    const vm = buildBankPaymentGuaranteeAlertViewModel(
+      baseGuaranteeInput({ now: new Date(EPISODE_FIRST_FAILED_AT.getTime() + 3 * HOUR_MS) })
+    );
+    expect(vm.ageMs).toBe(3 * HOUR_MS);
+  });
+
+  it("latestRetry reports 'succeeded' once resolved, 'failed' while open", () => {
+    const open = buildBankPaymentGuaranteeAlertViewModel(baseGuaranteeInput({ resolved: false }));
+    expect(open.latestRetry.outcome).toBe("failed");
+    const resolved = buildBankPaymentGuaranteeAlertViewModel(baseGuaranteeInput({ resolved: true }));
+    expect(resolved.latestRetry.outcome).toBe("succeeded");
   });
 });
 

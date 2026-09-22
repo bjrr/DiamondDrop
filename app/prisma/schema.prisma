@@ -1248,13 +1248,42 @@ enum PriceCalculationFailureType {
 // =============================================================================
 
 /// Distinguishes which failure table this notification is ABOUT. Not a
-/// foreign key to either `price_calculation_failure` or
-/// `price_sync_failure` directly -- `sourceId` cannot carry a single FK to
-/// two different tables, so this column plus `sourceId` together are the
-/// polymorphic reference, resolved by the reading side.
+/// foreign key to either `price_calculation_failure`, `price_sync_failure`
+/// or `bank_payment_order` directly -- `sourceId` cannot carry a single FK
+/// to three different tables, so this column plus `sourceId` together are
+/// the polymorphic reference, resolved by the reading side.
+///
+/// `bank_payment_guarantee` added Slice 2C-b (spec §13/§14, criterion 102;
+/// `docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md`) -- a variant the 24-hour
+/// guarantee sweep cannot price because its published Bank Payment Price is
+/// currently unresolvable (D21). `sourceId` here is the FAILURE EPISODE's
+/// own id -- `price_calculation_failure.id` or `price_sync_failure.id`,
+/// whichever made the variant unresolvable -- the SAME semantics the other
+/// two members already use, deliberately NOT `bank_payment_order.id`.
+///
+/// A bank order is disposable (open, then cancelled or completed); the
+/// episode is the thing with real opened/resolved history. Keying on the
+/// order instead would let one flag-then-resolve cycle permanently block a
+/// LATER, unrelated episode from ever alerting again for that same order --
+/// the unique index below allows exactly one `opened` and one `resolved`
+/// per id, for the life of that id. Keying on the episode also means a
+/// single unresolvable variant can correctly block SEVERAL bank orders at
+/// once: `app/jobs/bankpayment/guaranteeSweep.server.ts` aggregates every
+/// affected order per episode and raises ONE alert naming all of them,
+/// rather than one alert per order repeating the same underlying cause.
+///
+/// Added in migration 20260922032504_admin_alert_source_kind_bank_payment_
+/// guarantee. `ALTER TYPE ... ADD VALUE` cannot be compared against in the
+/// same transaction it is added in (Postgres restriction; this repository's
+/// own precedent is 20260917070507 and 20260919084408, both split for that
+/// reason) -- but THIS addition needs no follow-up migration at all, since
+/// nothing else in this schema change references the new value at the SQL
+/// level; it is written only by application-level `INSERT`s, in a later,
+/// separate transaction. See that migration's own header comment.
 enum AdminAlertSourceKind {
   calculation_failure
   sync_failure
+  bank_payment_guarantee
 
   @@map("admin_alert_source_kind")
 }
@@ -1287,9 +1316,11 @@ enum AdminAlertEmailDeliveryStatus {
 model AdminAlertNotification {
   id     String               @id @default(uuid()) @db.Uuid
   sourceKind AdminAlertSourceKind @map("source_kind")
-  /// The failure episode's own id (`price_calculation_failure.id` or
-  /// `price_sync_failure.id`, per `sourceKind`). Not a DB foreign key --
-  /// see the enum doc comment above.
+  /// The failure episode's own id -- `price_calculation_failure.id` or
+  /// `price_sync_failure.id`, per `sourceKind` -- for EVERY member,
+  /// including `bank_payment_guarantee` (see that member's own doc comment
+  /// for why it is the episode, never `bank_payment_order.id`). Not a DB
+  /// foreign key -- see the enum doc comment above.
   sourceId String @map("source_id") @db.Uuid
   event    AdminAlertEvent
 

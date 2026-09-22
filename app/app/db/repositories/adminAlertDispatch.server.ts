@@ -1,9 +1,10 @@
 import { renderAlertEmail } from "~/domain/alerts/emailContent";
 import type { AlertEvent, AlertSourceKind } from "~/domain/alerts/types";
+import { buildBankPaymentGuaranteeAlertViewModel, type AlertViewModel } from "~/domain/alerts/viewModel";
 import { resolveEmailPort, type EmailPortResolution } from "~/lib/email/configuredPort.server";
 import { logger } from "~/lib/logger.server";
 
-import { loadCalculationAlertViewModel, loadSyncAlertViewModel } from "./adminAlertEpisodes.server";
+import { loadCalculationAlertViewModel, loadSyncAlertViewModel, loadVariantContext } from "./adminAlertEpisodes.server";
 import { recordAlertNotification } from "./adminAlertNotificationRepository.server";
 
 /**
@@ -58,10 +59,42 @@ import { recordAlertNotification } from "./adminAlertNotificationRepository.serv
 
 export interface DispatchAdminAlertInput {
   sourceKind: AlertSourceKind;
-  /** The episode's own id (`price_calculation_failure.id` or `price_sync_failure.id`). */
+  /**
+   * The failure episode's own id for EVERY kind, including
+   * `bank_payment_guarantee` — `price_calculation_failure.id` or
+   * `price_sync_failure.id`, whichever made the variant unresolvable. NEVER
+   * `bank_payment_order.id`: see the `AdminAlertSourceKind` enum's own doc
+   * comment in `schema.prisma` for why keying this alert on the disposable
+   * order instead of the episode would silently swallow a second flag after
+   * a resolve.
+   */
   sourceId: string;
   event: AlertEvent;
   now?: Date;
+  /**
+   * REQUIRED when, and only when, `sourceKind` is `bank_payment_guarantee`.
+   * This function does not itself know which failure TABLE `sourceId` came
+   * from (unlike `calculation_failure`/`sync_failure`, where `sourceKind`
+   * says so directly) — the caller
+   * (`~/jobs/bankpayment/guaranteeSweep.server.ts`), which already resolved
+   * the guarantee decision and the episode it came from, supplies the
+   * display/notification context directly rather than this function
+   * re-deriving it.
+   */
+  bankPaymentGuarantee?: {
+    masterVariantId: string;
+    /**
+     * The guarantee decision's own reason string, already customer/cost
+     * -safe — and, for an `opened` event, already naming every bank payment
+     * order currently blocked by this episode (see
+     * `openGuaranteeAlertForEpisode` in `guaranteeSweep.server.ts`): one
+     * episode can block several orders, and the order is what is at risk
+     * even though the episode is what needs fixing.
+     */
+    reason: string;
+    /** The failure episode's own `firstFailedAt` (or, for a variant with no episode row at all, the instant the sweep first observed it unresolvable). */
+    flaggedSince: Date;
+  };
 }
 
 export interface DispatchAdminAlertResult {
@@ -83,16 +116,55 @@ export interface DispatchAdminAlertDeps {
 
 const DEFAULT_DEPS: DispatchAdminAlertDeps = { resolveEmailPort };
 
+/**
+ * The `bank_payment_guarantee` sibling of `loadCalculationAlertViewModel` /
+ * `loadSyncAlertViewModel`. It cannot load anything BY `sourceId` alone —
+ * there is no dedicated episode table recording this history (see the
+ * `AdminAlertSourceKind` enum's own doc comment) — so it resolves only the
+ * product/variant display context from `input.bankPaymentGuarantee.
+ * masterVariantId` and otherwise builds the view model straight from what
+ * the caller already supplied. Returns null (rather than throwing) when the
+ * caller forgot the required context, matching every other "episode not
+ * found" outcome this function's caller already handles.
+ */
+async function loadBankPaymentGuaranteeViewModel(
+  input: DispatchAdminAlertInput,
+  now: Date
+): Promise<AlertViewModel | null> {
+  if (!input.bankPaymentGuarantee) {
+    logger.error("admin_alert.bank_payment_guarantee_context_missing", {
+      sourceId: input.sourceId,
+      event: input.event,
+    });
+    return null;
+  }
+
+  const context = await loadVariantContext(input.bankPaymentGuarantee.masterVariantId);
+
+  return buildBankPaymentGuaranteeAlertViewModel({
+    sourceId: input.sourceId,
+    masterVariantId: input.bankPaymentGuarantee.masterVariantId,
+    product: context.productTitle ?? `Unresolved product (variant ${input.bankPaymentGuarantee.masterVariantId})`,
+    variant: context.variantLabel ?? `Unresolved variant (${input.bankPaymentGuarantee.masterVariantId})`,
+    reason: input.bankPaymentGuarantee.reason,
+    flaggedSince: input.bankPaymentGuarantee.flaggedSince,
+    now,
+    resolved: input.event === "resolved",
+  });
+}
+
 export async function dispatchAdminAlert(
   input: DispatchAdminAlertInput,
   deps: DispatchAdminAlertDeps = DEFAULT_DEPS
 ): Promise<DispatchAdminAlertResult> {
   const now = input.now ?? new Date();
 
-  const viewModel =
+  const viewModel: AlertViewModel | null =
     input.sourceKind === "calculation_failure"
       ? await loadCalculationAlertViewModel(input.sourceId, now)
-      : await loadSyncAlertViewModel(input.sourceId, now);
+      : input.sourceKind === "sync_failure"
+        ? await loadSyncAlertViewModel(input.sourceId, now)
+        : await loadBankPaymentGuaranteeViewModel(input, now);
 
   if (!viewModel) {
     // Should not happen in practice (the caller only ever passes an id it

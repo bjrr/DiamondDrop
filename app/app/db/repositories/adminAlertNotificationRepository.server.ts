@@ -18,7 +18,7 @@ import { prisma } from "../client.server";
  */
 
 export interface RecordAlertNotificationInput {
-  sourceKind: "calculation_failure" | "sync_failure";
+  sourceKind: "calculation_failure" | "sync_failure" | "bank_payment_guarantee";
   sourceId: string;
   event: "opened" | "suspended" | "resolved";
   masterVariantId: string;
