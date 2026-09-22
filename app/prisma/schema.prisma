@@ -1452,7 +1452,19 @@ model BankPaymentOrder {
   /// that may legitimately stay NULL even once verified.
   verifiedPaymentReference        String?   @map("verified_payment_reference")
   verifiedAt                      DateTime? @map("verified_at") @db.Timestamptz(6)
-  verifiedBy                      String?   @map("verified_by")
+  /// Phase 2C-c revision, D23 (docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md
+  /// §19.1, criteria 112-114). Was a free-typed `verifiedBy String?` -- a
+  /// field nobody could attribute, which is worse than no field because it
+  /// still looks like evidence. Replaced by the AUTHENTICATED Shopify staff
+  /// identity from the ONLINE session (`useOnlineTokens: true`,
+  /// `app/shopify.server.ts`): `session.onlineAccessInfo.associated_user.id`
+  /// and `.email`. Both are set together with the rest of the verification
+  /// fields, or both NULL -- see `bank_payment_order_verification_pairing`.
+  /// A request that carries no associated user is REFUSED, never defaulted
+  /// (criterion 114) -- there is no code path that would write one of these
+  /// two columns without the other.
+  verifiedByShopifyUserId         BigInt?   @map("verified_by_shopify_user_id")
+  verifiedByEmail                 String?   @map("verified_by_email")
 
   /// Set on conversion to a real Shopify order (criterion 51). Distinct from
   /// `shopifyDraftOrderGid`: the draft and the completed order are two

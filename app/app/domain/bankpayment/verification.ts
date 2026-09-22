@@ -3,16 +3,17 @@ import { DEFAULT_ROUNDING_RULE_ID } from "~/domain/money/rounding";
 
 /**
  * Manual Bank Payment verification — the PURE decision layer (owner §23,
- * `docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md` §5.4/§14, phase 2C-c
- * criteria 87-88, 103-104).
+ * `docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md` §5.4/§14/§19, phase 2C-c
+ * criteria 87-88, 103-104, 112-124).
  *
  * NO DATABASE ACCESS, NO I/O, NO AMBIENT CLOCK — same discipline as
  * `guaranteeDecision.ts`: the admin route (`app/routes/app.bank-payments.$id.tsx`)
  * and its server-side companion (`verification.server.ts`) gather everything
  * real (the order, its lines, Shopify's live availability answer, the
- * submitted form) and hand it to the functions below as plain values, which
- * is what makes field-level validation and the expected/received comparison
- * exhaustively table-testable with no database.
+ * submitted form, the authenticated Shopify staff identity) and hand it to
+ * the functions below as plain values, which is what makes field-level
+ * validation and the expected/received comparison exhaustively table-testable
+ * with no database.
  *
  * WHY THIS FILE VALIDATES AGAIN EVEN THOUGH THE FORM HAS ITS OWN
  * `required`/`pattern` ATTRIBUTES. `CLAUDE.md`'s "validate server-side
@@ -20,6 +21,17 @@ import { DEFAULT_ROUNDING_RULE_ID } from "~/domain/money/rounding";
  * the only way to reach the action (a hand-crafted POST skips it entirely),
  * so the refusal must be enforceable from server code that never trusts the
  * client's own validation.
+ *
+ * THE VERIFYING IDENTITY IS DELIBERATELY NOT A FIELD HERE (D23, criteria
+ * 112-114). It used to be a typed `verifiedBy` string on
+ * `VerificationSubmission`; the owner ruled that a field nobody could
+ * attribute is worse than no field, because it still looks like evidence.
+ * The authenticated Shopify staff identity (user id + email, from the online
+ * session `useOnlineTokens` requests — see `app/shopify.server.ts`) is
+ * resolved by the route from `session.onlineAccessInfo` and passed straight
+ * into `verification.server.ts`'s `verifyAndCompleteBankPaymentOrder`,
+ * never through this form-validation layer — there is no form field for it
+ * to come from, and adding one would recreate the exact hazard D23 closed.
  */
 
 /**
@@ -40,18 +52,17 @@ export function isBankPaymentMethod(value: string): value is BankPaymentMethod {
   return (BANK_PAYMENT_METHODS as readonly string[]).includes(value);
 }
 
-/** Raw string inputs exactly as they arrive from an HTML form (`FormData.get` returns `string | null`). */
+/** Raw string inputs exactly as they arrive from an HTML form (`FormData.get` returns `string | null`). No identity field — see this module's header comment (D23). */
 export interface RawVerificationSubmission {
   readonly amountReceived: string | null;
   readonly currency: string | null;
   readonly method: string | null;
   /** The one field permitted to stay blank — owner §8.7 calls it "where available". */
   readonly reference: string | null;
-  readonly verifiedBy: string | null;
 }
 
 /**
- * Extracts the five raw fields from a submitted `FormData` — the ONE place
+ * Extracts the four raw fields from a submitted `FormData` — the ONE place
  * that knows the form's field names, so the route's action calls this
  * (pure, no request/session needed) rather than reading `formData.get(...)`
  * inline. `FormData.get` returns `File | string | null`; a `File` (a field
@@ -68,20 +79,19 @@ export function parseVerificationFormData(formData: FormData): RawVerificationSu
     currency: getString("currency"),
     method: getString("method"),
     reference: getString("reference"),
-    verifiedBy: getString("verifiedBy"),
   };
 }
 
+/** No identity field — see this module's header comment (D23). The verifying identity is the AUTHENTICATED Shopify staff user, supplied separately by the route from the online session, never by this validated form value. */
 export interface VerificationSubmission {
   readonly amountReceivedMinorUnits: bigint;
   readonly currency: string;
   readonly method: BankPaymentMethod;
   readonly reference: string | null;
-  readonly verifiedBy: string;
 }
 
 export interface VerificationFieldError {
-  readonly field: "amountReceived" | "currency" | "method" | "verifiedBy";
+  readonly field: "amountReceived" | "currency" | "method";
   readonly message: string;
 }
 
@@ -165,11 +175,6 @@ export function validateVerificationSubmission(raw: RawVerificationSubmission): 
     });
   }
 
-  const verifiedBy = (raw.verifiedBy ?? "").trim();
-  if (verifiedBy === "") {
-    errors.push({ field: "verifiedBy", message: "The verifying admin's name is required." });
-  }
-
   const referenceText = (raw.reference ?? "").trim();
 
   if (errors.length > 0) {
@@ -184,7 +189,6 @@ export function validateVerificationSubmission(raw: RawVerificationSubmission): 
       currency,
       method: methodText as BankPaymentMethod,
       reference: referenceText === "" ? null : referenceText,
-      verifiedBy,
     },
   };
 }
@@ -232,10 +236,21 @@ export interface AmountComparison {
 }
 
 /**
- * Compares what arrived against what was expected. NEVER used to block
- * verification — the assigning message and owner §22 are explicit that a
- * mismatch is exactly the case needing a human, not a rule that refuses the
- * human. Callers display this prominently; nothing here returns an error.
+ * Compares what arrived against what was expected. Pure comparison only —
+ * it never mutates anything and never decides on its own what a caller does
+ * with the answer; that decision differs by caller and lives outside this
+ * function:
+ *
+ *   - `verifyAndCompleteBankPaymentOrder` (D24, criteria 115-117) uses this
+ *     to REFUSE a first-time verification submission BEFORE persisting
+ *     anything, whenever `!matchesExactly || currencyMismatch`. That
+ *     supersedes an earlier design where a mismatch was recorded and only
+ *     completion was skipped — the owner ruled that stranded the order in
+ *     exactly the state D25 exists to recover, and made a typo unrecoverable
+ *     through the idempotency guard.
+ *   - The admin route uses this to render the read-only comparison on an
+ *     ALREADY-verified order, purely for display — nothing about a past,
+ *     already-recorded verification is blocked by this function.
  */
 export function compareReceivedToExpected(expected: Money, received: Money): AmountComparison {
   if (expected.currency !== received.currency) {
@@ -249,4 +264,34 @@ export function compareReceivedToExpected(expected: Money, received: Money): Amo
     differenceMinorUnits: difference.amountMinorUnits,
     matchesExactly: difference.isZero(),
   };
+}
+
+/**
+ * The state a Bank Payment order's verification/completion is in, as far as
+ * the admin surface needs to distinguish for rendering (D25, criteria
+ * 118-119).
+ *
+ *   - `unverified`      — open, never verified. Shows the verification form.
+ *   - `verified_pending_completion` — open, verified, but no Shopify order
+ *     recorded yet. `completeBankPaymentOrder` either has not been attempted
+ *     since verification, or was attempted and failed. THE FORM MUST NOT
+ *     REAPPEAR here (criterion 118) — recovery is the separate, explicit
+ *     "Retry completion" action (criterion 119), never a second verification.
+ *   - `completed`       — `status = "completed"`, a real Shopify order exists.
+ *   - `cancelled`       — the guarantee sweep (or another reason) cancelled it.
+ */
+export type BankPaymentVerificationState =
+  | "unverified"
+  | "verified_pending_completion"
+  | "completed"
+  | "cancelled";
+
+export function classifyBankPaymentOrderState(order: {
+  readonly status: "open" | "cancelled" | "completed";
+  readonly verifiedAt: Date | null;
+}): BankPaymentVerificationState {
+  if (order.status === "cancelled") return "cancelled";
+  if (order.status === "completed") return "completed";
+  // status === "open"
+  return order.verifiedAt ? "verified_pending_completion" : "unverified";
 }

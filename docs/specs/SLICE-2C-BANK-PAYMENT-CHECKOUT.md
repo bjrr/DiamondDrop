@@ -982,3 +982,35 @@ above, but it touches authentication for every embedded request — so criterion
 
 **VERDICT: APPROVE.** No unresolved owner decision, no new infrastructure, and
 the one risky path is specified as read-before-write.
+
+### 19.6 Live verification, 2026-09-22
+
+Harness: `app/tests/live/slice2cC.fixture.ts`.
+
+**Proven against `caratforus-dev`:**
+
+| | Evidence |
+|---|---|
+| Criterion 112 — online tokens are additive | Both sessions present: offline (`isOnline: false`, no expiry) and online (`isOnline: true`, `userId 127289196845`, `orders@caratforus.com`, `accountOwner: true`) |
+| The background path survived | `unauthenticated.admin` reached Shopify after the change — `{"name":"CaratForUs Dev"}` |
+| D23's identity is real | The authenticated user id and email come from Shopify, not a form |
+| The surface renders under real auth | Expected total `USD 642.00` rendered from a real loader against a real order |
+
+**A LIVE-ONLY DEFECT, AND THE REASON THIS GATE EXISTS.** The detail route never
+rendered. `app.bank-payments.tsx` and `app.bank-payments.$id.tsx` form a
+parent/child pair under flat routes, and the parent had no `<Outlet />` — so
+`/app/bank-payments/:id` silently rendered the **list**. Every unit test passed
+because they render the component directly with a memory router and supplied
+loader data, which never exercises flat-route nesting. Fixed by renaming the
+list to `app.bank-payments._index.tsx`, making the two siblings instead of
+parent and swallowed child.
+
+**NOT YET PROVEN LIVE: the action path.** The form submission — mismatch
+refusal (D24), identity capture, verification and completion — could not be
+driven from here: the embedded app renders in a cross-origin iframe, so its
+form is unreachable to both the accessibility tree and injected script. The
+loader half is proven; the action half needs a human click.
+
+This is a genuine gap, not a formality. 2C-a's live gate found three wrong API
+shapes in exactly this kind of path, and the unit tests that cover this action
+use a memory router, which is what hid the routing defect above.

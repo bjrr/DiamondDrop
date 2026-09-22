@@ -93,6 +93,20 @@ const shopify = shopifyApp({
   // the install flow in a way that looks like a Shopify problem.
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
+  // D23 (docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md §19.1, criterion 112).
+  // ADDITIVE, not a replacement: verified in the installed library source
+  // (token-exchange.js) — the OFFLINE session is always exchanged and stored
+  // FIRST; this flag makes an ONLINE session ALSO be exchanged and stored
+  // afterward. `unauthenticated.admin` (the guarantee sweep, the
+  // recalculation cron) reads the offline session by shop and is untouched —
+  // asserted in shopify.server.test.ts rather than assumed, because the
+  // whole background half of this app depends on that staying true.
+  //
+  // What this buys: `session.onlineAccessInfo.associated_user` on every
+  // embedded admin request, which is what lets Bank Payment verification
+  // record an AUTHENTICATED Shopify staff identity (id + email) instead of a
+  // typed name nobody can attribute (D23, criteria 112-114).
+  useOnlineTokens: true,
   // Owner decision 2026-09-17: this app is built for CaratForUs's own store.
   // It is not listed on the Shopify App Store and no unrelated merchant
   // installs it.

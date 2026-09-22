@@ -136,7 +136,12 @@ async function aBankOrder(opts: { verified: boolean; status?: "open" | "cancelle
             verifiedPaymentMethod: "zelle",
             verifiedPaymentReference: `ref-${suffix}`,
             verifiedAt: now,
-            verifiedBy: "integration-test",
+            // D23: verified_by is now the authenticated Shopify staff
+            // identity (user id + email), not a typed name — updated by the
+            // 2C-c revision's schema change (prisma/migrations/
+            // 20260922060000_bank_payment_verified_by_authenticated_identity).
+            verifiedByShopifyUserId: 1n,
+            verifiedByEmail: "integration-test@example.com",
           }
         : {}),
       lines: {

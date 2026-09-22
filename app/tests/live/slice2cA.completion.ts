@@ -190,7 +190,10 @@ async function main() {
       verifiedPaymentMethod: "zelle",
       verifiedPaymentReference: `livegate-${stamp}`,
       verifiedAt: new Date(),
-      verifiedBy: "livegate-admin",
+      // D23: verified_by is now the authenticated Shopify staff identity
+      // (user id + email), not a typed name.
+      verifiedByShopifyUserId: 1n,
+      verifiedByEmail: "livegate-admin@example.com",
     },
   });
 

@@ -1002,7 +1002,10 @@ describe("§22 / payment already verified — the guarantee never cancels a paid
         verifiedPaymentCurrency: "USD",
         verifiedPaymentMethod: "zelle",
         verifiedAt: new Date(),
-        verifiedBy: "integration-test",
+        // D23: verified_by is now the authenticated Shopify staff identity
+        // (user id + email), not a typed name.
+        verifiedByShopifyUserId: 1n,
+        verifiedByEmail: "integration-test@example.com",
       },
     });
     await republish({

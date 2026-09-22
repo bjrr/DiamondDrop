@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import type { BankPaymentOrderSummary } from "~/domain/bankpayment/verification.server";
 
-import BankPaymentsListPage from "./app.bank-payments";
+import BankPaymentsListPage from "./app.bank-payments._index";
 
 /**
  * Same technique as `alerts.test.tsx` / `_index.test.tsx`: nothing is

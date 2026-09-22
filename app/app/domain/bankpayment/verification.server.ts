@@ -2,35 +2,59 @@ import type { BankPaymentMethod as PrismaBankPaymentMethod, Prisma } from "@pris
 
 import { prisma } from "~/db/client.server";
 import { createAuditEvent } from "~/db/repositories/auditEventRepository.server";
+import { Money } from "~/domain/money/money";
 import type { AdminGraphqlClient } from "~/shopify/admin/productClient.server";
 import { getVariantsAvailability } from "~/shopify/metafields/variantAvailability.server";
 import type { DraftOrderPort } from "~/shopify/admin/draftOrderAdapter.server";
 
 import { completeBankPaymentOrder } from "./completeOrder.server";
-import { chargedUnitPriceMinorUnits, type VerificationSubmission } from "./verification";
+import {
+  chargedUnitPriceMinorUnits,
+  compareReceivedToExpected,
+  computeExpectedTotal,
+  type AmountComparison,
+  type VerificationSubmission,
+} from "./verification";
 
 /**
  * Manual Bank Payment verification — the DATABASE/SHOPIFY-FACING half (owner
- * §23, spec §5.4/§14, phase 2C-c criteria 87-91, 103-104). Pure decision
- * logic (validation, the expected-total sum, the amount comparison, the
- * closed method enum) lives in `verification.ts` and is unit-tested there
- * with no database; this file is the thin, integration-tested layer that
- * turns those decisions into committed rows, audit evidence and a completed
- * Shopify order.
+ * §23, spec §5.4/§14/§19, phase 2C-c criteria 87-91, 103-104, 112-124). Pure
+ * decision logic (validation, the expected-total sum, the amount comparison,
+ * the closed method enum, the D25 state classifier) lives in `verification.ts`
+ * and is unit-tested there with no database; this file is the thin,
+ * integration-tested layer that turns those decisions into committed rows,
+ * audit evidence and a completed Shopify order.
  *
- * "VERIFYING ADMIN" IS RECORDED AS A TYPED IDENTIFIER, NOT AN AUTHENTICATED
- * ONE, AND THAT IS A KNOWN WEAKNESS, NOT AN OVERSIGHT. This app authenticates
- * to Shopify with an OFFLINE session token (`app/shopify.server.ts`, D13),
- * which identifies the SHOP, not the individual staff member operating the
- * embedded admin session — Shopify does not hand this app a per-user
- * identity on an offline token. `bankPaymentOrder.verifiedBy` is therefore a
- * free-typed name the person enters themselves: weaker evidence than an
- * authenticated identity, because nothing stops a different person from
- * typing someone else's name. `shop` (recorded on every audit event this
- * module writes, as `actorRef`) is the one part of "who" that IS
- * authenticated. Real per-user attribution needs an ONLINE session token —
- * recorded as a follow-up for the architect, spec §15 (alongside F-2C-1
- * through F-2C-3).
+ * "VERIFYING ADMIN" IS THE AUTHENTICATED SHOPIFY STAFF IDENTITY (D23,
+ * criteria 112-114) — not a typed name. `app/shopify.server.ts` requests an
+ * ONLINE session in addition to the offline one (`useOnlineTokens: true`),
+ * so an embedded admin request carries `session.onlineAccessInfo
+ * .associated_user`. Every function below that records a verification takes
+ * `verifiedByShopifyUserId`/`verifiedByEmail` as REQUIRED inputs resolved by
+ * the caller from that session — never a form field, never defaulted.
+ *
+ * D24 (criteria 115-117) — A MISMATCHED AMOUNT REFUSES BEFORE ANYTHING IS
+ * WRITTEN. `verifyAndCompleteBankPaymentOrder` compares the submission
+ * against the order's expected total and throws `BankPaymentAmountMismatchError`
+ * on any difference, writing only an audit event recording the refused
+ * attempt — never the verification fields themselves. This replaced an
+ * earlier design that recorded the verification and merely skipped
+ * completion on a mismatch; the owner ruled that strands the order in
+ * exactly the state D25 exists to recover, and makes a typo unrecoverable
+ * through the idempotency guard.
+ *
+ * D25 (criteria 118-120) — COMPLETION CAN FAIL AFTER VERIFICATION IS
+ * RECORDED, AND RECOVERY IS READ-BEFORE-WRITE. `completeVerifiedBankPaymentOrder`
+ * is the ONE function in this app that may call `completeBankPaymentOrder`
+ * (and therefore `draftOrderComplete`) — used both right after a fresh
+ * verification and by the explicit "Retry completion" recovery action, so
+ * there is exactly one path capable of creating a duplicate real order, and
+ * it always asks Shopify first whether the draft already became one
+ * (`draftOrder { order { id } }`) before ever attempting completion again.
+ * 2C-a's live gate produced exactly the danger this guards against: order
+ * #1001 exists on the dev store because `draftOrderComplete` succeeded while
+ * the read of its result was denied by a missing scope, and nothing was
+ * recorded.
  */
 
 export class BankPaymentOrderNotFoundError extends Error {
@@ -54,10 +78,33 @@ export class BankPaymentOrderNotOpenForVerificationError extends Error {
   }
 }
 
+/**
+ * D24, criteria 115-117. Thrown BEFORE anything is persisted — see this
+ * module's header comment. Carries the full comparison so the route can show
+ * both figures and the difference without recomputing anything.
+ */
+export class BankPaymentAmountMismatchError extends Error {
+  constructor(
+    readonly bankPaymentOrderId: string,
+    readonly comparison: AmountComparison
+  ) {
+    super(
+      `bank payment order ${bankPaymentOrderId}: amount received does not match amount expected; ` +
+        "refused before recording anything (D24) — resolution is manual"
+    );
+    this.name = "BankPaymentAmountMismatchError";
+  }
+}
+
 /** `"gold 14k, Comfort Fit 6.5-8"` — never null. Restated from `adminAlertEpisodes.server.ts`'s private, unexported helper of the same shape rather than imported, since that module is owned outside this task's file glob. */
 function describeVariant(variant: { metal: string; purity: string; band: { label: string } | null }): string {
   const metalAndPurity = `${variant.metal} ${variant.purity}`;
   return variant.band ? `${metalAndPurity}, ${variant.band.label}` : metalAndPurity;
+}
+
+/** Human-readable "who" for an audit event's `actorRef` — the authenticated Shopify staff identity plus the shop, never a typed name (D23). */
+function formatVerifierActorRef(input: { shop: string; verifiedByShopifyUserId: bigint; verifiedByEmail: string }): string {
+  return `${input.verifiedByEmail} (Shopify user ${input.verifiedByShopifyUserId}) — ${input.shop}`;
 }
 
 export interface BankPaymentOrderLineView {
@@ -84,7 +131,8 @@ export interface BankPaymentOrderDetail {
   readonly quotedAt: Date;
   readonly guaranteeExpiresAt: Date;
   readonly verifiedAt: Date | null;
-  readonly verifiedBy: string | null;
+  readonly verifiedByShopifyUserId: bigint | null;
+  readonly verifiedByEmail: string | null;
   readonly verifiedPaymentAmountMinorUnits: bigint | null;
   readonly verifiedPaymentCurrency: string | null;
   readonly verifiedPaymentMethod: PrismaBankPaymentMethod | null;
@@ -128,7 +176,8 @@ export async function loadBankPaymentOrderForVerification(id: string): Promise<B
     quotedAt: order.quotedAt,
     guaranteeExpiresAt: order.guaranteeExpiresAt,
     verifiedAt: order.verifiedAt,
-    verifiedBy: order.verifiedBy,
+    verifiedByShopifyUserId: order.verifiedByShopifyUserId,
+    verifiedByEmail: order.verifiedByEmail,
     verifiedPaymentAmountMinorUnits: order.verifiedPaymentAmountMinorUnits,
     verifiedPaymentCurrency: order.verifiedPaymentCurrency,
     verifiedPaymentMethod: order.verifiedPaymentMethod,
@@ -263,11 +312,175 @@ export async function searchBankPaymentOrders(query: string): Promise<BankPaymen
   return rows.map(toSummary);
 }
 
+export interface DraftOrderResultLookup {
+  readonly orderGid: string;
+  readonly orderName: string | null;
+}
+
+export class DraftOrderResultLookupError extends Error {
+  constructor(draftOrderGid: string, cause: string) {
+    super(`could not confirm whether draft order ${draftOrderGid} already became a Shopify order: ${cause}`);
+    this.name = "DraftOrderResultLookupError";
+  }
+}
+
+const DRAFT_ORDER_RESULT_QUERY = `#graphql
+  query CaratDraftOrderResult($id: ID!) {
+    draftOrder(id: $id) {
+      id
+      order { id name }
+    }
+  }
+`;
+
+interface DraftOrderResultEnvelope {
+  data?: { draftOrder?: { id: string; order?: { id: string; name: string | null } | null } | null };
+  errors?: { message: string }[];
+}
+
+/**
+ * D25 / criterion 120 — THE READ THAT MAKES RETRY SAFE. `draftOrderComplete`
+ * may have already succeeded at Shopify even though our own write of the
+ * resulting order id failed. Retrying blind would call `draftOrderComplete`
+ * a SECOND time and create a second real order against one payment. This
+ * function is the read half of read-before-write: it asks Shopify directly
+ * whether the draft already has a resulting order, so the caller can ADOPT
+ * that id instead of completing again.
+ *
+ * A raw query living outside `app/shopify/admin/` (not this task's file
+ * glob) — the same precedent `~/shopify/metafields/variantAvailability.server.ts`
+ * already set for a read-only Shopify query owned by a different phase.
+ *
+ * Returns `null` both when Shopify confirms no resulting order exists yet
+ * AND when the draft order itself cannot be found (e.g. deleted) — in
+ * either case there is nothing to adopt, and the caller falls through to an
+ * ordinary completion attempt.
+ */
+export async function resolveDraftOrderResultingOrder(
+  admin: AdminGraphqlClient,
+  draftOrderGid: string
+): Promise<DraftOrderResultLookup | null> {
+  const response = await admin.graphql(DRAFT_ORDER_RESULT_QUERY, { variables: { id: draftOrderGid } });
+  const body = (await response.json()) as DraftOrderResultEnvelope;
+
+  if (body.errors?.length) {
+    throw new DraftOrderResultLookupError(draftOrderGid, body.errors.map((e) => e.message).join("; "));
+  }
+
+  const draftOrder = body.data?.draftOrder;
+  if (!draftOrder || !draftOrder.order) return null;
+
+  return { orderGid: draftOrder.order.id, orderName: draftOrder.order.name };
+}
+
+export interface CompleteVerifiedOrderInput {
+  readonly bankPaymentOrderId: string;
+  readonly shop: string;
+  readonly admin: AdminGraphqlClient;
+  readonly draftOrderPort: DraftOrderPort;
+}
+
+export type CompleteVerifiedOrderResult =
+  | { readonly outcome: "completed"; readonly shopifyOrderGid: string; readonly orderName: string | null }
+  | { readonly outcome: "completion_failed"; readonly error: string };
+
+/**
+ * Completes (or discovers-and-adopts) a VERIFIED order's Shopify order,
+ * read-before-write per criterion 120. THE ONLY FUNCTION IN THIS APP THAT
+ * MAY REACH `completeBankPaymentOrder` — used both by the automatic
+ * completion attempt immediately after a fresh verification
+ * (`verifyAndCompleteBankPaymentOrder` below) and by the explicit "Retry
+ * completion" recovery action (criterion 119). One call site into
+ * `draftOrderComplete`, and it always asks Shopify first.
+ *
+ * Never throws — a Shopify or database failure is caught and returned as
+ * `{ outcome: "completion_failed" }` so the caller can leave the order in
+ * its verified-but-not-completed state (D25) rather than crashing the
+ * request. The failure is also written to the audit trail.
+ */
+export async function completeVerifiedBankPaymentOrder(
+  input: CompleteVerifiedOrderInput
+): Promise<CompleteVerifiedOrderResult> {
+  const order = await prisma.bankPaymentOrder.findUniqueOrThrow({ where: { id: input.bankPaymentOrderId } });
+
+  // Already recorded as completed — no read, no write, no second Shopify call.
+  if (order.shopifyOrderGid) {
+    return { outcome: "completed", shopifyOrderGid: order.shopifyOrderGid, orderName: null };
+  }
+  if (!order.verifiedAt) {
+    return { outcome: "completion_failed", error: "order has not been verified; nothing to complete" };
+  }
+
+  try {
+    const existing = await resolveDraftOrderResultingOrder(input.admin, order.shopifyDraftOrderGid);
+
+    if (existing) {
+      // ADOPT. Shopify already has the order — never call draftOrderComplete
+      // again. Compare-and-set for the same reason completeOrder.server.ts
+      // uses one for shopifyOrderGid: two callers racing this same recovery
+      // must not both claim the write.
+      const written = await prisma.bankPaymentOrder.updateMany({
+        where: { id: order.id, shopifyOrderGid: null },
+        data: { shopifyOrderGid: existing.orderGid, completedAt: new Date(), status: "completed" },
+      });
+      if (written.count === 1) {
+        await createAuditEvent({
+          actorType: "staff",
+          actorRef: input.shop,
+          action: "bank_payment_order.completion_adopted",
+          entityType: "bank_payment_order",
+          entityId: order.id,
+          after: { shopifyOrderGid: existing.orderGid, orderName: existing.orderName },
+          reason:
+            "draftOrderComplete had already succeeded at Shopify before our earlier write of the order id " +
+            "failed; adopted the existing Shopify order instead of completing again (criterion 120)",
+        });
+      }
+      const current = await prisma.bankPaymentOrder.findUniqueOrThrow({ where: { id: order.id } });
+      // current.shopifyOrderGid is guaranteed non-null here: either this call
+      // just wrote it, or a racing call already did.
+      return { outcome: "completed", shopifyOrderGid: current.shopifyOrderGid as string, orderName: existing.orderName };
+    }
+
+    // Shopify confirms no resulting order exists yet — safe to complete.
+    const completed = await completeBankPaymentOrder({
+      bankPaymentOrderId: order.id,
+      port: input.draftOrderPort,
+    });
+    if (!completed.alreadyCompleted) {
+      await createAuditEvent({
+        actorType: "staff",
+        actorRef: input.shop,
+        action: "bank_payment_order.completed",
+        entityType: "bank_payment_order",
+        entityId: order.id,
+        after: { shopifyOrderGid: completed.shopifyOrderGid, orderName: completed.orderName },
+      });
+    }
+    return { outcome: "completed", shopifyOrderGid: completed.shopifyOrderGid, orderName: completed.orderName };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await createAuditEvent({
+      actorType: "staff",
+      actorRef: input.shop,
+      action: "bank_payment_order.completion_failed",
+      entityType: "bank_payment_order",
+      entityId: order.id,
+      reason: message,
+    });
+    return { outcome: "completion_failed", error: message };
+  }
+}
+
 export interface VerifyAndCompleteInput {
   readonly bankPaymentOrderId: string;
   readonly submission: VerificationSubmission;
-  /** This app's single connected shop domain — the authenticated half of "who verified this"; see this module's header comment. */
+  /** This app's single connected shop domain. */
   readonly shop: string;
+  /** The AUTHENTICATED Shopify staff identity (D23) — resolved by the route from `session.onlineAccessInfo.associated_user`, never from a form field. */
+  readonly verifiedByShopifyUserId: bigint;
+  readonly verifiedByEmail: string;
+  readonly admin: AdminGraphqlClient;
   readonly draftOrderPort: DraftOrderPort;
   /**
    * What the verifying admin was actually shown before confirming
@@ -280,120 +493,157 @@ export interface VerifyAndCompleteInput {
   readonly now?: Date;
 }
 
-export interface VerifyAndCompleteResult {
-  readonly outcome: "verified_and_completed" | "already_verified";
-  readonly bankPaymentOrderId: string;
-  readonly shopifyOrderGid: string;
-  readonly orderName: string | null;
-}
+export type VerifyAndCompleteResult =
+  | { readonly outcome: "completed"; readonly bankPaymentOrderId: string; readonly shopifyOrderGid: string; readonly orderName: string | null }
+  | { readonly outcome: "completion_failed"; readonly bankPaymentOrderId: string; readonly completionError: string };
 
 /**
  * The single entry point that turns a validated verification submission into
  * a committed row, its audit evidence, and a completed Shopify order.
  *
- * IDEMPOTENT BY COMPARE-AND-SET (criterion 88), the identical idiom
- * `completeOrder.server.ts` uses for `shopifyOrderGid`: the verification
- * write only succeeds if `verifiedAt IS NULL` (and the order is still
- * `open`) at the instant of the update, so two submissions racing each other
- * cannot both win. "Somebody got there first" is treated as SUCCESS — the
- * order is already verified, so this call proceeds straight to completion
- * (which is itself idempotent) — never as an error. A genuine refusal
- * (never verified, and not open) is the one case that throws.
+ * ORDER OF OPERATIONS MATTERS (D24 before the write, D25 after it):
+ *
+ *   1. If never verified: refuse outright if the order is not `open`.
+ *   2. If never verified: compare the submitted amount against the expected
+ *      total. A mismatch REFUSES — writes only an audit event, nothing else
+ *      (criteria 115-117) — before any compare-and-set is attempted.
+ *   3. If never verified: compare-and-set the verification fields, guarded
+ *      on `verifiedAt IS NULL AND status = 'open'` (criterion 88's
+ *      idempotency idiom, same as `completeOrder.server.ts`'s for
+ *      `shopifyOrderGid`). "Somebody got there first" is a duplicate, not an
+ *      error.
+ *   4. If already verified (either before this call started, or a race lost
+ *      just now): record the duplicate attempt and proceed — never write
+ *      the verification fields twice.
+ *   5. Attempt completion via `completeVerifiedBankPaymentOrder`, which
+ *      NEVER throws. A completion failure here leaves the order in the
+ *      verified-but-not-completed state (D25, criterion 118) and is
+ *      returned as `{ outcome: "completion_failed" }` rather than thrown —
+ *      the caller must not treat this as a request failure that undoes the
+ *      verification, because nothing about the verification needs undoing.
  */
 export async function verifyAndCompleteBankPaymentOrder(
   input: VerifyAndCompleteInput
 ): Promise<VerifyAndCompleteResult> {
   const now = input.now ?? new Date();
+  const id = input.bankPaymentOrderId;
 
-  const written = await prisma.bankPaymentOrder.updateMany({
-    where: { id: input.bankPaymentOrderId, verifiedAt: null, status: "open" },
-    data: {
-      verifiedPaymentAmountMinorUnits: input.submission.amountReceivedMinorUnits,
-      verifiedPaymentCurrency: input.submission.currency,
-      verifiedPaymentMethod: input.submission.method,
-      verifiedPaymentReference: input.submission.reference,
-      verifiedAt: now,
-      verifiedBy: input.submission.verifiedBy,
-    },
-  });
+  const order = await prisma.bankPaymentOrder.findUnique({ where: { id }, include: { lines: true } });
+  if (!order) throw new BankPaymentOrderNotFoundError(id);
 
-  const wonTheRace = written.count === 1;
+  if (order.verifiedAt === null) {
+    if (order.status !== "open") {
+      throw new BankPaymentOrderNotOpenForVerificationError(id, order.status);
+    }
 
-  if (wonTheRace) {
-    await createAuditEvent({
-      actorType: "staff",
-      actorRef: input.shop,
-      action: "bank_payment_order.verified",
-      entityType: "bank_payment_order",
-      entityId: input.bankPaymentOrderId,
-      after: {
-        verifiedPaymentAmountMinorUnits: input.submission.amountReceivedMinorUnits.toString(),
+    // D24, criteria 115-117 — compare BEFORE writing anything.
+    const currency = order.lines[0]?.currency ?? input.submission.currency;
+    const expected = computeExpectedTotal(order.lines, currency);
+    const received = Money.fromMinorUnits(input.submission.amountReceivedMinorUnits, input.submission.currency);
+    const comparison = compareReceivedToExpected(expected, received);
+    if (comparison.currencyMismatch || !comparison.matchesExactly) {
+      await createAuditEvent({
+        actorType: "staff",
+        actorRef: formatVerifierActorRef(input),
+        action: "bank_payment_order.verify_amount_mismatch_refused",
+        entityType: "bank_payment_order",
+        entityId: id,
+        after: {
+          expectedMinorUnits: expected.amountMinorUnits.toString(),
+          expectedCurrency: expected.currency,
+          receivedMinorUnits: received.amountMinorUnits.toString(),
+          receivedCurrency: received.currency,
+          currencyMismatch: comparison.currencyMismatch,
+          differenceMinorUnits: comparison.differenceMinorUnits?.toString() ?? null,
+        },
+        reason: "amount received did not match amount expected; refused before recording anything (D24)",
+      });
+      throw new BankPaymentAmountMismatchError(id, comparison);
+    }
+
+    const written = await prisma.bankPaymentOrder.updateMany({
+      where: { id, verifiedAt: null, status: "open" },
+      data: {
+        verifiedPaymentAmountMinorUnits: input.submission.amountReceivedMinorUnits,
         verifiedPaymentCurrency: input.submission.currency,
         verifiedPaymentMethod: input.submission.method,
         verifiedPaymentReference: input.submission.reference,
-        verifiedAt: now.toISOString(),
-        verifiedBy: input.submission.verifiedBy,
-        // Evidence of what the admin was shown BEFORE confirming (criterion
-        // 103) — durable, not merely rendered-and-discarded.
-        availabilityShownToAdmin: input.availabilityShownToAdmin.map((line) => ({
-          masterVariantId: line.masterVariantId,
-          shopifyVariantGid: line.shopifyVariantGid,
-          availableForSale: line.availableForSale,
-        })),
+        verifiedAt: now,
+        verifiedByShopifyUserId: input.verifiedByShopifyUserId,
+        verifiedByEmail: input.verifiedByEmail,
       },
     });
+
+    if (written.count === 1) {
+      await createAuditEvent({
+        actorType: "staff",
+        actorRef: formatVerifierActorRef(input),
+        action: "bank_payment_order.verified",
+        entityType: "bank_payment_order",
+        entityId: id,
+        after: {
+          verifiedPaymentAmountMinorUnits: input.submission.amountReceivedMinorUnits.toString(),
+          verifiedPaymentCurrency: input.submission.currency,
+          verifiedPaymentMethod: input.submission.method,
+          verifiedPaymentReference: input.submission.reference,
+          verifiedAt: now.toISOString(),
+          verifiedByShopifyUserId: input.verifiedByShopifyUserId.toString(),
+          verifiedByEmail: input.verifiedByEmail,
+          // Evidence of what the admin was shown BEFORE confirming (criterion
+          // 103) — durable, not merely rendered-and-discarded.
+          availabilityShownToAdmin: input.availabilityShownToAdmin.map((line) => ({
+            masterVariantId: line.masterVariantId,
+            shopifyVariantGid: line.shopifyVariantGid,
+            availableForSale: line.availableForSale,
+          })),
+        },
+      });
+    } else {
+      // Lost a genuine race — somebody else verified between our read and
+      // our compare-and-set. Re-read; if STILL not verified, the order must
+      // have left "open" in the interim (e.g. cancelled), which is a real
+      // refusal, not a duplicate.
+      const raced = await prisma.bankPaymentOrder.findUniqueOrThrow({ where: { id } });
+      if (raced.verifiedAt === null) {
+        throw new BankPaymentOrderNotOpenForVerificationError(id, raced.status);
+      }
+      await createAuditEvent({
+        actorType: "staff",
+        actorRef: formatVerifierActorRef(input),
+        action: "bank_payment_order.verify_duplicate_ignored",
+        entityType: "bank_payment_order",
+        entityId: id,
+        reason: `already verified at ${raced.verifiedAt.toISOString()} by ${raced.verifiedByEmail ?? "unknown"} — this submission changed nothing`,
+      });
+    }
   } else {
-    const current = await prisma.bankPaymentOrder.findUnique({ where: { id: input.bankPaymentOrderId } });
-    if (!current) {
-      throw new BankPaymentOrderNotFoundError(input.bankPaymentOrderId);
-    }
-    if (current.verifiedAt === null) {
-      // Never verified AND not open — a genuine refusal, not a duplicate
-      // (e.g. the guarantee sweep cancelled it between page load and
-      // submit). No audit event: nothing changed, and the caller surfaces
-      // this as a real error.
-      throw new BankPaymentOrderNotOpenForVerificationError(input.bankPaymentOrderId, current.status);
-    }
-    // A genuine duplicate: already verified by an earlier call. Recorded
-    // distinctly from `.verified` so the audit trail shows the attempt
-    // without a second write to the authoritative verification fields.
+    // Already verified before this call even started — a genuine duplicate
+    // submission (double-click, browser resubmit). Never re-compares the
+    // amount and never rewrites the verification fields.
     await createAuditEvent({
       actorType: "staff",
-      actorRef: input.shop,
+      actorRef: formatVerifierActorRef(input),
       action: "bank_payment_order.verify_duplicate_ignored",
       entityType: "bank_payment_order",
-      entityId: input.bankPaymentOrderId,
-      reason: `already verified at ${current.verifiedAt.toISOString()} by "${current.verifiedBy ?? "unknown"}" — this submission changed nothing`,
+      entityId: id,
+      reason: `already verified at ${order.verifiedAt.toISOString()} by ${order.verifiedByEmail ?? "unknown"} — this submission changed nothing`,
     });
   }
 
-  const completed = await completeBankPaymentOrder({
-    bankPaymentOrderId: input.bankPaymentOrderId,
-    port: input.draftOrderPort,
+  const completion = await completeVerifiedBankPaymentOrder({
+    bankPaymentOrderId: id,
+    shop: input.shop,
+    admin: input.admin,
+    draftOrderPort: input.draftOrderPort,
   });
 
-  // Recorded only on the call that ACTUALLY completed the order — a replay
-  // (`alreadyCompleted: true`) writes no second `.completed` event, so the
-  // audit trail shows exactly one completion per order, matching criterion
-  // 88's "completes one order" at the evidence layer too.
-  if (!completed.alreadyCompleted) {
-    await createAuditEvent({
-      actorType: "staff",
-      actorRef: input.shop,
-      action: "bank_payment_order.completed",
-      entityType: "bank_payment_order",
-      entityId: input.bankPaymentOrderId,
-      after: {
-        shopifyOrderGid: completed.shopifyOrderGid,
-        orderName: completed.orderName,
-      },
-    });
+  if (completion.outcome === "completion_failed") {
+    return { outcome: "completion_failed", bankPaymentOrderId: id, completionError: completion.error };
   }
-
   return {
-    outcome: wonTheRace ? "verified_and_completed" : "already_verified",
-    bankPaymentOrderId: input.bankPaymentOrderId,
-    shopifyOrderGid: completed.shopifyOrderGid,
-    orderName: completed.orderName,
+    outcome: "completed",
+    bankPaymentOrderId: id,
+    shopifyOrderGid: completion.shopifyOrderGid,
+    orderName: completion.orderName,
   };
 }

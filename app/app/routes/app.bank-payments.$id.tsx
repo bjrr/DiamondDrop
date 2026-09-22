@@ -5,15 +5,19 @@ import { Form, Link, useActionData, useLoaderData, useNavigation, useRouteError 
 
 import {
   BANK_PAYMENT_METHODS,
+  classifyBankPaymentOrderState,
   compareReceivedToExpected,
   computeExpectedTotal,
   parseVerificationFormData,
   validateVerificationSubmission,
+  type BankPaymentVerificationState,
   type VerificationFieldError,
 } from "~/domain/bankpayment/verification";
 import {
+  BankPaymentAmountMismatchError,
   BankPaymentOrderNotOpenForVerificationError,
   checkLinesAvailability,
+  completeVerifiedBankPaymentOrder,
   loadBankPaymentOrderForVerification,
   verifyAndCompleteBankPaymentOrder,
   type BankPaymentOrderDetail,
@@ -27,8 +31,8 @@ import { Money } from "~/domain/money/money";
 
 /**
  * GET/POST /app/bank-payments/:id — manual Bank Payment verification (Slice
- * 2C phase 2C-c, `docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md` §5.4/§14,
- * owner §23, criteria 87-91, 103-104).
+ * 2C phase 2C-c, `docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md` §5.4/§14/§19,
+ * owner §23, criteria 87-91, 103-104, 112-124).
  *
  * LAUNCH-MINIMUM, per the assigning message: record amount, method,
  * reference (where available), timestamp and verifying admin; verify
@@ -43,12 +47,22 @@ import { Money } from "~/domain/money/money";
  * cross-origin-reachable in production: Shopify Admin opens it inside an
  * iframe pointed at this app's own host.
  *
- * "VERIFYING ADMIN" IS A TYPED IDENTIFIER, NOT AN AUTHENTICATED ONE — see
- * `verification.server.ts`'s header comment for the full reasoning
- * (`app/shopify.server.ts` uses an OFFLINE session token, which identifies
- * the shop, not the person). `session.shop` is recorded on every audit
- * event as the authenticated half of "who"; `verifiedBy` is the weaker,
- * self-typed half.
+ * D23 — "VERIFYING ADMIN" IS THE AUTHENTICATED SHOPIFY STAFF IDENTITY, not a
+ * typed name. `session.onlineAccessInfo.associated_user` (id + email) is
+ * resolved here, in the action, and passed straight through to
+ * `verification.server.ts` — there is no form field for it, and a request
+ * that carries no associated user is refused outright (criterion 114).
+ *
+ * D24 — a mismatched amount refuses BEFORE anything is recorded (criteria
+ * 115-117): see the `BankPaymentAmountMismatchError` branch below.
+ *
+ * D25 — completion can fail after verification is recorded, and recovery is
+ * its own explicit action (criteria 118-120): the "intent" hidden field
+ * distinguishes the verification submission from the "Retry completion"
+ * recovery action, which NEVER re-validates or re-records a verification —
+ * it only calls `completeVerifiedBankPaymentOrder` again, which itself
+ * always asks Shopify first (read-before-write) before ever attempting
+ * `draftOrderComplete` a second time.
  */
 
 export interface LineViewModel {
@@ -66,13 +80,17 @@ export interface LineViewModel {
 export interface OrderViewModel {
   readonly id: string;
   readonly status: BankPaymentOrderDetail["status"];
+  /** D25 — which of the four UI states this order is in right now (see `classifyBankPaymentOrderState`). */
+  readonly verificationState: BankPaymentVerificationState;
   readonly customerEmail: string;
   readonly shopifyDraftOrderGid: string;
   readonly shopifyOrderGid: string | null;
   readonly quotedAt: string;
   readonly guaranteeExpiresAt: string;
   readonly verifiedAt: string | null;
-  readonly verifiedBy: string | null;
+  /** D23 — the authenticated identity, never a typed name. */
+  readonly verifiedByEmail: string | null;
+  readonly verifiedByShopifyUserId: string | null;
   readonly verifiedPaymentAmountMinorUnits: string | null;
   readonly verifiedPaymentCurrency: string | null;
   readonly verifiedPaymentMethod: string | null;
@@ -81,7 +99,7 @@ export interface OrderViewModel {
   readonly currency: string;
   readonly expectedTotalMinorUnits: string;
   readonly lines: readonly LineViewModel[];
-  /** Only present once verified — the expected-vs-received comparison (never blocks anything; display only). */
+  /** Only present once verified — the expected-vs-received comparison (display only; never re-evaluated here). */
   readonly comparison: {
     readonly receivedMinorUnits: string;
     readonly currencyMismatch: boolean;
@@ -112,13 +130,15 @@ function buildOrderViewModel(order: BankPaymentOrderDetail, availability: readon
   return {
     id: order.id,
     status: order.status,
+    verificationState: classifyBankPaymentOrderState(order),
     customerEmail: order.customerEmail,
     shopifyDraftOrderGid: order.shopifyDraftOrderGid,
     shopifyOrderGid: order.shopifyOrderGid,
     quotedAt: order.quotedAt.toISOString(),
     guaranteeExpiresAt: order.guaranteeExpiresAt.toISOString(),
     verifiedAt: order.verifiedAt ? order.verifiedAt.toISOString() : null,
-    verifiedBy: order.verifiedBy,
+    verifiedByEmail: order.verifiedByEmail,
+    verifiedByShopifyUserId: order.verifiedByShopifyUserId?.toString() ?? null,
     verifiedPaymentAmountMinorUnits: order.verifiedPaymentAmountMinorUnits?.toString() ?? null,
     verifiedPaymentCurrency: order.verifiedPaymentCurrency,
     verifiedPaymentMethod: order.verifiedPaymentMethod,
@@ -194,37 +214,105 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   } satisfies LoaderData;
 }
 
+interface AmountMismatchView {
+  readonly expectedMinorUnits: string;
+  readonly expectedCurrency: string;
+  readonly receivedMinorUnits: string;
+  readonly receivedCurrency: string;
+  readonly currencyMismatch: boolean;
+  readonly differenceMinorUnits: string | null;
+}
+
 interface ActionData {
   ok: boolean;
   formError: string | null;
   fieldErrors: readonly VerificationFieldError[];
-  /** Echoed back so a rejected submission can be re-displayed rather than cleared. */
-  submitted: { amountReceived: string; currency: string; method: string; reference: string; verifiedBy: string } | null;
+  /** Echoed back so a rejected submission can be re-displayed rather than cleared. No identity field — see D23. */
+  submitted: { amountReceived: string; currency: string; method: string; reference: string } | null;
+  /** D24 — set only when the submission was refused for not matching the expected amount. */
+  mismatch: AmountMismatchView | null;
+  /** D25 — true when verification (or the retry) succeeded up to the point of completion, but completion itself failed. The order is left in `verified_pending_completion`; the next load shows the recovery UI, not the form. */
+  completionFailed: boolean;
+}
+
+function emptyActionData(overrides: Partial<ActionData> = {}): ActionData {
+  return { ok: false, formError: null, fieldErrors: [], submitted: null, mismatch: null, completionFailed: false, ...overrides };
+}
+
+/** Resolves the AUTHENTICATED Shopify staff identity (D23) from the online session, or null if somehow absent — never defaulted (criterion 114). */
+function resolveVerifierIdentity(
+  session: Awaited<ReturnType<typeof authenticate.admin>>["session"]
+): { verifiedByShopifyUserId: bigint; verifiedByEmail: string } | null {
+  const associatedUser = session.onlineAccessInfo?.associated_user;
+  if (!associatedUser) return null;
+  return { verifiedByShopifyUserId: BigInt(associatedUser.id), verifiedByEmail: associatedUser.email };
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
   const { session, admin } = await authenticate.admin(request);
   const id = params.id;
-  if (!id) return Response.json({ ok: false, formError: "Missing Bank Payment order id.", fieldErrors: [], submitted: null } satisfies ActionData, { status: 400 });
-
+  if (!id) {
+    return Response.json(emptyActionData({ formError: "Missing Bank Payment order id." }), { status: 400 });
+  }
   if (request.method !== "POST") {
-    return Response.json({ ok: false, formError: "Method not allowed.", fieldErrors: [], submitted: null } satisfies ActionData, { status: 405 });
+    return Response.json(emptyActionData({ formError: "Method not allowed." }), { status: 405 });
   }
 
   const formData = await request.formData();
+  const intent = formData.get("intent");
+
+  // Criterion 112/114 — every write on this route is attributed to the
+  // AUTHENTICATED Shopify staff identity, never a typed name. Checked BEFORE
+  // either branch below does anything else, because neither branch may
+  // proceed without it.
+  const verifier = resolveVerifierIdentity(session);
+  if (!verifier) {
+    logger.error("bank_payments.no_online_user", { bankPaymentOrderId: id });
+    return Response.json(
+      emptyActionData({
+        formError:
+          "This request could not be attributed to a signed-in Shopify staff member (no online session). " +
+          "Reload the page and try again.",
+      }),
+      { status: 401 }
+    );
+  }
+
+  const draftOrderPort: DraftOrderPort = draftOrderPortOverrideForTests ?? new ShopifyDraftOrderAdapter(admin);
+
+  // D25, criterion 119 — RECOVERY IS ITS OWN EXPLICIT ACTION, never a second
+  // verification. This branch never touches verification fields; it only
+  // (re)attempts completion through the one function safe to call twice.
+  if (intent === "retry-completion") {
+    const completion = await completeVerifiedBankPaymentOrder({
+      bankPaymentOrderId: id,
+      shop: session.shop,
+      admin,
+      draftOrderPort,
+    });
+    if (completion.outcome === "completion_failed") {
+      logger.warn("bank_payments.retry_completion_failed", { bankPaymentOrderId: id, error: completion.error });
+      return Response.json(
+        emptyActionData({ formError: `Completion failed again: ${completion.error}`, completionFailed: true }),
+        { status: 502 }
+      );
+    }
+    logger.info("bank_payments.retry_completion_succeeded", { bankPaymentOrderId: id });
+    return Response.json(emptyActionData({ ok: true }));
+  }
+
   const raw = parseVerificationFormData(formData);
   const submittedEcho = {
     amountReceived: raw.amountReceived ?? "",
     currency: raw.currency ?? "",
     method: raw.method ?? "",
     reference: raw.reference ?? "",
-    verifiedBy: raw.verifiedBy ?? "",
   };
 
   const validation = validateVerificationSubmission(raw);
   if (!validation.ok) {
     return Response.json(
-      { ok: false, formError: null, fieldErrors: validation.errors, submitted: submittedEcho } satisfies ActionData,
+      emptyActionData({ fieldErrors: validation.errors, submitted: submittedEcho }),
       { status: 400 }
     );
   }
@@ -232,7 +320,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const order = await loadBankPaymentOrderForVerification(id);
   if (!order) {
     return Response.json(
-      { ok: false, formError: "That Bank Payment order no longer exists.", fieldErrors: [], submitted: submittedEcho } satisfies ActionData,
+      emptyActionData({ formError: "That Bank Payment order no longer exists.", submitted: submittedEcho }),
       { status: 404 }
     );
   }
@@ -262,22 +350,61 @@ export async function action({ request, params }: ActionFunctionArgs) {
     }));
   }
 
-  const draftOrderPort: DraftOrderPort = draftOrderPortOverrideForTests ?? new ShopifyDraftOrderAdapter(admin);
-
   try {
     const result = await verifyAndCompleteBankPaymentOrder({
       bankPaymentOrderId: id,
       submission: validation.value,
       shop: session.shop,
+      verifiedByShopifyUserId: verifier.verifiedByShopifyUserId,
+      verifiedByEmail: verifier.verifiedByEmail,
+      admin,
       draftOrderPort,
       availabilityShownToAdmin,
     });
+
+    if (result.outcome === "completion_failed") {
+      // D25, criterion 118 — the verification itself IS recorded; only
+      // completion failed. Never re-thrown as a request failure: the next
+      // load classifies this order as verified_pending_completion and shows
+      // the recovery UI, not the form.
+      logger.warn("bank_payments.verified_but_completion_failed", {
+        bankPaymentOrderId: id,
+        error: result.completionError,
+      });
+      return Response.json(
+        emptyActionData({
+          ok: true,
+          completionFailed: true,
+          formError: `Payment was recorded as verified, but completing the Shopify order failed: ${result.completionError}. Use "Retry completion" below.`,
+        })
+      );
+    }
+
     logger.info("bank_payments.verified", { bankPaymentOrderId: id, outcome: result.outcome });
-    return Response.json({ ok: true, formError: null, fieldErrors: [], submitted: null } satisfies ActionData);
+    return Response.json(emptyActionData({ ok: true }));
   } catch (error) {
+    if (error instanceof BankPaymentAmountMismatchError) {
+      // D24, criteria 115-117 — refused before anything was persisted.
+      const c = error.comparison;
+      return Response.json(
+        emptyActionData({
+          formError: "Amount received does not match the amount expected. Nothing was recorded — resolution is manual.",
+          submitted: submittedEcho,
+          mismatch: {
+            expectedMinorUnits: c.expected.amountMinorUnits.toString(),
+            expectedCurrency: c.expected.currency,
+            receivedMinorUnits: c.received.amountMinorUnits.toString(),
+            receivedCurrency: c.received.currency,
+            currencyMismatch: c.currencyMismatch,
+            differenceMinorUnits: c.differenceMinorUnits?.toString() ?? null,
+          },
+        }),
+        { status: 409 }
+      );
+    }
     if (error instanceof BankPaymentOrderNotOpenForVerificationError) {
       return Response.json(
-        { ok: false, formError: error.message, fieldErrors: [], submitted: submittedEcho } satisfies ActionData,
+        emptyActionData({ formError: error.message, submitted: submittedEcho }),
         { status: 409 }
       );
     }
@@ -348,6 +475,31 @@ function FieldError({ id, errors, field }: { id: string; errors: readonly Verifi
   );
 }
 
+/** D24 — both figures and the difference, stated plainly; no remedy path offered (criterion 116). */
+function AmountMismatchNotice({ mismatch }: { mismatch: AmountMismatchView }) {
+  return (
+    <div role="alert" style={{ color: "#b00", margin: "0 0 1rem", border: "1px solid #b00", borderRadius: "4px", padding: "0.75rem 1rem" }}>
+      <p style={{ margin: "0 0 0.5rem", fontWeight: 700 }}>Amount received does not match the amount expected.</p>
+      <p style={{ margin: "0 0 0.25rem" }}>
+        Expected: {formatMinorUnitsForDisplay(mismatch.expectedMinorUnits, mismatch.expectedCurrency)}
+      </p>
+      <p style={{ margin: "0 0 0.25rem" }}>
+        Received: {formatMinorUnitsForDisplay(mismatch.receivedMinorUnits, mismatch.receivedCurrency)}
+      </p>
+      {mismatch.currencyMismatch ? (
+        <p style={{ margin: "0 0 0.5rem" }}>The received currency does not match the expected currency.</p>
+      ) : (
+        <p style={{ margin: "0 0 0.5rem" }}>
+          Difference: {formatMinorUnitsForDisplay(mismatch.differenceMinorUnits ?? "0", mismatch.expectedCurrency)}
+        </p>
+      )}
+      <p style={{ margin: 0 }}>
+        Nothing was recorded. Resolution is manual — confirm the correct amount before submitting again.
+      </p>
+    </div>
+  );
+}
+
 export default function BankPaymentVerificationPage() {
   const { apiKey, shop, order, availabilityCheckError } = useLoaderData<typeof loader>();
   const actionData = useActionData<ActionData>();
@@ -356,6 +508,7 @@ export default function BankPaymentVerificationPage() {
 
   const fieldErrors = actionData?.fieldErrors ?? [];
   const submitted = actionData?.submitted ?? null;
+  const mismatch = actionData?.mismatch ?? null;
 
   return (
     <AppProvider apiKey={apiKey}>
@@ -377,6 +530,12 @@ export default function BankPaymentVerificationPage() {
             <section style={{ marginBottom: "1.5rem", border: "1px solid #ddd", borderRadius: "4px", padding: "1rem" }}>
               <h2 style={{ fontSize: "1rem", margin: "0 0 0.5rem" }}>Order</h2>
               <dl style={{ margin: 0, fontSize: "0.875rem", display: "grid", rowGap: "0.35rem" }}>
+                <div>
+                  <dt style={{ display: "inline", fontWeight: 600 }}>Bank Payment order reference: </dt>
+                  <dd style={{ display: "inline", margin: 0 }}>
+                    <code>{order.id}</code>
+                  </dd>
+                </div>
                 <div>
                   <dt style={{ display: "inline", fontWeight: 600 }}>Customer email: </dt>
                   <dd style={{ display: "inline", margin: 0 }}>{order.customerEmail}</dd>
@@ -450,19 +609,21 @@ export default function BankPaymentVerificationPage() {
               </ul>
             </section>
 
-            {order.verifiedAt ? (
+            {order.verificationState === "completed" || order.verificationState === "verified_pending_completion" ? (
               <section style={{ marginBottom: "1.5rem", border: "1px solid #ddd", borderRadius: "4px", padding: "1rem" }}>
                 <h2 style={{ fontSize: "1rem", margin: "0 0 0.5rem" }}>Verification record</h2>
                 <dl style={{ margin: 0, fontSize: "0.875rem", display: "grid", rowGap: "0.35rem" }}>
                   <div>
                     <dt style={{ display: "inline", fontWeight: 600 }}>Verified at: </dt>
                     <dd style={{ display: "inline", margin: 0 }}>
-                      <time dateTime={order.verifiedAt}>{formatTimestamp(order.verifiedAt)}</time>
+                      {order.verifiedAt ? <time dateTime={order.verifiedAt}>{formatTimestamp(order.verifiedAt)}</time> : null}
                     </dd>
                   </div>
                   <div>
                     <dt style={{ display: "inline", fontWeight: 600 }}>Verified by: </dt>
-                    <dd style={{ display: "inline", margin: 0 }}>{order.verifiedBy}</dd>
+                    <dd style={{ display: "inline", margin: 0 }}>
+                      {order.verifiedByEmail} (Shopify user {order.verifiedByShopifyUserId})
+                    </dd>
                   </div>
                   <div>
                     <dt style={{ display: "inline", fontWeight: 600 }}>Method: </dt>
@@ -489,27 +650,48 @@ export default function BankPaymentVerificationPage() {
                     </p>
                   ) : order.comparison.matchesExactly ? (
                     <p style={{ margin: "0.75rem 0 0" }}>Amount received matches the amount expected exactly.</p>
-                  ) : (
-                    <p role="alert" style={{ margin: "0.75rem 0 0", fontWeight: 700, color: "#b06a00" }}>
-                      Amount received does NOT match the amount expected. Difference:{" "}
-                      {formatMinorUnitsForDisplay(order.comparison.differenceMinorUnits ?? "0", order.currency)} (
-                      {order.comparison.differenceMinorUnits && order.comparison.differenceMinorUnits.startsWith("-")
-                        ? "underpaid"
-                        : "overpaid"}
-                      ). This does not block anything — decide how to handle it.
+                  ) : null /* D24 means a stored, non-matching comparison should not occur going forward; kept defensive rather than asserted. */
+                ) : null}
+
+                {order.verificationState === "verified_pending_completion" ? (
+                  <div style={{ marginTop: "1rem", padding: "0.75rem 1rem", border: "1px solid #b06a00", borderRadius: "4px" }}>
+                    <p role="alert" style={{ margin: "0 0 0.5rem", fontWeight: 700, color: "#b06a00" }}>
+                      Payment is verified, but the Shopify order could not be completed automatically.
                     </p>
-                  )
+                    <p style={{ margin: "0 0 0.75rem", fontSize: "0.875rem" }}>
+                      Nothing further was verified or charged. Retrying is safe — it always checks with Shopify
+                      first, so it will never create a second order for this payment.
+                    </p>
+                    {actionData?.formError && actionData.completionFailed ? (
+                      <p role="alert" style={{ margin: "0 0 0.75rem", color: "#b00", fontSize: "0.875rem" }}>
+                        {actionData.formError}
+                      </p>
+                    ) : null}
+                    <Form method="post">
+                      <input type="hidden" name="intent" value="retry-completion" />
+                      <button type="submit" disabled={busy}>
+                        {busy ? "Retrying…" : "Retry completion"}
+                      </button>
+                    </Form>
+                  </div>
                 ) : null}
               </section>
-            ) : order.status !== "open" ? (
+            ) : order.verificationState === "cancelled" ? (
               <p role="alert" style={{ color: "#b00" }}>
                 This order is {order.status} and cannot be verified.
               </p>
             ) : (
               <section style={{ border: "1px solid #ddd", borderRadius: "4px", padding: "1rem" }}>
-                <h2 style={{ fontSize: "1rem", margin: "0 0 0.75rem" }}>Record verification</h2>
+                <h2 style={{ fontSize: "1rem", margin: "0 0 0.75rem" }}>Verify payment</h2>
+                <p style={{ margin: "0 0 1rem", fontSize: "0.875rem", color: "#555" }}>
+                  Recording this will mark the payment as verified and attempt to complete the Shopify order for
+                  Bank Payment order <code>{order.id}</code>. If the amount you enter does not match the amount
+                  expected, nothing will be recorded.
+                </p>
 
-                {actionData?.formError ? (
+                {mismatch ? <AmountMismatchNotice mismatch={mismatch} /> : null}
+
+                {actionData?.formError && !mismatch ? (
                   <p role="alert" style={{ color: "#b00", margin: "0 0 1rem" }}>
                     {actionData.formError}
                   </p>
@@ -529,6 +711,7 @@ export default function BankPaymentVerificationPage() {
                 ) : null}
 
                 <Form method="post">
+                  <input type="hidden" name="intent" value="verify" />
                   <div style={{ marginBottom: "0.75rem" }}>
                     <label htmlFor="amountReceived" style={{ display: "block", fontWeight: 600, fontSize: "0.875rem" }}>
                       Amount received in {order.currency} — required (as it appears on the statement, e.g. 1500.00)
@@ -585,7 +768,7 @@ export default function BankPaymentVerificationPage() {
                     <FieldError id="method-error" errors={fieldErrors} field="method" />
                   </div>
 
-                  <div style={{ marginBottom: "0.75rem" }}>
+                  <div style={{ marginBottom: "1rem" }}>
                     <label htmlFor="reference" style={{ display: "block", fontWeight: 600, fontSize: "0.875rem" }}>
                       Reference / confirmation number (optional — record if available)
                     </label>
@@ -598,28 +781,8 @@ export default function BankPaymentVerificationPage() {
                     />
                   </div>
 
-                  <div style={{ marginBottom: "1rem" }}>
-                    <label htmlFor="verifiedBy" style={{ display: "block", fontWeight: 600, fontSize: "0.875rem" }}>
-                      Your name (verifying admin) — required
-                    </label>
-                    <input
-                      id="verifiedBy"
-                      name="verifiedBy"
-                      type="text"
-                      defaultValue={submitted?.verifiedBy ?? ""}
-                      aria-invalid={fieldErrors.some((e) => e.field === "verifiedBy") || undefined}
-                      aria-describedby="verifiedBy-error"
-                      style={{ display: "block", padding: "0.4rem 0.6rem", width: "100%", maxWidth: "20rem" }}
-                    />
-                    <FieldError id="verifiedBy-error" errors={fieldErrors} field="verifiedBy" />
-                    <p style={{ margin: "0.25rem 0 0", fontSize: "0.75rem", color: "#777" }}>
-                      Typed, not authenticated — this app cannot yet confirm which staff member is signed in. See
-                      the handoff notes for the follow-up.
-                    </p>
-                  </div>
-
                   <button type="submit" disabled={busy}>
-                    {busy ? "Recording…" : "Record verification and complete order"}
+                    {busy ? "Verifying…" : "Verify Payment & Complete Order"}
                   </button>
                 </Form>
               </section>

@@ -5,6 +5,7 @@ import { Money } from "~/domain/money/money";
 import {
   BANK_PAYMENT_METHODS,
   chargedUnitPriceMinorUnits,
+  classifyBankPaymentOrderState,
   compareReceivedToExpected,
   computeExpectedTotal,
   isBankPaymentMethod,
@@ -15,8 +16,9 @@ import {
 
 /**
  * Pure-function table tests for the phase 2C-c verification decision layer
- * (spec §5.4/§14 criteria 87-88, 103-104). See `verification.server.ts`'s
- * own tests for the database/Shopify-facing half.
+ * (spec §5.4/§14/§19 criteria 87-88, 103-104, 112-124). See
+ * `verification.server.ts`'s own tests for the database/Shopify-facing half,
+ * including D24's amount-mismatch refusal and D25's completion recovery.
  */
 
 function raw(overrides: Partial<RawVerificationSubmission> = {}): RawVerificationSubmission {
@@ -26,7 +28,6 @@ function raw(overrides: Partial<RawVerificationSubmission> = {}): RawVerificatio
     currency: "usd",
     method: "zelle",
     reference: "REF-123",
-    verifiedBy: "Jordan Lee",
     ...overrides,
   };
 }
@@ -47,9 +48,7 @@ describe("BANK_PAYMENT_METHODS / isBankPaymentMethod", () => {
 
 describe("validateVerificationSubmission", () => {
   it("accepts a fully populated submission, normalizing currency case and trimming whitespace", () => {
-    const result = validateVerificationSubmission(
-      raw({ currency: " usd ", verifiedBy: "  Jordan Lee  ", reference: "  REF-123  " })
-    );
+    const result = validateVerificationSubmission(raw({ currency: " usd ", reference: "  REF-123  " }));
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("expected ok");
     expect(result.value).toEqual({
@@ -57,7 +56,6 @@ describe("validateVerificationSubmission", () => {
       currency: "USD",
       method: "zelle",
       reference: "REF-123",
-      verifiedBy: "Jordan Lee",
     });
   });
 
@@ -155,16 +153,11 @@ describe("validateVerificationSubmission", () => {
     expect(result.errors.some((e) => e.field === "method")).toBe(true);
   });
 
-  it("refuses a missing verifying admin identifier", () => {
-    const result = validateVerificationSubmission(raw({ verifiedBy: null }));
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("expected refusal");
-    expect(result.errors).toEqual([{ field: "verifiedBy", message: expect.any(String) }]);
-  });
-
-  it("refuses a whitespace-only verifying admin identifier — never a blank stored as evidence", () => {
-    const result = validateVerificationSubmission(raw({ verifiedBy: "   " }));
-    expect(result.ok).toBe(false);
+  it("has no verifying-admin field to validate — D23 removed it; the identity comes from the authenticated session, not this form", () => {
+    const result = validateVerificationSubmission(raw());
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.value).not.toHaveProperty("verifiedBy");
   });
 
   it("collects every field error at once rather than stopping at the first", () => {
@@ -173,11 +166,10 @@ describe("validateVerificationSubmission", () => {
       currency: null,
       method: null,
       reference: null,
-      verifiedBy: null,
     });
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("expected refusal");
-    expect(result.errors.map((e) => e.field).sort()).toEqual(["amountReceived", "currency", "method", "verifiedBy"]);
+    expect(result.errors.map((e) => e.field).sort()).toEqual(["amountReceived", "currency", "method"]);
   });
 });
 
@@ -250,14 +242,13 @@ describe("parseVerificationFormData", () => {
     return fd;
   }
 
-  it("extracts all five fields by name", () => {
+  it("extracts all four fields by name", () => {
     const result = parseVerificationFormData(
       formData({
         amountReceived: "150000",
         currency: "USD",
         method: "zelle",
         reference: "REF-1",
-        verifiedBy: "Jordan Lee",
       })
     );
     expect(result).toEqual<RawVerificationSubmission>({
@@ -265,20 +256,18 @@ describe("parseVerificationFormData", () => {
       currency: "USD",
       method: "zelle",
       reference: "REF-1",
-      verifiedBy: "Jordan Lee",
     });
   });
 
   it("reports a missing field as null, not undefined or empty string, so validation's own 'required' message applies uniformly", () => {
     const fd = new FormData();
     fd.set("amountReceived", "150000");
-    // currency, method, reference, verifiedBy all omitted.
+    // currency, method, reference all omitted.
     const result = parseVerificationFormData(fd);
     expect(result.amountReceived).toBe("150000");
     expect(result.currency).toBeNull();
     expect(result.method).toBeNull();
     expect(result.reference).toBeNull();
-    expect(result.verifiedBy).toBeNull();
   });
 
   it("treats a File value (a mistyped or hijacked field) as absent rather than throwing", () => {
@@ -293,5 +282,29 @@ describe("parseVerificationFormData", () => {
     fd.set("amountReceived", "150000");
     const result = validateVerificationSubmission(parseVerificationFormData(fd));
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("classifyBankPaymentOrderState — D25, criteria 118-119", () => {
+  it("is unverified when open and never verified", () => {
+    expect(classifyBankPaymentOrderState({ status: "open", verifiedAt: null })).toBe("unverified");
+  });
+
+  it("is verified_pending_completion when open AND verified — the recovery state, never re-shown the form", () => {
+    expect(classifyBankPaymentOrderState({ status: "open", verifiedAt: new Date() })).toBe(
+      "verified_pending_completion"
+    );
+  });
+
+  it("is completed once status says so, regardless of verifiedAt", () => {
+    expect(classifyBankPaymentOrderState({ status: "completed", verifiedAt: new Date() })).toBe("completed");
+  });
+
+  it("is cancelled once status says so, even if it was verified before being cancelled", () => {
+    expect(classifyBankPaymentOrderState({ status: "cancelled", verifiedAt: new Date() })).toBe("cancelled");
+  });
+
+  it("is cancelled when status says so and it was never verified", () => {
+    expect(classifyBankPaymentOrderState({ status: "cancelled", verifiedAt: null })).toBe("cancelled");
   });
 });
