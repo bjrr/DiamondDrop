@@ -871,3 +871,114 @@ than implying an authenticated trail it does not have.
 how the app authenticates, not to this screen, and it belongs with whichever
 slice first needs to distinguish one staff member from another — a dispute over
 who approved what being the obvious trigger.
+
+---
+
+## 19. Phase 2C-c, revised — owner clarifications 2026-09-22
+
+The surface built at `cfdcdba` conflicts with three of these. This section is
+the spec and architecture review for the revision.
+
+### 19.1 D23 — the verifier is an authenticated identity, not a typed name
+
+**OWNER RULING.** `verified_by` must come from the authenticated admin, not a
+text field. F-2C-5 is therefore no longer a follow-up; it is the requirement.
+
+**This is achievable and, importantly, additive.** Setting `useOnlineTokens:
+true` makes token exchange request an online token **in addition to** the
+offline one — verified in the installed library source
+(`…/strategies/token-exchange.js`: the offline session is exchanged and stored
+first, then the online session when the flag is set). The offline session the
+guarantee sweep and the recalculation cron depend on through
+`unauthenticated.admin` is untouched. Nothing background-facing changes.
+
+`OnlineAccessUser` carries `id`, `email`, `first_name`, `last_name` and
+`account_owner`, so the record can name a person rather than a shop.
+
+**112.** `useOnlineTokens: true`, and the offline session must still be present
+after an embedded request — asserted, because the whole background half of this
+app depends on it.
+
+**113.** Verification records the authenticated Shopify staff **user id** and
+**email**. The free-text name field is removed from the form entirely: a field
+that cannot be trusted is worse than no field, because it looks like evidence.
+
+**114.** A request that somehow carries no associated user is **refused**, not
+defaulted. An unattributable verification is not a verification.
+
+### 19.2 D24 — a mismatched amount refuses, and refuses BEFORE recording
+
+**OWNER RULING.** Do not complete the Shopify order when the amount received
+differs from the expected Bank Payment amount. Show the mismatch; require
+manual resolution. Invent no partial-payment, overpayment, credit or adjustment
+behaviour.
+
+**115.** The action compares received against expected and, on any difference,
+**refuses before persisting anything**. Not "records the verification but skips
+completion" — that would strand the order in the verified-but-incomplete state
+D25 exists to recover, and would make a simple typo unrecoverable through the
+idempotency guard.
+
+**116.** The refusal states both figures and the difference, and says plainly
+that resolution is manual. No remedy path is offered, because none is decided.
+
+**117.** The attempt is written to the audit trail — someone tried, and was
+refused. That uses the existing evidence pattern without inventing remedy
+behaviour.
+
+### 19.3 D25 — completion failing after evidence is recorded
+
+**OWNER RULING.** Never let staff simply verify again. Preserve the state and
+make recovery explicit, so we cannot create or complete an order twice.
+
+**118.** When verification persists but `completeBankPaymentOrder` fails, the
+order holds a distinct **verified, not completed** state. The verification form
+does not reappear.
+
+**119.** Recovery is its own explicit action — *retry completion* — never a
+second verification. The evidence already recorded is never rewritten.
+
+**120. THE DANGEROUS CASE, AND THE REASON THIS IS NOT A SIMPLE RETRY.**
+`draftOrderComplete` may have **succeeded at Shopify** while our write of the
+resulting order id failed. Retrying blind would complete the draft twice and
+create a second real order against one payment. So recovery must first ask
+Shopify whether the draft already became an order — `draftOrder { order { id } }`
+— and **adopt** that id if so, completing only when Shopify confirms it never
+did. 2C-a's live gate found exactly this shape once already: a
+`draftOrderComplete` that succeeded while the read of its result was denied,
+leaving order `#1001` that we never recorded.
+
+### 19.4 The rest of the clarifications
+
+**121.** The verification timestamp is system-generated. It already is; no form
+field accepts one, and none may be added.
+
+**122.** The payment reference stays optional — some bank methods carry no
+useful reference (§8.7's "where available").
+
+**123.** Before submitting, the surface states the consequence and shows the
+expected amount, the amount received, the method, the reference where
+available, and the order reference. The action is labelled **"Verify Payment &
+Complete Order"** so the consequence is legible before the click, not after.
+
+**124.** After success the completed state replaces the form. A form left
+active after a completed order invites the second submission every other rule
+here exists to prevent.
+
+### 19.5 Architecture review
+
+**Boundary unchanged.** Shopify still owns the order, the draft and the
+gateway. We add an authenticated identity to an existing record and a recovery
+path to an existing failure.
+
+**One real risk, and it is D25's.** Everything else is a field change or a
+refusal. The retry-completion path is the only new way to create a duplicate
+real order, which is why criterion 120 makes it a read-before-write rather
+than a retry.
+
+**Online tokens are the only cross-cutting change.** Additive, as established
+above, but it touches authentication for every embedded request — so criterion
+112 asserts the offline session survives rather than assuming it.
+
+**VERDICT: APPROVE.** No unresolved owner decision, no new infrastructure, and
+the one risky path is specified as read-before-write.
