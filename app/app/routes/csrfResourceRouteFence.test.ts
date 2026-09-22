@@ -70,6 +70,20 @@ const EXEMPT_UI_ACTION_ROUTES: Readonly<Record<string, string>> = {
     "action is also gated by isDevProbeEnabled() and returns 403 outside " +
     "development regardless of Origin — there is no production mutation on " +
     "this route today. If that ever changes, this exemption must be re-argued.",
+  "app.bank-payments.$id.tsx":
+    "the manual Bank Payment verification admin surface (Slice 2C phase 2C-c). " +
+    "NOT the same argument as _index.tsx, which rests on two legs — same-origin " +
+    "AND no production mutation (its action 403s outside development). This " +
+    "route IS a real production mutation: it records a payment and completes a " +
+    "Shopify order. It stands on the first leg alone, and that leg is the " +
+    "load-bearing one: throwIfPotentialCSRFAttack rejects a mutation whose " +
+    "Origin DIFFERS FROM THE APP'S OWN HOST, and allowedActionOrigins only " +
+    "widens that set. Shopify Admin iframes this route at the app's own URL, so " +
+    "a form inside it posts with the app's own Origin and is same-origin by " +
+    "construction — unlike an App Proxy, webhook or cron caller, every one of " +
+    "which arrives from somewhere else. " +
+    "If this route ever accepts a POST from anywhere but its own rendered form, " +
+    "this exemption stops being true and must be re-argued.",
 };
 
 function routeFiles(): string[] {

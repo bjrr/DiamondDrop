@@ -1365,6 +1365,22 @@ enum BankPaymentOrderStatus {
   @@map("bank_payment_order_status")
 }
 
+/// Phase 2C-c, verification admin surface (spec §5.4 criteria 87/23;
+/// `CLAUDE.md` #14). EXACTLY the four electronic methods the owner locked as
+/// eligible Bank Payment methods -- no cheque, money order or other paper
+/// instrument. This is an enum rather than free text on
+/// `BankPaymentOrder.verifiedPaymentMethod` precisely so a staff member
+/// cannot type "check" into a field and have it silently recorded as a valid
+/// verification: the database itself is the enforcement, not code review.
+enum BankPaymentMethod {
+  zelle
+  ach
+  bank_transfer
+  wire
+
+  @@map("bank_payment_method")
+}
+
 /// The 24-hour guarantee sweep's CUSTOMER cancellation email delivery record
 /// (spec §13/§14; owner verification list). Same member names as
 /// `AdminAlertEmailDeliveryStatus` on purpose (both describe a real email
@@ -1425,7 +1441,13 @@ model BankPaymentOrder {
   /// assuming that agreement implicitly.
   verifiedPaymentAmountMinorUnits BigInt?   @map("verified_payment_amount_minor_units")
   verifiedPaymentCurrency         String?   @map("verified_payment_currency") @db.Char(3)
-  verifiedPaymentMethod           String?   @map("verified_payment_method")
+  /// Phase 2C-c. Was free-text `String?` -- widened to the closed
+  /// `BankPaymentMethod` enum so the four electronic-only eligible methods
+  /// (`CLAUDE.md` #14) are enforced by the database, not by a staff member
+  /// remembering not to type "check". See migration
+  /// 20260922_bank_payment_method_enum for the data checked before this
+  /// column was narrowed.
+  verifiedPaymentMethod           BankPaymentMethod? @map("verified_payment_method")
   /// "Reference where available" (owner §8.7) -- the one verification field
   /// that may legitimately stay NULL even once verified.
   verifiedPaymentReference        String?   @map("verified_payment_reference")

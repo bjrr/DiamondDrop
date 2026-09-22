@@ -854,3 +854,20 @@ never overwrites an existing key, so an empty string survives, and
 This is the second time an operational setting has broken tests asserting a
 default — `PRICE_AUTO_PUBLISH_ENABLED` was the first. Both now live in the
 harness.
+
+### F-2C-5 — the verifying admin is typed, not authenticated
+
+`bank_payment_order.verified_by` is a **required typed string**, not an
+identity. The app uses **offline** session tokens, so `authenticate.admin()`
+yields a shop, not a person. The authenticated half — `session.shop` — is
+recorded as `actorRef` on every audit event the verification writes, but
+nothing proves *which* staff member typed the name.
+
+For a launch-minimum manual workflow with a handful of trusted staff that is
+acceptable, and the surface says so in plain words on the form itself rather
+than implying an authenticated trail it does not have.
+
+**Real per-user attribution needs online session tokens.** That is a change to
+how the app authenticates, not to this screen, and it belongs with whichever
+slice first needs to distinguish one staff member from another — a dispute over
+who approved what being the obvious trigger.
