@@ -744,14 +744,17 @@
           </div>
 
           {%- comment -%}
-            Stage 2C builds the real Bank Payment Checkout flow. Clearly-marked stub only,
-            per the 2B-3 brief — present per owner §20, wired to no checkout path.
+            Slice 2C task 2C-6. Previously a clearly-marked stub wired to no checkout path
+            (owner §20 / 2B-3 brief); now opens the details-form dialog via
+            theme/assets/bank-payment-checkout.js's delegated click listener on
+            `data-carat-checkout-action="bank-payment"` — see main-cart-footer.liquid's
+            matching comment.
           {%- endcomment -%}
           <button
             type="button"
             id="CartDrawer-BankPaymentCheckout"
             class="cart__checkout-button button button--secondary"
-            data-carat-checkout-stub="bank-payment"
+            data-carat-checkout-action="bank-payment"
             aria-describedby="CartDrawer-BankPaymentCheckout-note"
             {% if cart == empty %}
               disabled

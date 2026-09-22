@@ -181,8 +181,8 @@ describe("R12 DOM contract — cart money nodes", () => {
       expect(source).toMatch(/type="submit"[\s\S]{0,200}id="checkout"/);
     });
 
-    it("the Bank Payment Checkout button is a clearly-marked stub, not a submit control", () => {
-      expect(source).toMatch(/type="button"[\s\S]{0,200}data-carat-checkout-stub="bank-payment"/);
+    it("the Bank Payment Checkout button is a real action (Slice 2C task 2C-6), not a submit control", () => {
+      expect(source).toMatch(/type="button"[\s\S]{0,200}data-carat-checkout-action="bank-payment"/);
     });
 
     it("suppresses accelerated/dynamic checkout in Bank mode and allows it in Card mode (L4)", () => {
@@ -257,7 +257,7 @@ describe("R12 DOM contract — cart money nodes", () => {
     it("offers both Card Checkout and Bank Payment Checkout, matching the cart footer's treatment", () => {
       expect(source).toContain("sections.cart.card_checkout");
       expect(source).toContain("sections.cart.bank_payment_checkout");
-      expect(source).toMatch(/type="button"[\s\S]{0,200}data-carat-checkout-stub="bank-payment"/);
+      expect(source).toMatch(/type="button"[\s\S]{0,200}data-carat-checkout-action="bank-payment"/);
     });
 
     it("the owner §3 per-line breakdown block is not gated behind an eligibility conditional", () => {
@@ -279,7 +279,7 @@ describe("R12 DOM contract — cart money nodes", () => {
     it("still routes its checkout CTA by cart mode, per owner §20", () => {
       expect(source).toContain("sections.cart.card_checkout");
       expect(source).toContain("sections.cart.bank_payment_checkout");
-      expect(source).toMatch(/type="button"[\s\S]{0,200}data-carat-checkout-stub="bank-payment"/);
+      expect(source).toMatch(/type="button"[\s\S]{0,200}data-carat-checkout-action="bank-payment"/);
     });
   });
 

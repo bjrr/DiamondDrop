@@ -267,17 +267,21 @@
                 </div>
 
                 {%- comment -%}
-                  Stage 2C (docs/specs/SLICE-2-BUY-NOW-STOREFRONT-AND-SYNC.md §3) builds the
-                  real Bank Payment Checkout flow (draft order + invoice). This button is a
-                  clearly-marked stub only — present per owner §20, wired to no checkout path,
-                  per the 2B-3 brief ("do not invent a checkout path"). type="button" so it
-                  cannot accidentally submit the Card checkout form.
+                  Slice 2C task 2C-6 (docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md criteria
+                  83-86, 94-95, D20). Previously a clearly-marked stub wired to no checkout
+                  path (owner §20 / 2B-3 brief); now opens the details-form dialog
+                  (snippets/bank-payment-checkout-dialog.liquid) via
+                  theme/assets/bank-payment-checkout.js's document-level delegated click
+                  listener on `data-carat-checkout-action="bank-payment"` — same attribute
+                  family as the Card Checkout actions above (`data-carat-checkout-action=
+                  "card"` / `"card-confirm"`), not a bespoke stub marker anymore.
+                  type="button" so it still cannot accidentally submit the Card checkout form.
                 {%- endcomment -%}
                 <button
                   type="button"
                   id="bank-payment-checkout"
                   class="cart__checkout-button button button--secondary"
-                  data-carat-checkout-stub="bank-payment"
+                  data-carat-checkout-action="bank-payment"
                   aria-describedby="bank-payment-checkout-note"
                   {% if cart == empty %}
                     disabled

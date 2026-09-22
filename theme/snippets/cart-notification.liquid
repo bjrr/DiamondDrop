@@ -74,14 +74,22 @@
         </form>
         </form>
         {%- comment -%}
-          Stage 2C builds the real Bank Payment Checkout flow. Clearly-marked stub only,
-          per the 2B-3 brief — present per owner §20, wired to no checkout path.
+          Slice 2C task 2C-6. Previously a clearly-marked stub wired to no checkout path
+          (owner §20 / 2B-3 brief); now opens the details-form dialog via
+          theme/assets/bank-payment-checkout.js's delegated click listener on
+          `data-carat-checkout-action="bank-payment"` — see main-cart-footer.liquid's
+          matching comment. This surface's own note (in the 2B-5 handoff) already covers
+          why the popup hands off to the full cart for the Card Checkout reprice-confirm
+          panel rather than duplicating it; the same reasoning does not apply here — the
+          Bank Payment Checkout dialog is global (rendered once in header.liquid), so this
+          button opens the SAME dialog instance the cart page and drawer do, not a second
+          copy.
         {%- endcomment -%}
         <button
           type="button"
           id="cart-notification-bank-payment-checkout"
           class="button button--secondary button--full-width"
-          data-carat-checkout-stub="bank-payment"
+          data-carat-checkout-action="bank-payment"
           aria-describedby="cart-notification-bank-payment-checkout-note"
         >
           {{ 'sections.cart.bank_payment_checkout' | t }}

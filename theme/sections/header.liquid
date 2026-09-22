@@ -126,6 +126,20 @@
 
 <script src="{{ 'cart-notification.js' | asset_url }}" defer="defer"></script>
 
+{%- comment -%}
+  Slice 2C task 2C-6 (docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md criteria
+  83-86, 94-95, D20). Loaded here, unconditionally, for the same reason
+  cart-notification.js above is: header.liquid renders on every page via
+  `header-group` (theme.liquid), regardless of `settings.cart_type`, unlike
+  cart.js which only loads on the cart page or inside the drawer. A Bank
+  Payment Checkout trigger can appear on ANY page (the cart-notification
+  popup fires right after an add-to-cart from a PDP or collection page), so
+  its handler must be present everywhere those triggers can render — see
+  bank-payment-checkout.js's own header comment.
+{%- endcomment -%}
+{{ 'component-bank-payment-checkout.css' | asset_url | stylesheet_tag }}
+<script src="{{ 'bank-payment-checkout.js' | asset_url }}" defer="defer"></script>
+
 {%- liquid
   for block in section.blocks
     if block.type == '@app'
@@ -325,6 +339,19 @@
     desktop_menu_type: section.settings.menu_type_desktop
   -%}
 {%- endif -%}
+
+{%- comment -%}
+  Slice 2C task 2C-6. Rendered ONCE, UNCONDITIONALLY (not gated on
+  `settings.cart_type`, unlike cart-notification above): the Bank Payment
+  Checkout trigger button exists on the cart page (main-cart-footer.liquid),
+  the drawer (cart-drawer.liquid) and the notification popup
+  (cart-notification.liquid) regardless of which of those is the merchant's
+  configured cart_type, and this dialog is the one thing all three open. See
+  snippets/bank-payment-checkout-dialog.liquid's own header comment for why
+  rendering it once here (rather than once per trigger surface) is safe —
+  `<modal-dialog>` moves itself to `document.body` on connect.
+{%- endcomment -%}
+{%- render 'bank-payment-checkout-dialog' -%}
 
 {% javascript %}
   class StickyHeader extends HTMLElement {

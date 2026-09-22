@@ -63,9 +63,9 @@ describe("snippets/cart-notification.liquid — Card Checkout interception marke
     expect(window_).toMatch(/name="checkout"/);
   });
 
-  it("still offers the Bank Payment Checkout stub, matching the cart footer/drawer treatment", () => {
+  it("still offers the Bank Payment Checkout action, matching the cart footer/drawer treatment (Slice 2C task 2C-6: wired, no longer a stub)", () => {
     expect(source).toContain("sections.cart.bank_payment_checkout");
-    expect(source).toMatch(/type="button"[\s\S]{0,200}data-carat-checkout-stub="bank-payment"/);
+    expect(source).toMatch(/type="button"[\s\S]{0,200}data-carat-checkout-action="bank-payment"/);
   });
 
   it("introduces no forbidden pricing terminology", () => {

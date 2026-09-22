@@ -1,0 +1,159 @@
+/**
+ * Bank Payment Checkout details-form modal (Slice 2C task 2C-6,
+ * docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md criteria 83-86, 94-95, D20).
+ *
+ * Same shell shape as `.product-popup-modal` in section-main-product.css
+ * (fixed overlay, opacity/visibility toggled on the `[open]` attribute
+ * `<modal-dialog>` itself sets — see global.js's ModalDialog.show/hide),
+ * duplicated under its own class prefix rather than reused directly: that
+ * component styles an arbitrary CMS popup opened from a product page block,
+ * a different semantic context from a money-critical checkout form that
+ * must render correctly from three different triggers (cart page, cart
+ * drawer, cart notification popup). Field styling reuses base.css's global
+ * `.field`/`.field__input`/`.field__label`/`.form__message`/`.form-status`
+ * classes directly rather than redefining them.
+ */
+
+.carat-bank-checkout-modal {
+  box-sizing: border-box;
+  opacity: 0;
+  position: fixed;
+  visibility: hidden;
+  z-index: -1;
+  margin: 0 auto;
+  top: 0;
+  left: 0;
+  overflow: auto;
+  width: 100%;
+  height: 100%;
+  background: rgba(var(--color-foreground), 0.2);
+}
+
+.carat-bank-checkout-modal[open] {
+  opacity: 1;
+  visibility: visible;
+  z-index: 101;
+}
+
+.carat-bank-checkout-modal__content {
+  box-sizing: border-box;
+  border-radius: var(--popup-corner-radius);
+  background-color: rgb(var(--color-background));
+  overflow: auto;
+  max-height: 85%;
+  margin: 5rem auto 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 92%;
+  position: absolute;
+  top: 0;
+  padding: 2.5rem 1.5rem 2.5rem 1.5rem;
+  border-color: rgba(var(--color-foreground), var(--popup-border-opacity));
+  border-style: solid;
+  border-width: var(--popup-border-width);
+  box-shadow: var(--popup-shadow-horizontal-offset) var(--popup-shadow-vertical-offset) var(--popup-shadow-blur-radius)
+    rgba(var(--color-shadow), var(--popup-shadow-opacity));
+}
+
+@media screen and (min-width: 750px) {
+  .carat-bank-checkout-modal__content {
+    margin-top: 6rem;
+    width: 60rem;
+    max-width: 92%;
+    padding: 3rem 4rem;
+  }
+}
+
+.carat-bank-checkout-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.carat-bank-checkout-modal__title {
+  margin: 0;
+}
+
+.carat-bank-checkout-modal__toggle {
+  background-color: rgb(var(--color-background));
+  border: 0.1rem solid rgba(var(--color-foreground), 0.1);
+  border-radius: 50%;
+  color: rgba(var(--color-foreground), 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 1rem;
+  width: 3.6rem;
+  min-width: 3.6rem;
+  flex-shrink: 0;
+}
+
+.carat-bank-checkout-modal__toggle:hover {
+  color: rgba(var(--color-foreground), 0.75);
+}
+
+.carat-bank-checkout-modal__toggle .icon {
+  height: auto;
+  margin: 0;
+  width: 1.8rem;
+}
+
+/* Criterion 84 — the not-committed disclosure must be visible before
+   submitting, so it is styled to stand out rather than read as fine print,
+   and is never conditionally hidden. */
+.carat-bank-checkout-modal__disclosure {
+  background: rgba(var(--color-foreground), 0.04);
+  border: 0.1rem solid rgba(var(--color-foreground), 0.1);
+  border-radius: var(--inputs-radius, 0);
+  padding: 1.2rem 1.5rem;
+  margin: 0 0 2rem;
+  font-size: 1.4rem;
+  line-height: 1.5;
+}
+
+.carat-bank-checkout-modal__error-summary {
+  margin: 0 0 2rem;
+}
+
+.carat-bank-checkout-modal__field {
+  margin-bottom: 1.5rem;
+}
+
+.carat-bank-checkout-modal__field-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0 2rem;
+}
+
+@media screen and (min-width: 750px) {
+  .carat-bank-checkout-modal__field-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.carat-bank-checkout-modal__field-error {
+  display: block;
+}
+
+.carat-bank-checkout-modal__field-error[hidden] {
+  display: none;
+}
+
+.carat-bank-checkout-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  align-items: center;
+  margin-top: 2.5rem;
+}
+
+.carat-bank-checkout-modal__status[hidden] {
+  display: none;
+}
+
+.carat-bank-checkout-modal__status {
+  margin: 1.5rem 0 0;
+}

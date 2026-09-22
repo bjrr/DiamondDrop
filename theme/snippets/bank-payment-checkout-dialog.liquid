@@ -1,0 +1,333 @@
+{%- comment -%}
+  Bank Payment Checkout details form (Slice 2C task 2C-6,
+  docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md §5.3/§5.6, criteria 83-86,
+  94-95, D20). Fixes the dead stub: previously every
+  `data-carat-checkout-action="bank-payment"` button (main-cart-footer.liquid,
+  cart-drawer.liquid, cart-notification.liquid) rendered, was announced, and
+  did nothing — nothing handled the click. `theme/assets/bank-payment-
+  checkout.js` (loaded unconditionally in layout/theme.liquid) is what wires
+  this dialog open and POSTs its contents to `/apps/carat/bank-checkout`.
+
+  RENDERED ONCE, GLOBALLY, OUTSIDE ANY RE-RENDERED CART SECTION. All three
+  trigger buttons live inside sections the Section Rendering API swaps on a
+  quantity change (main-cart-footer, CartDrawer/CartDrawerItems — see
+  SLICE-2B-CART-SURFACE-INVENTORY.md D1/D2/L3). This dialog is not: it is
+  rendered once in layout/theme.liquid, and `<modal-dialog>` (global.js)
+  moves itself to `document.body` on connect. bank-payment-checkout.js opens
+  it via a DOCUMENT-level delegated click listener on
+  `[data-carat-checkout-action="bank-payment"]` rather than binding to a
+  specific button element, so a section swap that re-injects a fresh copy of
+  that button is still caught without rebinding — the same class of hazard
+  L3 exists to catch, avoided here by construction rather than by a
+  re-apply step.
+
+  D20 — prefilled from `customer`/`customer.default_address` where present
+  (Liquid's own signal for a logged-in session), never gated on it: a guest
+  can fill this in and check out without an account. Nothing here is
+  server-persisted by this snippet; Shopify's own `customer` object is the
+  read, matching criteria 97-99's "read from Shopify, never duplicate".
+
+  Criterion 84 — the not-committed disclosure is static, unconditional
+  markup directly under the heading, so it is visible before any field is
+  touched or the submit button is reached — never behind a link, accordion
+  or tooltip.
+
+  COPY STATUS: every `bank_payment_checkout_form.*` locale key below is a
+  DRAFT pending owner approval (see the 2C-6 handoff). None is pinned in
+  ownerApprovedCopy.test.ts yet — that happens only after sign-off, matching
+  how the cancellation email's copy was handled in Slice 2C-b.
+{%- endcomment -%}
+<modal-dialog id="CaratBankCheckoutModal" class="carat-bank-checkout-modal">
+  <div
+    role="dialog"
+    aria-labelledby="CaratBankCheckoutTitle"
+    aria-modal="true"
+    class="carat-bank-checkout-modal__content"
+    tabindex="-1"
+  >
+    <div class="carat-bank-checkout-modal__header">
+      <h2 id="CaratBankCheckoutTitle" class="carat-bank-checkout-modal__title h3">
+        {{ 'sections.cart.bank_payment_checkout_form.heading' | t }}
+      </h2>
+      <button
+        id="ModalClose-CaratBankCheckoutModal"
+        type="button"
+        class="carat-bank-checkout-modal__toggle"
+        aria-label="{{ 'accessibility.close' | t }}"
+      >
+        {{- 'icon-close.svg' | inline_asset_content -}}
+      </button>
+    </div>
+
+    {%- comment -%}
+      Criterion 84: not-committed / not-guaranteed-until-verified disclosure.
+      Always rendered, never `hidden`, ahead of every field — see this
+      file's own header comment.
+    {%- endcomment -%}
+    <p class="carat-bank-checkout-modal__disclosure" data-carat-bank-checkout-disclosure>
+      {{ 'sections.cart.bank_payment_checkout_form.not_committed_disclosure' | t }}
+    </p>
+
+    {%- comment -%}
+      Error summary: JS populates this with a heading + a list of what
+      failed and moves focus here on any submission failure (client
+      validation or a server error code), per the accessibility requirement
+      in the 2C-6 brief. `role="alert"` + `tabindex="-1"` matches
+      contact-form.liquid's own error-heading pattern in this theme.
+      Starts empty and hidden; never removed from the DOM, so JS only ever
+      toggles `hidden` and sets `textContent`/`innerHTML` on the same node.
+    {%- endcomment -%}
+    <div
+      id="CaratBankCheckoutErrorSummary"
+      class="carat-bank-checkout-modal__error-summary form-status-list"
+      role="alert"
+      tabindex="-1"
+      hidden
+      data-carat-bank-checkout-error-summary
+    ></div>
+
+    <form id="CaratBankCheckoutForm" novalidate data-carat-bank-checkout-form>
+      <div class="carat-bank-checkout-modal__field field field--with-error">
+        <input
+          type="email"
+          id="CaratBankCheckoutEmail"
+          name="email"
+          class="field__input"
+          autocomplete="email"
+          spellcheck="false"
+          autocapitalize="off"
+          required
+          placeholder="{{ 'sections.cart.bank_payment_checkout_form.email_label' | t }}"
+          value="{{ customer.email | escape }}"
+          aria-describedby="CaratBankCheckoutEmail-error"
+        >
+        <label class="field__label" for="CaratBankCheckoutEmail">
+          {{- 'sections.cart.bank_payment_checkout_form.email_label' | t }}
+          <span aria-hidden="true">*</span></label
+        >
+        <small
+          id="CaratBankCheckoutEmail-error"
+          class="carat-bank-checkout-modal__field-error form__message"
+          hidden
+          data-carat-bank-checkout-field-error
+        >
+          <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+          <span data-carat-bank-checkout-field-error-text></span>
+        </small>
+      </div>
+
+      <div class="carat-bank-checkout-modal__field-row">
+        <div class="carat-bank-checkout-modal__field field">
+          <input
+            type="text"
+            id="CaratBankCheckoutFirstName"
+            name="firstName"
+            class="field__input"
+            autocomplete="given-name"
+            placeholder="{{ 'sections.cart.bank_payment_checkout_form.first_name_label' | t }}"
+            value="{{ customer.default_address.first_name | escape }}"
+          >
+          <label class="field__label" for="CaratBankCheckoutFirstName">
+            {{- 'sections.cart.bank_payment_checkout_form.first_name_label' | t -}}
+          </label>
+        </div>
+        <div class="carat-bank-checkout-modal__field field">
+          <input
+            type="text"
+            id="CaratBankCheckoutLastName"
+            name="lastName"
+            class="field__input"
+            autocomplete="family-name"
+            placeholder="{{ 'sections.cart.bank_payment_checkout_form.last_name_label' | t }}"
+            value="{{ customer.default_address.last_name | escape }}"
+          >
+          <label class="field__label" for="CaratBankCheckoutLastName">
+            {{- 'sections.cart.bank_payment_checkout_form.last_name_label' | t -}}
+          </label>
+        </div>
+      </div>
+
+      <div class="carat-bank-checkout-modal__field field field--with-error">
+        <input
+          type="text"
+          id="CaratBankCheckoutAddress1"
+          name="address1"
+          class="field__input"
+          autocomplete="address-line1"
+          required
+          placeholder="{{ 'sections.cart.bank_payment_checkout_form.address1_label' | t }}"
+          value="{{ customer.default_address.address1 | escape }}"
+          aria-describedby="CaratBankCheckoutAddress1-error"
+        >
+        <label class="field__label" for="CaratBankCheckoutAddress1">
+          {{- 'sections.cart.bank_payment_checkout_form.address1_label' | t }}
+          <span aria-hidden="true">*</span></label
+        >
+        <small
+          id="CaratBankCheckoutAddress1-error"
+          class="carat-bank-checkout-modal__field-error form__message"
+          hidden
+          data-carat-bank-checkout-field-error
+        >
+          <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+          <span data-carat-bank-checkout-field-error-text></span>
+        </small>
+      </div>
+
+      <div class="carat-bank-checkout-modal__field field">
+        <input
+          type="text"
+          id="CaratBankCheckoutAddress2"
+          name="address2"
+          class="field__input"
+          autocomplete="address-line2"
+          placeholder="{{ 'sections.cart.bank_payment_checkout_form.address2_label' | t }}"
+          value="{{ customer.default_address.address2 | escape }}"
+        >
+        <label class="field__label" for="CaratBankCheckoutAddress2">
+          {{- 'sections.cart.bank_payment_checkout_form.address2_label' | t -}}
+        </label>
+      </div>
+
+      <div class="carat-bank-checkout-modal__field-row">
+        <div class="carat-bank-checkout-modal__field field field--with-error">
+          <input
+            type="text"
+            id="CaratBankCheckoutCity"
+            name="city"
+            class="field__input"
+            autocomplete="address-level2"
+            required
+            placeholder="{{ 'sections.cart.bank_payment_checkout_form.city_label' | t }}"
+            value="{{ customer.default_address.city | escape }}"
+            aria-describedby="CaratBankCheckoutCity-error"
+          >
+          <label class="field__label" for="CaratBankCheckoutCity">
+            {{- 'sections.cart.bank_payment_checkout_form.city_label' | t }}
+            <span aria-hidden="true">*</span></label
+          >
+          <small
+            id="CaratBankCheckoutCity-error"
+            class="carat-bank-checkout-modal__field-error form__message"
+            hidden
+            data-carat-bank-checkout-field-error
+          >
+            <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+            <span data-carat-bank-checkout-field-error-text></span>
+          </small>
+        </div>
+        <div class="carat-bank-checkout-modal__field field">
+          <input
+            type="text"
+            id="CaratBankCheckoutProvince"
+            name="provinceCode"
+            class="field__input"
+            autocomplete="address-level1"
+            maxlength="10"
+            placeholder="{{ 'sections.cart.bank_payment_checkout_form.province_label' | t }}"
+            value="{{ customer.default_address.province_code | escape }}"
+          >
+          <label class="field__label" for="CaratBankCheckoutProvince">
+            {{- 'sections.cart.bank_payment_checkout_form.province_label' | t -}}
+          </label>
+        </div>
+      </div>
+
+      <div class="carat-bank-checkout-modal__field-row">
+        <div class="carat-bank-checkout-modal__field field field--with-error">
+          <input
+            type="text"
+            id="CaratBankCheckoutZip"
+            name="zip"
+            class="field__input"
+            autocomplete="postal-code"
+            required
+            placeholder="{{ 'sections.cart.bank_payment_checkout_form.zip_label' | t }}"
+            value="{{ customer.default_address.zip | escape }}"
+            aria-describedby="CaratBankCheckoutZip-error"
+          >
+          <label class="field__label" for="CaratBankCheckoutZip">
+            {{- 'sections.cart.bank_payment_checkout_form.zip_label' | t }}
+            <span aria-hidden="true">*</span></label
+          >
+          <small
+            id="CaratBankCheckoutZip-error"
+            class="carat-bank-checkout-modal__field-error form__message"
+            hidden
+            data-carat-bank-checkout-field-error
+          >
+            <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+            <span data-carat-bank-checkout-field-error-text></span>
+          </small>
+        </div>
+        <div class="carat-bank-checkout-modal__field field field--with-error">
+          <label class="field__label" for="CaratBankCheckoutCountry">
+            {{- 'sections.cart.bank_payment_checkout_form.country_label' | t }}
+            <span aria-hidden="true">*</span></label
+          >
+          <div class="select">
+            <select
+              id="CaratBankCheckoutCountry"
+              name="countryCode"
+              class="select__select"
+              autocomplete="country"
+              required
+              aria-describedby="CaratBankCheckoutCountry-error"
+            >
+              {% render 'bank-checkout-country-options', selected_country_code: customer.default_address.country_code %}
+            </select>
+            <span class="svg-wrapper">{{- 'icon-caret.svg' | inline_asset_content -}}</span>
+          </div>
+          <small
+            id="CaratBankCheckoutCountry-error"
+            class="carat-bank-checkout-modal__field-error form__message"
+            hidden
+            data-carat-bank-checkout-field-error
+          >
+            <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+            <span data-carat-bank-checkout-field-error-text></span>
+          </small>
+        </div>
+      </div>
+
+      <div class="carat-bank-checkout-modal__field field">
+        <input
+          type="tel"
+          id="CaratBankCheckoutPhone"
+          name="phone"
+          class="field__input"
+          autocomplete="tel"
+          placeholder="{{ 'sections.cart.bank_payment_checkout_form.phone_label' | t }}"
+          value="{{ customer.default_address.phone | escape }}"
+        >
+        <label class="field__label" for="CaratBankCheckoutPhone">
+          {{- 'sections.cart.bank_payment_checkout_form.phone_label' | t -}}
+        </label>
+      </div>
+
+      <div class="carat-bank-checkout-modal__actions">
+        <button type="submit" class="button" data-carat-bank-checkout-submit>
+          {{ 'sections.cart.bank_payment_checkout_form.submit' | t }}
+        </button>
+        <button type="button" class="button button--secondary" data-carat-bank-checkout-dismiss>
+          {{ 'sections.cart.bank_payment_checkout_form.cancel' | t }}
+        </button>
+      </div>
+
+      {%- comment -%}
+        Non-error status (submitting / success / redirecting). Kept distinct
+        from the error summary above (`role="status"`, not `role="alert"`) —
+        same reasoning as the Card Checkout reprice notice elsewhere in this
+        theme: an in-progress or successful submission is not a warning.
+      {%- endcomment -%}
+      <p
+        id="CaratBankCheckoutStatus"
+        class="carat-bank-checkout-modal__status form-status"
+        role="status"
+        aria-live="polite"
+        hidden
+        data-carat-bank-checkout-status
+      ></p>
+    </form>
+  </div>
+</modal-dialog>

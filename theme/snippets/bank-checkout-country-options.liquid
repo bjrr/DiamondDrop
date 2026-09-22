@@ -1,0 +1,59 @@
+{%- comment -%}
+  Renders <option> tags for the Bank Payment Checkout shipping-address form's
+  country field (Slice 2C task 2C-6, docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md
+  criterion 94, D20).
+
+  DELIBERATELY NOT Shopify's classic `{{ country_option_tags }}` object: that
+  tag's <option> VALUES are country NAMES ("United States"), not ISO 3166-1
+  alpha-2 codes, because it targets the classic customer address form's
+  `address[country]` field. `/apps/carat/bank-checkout`'s `shippingAddress
+  .countryCode` schema requires a 2-letter code (see
+  apps.carat.bank-checkout.tsx's `shippingAddressRequestSchema`), so a
+  name-valued <option> would silently fail server-side validation.
+
+  A CURATED LIST, NOT EXHAUSTIVE. CaratForUs is a US-dollar, US-first MVP1
+  jewelry business (README.md) — this list favors the US, Canada and common
+  international shipping destinations rather than every ISO territory.
+  Extend it if a real order needs a country not listed; the server does not
+  validate countryCode against a fixed list ("Shopify is the authority on
+  postal validity" — see the route's schema comment), so adding an <option>
+  here is the only change needed.
+
+  Accepts:
+  - selected_country_code: {String} the ISO code to pre-select (optional).
+    Defaults to "US" when blank, matching the schema's expectation that most
+    orders ship domestically and keeping the field usably pre-filled for a
+    guest who never had a stored address (D20 — a customer account is never
+    required).
+
+  Usage:
+  {% render 'bank-checkout-country-options', selected_country_code: customer.default_address.country_code %}
+{%- endcomment -%}
+{%- liquid
+  assign selected = selected_country_code | default: 'US'
+-%}
+<option value="US"{% if selected == 'US' %} selected{% endif %}>United States</option>
+<option value="CA"{% if selected == 'CA' %} selected{% endif %}>Canada</option>
+<option value="GB"{% if selected == 'GB' %} selected{% endif %}>United Kingdom</option>
+<option value="AU"{% if selected == 'AU' %} selected{% endif %}>Australia</option>
+<option value="NZ"{% if selected == 'NZ' %} selected{% endif %}>New Zealand</option>
+<option value="IE"{% if selected == 'IE' %} selected{% endif %}>Ireland</option>
+<option value="AT"{% if selected == 'AT' %} selected{% endif %}>Austria</option>
+<option value="BE"{% if selected == 'BE' %} selected{% endif %}>Belgium</option>
+<option value="DK"{% if selected == 'DK' %} selected{% endif %}>Denmark</option>
+<option value="FI"{% if selected == 'FI' %} selected{% endif %}>Finland</option>
+<option value="FR"{% if selected == 'FR' %} selected{% endif %}>France</option>
+<option value="DE"{% if selected == 'DE' %} selected{% endif %}>Germany</option>
+<option value="IT"{% if selected == 'IT' %} selected{% endif %}>Italy</option>
+<option value="LU"{% if selected == 'LU' %} selected{% endif %}>Luxembourg</option>
+<option value="NL"{% if selected == 'NL' %} selected{% endif %}>Netherlands</option>
+<option value="NO"{% if selected == 'NO' %} selected{% endif %}>Norway</option>
+<option value="PT"{% if selected == 'PT' %} selected{% endif %}>Portugal</option>
+<option value="ES"{% if selected == 'ES' %} selected{% endif %}>Spain</option>
+<option value="SE"{% if selected == 'SE' %} selected{% endif %}>Sweden</option>
+<option value="CH"{% if selected == 'CH' %} selected{% endif %}>Switzerland</option>
+<option value="JP"{% if selected == 'JP' %} selected{% endif %}>Japan</option>
+<option value="SG"{% if selected == 'SG' %} selected{% endif %}>Singapore</option>
+<option value="HK"{% if selected == 'HK' %} selected{% endif %}>Hong Kong SAR</option>
+<option value="AE"{% if selected == 'AE' %} selected{% endif %}>United Arab Emirates</option>
+<option value="MX"{% if selected == 'MX' %} selected{% endif %}>Mexico</option>
