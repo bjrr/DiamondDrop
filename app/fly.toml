@@ -1,0 +1,61 @@
+# CaratForUs MVP1 — Fly.io (owner decision D3).
+#
+# One app, one region, one process. Everything this deployment needs is here;
+# anything not here is deliberately absent (no Redis, no queue, no worker).
+
+app = "caratforus"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  # FORWARD-ONLY MIGRATIONS, run before the new version takes traffic.
+  #
+  # `migrate deploy` applies pending migrations and nothing else: it never
+  # generates, never resets, never prompts, and refuses a migration whose
+  # recorded checksum does not match. That last property is the reason this is
+  # the only migration command allowed near production — the repository has
+  # twice had checksum drift from editing an applied migration, and here that
+  # drift stops the deploy instead of silently diverging the schema.
+  #
+  # A failing release_command aborts the deploy with the previous version still
+  # serving, which is the correct outcome: a schema the new code cannot use is
+  # worse than the old code continuing to work.
+  release_command = "npx prisma migrate deploy"
+  strategy = "rolling"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+  # Everything else is a secret and lives in Fly's secret store. Nothing
+  # sensitive belongs in this file — it is committed.
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  # NEVER SCALE TO ZERO MACHINES. Shopify webhooks and the platform scheduler
+  # both arrive unannounced; a cold start is acceptable, having no machine to
+  # start is not.
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+  # `/health` checks the database and reports migration state, so this is a
+  # real readiness signal rather than "the process is up". A machine that
+  # cannot reach Postgres stops taking traffic.
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
