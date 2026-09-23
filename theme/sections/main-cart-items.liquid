@@ -19,9 +19,12 @@
   }
 {%- endstyle -%}
 
-{%- unless settings.cart_type == 'drawer' -%}
-  <script src="{{ 'cart.js' | asset_url }}" defer="defer"></script>
-{%- endunless -%}
+{%- comment -%}
+  cart.js MOVED TO header.liquid (Slice 2C storefront live gate, 2026-09-22).
+  The cart_type condition that used to sit here existed only to stop it loading
+  twice; loading it once, globally, removes the need for the condition and
+  fixes the product page, where it was never loaded at all.
+{%- endcomment -%}
 
 <script src="{{ 'quantity-popover.js' | asset_url }}" defer="defer"></script>
 

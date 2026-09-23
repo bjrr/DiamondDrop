@@ -8,7 +8,14 @@
 {{ 'quantity-popover.css' | asset_url | stylesheet_tag }}
 {{ 'component-card.css' | asset_url | stylesheet_tag }}
 
-<script src="{{ 'cart.js' | asset_url }}" defer="defer"></script>
+{%- comment -%}
+  cart.js MOVED TO header.liquid (Slice 2C storefront live gate, 2026-09-22).
+  It defines window.CaratCartPricing, and the "Add to Cart with Bank Payment
+  Discount" button renders on every PRODUCT page — where neither this snippet
+  nor main-cart-items is present. The button therefore added the item and left
+  the cart in Card mode, silently, which breaks criterion 21 / owner §20.
+  Loading it here as well would double-execute customElements.define.
+{%- endcomment -%}
 <script src="{{ 'quantity-popover.js' | asset_url }}" defer="defer"></script>
 
 <style>

@@ -1124,3 +1124,38 @@ the owner scoped this phase to Stage 2C.
 
 Unit tests could not catch it: they render Liquid in Node, where no script tag
 is ever evaluated and `window` does not exist.
+
+### 21.1 The blocker, fixed and re-proven — 2026-09-22
+
+`cart.js` now loads from `header.liquid` and **nowhere else**, so
+`window.CaratCartPricing` exists on every page a Bank Payment action can
+render on.
+
+It had to MOVE rather than be added: `cart.js` calls
+`customElements.define`, which throws on a second execution. The two previous
+loads were already mutually exclusive by `settings.cart_type` — that condition
+existed only to prevent a double load, and disappears once there is one global
+load.
+
+**Re-proven live, from an empty cart with no mode set:**
+
+| | Before | After |
+|---|---|---|
+| `CaratCartPricing` on a product page | absent | present, `setPaymentMode` callable |
+| Cart after clicking the Bank Payment action | `attributes: {}` — **Card mode** | `carat_payment_mode: "bank"` |
+
+The cart page was re-checked for regression, since the module moved out of it:
+`cart-items` and `cart-remove-button` still upgrade, quantity controls render,
+and the totals are unchanged — Bank **$1,188.00**, Card **$1,240.00**, savings
+**$52.00**.
+
+**Fenced by `app/app/theme/caratCartPricingIsGloballyLoaded.test.ts`**, which
+asserts cart.js loads from a globally-rendered template and from **exactly
+one** — "at least one" would permit the double-define that makes the naive fix
+worse than the bug. The fence was verified to fail: removing the tag turns all
+three assertions red with a message naming the consequence, *"the button will
+add the item and silently leave the cart in Card mode."*
+
+It is a static check, and that is an honest limit — no theme test evaluates a
+script tag. It proves the module is loaded globally, not that it works; the
+live run above is what proves that.

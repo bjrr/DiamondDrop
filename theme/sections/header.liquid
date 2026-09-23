@@ -140,6 +140,24 @@
 {{ 'component-bank-payment-checkout.css' | asset_url | stylesheet_tag }}
 <script src="{{ 'bank-payment-checkout.js' | asset_url }}" defer="defer"></script>
 
+{%- comment -%}
+  cart.js, loaded HERE rather than with the cart — same reason as the script
+  above, and found the same way: by running the storefront.
+
+  It defines `window.CaratCartPricing`, which is what switches the cart into
+  Bank Payment mode. It used to load only from main-cart-items.liquid or
+  cart-drawer.liquid, so on a PRODUCT page it was absent entirely: clicking
+  "Add to Cart with Bank Payment Discount" added the item and left the cart in
+  CARD mode, with no error, because product-form.js degrades gracefully when
+  the module is missing. That degradation is correct in itself; the module
+  being absent exactly where the button lives was not (criterion 21, owner §20).
+
+  It must load from ONE place — cart.js calls customElements.define, which
+  throws on a second execution. header.liquid renders on every page including
+  the cart, so this single tag replaces both previous conditional ones.
+{%- endcomment -%}
+<script src="{{ 'cart.js' | asset_url }}" defer="defer"></script>
+
 {%- liquid
   for block in section.blocks
     if block.type == '@app'
