@@ -3,7 +3,6 @@ import { dispatchAdminAlert } from "~/db/repositories/adminAlertDispatch.server"
 import {
   decideGuaranteeOutcome,
   type GuaranteeCancellingLine,
-  type GuaranteeDecision,
   type GuaranteeDecisionLine,
   type VariantPriceFacts,
 } from "~/domain/bankpayment/guaranteeDecision";

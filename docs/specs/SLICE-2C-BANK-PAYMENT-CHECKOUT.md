@@ -1159,3 +1159,106 @@ add the item and silently leave the cart in Card mode."*
 It is a static check, and that is an honest limit — no theme test evaluates a
 script tag. It proves the module is loaded globally, not that it works; the
 live run above is what proves that.
+
+---
+
+## 22. STAGE 2C — CLOSED 2026-09-22
+
+Every phase is built, reviewed, and verified **against the real store**. Not
+one of the four phases closed on a green test suite alone, and that mattered:
+each live gate found something the suites could not.
+
+### 22.1 Live evidence, by phase
+
+**2C-a — draft order, invoice, completion.** A real draft order created through
+the real route, read back from Shopify as the authority: line unit price
+exactly the Bank Payment Price against a different catalogue price, explicit
+zero shipping line, invoice sent, correlation tag present, address at Shopify
+and in no column of ours, idempotent replay returning the same draft with no
+second invoice. Completion produced order `#1004`, `displayFinancialStatus:
+PENDING` — unpaid, as §22 requires.
+
+*Found by the gate, invisible to 29 passing unit tests:* three wrong API
+shapes, two of them **silent**. `originalUnitPrice` does not exist on
+`DraftOrderLineItemInput` in 2026-07 — Shopify dropped it and priced the line
+at the **catalogue price**. And completing without payment terms marked the
+order **PAID** against a transfer that never arrived. A mocked client agrees
+with whatever assumption it is handed.
+
+**2C-b — the guarantee sweep and cancellation.** A real cancellation on a
+human-approved price change, accepted by **Resend**, provider message id
+`01a0c78c-5594-73be-9731-3aa73b01e75b` persisted. A recipient **Resend itself
+rejected** proved the cancellation stands, the failure persists as `failed`,
+and no message id is falsely claimed. A re-run considered zero open orders. The
+dynamic first name was proven separately against a real draft order —
+`Hi Ada,`.
+
+*Found by the gate:* four integration tests that asserted the honest
+`skipped_unconfigured` path were **sending real email** during the suite, and
+passed only because no machine had credentials.
+
+**2C-c — manual verification.** A **person** clicked Verify in the embedded
+admin. The record names them — `orders@caratforus.com`, Shopify user
+`127289196845` — from the authenticated session, not a text field. Amount
+matched expected before anything was written; method from the closed enum;
+both timestamps system-generated; exactly one Shopify order.
+
+*Found by the gate:* the detail route **never rendered**. It and the list route
+formed a parent/child pair under flat routes, the parent had no `<Outlet />`,
+and `/app/bank-payments/:id` silently served the list. All 27 route tests
+passed — they render the component directly with a memory router.
+
+**2C-6 — the storefront.** A customer reached a Shopify invoice for the Bank
+Payment Price without anyone touching the admin: product page → Bank Payment
+mode → cart showing bank **$1,188.00** against a native **$699.95**, card
+**$1,240.00** (4% tier, $5 ceiling), savings **$52.00** → dialog → App Proxy →
+draft order → invoice reading *"Shipping (included in item price) · FREE"*,
+*"Choose payment method later · Due on receipt"*, total **$1,188.00**.
+
+*Found by the gate:* the vendored theme had **never been on the store**, and
+the PDP Bank Payment button did not switch the cart — see below.
+
+### 22.2 `b439586` — the global `cart.js` fix
+
+`window.CaratCartPricing` loaded only from the cart page and the drawer, while
+the "Add to Cart with Bank Payment Discount" button renders on every product
+page. It added the item and left the cart in **Card mode, silently**, because
+`product-form.js` degrades gracefully when the module is missing.
+
+It had to **move**, not be added: `cart.js` calls `customElements.define`,
+which throws on a second execution, so the naive fix would have traded a broken
+product page for a broken cart.
+
+Re-proven live from an empty cart: before, `attributes: {}`; after,
+`carat_payment_mode: "bank"`. The cart page was re-checked for regression since
+the module moved out of it — custom elements upgrade, totals unchanged.
+
+Fenced by `caratCartPricingIsGloballyLoaded.test.ts`, asserting **exactly one**
+globally-rendered load. The fence was verified to fail when the tag is removed.
+It is a static check and says so: no theme test evaluates a script tag.
+
+### 22.3 Carried forward — explicitly NON-BLOCKING
+
+**D24's mismatch refusal** — integration-tested, never live-submitted. It
+refuses **before writing or completing anything**, so the cost of being wrong
+is a bad error message, not a bad record. Does not block closure.
+
+**Shopify dev orders `#1001`–`#1004`** — owner manual cleanup. `write_orders`
+is deliberately **not** requested; deleting an order is not a capability this
+app should hold to tidy test data.
+
+**F-2C-1 … F-2C-5** — retained in the follow-up register for their later
+slices: the open-campaign query converging on `OpenCampaignExclusionSource`
+(Slice 6), `shopify.server` eager bundling, naming a manual gateway at
+completion, catalogue-wide pricing test sweeps, and per-user attribution now
+that online tokens exist.
+
+### 22.4 The standing lesson
+
+Four phases, four live gates, four classes of defect no unit test could reach:
+a silently ignored API field, a falsely PAID order, a route that served the
+wrong page, and a button that did nothing. Every one passed its suite.
+
+**A fixture that echoes its input can only confirm what you already believe.**
+Anything that writes a customer-facing price, or claims money moved, gets
+proven against the real thing before it is trusted.

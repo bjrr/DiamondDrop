@@ -460,7 +460,7 @@ function AvailabilityBanner({ error }: { error: string | null }) {
   return (
     <p role="alert" style={{ color: "#b00", margin: "0 0 1rem" }}>
       Could not check current availability with Shopify: {error}. Every line below is shown as
-      "could not be confirmed" until this succeeds — verification is still allowed.
+      &ldquo;could not be confirmed&rdquo; until this succeeds — verification is still allowed.
     </p>
   );
 }

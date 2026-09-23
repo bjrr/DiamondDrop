@@ -106,6 +106,21 @@ module.exports = {
       },
     },
     {
+      // LIVE GATES. Run by hand against caratforus-dev to prove a behaviour
+      // against the real Shopify and Resend APIs. Their console output IS the
+      // deliverable — it is the evidence quoted back into the spec — and they
+      // are never imported by the app nor run in CI.
+      //
+      // `any` is allowed for the same reason it is in tests: these scripts
+      // read raw GraphQL envelopes whose shape is precisely what is under
+      // examination, so typing them would assert the thing being verified.
+      files: ["tests/live/**/*.ts"],
+      rules: {
+        "no-console": "off",
+        "@typescript-eslint/no-explicit-any": "off",
+      },
+    },
+    {
       // Theme app extension assets run in a SHOPPER'S BROWSER, not in Node.
       // Without this they are linted against Node globals and every DOM
       // reference is reported as undefined — which would push someone towards

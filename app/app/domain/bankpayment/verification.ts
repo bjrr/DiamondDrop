@@ -114,8 +114,6 @@ const CURRENCY_PATTERN = /^[A-Z]{3}$/;
  */
 const MAJOR_UNIT_AMOUNT_PATTERN = /^\d+(\.\d{1,2})?$/;
 
-const WHOLE_NUMBER_PATTERN = /^\d+$/;
-
 /**
  * Server-side authoritative validation of a verification submission
  * (criterion 87: "amount, method, reference where available, timestamp and

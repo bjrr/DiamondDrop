@@ -495,7 +495,7 @@ describe("D21/criterion 82 — an unresolvable price flags rather than cancels",
       bankPaymentPriceMinorUnits: 100_000n,
     });
     await publish(variant.id, baseCalc.id);
-    const order = await aQuotedOrder({
+    await aQuotedOrder({
       masterVariantId: variant.id,
       priceCalculationId: baseCalc.id,
       quotedBankPaymentPriceMinorUnits: 100_000n,
