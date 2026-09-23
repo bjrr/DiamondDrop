@@ -535,3 +535,94 @@ Reviewed against Shopify-native boundaries, MVP1 scope, evidence/versioning need
 No scaffolding begins until condition 1 is met.
 
 **Amendment 2026-09-15 (D13).** The verdict above stands unchanged. D13 swaps the web framework and the Shopify app library (Remix v2 → React Router 7; `@shopify/shopify-app-remix` → `@shopify/shopify-app-react-router`) without altering any boundary this review assessed: Shopify-native vs custom is untouched; no framework, queue, service or database is added; financial determinism and the money primitives are framework-independent; inbound webhook idempotency stays with our receiver by explicit decision (§2.1); authn/authz, privacy and scopes are unchanged; recurring cost is unchanged (§7 — same single process, same Fly configuration, same ~$50–110/mo). The re-verification obligation it creates is recorded in §9 and in the slice 0 spec's Deferred verification list.
+
+---
+
+## Scheduled jobs — the exact configuration to apply at deploy
+
+**STATUS 2026-09-22: NEITHER JOB IS SCHEDULED, because the app is not
+deployed.** There is no `Dockerfile`, no `fly.toml`, no `render.yaml`;
+`docker-compose.yml` runs Postgres only, and `application_url` in
+`shopify.app.caratforus-development.toml` is an ephemeral
+`trycloudflare.com` tunnel from a `shopify app dev` session.
+
+§"Cron" above is explicit that scheduling is a **platform scheduler calling an
+authenticated internal route**, never an in-process timer, so that the job
+survives a move to multiple instances. A platform scheduler needs a host to
+call. Writing a cron entry today would point at a tunnel that dies with the
+next terminal.
+
+Both jobs are therefore **one step each at deploy**, and this is that step.
+
+### The two jobs
+
+| Job | Route | Cadence | Why |
+|---|---|---|---|
+| Buy Now price recalculation | `POST /internal/jobs/price-recalculation` | **daily** | D15 |
+| Bank Payment guarantee sweep | `POST /internal/jobs/bank-payment-guarantee` | **hourly** | criterion 100 |
+
+Both authenticate on the header `x-carat-cron-secret`, compared
+timing-safely against `CRON_SECRET`. Neither accepts a query parameter, so the
+secret never lands in a log line or a scheduler's URL field.
+
+**Hourly is a floor, not a preference** (criterion 100). The guarantee is 24
+hours; run the sweep daily and an order can sit up to a full day past expiry,
+during which a customer may pay against a quote we intended to withdraw.
+
+### Fly.io
+
+```toml
+# fly.toml
+[[services]] # ... the app service
+
+[processes]
+  app = "npm run start"
+
+# Fly Machines cron — one scheduled machine per job.
+[[schedules]]
+  name     = "price-recalculation"
+  schedule = "0 3 * * *"          # 03:00 UTC daily
+  command  = "curl -fsS -X POST https://$FLY_APP_NAME.fly.dev/internal/jobs/price-recalculation -H \"x-carat-cron-secret: $CRON_SECRET\""
+
+[[schedules]]
+  name     = "bank-payment-guarantee"
+  schedule = "0 * * * *"          # every hour, on the hour
+  command  = "curl -fsS -X POST https://$FLY_APP_NAME.fly.dev/internal/jobs/bank-payment-guarantee -H \"x-carat-cron-secret: $CRON_SECRET\""
+```
+
+### Render
+
+```yaml
+# render.yaml
+services:
+  - type: web
+    name: caratforus
+    # ...
+
+  - type: cron
+    name: price-recalculation
+    schedule: "0 3 * * *"
+    startCommand: >-
+      curl -fsS -X POST $APP_URL/internal/jobs/price-recalculation
+      -H "x-carat-cron-secret: $CRON_SECRET"
+
+  - type: cron
+    name: bank-payment-guarantee
+    schedule: "0 * * * *"
+    startCommand: >-
+      curl -fsS -X POST $APP_URL/internal/jobs/bank-payment-guarantee
+      -H "x-carat-cron-secret: $CRON_SECRET"
+```
+
+### Verifying it after deploy
+
+`curl -fsS` fails the scheduled run on a non-2xx, so a rejected secret or a
+500 surfaces as a failed job rather than a silent no-op. Confirm each job by
+its own evidence rather than the scheduler's green tick:
+
+- recalculation writes a `price_recalculation_run` row per run;
+- the sweep logs `bank_payment.guarantee_sweep_completed` with its counts, and
+  returns them in the response body.
+
+A sweep that runs and finds nothing is indistinguishable from one that never
+ran, if you only look at whether orders were cancelled.
