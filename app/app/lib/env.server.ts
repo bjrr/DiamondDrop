@@ -14,6 +14,13 @@ import { z } from "zod";
 const envSchema = z.object({
   APP_ENV: z.enum(["development", "test", "staging", "production"]),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+  /**
+   * The unpooled endpoint, used by the Prisma CLI for migrations only - see
+   * the comment on directUrl in schema.prisma. The application never reads it;
+   * it is declared here so a deployment missing it fails validation loudly
+   * rather than at the first migration.
+   */
+  DIRECT_URL: z.string().optional(),
   SESSION_SECRET: z.string().min(16, "SESSION_SECRET must be at least 16 characters"),
   CRON_SECRET: z.string().min(16, "CRON_SECRET must be at least 16 characters"),
 

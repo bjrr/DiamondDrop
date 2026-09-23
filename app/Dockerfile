@@ -41,7 +41,17 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-RUN apt-get update -y && apt-get install -y --no-install-recommends openssl \
+# curl is here for the SCHEDULED MACHINES. Fly's scheduler runs a command in
+# this same image, and both cron jobs are HTTP POSTs to authenticated internal
+# routes. node:slim ships without curl, so without this the scheduled machine
+# fails with "command not found" — a failure that looks like the job ran and
+# found nothing to do.
+# ca-certificates travels WITH curl, not as an afterthought. node:slim carries
+# no CA bundle, so curl alone fails every HTTPS request with
+# "error setting certificate file: /etc/ssl/certs/ca-certificates.crt" — which
+# reads like a curl bug and is actually a missing trust store. Observed on the
+# first scheduled run.
+RUN apt-get update -y && apt-get install -y --no-install-recommends openssl curl ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/node_modules ./node_modules

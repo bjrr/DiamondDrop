@@ -47,6 +47,22 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  /// POOLED FOR THE APP, DIRECT FOR MIGRATIONS — and the split is required,
+  /// not a tuning preference.
+  ///
+  /// Fly Managed Postgres hands out a PgBouncer endpoint, and PgBouncer in
+  /// transaction-pooling mode does not carry session state across statements.
+  /// `prisma migrate deploy` takes a session-level ADVISORY LOCK to serialise
+  /// concurrent deploys; through a transaction pooler that lock is taken on
+  /// one backend and looked for on another, so the migration either hangs or
+  /// reports a failure that says nothing about pooling.
+  ///
+  /// `directUrl` is used by the Prisma CLI only — migrate, db push,
+  /// introspect. The application keeps using the pooled `url`, which is the
+  /// right endpoint for a fleet of short-lived request handlers.
+  ///
+  /// Locally both point at the same Postgres and nothing changes.
+  directUrl = env("DIRECT_URL")
 }
 
 enum ActorType {

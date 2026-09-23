@@ -31,7 +31,7 @@ client_id = "f54993df6c413ea67db6fc065a2ebe88"
 #
 # A deployed staging/production install needs a real hosted origin here, and
 # that replaces this line rather than living alongside it.
-application_url = "https://heat-mpegs-profit-certain.trycloudflare.com"
+application_url = "https://caratforus.fly.dev"
 
 embedded = true
 
@@ -97,7 +97,7 @@ use_legacy_install_flow = false
 #
 # Matches application_url above. `shopify app dev` replaces both with whatever
 # tunnel that session mints.
-redirect_urls = [ "https://heat-mpegs-profit-certain.trycloudflare.com/auth/callback" ]
+redirect_urls = [ "https://caratforus.fly.dev/auth/callback" ]
 
 [webhooks]
 # The CLI reported 2026-07 from the app record. Architecture, .env.example and
@@ -178,7 +178,7 @@ api_version = "2026-07"
 # The host tracks application_url and is therefore also a development
 # placeholder, updated by `shopify app dev`. `subpath` must stay equal to
 # SHOPIFY_APP_PROXY_SUBPATH in app/.env, which the signature check reads.
-url = "https://heat-mpegs-profit-certain.trycloudflare.com/apps/carat"
+url = "https://caratforus.fly.dev/apps/carat"
 subpath = "carat"
 prefix = "apps"
 
