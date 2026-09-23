@@ -34,12 +34,28 @@ which Postgres requires — is not something an agent should do on your behalf.
 ```bash
 flyctl auth login                      # opens a browser
 flyctl apps create caratforus          # or: flyctl launch --no-deploy
-flyctl postgres create --name caratforus-db --region iad
-flyctl postgres attach caratforus-db --app caratforus
 ```
 
-`postgres attach` sets `DATABASE_URL` as a secret automatically. Do not set it
-by hand.
+### Managed Postgres, NOT `fly postgres`
+
+`fly postgres` provisions **unmanaged** Postgres — Fly's current documentation
+is explicit that it is a database you operate yourself. D3 requires **Fly
+Managed Postgres**, which is a different product and a different command:
+
+```bash
+flyctl mpg create --name caratforus-db --region iad --plan Basic \
+  --pg-major-version 16 --volume-size 10
+flyctl mpg attach <clusterID> -a caratforus
+```
+
+`mpg attach` sets `DATABASE_URL` as a secret automatically. Do not set it by
+hand.
+
+**Postgres 16, not the newer 17.** Development runs `postgres:16-alpine` and
+the dev database reports 16.15. For an application whose correctness rests on
+append-only triggers, CHECK constraints and `numeric` money columns, matching
+the major version removes a class of "works locally" difference that would
+only ever surface in production.
 
 ---
 
@@ -58,7 +74,7 @@ flyctl secrets set EMAIL_API_KEY="re_the_new_key" --app caratforus
 ## Step 3 — secrets
 
 Every value below is a secret and belongs only in Fly's store. Nothing here is
-committed. `DATABASE_URL` is already set by `postgres attach`.
+committed. `DATABASE_URL` is already set by `mpg attach`.
 
 ```bash
 flyctl secrets set --app caratforus \
@@ -74,17 +90,30 @@ flyctl secrets set --app caratforus \
   SHOPIFY_SCOPES="read_products,write_products,read_inventory,write_draft_orders,read_orders,write_payment_terms" \
   EMAIL_FROM="CaratForUs <orders@caratforus.com>" \
   STAFF_EMAIL_ALLOWLIST="orders@caratforus.com" \
-  PRICE_AUTO_PUBLISH_ENABLED="true"
+  PRICE_AUTO_PUBLISH_ENABLED="false"
 ```
 
 **`SESSION_SECRET` and `CRON_SECRET` must be newly generated, not copied from
 `app/.env`.** A development secret that has lived on a laptop, in shell history
 and in a container build context is not a production secret.
 
-`PRICE_AUTO_PUBLISH_ENABLED=true` carries a live consequence: price changes
-within 200 bps publish to Shopify **without human approval**. That is owner
-decision §17 and it is deliberate — but it is the one value here worth pausing
-on before typing.
+**`PRICE_AUTO_PUBLISH_ENABLED` starts `false` on the permanent host, by owner
+direction.** It is turned on only once the deployment, App Proxy, database,
+scheduled jobs and pricing path are all verified live.
+
+The reason to sequence it that way is that auto-publish is the one setting
+whose failure mode is silent and outward-facing: with it on, a price change
+within 200 bps reaches the storefront with no human in the loop (§17). During
+a first deployment — new host, new database, freshly cut-over proxy — that is
+the last thing that should be able to move a customer-facing price. With it
+off, every change queues for approval and nothing publishes itself while the
+ground is still moving.
+
+Turning it on afterwards is one command:
+
+```bash
+flyctl secrets set PRICE_AUTO_PUBLISH_ENABLED="true" --app caratforus
+```
 
 ---
 
