@@ -87,6 +87,37 @@ while preserving the variant-specific state D27 requires. No product-level
 rollup field is introduced — see criterion 148 for why the card badge is
 computed in Liquid instead.
 
+### D28 — OPEN: does a held order have to be fulfilment-blocked?
+
+Raised twice during implementation and proceeded past without an answer, so it
+is recorded here rather than left implicit in a code comment — which is where
+an independent QA review found it.
+
+**The gap.** With D6 declining a validation Function, the order-time check is
+the only enforcement that binds. But the "hold" it produces is evidence plus a
+best-effort email plus an admin page. If the email bounces — durably audited,
+but still unread — and nobody opens that page, nothing prevents the order being
+picked and shipped. It is a detective control with no binding backstop.
+
+**Option (a), recommended.** Request `write_merchant_managed_fulfillment_orders`
+and place a real fulfilment hold on the Shopify order, so an unmatched line
+cannot progress past packing. This makes criterion 138 mean what it sounds
+like. Cost: one additional write scope.
+
+**Option (b).** Accept the gap for MVP1 on the grounds that CaratForUs fulfils
+manually and a jeweller is unlikely to ship a made-to-order piece without
+looking. Cost: "held" stays a bookkeeping state, and the safety of the whole
+slice rests on staff habit.
+
+Either is defensible. What is not defensible is the wording that was here
+before, which read as though fulfilment were prevented. Until the owner rules,
+**(b) is what is implemented** and criterion 138 above says so plainly.
+
+**Secondary, independent of the ruling.** A Luxury Steal hold has no persistent
+embedded-admin alert, unlike a pricing failure under rule 17 — only a one-shot
+email and a page staff must remember to visit. Worth closing regardless of how
+D28 lands.
+
 ### D11 — RESOLVED: legal review is a pre-launch gate, not a slice 3 blocker
 
 Build against the owner-approved text now; the storefront password stays on.
@@ -156,8 +187,19 @@ boundary can match line to evidence.
 against stored acknowledgment evidence.
 
 **138.** A line with no matching evidence puts the order into a **held for
-staff review** state. It is never silently fulfilled and never auto-cancelled —
-a customer who paid is not the right party to punish for a storefront bypass.
+staff review** state, and it is never auto-cancelled — a customer who paid is
+not the right party to punish for a storefront bypass.
+
+**What "held" means today, stated precisely (D28).** The order is recorded as
+`unmatched` in `luxury_steal_order_check`, an admin email is attempted and its
+outcome audited either way, and the order appears on the held-orders admin
+page. **Nothing on the Shopify order itself is marked, tagged or blocked.** A
+normal fulfilment workflow — picking from the Shopify orders list, or any
+fulfilment app — has nothing telling it to stop.
+
+So "never silently fulfilled" is a claim about *evidence and notification*,
+not about fulfilment being prevented. The earlier wording overstated it, which
+an independent QA review caught. See D28 for the open decision.
 
 **139.** Webhook processing is idempotent and authenticity-verified, reusing
 slice 0's `receiveShopifyWebhook` — a redelivered `orders/create` must not
