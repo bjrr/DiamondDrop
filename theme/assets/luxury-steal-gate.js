@@ -24,6 +24,20 @@
  * when `aria-disabled === 'true'` on the clicked button (its `submitter`),
  * so gating here requires no change to that file at all.
  *
+ * WHY THE BUTTONS ALSO GET `aria-describedby`. `aria-disabled` alone only
+ * announces "dimmed"/"unavailable" -- a screen-reader user who tabs straight
+ * to Add to Cart without passing through the disclosure/checkbox first would
+ * hear that a control is unavailable with no explanation why. This file
+ * cannot add that association from `buy-buttons.liquid` (not this task's
+ * file to edit), so it adds/removes ONE `aria-describedby` token -- this
+ * root's own `role="status"` hint element's id -- on the same buttons, at
+ * the same moments it sets/clears `aria-disabled`. `addDescribedByToken` /
+ * `removeDescribedByToken` only ever touch that one token, preserving
+ * whatever else Dawn (or a future block) may already have listed there, and
+ * restoring the attribute to exactly its prior state -- including removing
+ * it entirely, not leaving `aria-describedby=""` -- once this file's own
+ * disabling is lifted or the selected variant is no longer assigned.
+ *
  * THE HIDDEN INPUT THIS FILE FILLS IN (`[data-carat-ls-ack-input]`,
  * `properties[_carat_ls_ack]`) LIVES OUTSIDE THE `<form>` IN THE DOM. It is
  * associated to it purely via the input's own `form="<product_form_id>"`
@@ -70,15 +84,53 @@
 
   var SELECTOR = '[data-carat-luxury-gate]';
   var PROXY_PATH = '/apps/carat/luxury-acknowledgment';
+  var DESCRIBEDBY_ATTR = 'aria-describedby';
 
-  function setButtonsDisabled(form, disabled) {
+  // Adds/removes ONE token from a (possibly pre-existing, possibly
+  // Dawn-owned) space-separated `aria-describedby` list, leaving every other
+  // token untouched. This is what makes `setButtonsDisabled` below safe to
+  // call repeatedly and in either order: adding a token that is already
+  // present is a no-op, and removing restores the attribute to exactly what
+  // it would be had our token never been added -- including dropping the
+  // attribute entirely if our token was the only one there, rather than
+  // leaving a stray empty `aria-describedby=""`.
+  function addDescribedByToken(el, id) {
+    var tokens = (el.getAttribute(DESCRIBEDBY_ATTR) || '').split(/\s+/).filter(Boolean);
+    if (tokens.indexOf(id) === -1) {
+      tokens.push(id);
+      el.setAttribute(DESCRIBEDBY_ATTR, tokens.join(' '));
+    }
+  }
+
+  function removeDescribedByToken(el, id) {
+    var tokens = (el.getAttribute(DESCRIBEDBY_ATTR) || '').split(/\s+/).filter(Boolean);
+    var next = tokens.filter(function (token) {
+      return token !== id;
+    });
+    if (next.length) {
+      el.setAttribute(DESCRIBEDBY_ATTR, next.join(' '));
+    } else {
+      el.removeAttribute(DESCRIBEDBY_ATTR);
+    }
+  }
+
+  // `statusId` is the id of THIS root's `role="status"` hint element
+  // (`Luxury-Steal-Status-<sectionId>`), constructed from `data-section-id`
+  // rather than looked up via `querySelector` -- the status element only
+  // exists in the DOM when the selected variant is assigned (see the Liquid
+  // template), but a NOT-assigned bind still needs to remove a token it may
+  // have left on a PREVIOUSLY selected (assigned) sibling variant's buttons,
+  // so the id has to be derivable even when the element itself is absent.
+  function setButtonsDisabled(form, disabled, statusId) {
     if (!form) return;
     var buttons = form.querySelectorAll('[type="submit"]');
     for (var i = 0; i < buttons.length; i++) {
       if (disabled) {
         buttons[i].setAttribute('aria-disabled', 'true');
+        if (statusId) addDescribedByToken(buttons[i], statusId);
       } else {
         buttons[i].removeAttribute('aria-disabled');
+        if (statusId) removeDescribedByToken(buttons[i], statusId);
       }
     }
   }
@@ -102,13 +154,16 @@
 
     var form = root.dataset.productFormId ? document.getElementById(root.dataset.productFormId) : null;
     var assigned = root.dataset.caratLsAssigned === 'true';
+    var statusId = root.dataset.sectionId ? 'Luxury-Steal-Status-' + root.dataset.sectionId : null;
 
     if (!assigned) {
       // Nothing to gate for the currently selected variant. Explicitly clear
       // any disabling THIS file may have left behind from a PREVIOUSLY
       // selected (assigned) sibling variant -- never touches the native
-      // `disabled` attribute, so a genuinely sold-out button is unaffected.
-      setButtonsDisabled(form, false);
+      // `disabled` attribute, so a genuinely sold-out button is unaffected --
+      // and restores `aria-describedby` to exactly what it was before this
+      // file's own token was added, per `setButtonsDisabled`'s contract.
+      setButtonsDisabled(form, false, statusId);
       root.dataset.caratLsBound = 'true';
       return;
     }
@@ -135,13 +190,13 @@
     if (hiddenInput) hiddenInput.value = '';
     setStatus(root, hintText);
     setError(root, '');
-    setButtonsDisabled(form, true);
+    setButtonsDisabled(form, true, statusId);
 
     if (checkbox) {
       checkbox.addEventListener('change', function () {
         if (!checkbox.checked) {
           if (hiddenInput) hiddenInput.value = '';
-          setButtonsDisabled(form, true);
+          setButtonsDisabled(form, true, statusId);
           setStatus(root, hintText);
           setError(root, '');
           return;
@@ -166,7 +221,7 @@
           .then(function (data) {
             if (!data || !data.acknowledgmentId) throw new Error('acknowledgment response missing acknowledgmentId');
             if (hiddenInput) hiddenInput.value = data.acknowledgmentId;
-            setButtonsDisabled(form, false);
+            setButtonsDisabled(form, false, statusId);
             setStatus(root, '');
           })
           .catch(function (e) {
@@ -176,7 +231,7 @@
             // visually claim an acknowledgment that was never captured.
             checkbox.checked = false;
             if (hiddenInput) hiddenInput.value = '';
-            setButtonsDisabled(form, true);
+            setButtonsDisabled(form, true, statusId);
             setStatus(root, hintText);
             setError(root, errorText);
           })
