@@ -442,7 +442,7 @@ that only a live gate could reach.
 
 | # | What is unproven | How it gets closed |
 |---|---|---|
-| F-3-1 | The acknowledgment POST round trip from a real PDP — gate → `/apps/carat/luxury-acknowledgment` → `_carat_ls_ack` on the line → order | Live gate against `caratforus-dev` |
+| F-3-1 | ~~The acknowledgment POST round trip → `_carat_ls_ack` on the line → order~~ **CLOSED 2026-09-24 by live gate stage 2, in production.** A real acknowledgment minted through the deployed App Proxy route, carried on a real order line, matched at `orders/create` against production Postgres. The companion order with no property was recorded `unmatched` and alerted. What remains unproven is only the PDP *front end* that produces the POST — see F-3-2/F-3-5. | — |
 | F-3-2 | Criterion 146 in a browser: switching variants re-renders the gate, resets the checkbox and clears the hidden input | Live gate; both the normal `variant-change` path and the combined-listings path |
 | F-3-3 | The combined-listings path specifically — code-reviewed only, with no fixture in this repo | Live gate, or an explicit decision that combined listings are out of MVP1 |
 | F-3-4 | `shopify theme check`, plus any visual or screen-reader pass | Run the CLI where it is available; AT pass before public launch |
