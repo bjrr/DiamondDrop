@@ -93,6 +93,47 @@ Raised twice during implementation and proceeded past without an answer, so it
 is recorded here rather than left implicit in a code comment — which is where
 an independent QA review found it.
 
+**REFRAMED 2026-09-24, after the owner asked why an un-acknowledged Luxury
+Steal is allowed to proceed at all.** The honest answer is that it should not
+be, and the policy says so directly. `docs/LUXURY-STEALS.md` line 100 requires
+the acknowledgment "before the customer **can complete** the applicable Luxury
+Steal purchase" — not before add-to-cart. Slice 3 gates add-to-cart and then
+DETECTS at the order boundary, which is weaker than the locked policy asks
+for. That is a policy-conformance gap, not a design preference, and it was
+mine to surface rather than the owner's to notice.
+
+**Why it currently can proceed.** D6 declined the validation Function, and
+without one there is no point in Shopify's checkout where our code can refuse
+a line. Shopify completes the order and takes payment before we are told it
+exists. "Prevent at the moment of purchase" is not available to this
+architecture at all — only "detect, then act".
+
+**So D28 is really two questions, and the second was missing.**
+
+*Q1 — what is our POLICY for an order whose customer never accepted Final
+Sale terms?* Note that if they never acknowledged, Final Sale is very likely
+not enforceable against them, so the dangerous outcome is not that they keep
+the item — it is that we ship it AS Final Sale and later refuse a return on
+terms they never agreed to. That is precisely the material-terms failure this
+policy exists to prevent. The options:
+
+  1. **Honour it as an ordinary returnable sale.** Coherent and safe; costs us
+     return exposure on a deliberately deep-discounted item.
+  2. **Pause and obtain the acknowledgment before shipping.** They accept →
+     Final Sale applies; they decline → cancel and refund.
+  3. **Cancel and refund immediately.** Cleanest legally, worst for a customer
+     who genuinely wanted the piece and did nothing wrong.
+
+*Q2 — what MECHANISM buys the time to do Q1's answer?* A real fulfilment hold,
+an order tag, or nothing. This is the question the original D28 asked, and on
+its own it is the smaller half.
+
+**The third lever.** If strict conformance with line 100 matters, the only
+true pre-purchase block is the validation Function D6 declined. The stated
+reason was plan and app-distribution eligibility; that is worth re-verifying
+before settling for detect-and-act, because it is the one option that makes
+the implementation match the policy as written rather than approximating it.
+
 **The gap.** With D6 declining a validation Function, the order-time check is
 the only enforcement that binds. But the "hold" it produces is evidence plus a
 best-effort email plus an admin page. If the email bounces — durably audited,
