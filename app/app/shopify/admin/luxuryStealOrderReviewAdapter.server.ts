@@ -186,6 +186,17 @@ export interface HoldFulfillmentOrderResult {
    *    placed under an earlier handle-less version of this code, or an
    *    unrecognised code). SECONDARY and less precise: the fulfilment order
    *    is protected, but not provably by OUR handle — see `userErrorCodes`.
+   *
+   *    KNOWN LIMITATION, not a defect to fix now (architect review,
+   *    2026-09-24): this outcome records that the fulfilment order is
+   *    protected, not that WE are the reason it is protected. If it is
+   *    `ON_HOLD` only because of someone else's hold (a merchant, or another
+   *    app) and that OTHER hold is later released, the fulfilment order
+   *    becomes shippable again while this app's own records still show it
+   *    held — nothing here re-checks or re-asserts a hold once
+   *    `status_fallback` has been recorded. The safety property this adapter
+   *    actually verifies is "can this order ship right now," not "does our
+   *    hold specifically exist," and the two can drift apart after the fact.
    */
   readonly recognizedVia: "applied" | "duplicate_handle" | "status_fallback";
   /**
