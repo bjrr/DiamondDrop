@@ -210,7 +210,20 @@ card is therefore advisory; the PDP's per-variant state is what gates
 add-to-cart.
 
 **149.** The `carat.luxury_steal` cache preserves per-variant state sufficient
-for the theme to render correctly without a second round trip.
+for the theme to render correctly without a second round trip. It is a
+`boolean` variant metafield, and **the theme must read it through `.value`**:
+
+    {% if variant.metafields.carat.luxury_steal.value %}
+
+`variant.metafields.ns.key` alone resolves to a metafield *drop*, which is an
+object and therefore truthy **whenever the metafield exists at all — including
+when its value is `false`**. Testing the drop would show Final Sale on every
+variant that had ever been synced. Unassignment writes an explicit `false`
+rather than deleting (criterion 128), which guarantees the drop exists on
+non-assigned variants, so this is the difference between correct and
+uniformly wrong rather than an edge case. Every metafield read in the shipped
+`theme/snippets/price.liquid` already goes through `.value`; task 3-5 follows
+that precedent.
 
 **150.** Order-time enforcement queries Postgres, never the metafield or any
 client-supplied flag. Restates criterion 127 at the variant grain, because D27
