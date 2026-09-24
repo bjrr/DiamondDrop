@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { prisma } from "~/db/client.server";
 import { getAcknowledgmentById } from "~/db/repositories/acknowledgmentRepository.server";
+import { createAuditEvent } from "~/db/repositories/auditEventRepository.server";
 import { isMasterVariantLuxurySteal, recordLuxuryStealOrderCheck } from "~/db/repositories/luxuryStealRepository.server";
 import { normalizeShopifyVariantGid } from "~/domain/cart/shopifyVariantId";
 import { resolveEmailPort as defaultResolveEmailPort, type EmailPortResolution } from "~/lib/email/configuredPort.server";
@@ -63,10 +64,12 @@ import type { ReceivedWebhookEvent } from "./receive.server";
  * fulfillment through a Shopify API call (no fulfillment-hold scope is
  * requested — that is an owner decision the assigning message raised
  * separately), and never treats an unmatched line as a reason to throw. The
- * hold IS the evidence row (`luxury_steal_order_check`, outcome `unmatched`)
- * plus a best-effort admin notification — see `notifyLuxuryStealOrderHeld`'s
- * own doc comment for why this does not go through the schema-closed
- * `AdminAlertNotification` table the price-failure alerts use.
+ * hold IS the evidence row (`luxury_steal_order_check`, outcome `unmatched`),
+ * plus a best-EFFORT email whose OUTCOME is durably recorded regardless (an
+ * `audit_event` row for sent/failed/unconfigured, never just a log line) —
+ * see `notifyLuxuryStealOrderHeld`'s own doc comment for why this does not
+ * go through the schema-closed `AdminAlertNotification` table the
+ * price-failure alerts use.
  */
 
 const ACKNOWLEDGMENT_PROPERTY_NAME = "_carat_ls_ack";
@@ -210,30 +213,78 @@ async function resolveMatchedAcknowledgmentId(
 }
 
 /**
- * Best-effort admin notification for a newly-discovered hold. Deliberately
- * NOT `dispatchAdminAlert`/`AdminAlertNotification` — that table's
- * `AdminAlertSourceKind` enum is schema-closed to the three price-failure
- * kinds, keyed on a single required `masterVariantId`, and shaped around a
- * recurring per-variant episode with open/suspend/resolve transitions. A
- * Luxury Steal order hold is order-grained (potentially several variants),
- * one-shot (no reopen/resolve lifecycle), and adding a 4th enum member would
- * mean a `prisma/schema.prisma` migration this task's scope does not include
- * (flagged to the architect separately).
+ * Best-effort EMAIL, but a DURABLY RECORDED outcome, for a newly-discovered
+ * hold. Deliberately not `dispatchAdminAlert`/`AdminAlertNotification` —
+ * that table's `AdminAlertSourceKind` enum is schema-closed to the three
+ * price-failure kinds, keyed on a single required `masterVariantId`, and
+ * shaped around a recurring per-variant episode with open/suspend/resolve
+ * transitions. A Luxury Steal order hold is order-grained (potentially
+ * several variants) and one-shot (no reopen/resolve lifecycle), and adding a
+ * 4th enum member would mean a `prisma/schema.prisma` migration this task's
+ * scope does not include.
  *
- * Reuses the SAME email boundary (`resolveEmailPort`/`EmailPort`) the
- * price-failure alerts use, so "email unconfigured"/"send failed" are logged
- * with the same honesty discipline `dispatchAdminAlert` follows — never
- * silently swallowed, never claimed as sent when it was not.
+ * ARCHITECT CORRECTION (see handoff): a notification failure must be
+ * SEPARATELY RECORDED AND ESCALATED, never merely logged — an email that
+ * silently bounces must not be the only trace that anyone was ever supposed
+ * to be told. `luxury_steal_order_check` (M12) cannot carry this: it is
+ * append-only, its columns already have fixed meanings (matched
+ * acknowledgment id, outcome, checked-at), and the notification decision is
+ * an ORDER-level aggregate made only after every line's row is already
+ * written, so there is no row left to attach a delivery outcome to even if a
+ * column existed. Rather than a new table (also schema work), this reuses
+ * `AuditEvent` (`audit_event`, spec §0.5) — an EXISTING, already-shipped,
+ * generic, append-only audit table with no fixed shape (`before`/`after` are
+ * arbitrary JSON) that `verification.server.ts` and
+ * `complianceHandlers.server.ts` already write to for exactly this kind of
+ * "an attempt happened and here is how it went" record. No schema change,
+ * no new table — every outcome below (unconfigured / sent / failed) writes
+ * one `audit_event` row, so a bounced or unconfigured send is durably
+ * visible and queryable (`listAuditEventsForEntity("luxury_steal_order",
+ * orderRef)`) even if the process crashes immediately after.
  *
- * The persistent, queryable, auditable record of the hold itself is
- * `luxury_steal_order_check` (M12) — not this email. See this module's own
- * doc comment and spec §5's own description of that table.
+ * The AUDIT WRITE ITSELF IS DEFENSIVE (caught, logged, never rethrown).
+ * Letting it throw would fail the whole webhook delivery and cause a retry —
+ * but retry cannot help here: the alert-dispatch gate above only fires for a
+ * NEWLY created check row (see the exported handler's own doc comment), so a
+ * redelivery after this point would never re-enter this function at all. A
+ * transient audit-write failure is therefore best surfaced loudly in the
+ * structured log (which already carries the same fields) rather than turned
+ * into a retry loop that cannot fix anything.
  */
 async function notifyLuxuryStealOrderHeld(
   input: { orderRef: string; heldLines: readonly { lineRef: string; masterVariantId: string }[] },
   resolveEmailPort: () => EmailPortResolution
 ): Promise<void> {
   const resolution = resolveEmailPort();
+  const lineRefs = input.heldLines.map((line) => line.lineRef);
+
+  async function recordNotificationAuditEvent(
+    outcome: "sent" | "skipped_unconfigured" | "failed",
+    extra: { providerMessageId?: string; reason?: string }
+  ): Promise<void> {
+    try {
+      await createAuditEvent({
+        actorType: "system",
+        actorRef: "shopify-webhook:orders/create",
+        action: `luxury_steal_order.alert_email_${outcome}`,
+        entityType: "luxury_steal_order",
+        entityId: input.orderRef,
+        after: {
+          heldLineCount: input.heldLines.length,
+          lineRefs,
+          emailDeliveryStatus: outcome,
+          providerMessageId: extra.providerMessageId ?? null,
+        },
+        reason: extra.reason ?? null,
+      });
+    } catch (auditError) {
+      logger.error("luxury_steal_order.alert_audit_event_failed", {
+        orderRef: input.orderRef,
+        attemptedOutcome: outcome,
+        error: auditError instanceof Error ? auditError.name : "UnknownError",
+      });
+    }
+  }
 
   if (!resolution.configured) {
     logger.error("luxury_steal_order.alert_email_unconfigured", {
@@ -241,6 +292,7 @@ async function notifyLuxuryStealOrderHeld(
       heldLineCount: input.heldLines.length,
       reason: resolution.reason,
     });
+    await recordNotificationAuditEvent("skipped_unconfigured", { reason: resolution.reason });
     return;
   }
 
@@ -261,14 +313,17 @@ async function notifyLuxuryStealOrderHeld(
       heldLineCount: input.heldLines.length,
       providerMessageId: sent.providerMessageId,
     });
+    await recordNotificationAuditEvent("sent", { providerMessageId: sent.providerMessageId });
   } catch (error) {
+    // Name only, never the caught error's message — same discipline
+    // `dispatchAdminAlert` follows (criterion 30).
+    const errorName = error instanceof Error ? error.name : "UnknownError";
     logger.error("luxury_steal_order.alert_email_failed", {
       orderRef: input.orderRef,
       heldLineCount: input.heldLines.length,
-      // Name only, never the caught error's message — same discipline
-      // `dispatchAdminAlert` follows (criterion 30).
-      error: error instanceof Error ? error.name : "UnknownError",
+      error: errorName,
     });
+    await recordNotificationAuditEvent("failed", { reason: errorName });
   }
 }
 

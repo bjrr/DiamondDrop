@@ -3,6 +3,7 @@ import { createHmac, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import { prisma } from "~/db/client.server";
+import { listAuditEventsForEntity } from "~/db/repositories/auditEventRepository.server";
 import { getLuxuryStealOrderCheck } from "~/db/repositories/luxuryStealRepository.server";
 import type { EmailPortResolution } from "~/lib/email/configuredPort.server";
 import { getEnv } from "~/lib/env.server";
@@ -200,12 +201,22 @@ describe("a line with no _carat_ls_ack property", () => {
       resolveEmailPort: configuredResolver(port),
     });
 
-    const check = await getLuxuryStealOrderCheck(`gid://shopify/Order/${orderId}`, "gid://shopify/LineItem/1");
+    const orderRef = `gid://shopify/Order/${orderId}`;
+    const check = await getLuxuryStealOrderCheck(orderRef, "gid://shopify/LineItem/1");
     expect(check?.outcome).toBe("unmatched");
     expect(check?.matchedAcknowledgmentId).toBeNull();
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.subject).toContain(`gid://shopify/Order/${orderId}`);
+    expect(calls[0]?.subject).toContain(orderRef);
     expect(calls[0]?.text).toContain(variant.id);
+
+    // Architect correction: the notification OUTCOME must be durably
+    // recorded, not just logged — a bounced/unconfigured email must leave a
+    // trace independent of email delivery actually arriving anywhere.
+    const auditEvents = await listAuditEventsForEntity("luxury_steal_order", orderRef);
+    expect(auditEvents).toHaveLength(1);
+    expect(auditEvents[0]?.action).toBe("luxury_steal_order.alert_email_sent");
+    expect((auditEvents[0]?.after as { emailDeliveryStatus: string } | null)?.emailDeliveryStatus).toBe("sent");
+    expect((auditEvents[0]?.after as { providerMessageId: string } | null)?.providerMessageId).toBe("msg-1");
   });
 });
 
@@ -235,11 +246,12 @@ describe("a line whose property names an acknowledgment for a DIFFERENT variant 
 });
 
 describe("a line naming an acknowledgment id that does not exist", () => {
-  it("is recorded as unmatched", async () => {
+  it("is recorded as unmatched, and an unconfigured-email outcome is still durably recorded", async () => {
     const product = await createProduct();
     const variant = await createVariant(product.id, { isLuxurySteal: true });
 
     const orderId = nextNumericId();
+    const orderRef = `gid://shopify/Order/${orderId}`;
     const rawBody = buildOrderRawBody(orderId, [
       { lineId: "1", variantId: variantIdFromGid(variant.shopifyVariantGid!), ackId: randomUUID() },
     ]);
@@ -248,8 +260,18 @@ describe("a line naming an acknowledgment id that does not exist", () => {
       resolveEmailPort: () => ({ configured: false, reason: "not configured for this test" }),
     });
 
-    const check = await getLuxuryStealOrderCheck(`gid://shopify/Order/${orderId}`, "gid://shopify/LineItem/1");
+    const check = await getLuxuryStealOrderCheck(orderRef, "gid://shopify/LineItem/1");
     expect(check?.outcome).toBe("unmatched");
+
+    // Even with no configured email port, the ATTEMPT's outcome (skipped,
+    // unconfigured) is a durable audit_event row, not merely a log line.
+    const auditEvents = await listAuditEventsForEntity("luxury_steal_order", orderRef);
+    expect(auditEvents).toHaveLength(1);
+    expect(auditEvents[0]?.action).toBe("luxury_steal_order.alert_email_skipped_unconfigured");
+    expect(
+      (auditEvents[0]?.after as { emailDeliveryStatus: string } | null)?.emailDeliveryStatus
+    ).toBe("skipped_unconfigured");
+    expect(auditEvents[0]?.reason).toBe("not configured for this test");
   });
 });
 
@@ -362,11 +384,12 @@ describe("an order mixing a Luxury Steal line with an ordinary line", () => {
 });
 
 describe("redelivery of the same orders/create event", () => {
-  it("creates exactly one evidence row and sends exactly one alert", async () => {
+  it("creates exactly one evidence row, sends exactly one alert, and records exactly one audit event", async () => {
     const product = await createProduct();
     const variant = await createVariant(product.id, { isLuxurySteal: true });
 
     const orderId = nextNumericId();
+    const orderRef = `gid://shopify/Order/${orderId}`;
     const rawBody = buildOrderRawBody(orderId, [
       { lineId: "1", variantId: variantIdFromGid(variant.shopifyVariantGid!) },
     ]);
@@ -383,10 +406,13 @@ describe("redelivery of the same orders/create event", () => {
     });
 
     const rowCount = await prisma.luxuryStealOrderCheck.count({
-      where: { orderRef: `gid://shopify/Order/${orderId}`, lineRef: "gid://shopify/LineItem/1" },
+      where: { orderRef, lineRef: "gid://shopify/LineItem/1" },
     });
     expect(rowCount).toBe(1);
     expect(calls).toHaveLength(1);
+
+    const auditEvents = await listAuditEventsForEntity("luxury_steal_order", orderRef);
+    expect(auditEvents).toHaveLength(1);
   });
 });
 
