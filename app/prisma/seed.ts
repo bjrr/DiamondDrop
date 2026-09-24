@@ -637,7 +637,6 @@ async function seedRingFixture(): Promise<void> {
       sizeIncrement: "0.50",
       baseSize: "6.00",
       offeredMetals: [Metal.gold, Metal.platinum],
-      isLuxurySteal: false,
       status: MasterProductStatus.active,
     },
   });

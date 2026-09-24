@@ -27,7 +27,7 @@ const uniq = () => `${Date.now() % 900_000}-${++seq}`;
 
 async function openCampaign() {
   const variant = await prisma.masterVariant.findFirstOrThrow({
-    where: { status: "active", masterProduct: { isLuxurySteal: false } },
+    where: { status: "active", isLuxurySteal: false },
     orderBy: { baseWeightGrams: "desc" },
   });
 

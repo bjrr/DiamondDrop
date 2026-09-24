@@ -40,7 +40,7 @@ async function openCampaignAt(asOf: Date, units = 0) {
   // only narrowly, and the tier below would breach it before anything this file
   // cares about could be observed.
   const variant = await prisma.masterVariant.findFirstOrThrow({
-    where: { status: "active", masterProduct: { isLuxurySteal: false } },
+    where: { status: "active", isLuxurySteal: false },
     orderBy: { baseWeightGrams: "desc" },
   });
 

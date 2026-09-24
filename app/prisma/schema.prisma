@@ -129,6 +129,11 @@ model Acknowledgment {
 
   createdAt DateTime @default(now()) @map("created_at")
 
+  /// Slice 3 M12 back-relation only — required by Prisma for the FK on
+  /// `LuxuryStealOrderCheck.matchedAcknowledgmentId`. Adds no column here and
+  /// changes nothing about how Acknowledgment rows are written or read.
+  luxuryStealOrderChecks LuxuryStealOrderCheck[]
+
   @@index([policyVersionId])
   @@index([customerRef])
   @@index([orderRef])
@@ -611,10 +616,6 @@ model MasterProduct {
   /// Explicit per R10 — product creators choose which offered metals apply.
   offeredMetals     Metal[]             @map("offered_metals")
   shopifyProductGid String?             @unique @map("shopify_product_gid")
-  /// Read by the recalculation job's LuxuryStealExclusionSource (§9.2).
-  /// Slice 3 owns the semantics; this slice only gives the exclusion port
-  /// something to read.
-  isLuxurySteal     Boolean             @default(false) @map("is_luxury_steal")
   status            MasterProductStatus @default(draft)
   createdAt         DateTime            @default(now()) @map("created_at")
   updatedAt         DateTime            @updatedAt @map("updated_at")
@@ -666,6 +667,20 @@ model MasterVariant {
   /// way round. This is the SYSTEM OF RECORD (criterion 40); Shopify's own
   /// metafield mirror of it is presentation cache only.
   bankPaymentDiscountEligible  Boolean             @default(true) @map("bank_payment_discount_eligible")
+  /// Slice 3, M11 (docs/specs/SLICE-3-LUXURY-STEALS.md, D27, criteria
+  /// 125-128, 146-150). THE authoritative Luxury Steal assignment — variant
+  /// grain, not product grain (D27 supersedes D26's product-level wording).
+  /// A product-level `is_luxury_steal` column existed briefly from slice 1
+  /// and was retired by the migration that added this column's backfill —
+  /// see that migration's own header comment; nothing has read the product
+  /// grain since. Set only through the controlled admin path in
+  /// `app/db/repositories/luxuryStealRepository.server.ts`. Nothing may
+  /// derive this from a Shopify tag, collection membership, or the
+  /// `carat.luxury_steal` metafield — the metafield is a presentation cache
+  /// synced FROM this column (task 3-2), never the reverse, and a stale or
+  /// missing cache must fail safe by falling back to THIS column (criterion
+  /// 127/150). Default false: most variants are ordinary Buy Now stock.
+  isLuxurySteal                Boolean             @default(false) @map("is_luxury_steal")
   status                       MasterVariantStatus @default(draft)
   /// Compare-and-set anchor for slice 2's sync (§9.4): the sync executes
   /// only if the intent's priceCalculationId is still the newest computed
@@ -690,6 +705,10 @@ model MasterVariant {
 
   @@unique([masterProductId, metal, purity, bandId])
   @@index([status])
+  /// Slice 3 M11: the collection query (which variants are Luxury Steals,
+  /// for badge/merchandising reads) and the order-time check (criterion 150)
+  /// both filter on this column directly.
+  @@index([isLuxurySteal])
   @@map("master_variant")
 }
 
@@ -1970,4 +1989,65 @@ model GroupBuyRefundEvent {
 
   @@index([refundId, createdAt])
   @@map("group_buy_refund_event")
+}
+
+// =============================================================================
+// Slice 3 — Luxury Steals (docs/specs/SLICE-3-LUXURY-STEALS.md, task 3-1).
+// `MasterVariant.isLuxurySteal` above (M11) is the assignment; this table
+// (M12) is the order-boundary evidence — see that model's own doc comment
+// for why it exists and what it must never be allowed to omit.
+// =============================================================================
+
+/// Whether an `orders/create` line matched stored Final Sale acknowledgment
+/// evidence. Recorded EITHER WAY (criterion 140) — `matched` is evidence
+/// too, and its absence later would be indistinguishable from "never
+/// checked". Task 3-4 (the webhook) is the only intended writer; this slice
+/// only gives it the table and the repository functions to write through.
+enum LuxuryStealOrderCheckOutcome {
+  matched
+  unmatched
+
+  @@map("luxury_steal_order_check_outcome")
+}
+
+/// Append-only evidence (see migration 20260913000100's convention, extended
+/// to this table by this slice's migration). Criteria 137-140: an
+/// `orders/create` webhook verifies EVERY Luxury Steal line against stored
+/// acknowledgment evidence, and this is the durable record of that check —
+/// one row per ORDER LINE checked, not per order.
+///
+/// `orderRef`/`lineRef`/`variantRef` are plain Shopify GID strings, matching
+/// the existing ref convention already established on `Acknowledgment`
+/// (`orderRef`/`productRef`/`variantRef` there hold values like
+/// `"gid://shopify/Order/1"` — see `acknowledgment.test.ts`) rather than
+/// internal foreign keys: the order-time check runs from the webhook
+/// payload, which carries Shopify identifiers directly, and task 3-4 (not
+/// this task) owns resolving `variantRef` to a `MasterVariant` when it needs
+/// to query the M11 assignment column.
+///
+/// IDEMPOTENCY (criterion 139): `@@unique([orderRef, lineRef])` is what lets
+/// a redelivered `orders/create` be a no-op re-read rather than a second
+/// hold or a second evidence row — the same compare-and-set-then-read-on-
+/// conflict idiom `webhook_event`/`idempotency_key` already use.
+model LuxuryStealOrderCheck {
+  id String @id @default(uuid()) @db.Uuid
+
+  orderRef   String @map("order_ref")
+  lineRef    String @map("line_ref")
+  variantRef String @map("variant_ref")
+
+  /// Populated only when `outcome = matched` — enforced by a CHECK in this
+  /// slice's migration raw SQL, mirroring how `price_override` couples
+  /// `kind` to its price column. Nullable FK: an `unmatched` outcome, by
+  /// definition, found no acknowledgment to point at.
+  matchedAcknowledgmentId String?         @map("matched_acknowledgment_id") @db.Uuid
+  matchedAcknowledgment   Acknowledgment? @relation(fields: [matchedAcknowledgmentId], references: [id])
+
+  outcome   LuxuryStealOrderCheckOutcome
+  checkedAt DateTime                     @default(now()) @map("checked_at") @db.Timestamptz(6)
+
+  @@unique([orderRef, lineRef])
+  @@index([orderRef])
+  @@index([variantRef])
+  @@map("luxury_steal_order_check")
 }

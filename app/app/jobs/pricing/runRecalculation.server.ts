@@ -269,7 +269,16 @@ export async function runPriceRecalculation(options: RunOptions = {}): Promise<R
   for (const variant of variants) {
     // Skipped variants are RECORDED with a reason, never silently dropped
     // (R17) — a product missing from a pricing run must be explicable.
-    if (variant.masterProduct.isLuxurySteal) {
+    //
+    // VARIANT-GRAIN, NOT PRODUCT-GRAIN (D27, docs/specs/SLICE-3-LUXURY-STEALS.md
+    // criteria 146-147/150). This used to read `variant.masterProduct.
+    // isLuxurySteal`, which skipped EVERY variant of a flagged product —
+    // exactly the behaviour criterion 147 forbids once assignment moved to
+    // the variant. `master_product.is_luxury_steal` has been retired (see
+    // the migration that backfilled and dropped it); this column is the only
+    // source of truth now, matching `luxuryStealRepository.server.ts`'s
+    // `isMasterVariantLuxurySteal`.
+    if (variant.isLuxurySteal) {
       summary.skipped += 1;
       logger.info("pricing.variant_skipped", {
         runId,

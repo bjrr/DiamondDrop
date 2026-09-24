@@ -101,7 +101,12 @@ describe("criterion 58 fence — every column on every covered model is classifi
     // LENGTHS could not slip through silently either.
     expect(realColumnNames("MasterVariant")).toContain("lastSyncedPriceCalculationId");
     expect(realColumnNames("MasterVariant")).toContain("baseWeightGrams");
-    expect(realColumnNames("MasterProduct")).toContain("isLuxurySteal");
+    // Slice 3 D27: Luxury Steal assignment moved to the variant grain, and
+    // `MasterProduct.isLuxurySteal` was retired (backfilled then dropped) —
+    // this spot check moved with it rather than pointing at a column that no
+    // longer exists.
+    expect(realColumnNames("MasterVariant")).toContain("isLuxurySteal");
+    expect(realColumnNames("MasterProduct")).not.toContain("isLuxurySteal");
   });
 
   it("COVERED_MODELS itself covers at least the tables T5's PricingInputChangeKind audit identified", () => {

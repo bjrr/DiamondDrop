@@ -128,7 +128,6 @@ async function main() {
       baseSize: "0",
       offeredMetals: ["gold"],
       status: "active",
-      isLuxurySteal: false,
     },
   });
 

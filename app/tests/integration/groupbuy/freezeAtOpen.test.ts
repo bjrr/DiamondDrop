@@ -38,7 +38,7 @@ const uniqueCode = () => `gb-${Date.now() % 900_000}-${++sequence}`;
  */
 async function anEligibleVariant() {
   return prisma.masterVariant.findFirstOrThrow({
-    where: { status: "active", masterProduct: { isLuxurySteal: false } },
+    where: { status: "active", isLuxurySteal: false },
     orderBy: { baseWeightGrams: "desc" },
   });
 }
@@ -513,7 +513,7 @@ describe("one profile governs the whole campaign", () => {
     // The ordinary case, and the one the guard must not disturb.
     const a = await anEligibleVariant();
     const b = await prisma.masterVariant.findFirstOrThrow({
-      where: { status: "active", id: { not: a.id }, masterProduct: { isLuxurySteal: false } },
+      where: { status: "active", id: { not: a.id }, isLuxurySteal: false },
       orderBy: { baseWeightGrams: "desc" },
     });
 

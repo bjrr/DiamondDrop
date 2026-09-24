@@ -57,6 +57,8 @@ describe("criterion 25/26 — the run", () => {
   it("computes prices, records skips with a reason, and never aborts on one failure", async () => {
     await realisticProfile();
 
+    // D27 (docs/specs/SLICE-3-LUXURY-STEALS.md): assignment is VARIANT-grain,
+    // not product-grain — the product itself carries no Luxury Steal flag.
     const luxury = await prisma.masterProduct.create({
       data: {
         name: `luxury steal ${randomUUID().slice(0, 6)}`,
@@ -67,7 +69,6 @@ describe("criterion 25/26 — the run", () => {
         sizeIncrement: "1",
         baseSize: "0",
         offeredMetals: ["gold"],
-        isLuxurySteal: true,
         status: "active",
       },
     });
@@ -80,6 +81,7 @@ describe("criterion 25/26 — the run", () => {
         weightPerFullSizeGrams: "0.0000",
         status: "active",
         laborSource: "india",
+        isLuxurySteal: true,
       },
     });
 
@@ -97,6 +99,67 @@ describe("criterion 25/26 — the run", () => {
 
     // A first-ever price is ALWAYS needs_approval (§9.3).
     expect(summary.needsApproval).toBeGreaterThan(0);
+  });
+
+  it("criterion 147 at the pricing layer — a non-assigned sibling of a Luxury Steal variant IS still recalculated", async () => {
+    await realisticProfile();
+
+    // One product, two variants: only one is assigned. D27 supersedes the old
+    // product-level exclusion, which used to skip EVERY variant of a product
+    // flagged Luxury Steal — that behaviour must not survive the move to the
+    // variant grain, or an ordinary sibling variant would silently stop being
+    // priced at all.
+    const product = await prisma.masterProduct.create({
+      data: {
+        name: `mixed luxury steal product ${randomUUID().slice(0, 6)}`,
+        category: "ring",
+        sizeAxis: "none",
+        allowedSizeMin: "0",
+        allowedSizeMax: "0",
+        sizeIncrement: "1",
+        baseSize: "0",
+        offeredMetals: ["gold"],
+        status: "active",
+      },
+    });
+    const luxuryVariant = await prisma.masterVariant.create({
+      data: {
+        masterProductId: product.id,
+        metal: "gold",
+        purity: "GOLD_14K",
+        baseWeightGrams: "3.0000",
+        weightPerFullSizeGrams: "0.0000",
+        status: "active",
+        laborSource: "india",
+        isLuxurySteal: true,
+      },
+    });
+    const ordinarySibling = await prisma.masterVariant.create({
+      data: {
+        masterProductId: product.id,
+        metal: "gold",
+        purity: "GOLD_18K",
+        baseWeightGrams: "3.0000",
+        weightPerFullSizeGrams: "0.0000",
+        status: "active",
+        laborSource: "india",
+        // isLuxurySteal defaults to false — the point of this fixture.
+      },
+    });
+
+    const runId = randomUUID();
+    await runPriceRecalculation({ asOf: ASOF, runId, variantIds: [luxuryVariant.id, ordinarySibling.id] });
+
+    const luxuryCalc = await prisma.priceCalculation.findFirst({
+      where: { runId, masterVariantId: luxuryVariant.id },
+    });
+    expect(luxuryCalc).toBeNull();
+
+    const siblingCalc = await prisma.priceCalculation.findFirst({
+      where: { runId, masterVariantId: ordinarySibling.id },
+    });
+    expect(siblingCalc).not.toBeNull();
+    expect(siblingCalc?.status).toBe("computed");
   });
 
   it("criterion 23 — a second run with the same runId is a no-op", async () => {

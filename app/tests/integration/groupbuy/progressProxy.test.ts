@@ -37,7 +37,7 @@ function signed(path: string, params: Record<string, string>): Request {
 
 async function openCampaign(options?: { units?: number; scheduledCloseAt?: Date }) {
   const variant = await prisma.masterVariant.findFirstOrThrow({
-    where: { status: "active", masterProduct: { isLuxurySteal: false } },
+    where: { status: "active", isLuxurySteal: false },
     orderBy: { baseWeightGrams: "desc" },
   });
 

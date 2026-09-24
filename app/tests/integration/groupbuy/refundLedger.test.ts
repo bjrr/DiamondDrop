@@ -32,7 +32,7 @@ const uniq = () => `${Date.now() % 900_000}-${++seq}`;
 /** Opens a campaign, sells `units`, closes it, and returns the frozen base. */
 async function closedCampaign(units: number) {
   const variant = await prisma.masterVariant.findFirstOrThrow({
-    where: { status: "active", masterProduct: { isLuxurySteal: false } },
+    where: { status: "active", isLuxurySteal: false },
     orderBy: { baseWeightGrams: "desc" },
   });
 
@@ -93,7 +93,7 @@ describe("refunds are computed at close", () => {
     // a light variant clears the $100 minimum profit only narrowly, so even a
     // 1% tier breaches it and the campaign cannot open at all.
     const variant = await prisma.masterVariant.findFirstOrThrow({
-      where: { status: "active", masterProduct: { isLuxurySteal: false } },
+      where: { status: "active", isLuxurySteal: false },
       orderBy: { baseWeightGrams: "desc" },
     });
     const draft = await prisma.groupBuyCampaign.create({

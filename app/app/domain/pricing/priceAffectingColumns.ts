@@ -140,8 +140,18 @@ export const PRICE_AFFECTING_COLUMNS: Readonly<Record<CoveredModel, readonly str
     "laborSource",
     "minBankPaymentPriceMinorUnits",
     "minBankPaymentPriceCurrency",
+    // Slice 3 M11 (D27, docs/specs/SLICE-3-LUXURY-STEALS.md) — the
+    // authoritative Luxury Steal assignment, at the grain D27 requires
+    // (MasterProduct.isLuxurySteal, formerly classified here, was retired —
+    // see the migration that backfilled and dropped it). Toggling it changes
+    // whether this variant should be priced by the engine AT ALL (Luxury
+    // Steals are excluded, not merely repriced), so a change here should
+    // prompt a timely recalculation rather than wait for the next scheduled
+    // run — assigning a variant should promptly stop pricing it, and
+    // unassigning it should promptly resume.
+    "isLuxurySteal",
   ],
-  MasterProduct: ["sizeAxis", "allowedSizeMin", "allowedSizeMax", "sizeIncrement", "baseSize", "isLuxurySteal"],
+  MasterProduct: ["sizeAxis", "allowedSizeMin", "allowedSizeMax", "sizeIncrement", "baseSize"],
 };
 
 /**

@@ -180,8 +180,8 @@ describe("RunOptions.variantIds — a scoped run processes only the named varian
   it("scoping does not bypass the Luxury Steal skip", async () => {
     await realisticProfile();
     const variant = await priceableVariant();
-    await prisma.masterProduct.update({
-      where: { id: variant.masterProductId },
+    await prisma.masterVariant.update({
+      where: { id: variant.id },
       data: { isLuxurySteal: true },
     });
 
