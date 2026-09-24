@@ -101,3 +101,44 @@
   color: #d82c0d;
   margin: 1rem 0 0;
 }
+
+/**
+ * Cart line disclosure (`snippets/luxury-cart-line-disclosure.liquid`).
+ * Visually secondary to the line's own title/price, but NEVER via reduced
+ * colour contrast (architect instruction, 2026-09-24): this theme has no
+ * fixed background/text colour values to check against — they are
+ * merchant-configurable theme-editor settings, not constants in this
+ * codebase — so an actual contrast ratio cannot be computed here, and the
+ * conservative choice per that instruction is full contrast, left UNMEASURED
+ * rather than assumed fine. "Secondary" is expressed with smaller type, a
+ * bordered block and spacing only — every rule below keeps
+ * `color: rgb(var(--color-foreground))` at full (1) alpha, matching ordinary
+ * body text exactly, not a muted variant of it. Never hidden, truncated or
+ * `visibility`/`display`-suppressed at any breakpoint either: material terms
+ * stay present and legible, not merely quieter.
+ */
+.carat-luxury-cart-disclosure {
+  margin-top: 0.5rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  border-radius: var(--badge-corner-radius, 0);
+}
+
+.carat-luxury-cart-disclosure .carat-luxury-badge--cart {
+  margin-bottom: 0.4rem;
+}
+
+.carat-luxury-cart-disclosure__heading {
+  font-size: 1.2rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: rgb(var(--color-foreground));
+  margin: 0 0 0.3rem;
+}
+
+.carat-luxury-cart-disclosure__claims {
+  font-size: 1.2rem;
+  line-height: 1.4;
+  color: rgb(var(--color-foreground));
+  margin: 0;
+}

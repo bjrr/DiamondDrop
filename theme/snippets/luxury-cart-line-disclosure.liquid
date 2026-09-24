@@ -1,0 +1,81 @@
+{% comment %}
+  Renders the Final Sale badge, disclosure heading and claims paragraph for a
+  Luxury Steal cart line, on both the cart page and the cart drawer (Slice 3
+  task 3-5 follow-up, owner request 2026-09-24: the Final Sale disclaimer
+  must also appear in the cart, not only on the PDP).
+
+  PER LINE, NOT PER CART. Reads THIS line's own variant --
+  `item.variant.metafields.carat.luxury_steal.value` -- because a cart can mix
+  a Luxury Steal with ordinary lines, and only the Luxury Steal line carries
+  these terms. Same `.value` rule as every other Luxury Steal metafield read
+  in this theme (criterion 149) -- see `snippets/price.liquid` for the
+  original precedent.
+
+  OWNER-APPROVED, 2026-09-24 (final ruling, after two superseded drafts this
+  same day -- a single owner-specified short statement with a linked return
+  policy, then a reversion back to this). Verbatim: "The cart disclaimer
+  approach is approved: use the already owner-approved Final Sale heading
+  together with the claims-preserving paragraph. Do not introduce shorter new
+  copy without approval." So this reads the SAME two `luxury_steals.disclosure`
+  locale keys the PDP disclosure uses (`snippets/luxury-product-gate.liquid`),
+  not a separate cart-specific string.
+
+  WHY THE HEADING NEVER APPEARS ALONE. `luxury_steals.disclosure.heading` is
+  now the flat, unscoped "Final Sale -- this item cannot be returned or
+  exchanged." (owner revision, 2026-09-24) -- the earlier "...for
+  change-of-mind reasons" qualifier moved into the body/claims text instead
+  of disappearing. A heading shown BY ITSELF is therefore an unqualified claim
+  that nothing about this item can ever be returned, which contradicts
+  docs/LUXURY-STEALS.md and criteria 141-142 (Final Sale restricts
+  DISCRETIONARY returns only, and must never read as ending CaratForUs's
+  responsibility for a damaged, wrong, not-as-described or warranty-covered
+  item). So this snippet always renders heading + claims together, never the
+  heading alone, and never behind a click-to-expand/modal -- the existing
+  `cart-disclosure-indicator` snippet nearby in both cart templates IS a
+  click-to-reveal tooltip for Shopify's native product-disclosures metafield;
+  deliberately NOT reused here, because material Final Sale terms must be
+  visible in the DOM without an interaction.
+
+  THE BODY PARAGRAPH (`luxury_steals.disclosure.body`, the change-of-mind
+  list) is the one piece still OMITTED here -- redundant with the PDP, where
+  the customer already saw and acknowledged it before this line could exist
+  in the cart at all. Heading + claims is the minimum that stays truthful in
+  a cart's tighter space.
+
+  CONTRAST, NOT JUST SIZE, CARRIES THE "SECONDARY" TREATMENT. An earlier
+  revision of this snippet (briefly, during the same-day copy churn above)
+  rendered this text at `rgba(foreground, 0.75)`, matching an existing
+  de-emphasis convention elsewhere in the theme rather than a measured
+  contrast ratio -- flagged as unmeasured at the time. Per the architect's
+  explicit instruction once heading+claims was reinstated ("material terms
+  must not fall below WCAG AA contrast... if you cannot compute it in this
+  environment, choose the conservative option -- full contrast"): this theme
+  has no fixed colour values to check against (background/text are
+  merchant-configurable theme-editor settings, not constants in this
+  codebase), so an actual contrast ratio cannot be computed here. This
+  snippet therefore renders at FULL foreground contrast
+  (`rgb(var(--color-foreground))`, no alpha) and is UNMEASURED, not assumed
+  fine. "Secondary" is expressed through smaller type and the bordered block
+  alone, per `component-luxury-gate.css`'s `.carat-luxury-cart-disclosure__*`
+  rules -- never through reduced opacity.
+
+  Accepts:
+  - item: {Object} a `cart.items` line item
+
+  Usage:
+  {%- render 'luxury-cart-line-disclosure', item: item -%}
+{% endcomment %}
+{%- if item.variant.metafields.carat.luxury_steal.value -%}
+  {{ 'component-luxury-gate.css' | asset_url | stylesheet_tag }}
+  <div class="carat-luxury-cart-disclosure" role="note" aria-label="{{ 'luxury_steals.badge' | t | escape }}">
+    <span class="badge color-{{ settings.sale_badge_color_scheme }} carat-luxury-badge carat-luxury-badge--cart">
+      {{- 'luxury_steals.badge' | t -}}
+    </span>
+    <p class="carat-luxury-cart-disclosure__heading">
+      {{- 'luxury_steals.disclosure.heading' | t -}}
+    </p>
+    <p class="carat-luxury-cart-disclosure__claims">
+      {{- 'luxury_steals.disclosure.claims' | t -}}
+    </p>
+  </div>
+{%- endif -%}
