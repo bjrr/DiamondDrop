@@ -451,7 +451,7 @@ describe("R16 step 5 — audit: every Liquid comparison against a JSON metafield
    * No comparison anywhere in the file was found comparing a raw, uncast metafield-derived value
    * against a native Liquid value.
    */
-  it("AUDITED AND FOUND CORRECT: price.liquid is the ONLY .liquid file in the theme that reads a carat.* metafield at all — walked, not assumed", () => {
+  it("AUDITED AND FOUND CORRECT: price.liquid is the ONLY .liquid file in the theme that reads a PRICE-BEARING carat.* metafield — walked, not assumed", () => {
     function walkLiquidFiles(absoluteDir: string): string[] {
       const entries = readdirSync(absoluteDir, { withFileTypes: true });
       const files: string[] = [];
@@ -469,7 +469,50 @@ describe("R16 step 5 — audit: every Liquid comparison against a JSON metafield
       walkLiquidFiles(join(THEME_ROOT, dir))
     );
     expect(files.length).toBeGreaterThanOrEqual(80); // guards the guard: the walk found something
-    const matchingFiles = files.filter((f) => readFileSync(f, "utf8").includes("metafields.carat."));
-    expect(matchingFiles).toEqual([PRICE_PATH]);
+
+    // WHAT THIS FENCE ACTUALLY PROTECTS, narrowed 2026-09-24.
+    //
+    // It originally asserted that price.liquid was the only file reading
+    // `metafields.carat.` AT ALL, which was true while price was the sole
+    // consumer of that namespace. Slice 3 added `carat.luxury_steal` — a
+    // boolean eligibility flag carrying no money — and the theme legitimately
+    // reads it from luxury-*.liquid (criteria 148/149).
+    //
+    // The namespace was never the thing worth protecting. The PRICE-BEARING
+    // payloads are: their JSON shape, their staleness marker and their
+    // cast-before-compare discipline are what this file exists to pin, and a
+    // second file reading one of THOSE is the regression that matters.
+    // Widening the allowlist to "price.liquid plus whatever else showed up"
+    // would have kept the test green while retiring its meaning; narrowing
+    // the predicate keeps it sharp.
+    const PRICE_BEARING_KEYS = [
+      "bank_payment_price_minor_units",
+      "as_low_as_bank_minor_units",
+    ];
+    const readsPriceBearingMetafield = (contents: string) =>
+      PRICE_BEARING_KEYS.some((key) => contents.includes(`metafields.carat.${key}`));
+
+    const priceBearingConsumers = files.filter((f) =>
+      readsPriceBearingMetafield(readFileSync(f, "utf8"))
+    );
+    expect(
+      priceBearingConsumers,
+      "a second .liquid file now reads a PRICE-BEARING carat metafield. price.liquid is the single audited consumer of those payloads — see this file's header for the cast-before-compare and staleness-marker rules any new consumer would have to re-prove."
+    ).toEqual([PRICE_PATH]);
+
+    // The non-price carat readers are still enumerated rather than ignored, so
+    // a NEW one is a deliberate act that updates this list, not a silent
+    // arrival. These carry no money and are exempt from the rules above.
+    const NON_PRICE_CARAT_READERS = [
+      join(THEME_ROOT, "snippets", "luxury-badge-card.liquid"),
+      join(THEME_ROOT, "snippets", "luxury-product-gate.liquid"),
+    ];
+    const allCaratReaders = files.filter((f) =>
+      readFileSync(f, "utf8").includes("metafields.carat.")
+    );
+    expect(
+      allCaratReaders.slice().sort(),
+      "an unlisted .liquid file reads a carat.* metafield. If it is a new non-price consumer, add it to NON_PRICE_CARAT_READERS with a reason; if it reads a price-bearing payload, the assertion above is the one to satisfy."
+    ).toEqual([PRICE_PATH, ...NON_PRICE_CARAT_READERS].sort());
   });
 });
