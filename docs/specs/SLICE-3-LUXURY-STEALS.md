@@ -230,11 +230,35 @@ client-supplied flag. Restates criterion 127 at the variant grain, because D27
 is exactly where a "just read the cache, it's per variant now" shortcut becomes
 tempting.
 
+**151. Ordinary price recalculation excludes a variant on its OWN assignment,
+and a non-assigned sibling is still recalculated.**
+
+Found during task 3-1. A pre-existing `master_product.is_luxury_steal` column
+already existed, and `runRecalculation.server.ts` skipped a variant only when
+its **product** carried that flag. D27 moves the truth to the variant, so a
+variant-level Luxury Steal whose product flag is `false` would not have been
+skipped: the job would compute an ordinary price and publish it over the
+deliberately-low assigned price, which `LUXURY-STEALS.md` requires to be
+explicit and auditable. Money-critical, and latent rather than visible —
+auto-publish is off and no real Luxury Steals exist yet, so nothing would have
+failed loudly.
+
+The legacy column is **retired**, not left alongside the new one: backfilled
+down to its variants and dropped in the same migration, so there is no second
+source of truth for anything to drift against. Zero products carried the flag,
+so the backfill is a no-op here and correct anywhere else.
+
+The reverse hazard is the one to test. The old behaviour excluded **every**
+variant of a Luxury Steal product; the new behaviour deliberately does not, so
+a normal sibling must still be recalculated. That is criterion 147 at the
+pricing layer, and it is asserted directly.
+
 ## 5. Data model
 
 | # | Change | Why |
 |---|---|---|
 | M11 | `master_variant.is_luxury_steal` — NOT NULL, default `false` | Criteria 125 / 146-147 — the system of record, at the grain D27 requires |
+| M11b | Backfill `master_product.is_luxury_steal` down to its variants, then DROP the column | Criterion 151 — retire the legacy grain rather than keep two sources of truth |
 | M12 | `luxury_steal_order_check` — order ref, line ref, variant ref, matched acknowledgment id (nullable), outcome, checked-at | Criteria 137-140. A hold is a state we must be able to query and audit, not a log line |
 
 `Acknowledgment` (slice 0) needs **no change** — it already carries exact text,
