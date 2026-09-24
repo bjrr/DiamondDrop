@@ -84,6 +84,15 @@ const EXEMPT_UI_ACTION_ROUTES: Readonly<Record<string, string>> = {
     "which arrives from somewhere else. " +
     "If this route ever accepts a POST from anywhere but its own rendered form, " +
     "this exemption stops being true and must be re-argued.",
+  "app.luxury-steals._index.tsx":
+    "the Luxury Steal assignment admin surface (Slice 3 task 3-2b). Same argument " +
+    "as app.bank-payments.$id.tsx, not _index.tsx: this route IS a real production " +
+    "mutation (assigns/unassigns Luxury Steal status and triggers a metafield sync), " +
+    "and stands on the same load-bearing leg alone — Shopify Admin iframes this " +
+    "route at the app's own URL, so a form inside it posts with the app's own " +
+    "Origin and is same-origin by construction, unlike an App Proxy, webhook or " +
+    "cron caller. If this route ever accepts a POST from anywhere but its own " +
+    "rendered form, this exemption stops being true and must be re-argued.",
 };
 
 function routeFiles(): string[] {

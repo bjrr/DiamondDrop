@@ -132,6 +132,98 @@ export async function listLuxuryStealAssignmentsForProduct(
   }));
 }
 
+/**
+ * One variant's CURRENT assignment state — task 3-2b's job layer reads this
+ * before every sync attempt (write-time and manual admin retry alike) so the
+ * write always reflects Postgres's live value, never a value carried across
+ * from an earlier read. Returns `null` for an unknown variant id rather than
+ * throwing, mirroring `isMasterVariantLuxurySteal`'s "no row, no assignment"
+ * treatment — the job layer decides what a missing variant means for a sync
+ * attempt, not this read.
+ */
+export async function getLuxuryStealAssignment(
+  masterVariantId: string
+): Promise<LuxuryStealVariantAssignment | null> {
+  const variant = await prisma.masterVariant.findUnique({
+    where: { id: masterVariantId },
+    select: { id: true, shopifyVariantGid: true, isLuxurySteal: true },
+  });
+  if (!variant) return null;
+  return {
+    masterVariantId: variant.id,
+    shopifyVariantGid: variant.shopifyVariantGid,
+    isLuxurySteal: variant.isLuxurySteal,
+  };
+}
+
+/**
+ * A richer per-variant row for the admin assignment PAGE specifically — NOT
+ * a widening of `LuxuryStealVariantAssignment` itself, which task 3-1's
+ * `listLuxuryStealAssignmentsForProduct` already returns and is tested
+ * against exactly that three-field shape. Adds only what the page needs to
+ * label a row for a human (metal/purity/band), never cost or price data
+ * (CLAUDE.md rule 10 — nothing here is admin-only cost/margin data anyway,
+ * but the same discipline of "select only what the surface needs" applies).
+ */
+export interface LuxuryStealAdminVariantRow extends LuxuryStealVariantAssignment {
+  readonly metal: string;
+  readonly purity: string;
+  readonly bandLabel: string | null;
+}
+
+/**
+ * Every product with at least one variant, each variant carrying its
+ * assignment state — the admin assignment page's listing read (task 3-2b).
+ * Ordered by product name, then variant creation order, for a stable,
+ * predictable page. Intentionally returns every product/variant rather than
+ * paginating: the Luxury Steals program is a deliberately small, curated
+ * slice of the catalogue (docs/LUXURY-STEALS.md "genuinely limited"), so an
+ * unpaginated listing is the right shape for MVP1 — revisit if that stops
+ * being true.
+ */
+export interface LuxuryStealProductListing {
+  readonly masterProductId: string;
+  readonly name: string;
+  readonly variants: readonly LuxuryStealAdminVariantRow[];
+}
+
+export async function listLuxuryStealProductAssignments(
+  query?: string
+): Promise<LuxuryStealProductListing[]> {
+  const products = await prisma.masterProduct.findMany({
+    where: query ? { name: { contains: query, mode: "insensitive" } } : undefined,
+    select: {
+      id: true,
+      name: true,
+      variants: {
+        select: {
+          id: true,
+          shopifyVariantGid: true,
+          isLuxurySteal: true,
+          metal: true,
+          purity: true,
+          band: { select: { label: true } },
+        },
+        orderBy: { createdAt: "asc" },
+      },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  return products.map((product) => ({
+    masterProductId: product.id,
+    name: product.name,
+    variants: product.variants.map((variant) => ({
+      masterVariantId: variant.id,
+      shopifyVariantGid: variant.shopifyVariantGid,
+      isLuxurySteal: variant.isLuxurySteal,
+      metal: variant.metal,
+      purity: variant.purity,
+      bandLabel: variant.band?.label ?? null,
+    })),
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Order-boundary evidence (M12)
 // ---------------------------------------------------------------------------
@@ -237,6 +329,30 @@ export async function listLuxuryStealOrderChecksForOrder(
   const rows = await prisma.luxuryStealOrderCheck.findMany({
     where: { orderRef },
     orderBy: { checkedAt: "asc" },
+  });
+  return rows.map(toRecord);
+}
+
+/**
+ * Every `unmatched` check, most recently checked first — task 3-2b's
+ * held-orders admin surface (criterion 138). This IS the durable, pull-based
+ * read that makes a hold real: task 3-4's webhook sends a best-effort email,
+ * but a bounced or undelivered email must not mean an invisible hold, so
+ * this read never depends on that notification having arrived — it queries
+ * the same append-only table task 3-4 writes to, directly.
+ *
+ * Returns every unmatched row, unfiltered by any later action, because
+ * `luxury_steal_order_check` has no release/approve state to filter on
+ * (deliberately not built here — see this route's own doc comment: a
+ * release/approve action is a policy decision the owner has not specified).
+ * A hold a staff member has since resolved by hand outside this table will
+ * keep appearing here until a future slice adds that state; this task's
+ * scope is "surface and record only".
+ */
+export async function listUnmatchedLuxuryStealOrderChecks(): Promise<LuxuryStealOrderCheckRecord[]> {
+  const rows = await prisma.luxuryStealOrderCheck.findMany({
+    where: { outcome: "unmatched" },
+    orderBy: { checkedAt: "desc" },
   });
   return rows.map(toRecord);
 }

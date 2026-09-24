@@ -702,6 +702,7 @@ model MasterVariant {
   priceCalculationFailures PriceCalculationFailure[]
   bankPaymentOrderLines    BankPaymentOrderLine[]
   adminAlertNotifications  AdminAlertNotification[]
+  luxuryStealSyncFailures  LuxuryStealSyncFailure[]
 
   @@unique([masterProductId, metal, purity, bandId])
   @@index([status])
@@ -2050,4 +2051,57 @@ model LuxuryStealOrderCheck {
   @@index([orderRef])
   @@index([variantRef])
   @@map("luxury_steal_order_check")
+}
+
+/// Slice 3 task 3-2b (docs/specs/SLICE-3-LUXURY-STEALS.md criterion 152).
+/// One row per FAILURE EPISODE of the `carat.luxury_steal` metafield sync for
+/// a variant -- never per attempt, same idea as `PriceSyncFailure`.
+///
+/// DELIBERATELY NOT `PriceSyncFailure`, AND DELIBERATELY MISSING ITS
+/// `suspendedAt`/`alertState`/`dismissed*` COLUMNS. CLAUDE.md rule 17 governs
+/// a failed PRICE publish: hold the last price, retry, alert, and after 48
+/// hours unresolved make the variant unavailable. Criterion 152 narrows that
+/// rule for this one non-money cache: a failed price sync leaves Shopify
+/// selling at a wrong number, so withdrawing the variant is the safe end
+/// state; a failed Luxury Steal metafield sync only leaves the storefront
+/// missing a badge/disclosure/acknowledgment gate, and criterion 127 already
+/// makes that fail SAFE the other way -- the order-time check reads Postgres,
+/// never this cache, so an unsynced variant is still caught and held rather
+/// than fulfilled. Reusing `PriceSyncFailure` (or copying its full column
+/// set) would risk that 48-hour consequence leaking back in by reflex; this
+/// table has no `suspendedAt` at all, so there is nothing for any reader to
+/// mistake for a purchasability signal. No dismissible alert either -- no
+/// owner ruling describes a persistent alert here to silence, mirroring why
+/// `PriceCalculationFailure` also carries no `alertState`/`dismissed*`.
+///
+/// `resolvedTrigger` mirrors `PriceCalculationFailure.resolvedTrigger`: this
+/// episode can close either from the bounded immediate retry at write time
+/// or from a human clicking "Retry sync" in the admin page, and recording
+/// which one happened is cheap and useful for support/audit -- unlike
+/// `PriceSyncFailure`'s resolution, which only ever means "a later sync
+/// succeeded" with nothing further to name.
+model LuxuryStealSyncFailure {
+  id              String        @id @default(uuid()) @db.Uuid
+  masterVariantId String        @map("master_variant_id") @db.Uuid
+  masterVariant   MasterVariant @relation(fields: [masterVariantId], references: [id])
+
+  firstFailedAt DateTime @map("first_failed_at") @db.Timestamptz(6)
+  lastAttemptAt DateTime @map("last_attempt_at") @db.Timestamptz(6)
+  attemptCount  Int      @default(1) @map("attempt_count")
+  lastError     String   @map("last_error")
+
+  /// A later sync succeeded -- either the bounded immediate retry at write
+  /// time or a manual "Retry sync" in the admin page. Closes the episode.
+  /// Never touches purchasability -- there is nothing here that does.
+  resolvedAt      DateTime? @map("resolved_at") @db.Timestamptz(6)
+  resolvedTrigger String?   @map("resolved_trigger")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  /// At most one OPEN episode per variant (partial unique index, this
+  /// migration's raw SQL -- Prisma cannot express it), mirroring
+  /// price_sync_failure_one_open_per_variant / price_calculation_failure_one_open_per_variant.
+  @@index([masterVariantId])
+  @@map("luxury_steal_sync_failure")
 }

@@ -7,10 +7,12 @@ import { EmptyLuxuryStealBulkAssignmentError } from "~/domain/luxurysteals/assig
 import {
   assignLuxurySteal,
   bulkAssignLuxuryStealForProduct,
+  getLuxuryStealAssignment,
   getLuxuryStealOrderCheck,
   isMasterVariantLuxurySteal,
   listLuxuryStealAssignmentsForProduct,
   listLuxuryStealOrderChecksForOrder,
+  listLuxuryStealProductAssignments,
   recordLuxuryStealOrderCheck,
   setLuxuryStealAssignment,
   unassignLuxurySteal,
@@ -181,6 +183,46 @@ describe("M11 — variant-level Luxury Steal assignment", () => {
     expect(assignments).toEqual([
       { masterVariantId: variant.id, shopifyVariantGid: gid, isLuxurySteal: true },
     ]);
+  });
+
+  it("getLuxuryStealAssignment reads one variant's current state — task 3-2b's per-sync read", async () => {
+    const product = await createProduct("single read fixture");
+    const gid = `gid://shopify/ProductVariant/${uniq()}`;
+    const variant = await createVariant(product.id, { shopifyVariantGid: gid });
+    await assignLuxurySteal(variant.id);
+
+    const assignment = await getLuxuryStealAssignment(variant.id);
+    expect(assignment).toEqual({ masterVariantId: variant.id, shopifyVariantGid: gid, isLuxurySteal: true });
+  });
+
+  it("getLuxuryStealAssignment returns null for an unknown variant id, rather than throwing", async () => {
+    await expect(getLuxuryStealAssignment(randomUUID())).resolves.toBeNull();
+  });
+
+  it("listLuxuryStealProductAssignments lists every product with its variants — the admin page's read", async () => {
+    const product = await createProduct("admin listing fixture");
+    const v1 = await createVariant(product.id);
+    const v2 = await createVariant(product.id);
+    await assignLuxurySteal(v1.id);
+
+    const listing = await listLuxuryStealProductAssignments(product.name);
+    expect(listing).toHaveLength(1);
+    expect(listing[0]?.masterProductId).toBe(product.id);
+    const variantIds = new Set(listing[0]?.variants.map((v) => v.masterVariantId));
+    expect(variantIds).toEqual(new Set([v1.id, v2.id]));
+    expect(listing[0]?.variants.find((v) => v.masterVariantId === v1.id)?.isLuxurySteal).toBe(true);
+    expect(listing[0]?.variants.find((v) => v.masterVariantId === v2.id)?.isLuxurySteal).toBe(false);
+  });
+
+  it("listLuxuryStealProductAssignments filters by a case-insensitive product-name query", async () => {
+    const product = await createProduct("Searchable Sapphire Ring");
+    await createVariant(product.id);
+
+    const matched = await listLuxuryStealProductAssignments("sapphire");
+    expect(matched.some((p) => p.masterProductId === product.id)).toBe(true);
+
+    const unmatched = await listLuxuryStealProductAssignments(`no-such-product-${uniq()}`);
+    expect(unmatched.some((p) => p.masterProductId === product.id)).toBe(false);
   });
 });
 
