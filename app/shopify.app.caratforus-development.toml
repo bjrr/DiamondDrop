@@ -169,6 +169,21 @@ api_version = "2026-07"
   topics = ["products/update"]
   uri = "/webhooks/carat/products-update"
 
+  # Slice 3 task 3-4 (D6, criteria 137-140, docs/specs/SLICE-3-LUXURY-STEALS.md
+  # §4.4). With no Cart/Checkout Validation Function in MVP1 (D6), nothing in
+  # Shopify's own checkout can refuse an un-acknowledged Luxury Steal line —
+  # this delivery is the only enforcement that actually binds. It verifies
+  # every Luxury Steal line against stored acknowledgment evidence and holds
+  # (never auto-cancels) an order with an unmatched line. Routed through OUR
+  # OWN receiveShopifyWebhook, same as every subscription above — see
+  # app/shopify/webhooks/luxuryStealOrderHandler.server.ts.
+  #
+  # `read_orders` already covers receiving this delivery's payload (granted
+  # in Slice 2C for draftOrderComplete's response) — no scope change here.
+  [[webhooks.subscriptions]]
+  topics = ["orders/create"]
+  uri = "/webhooks/carat/orders-create"
+
 [app_proxy]
 # Storefront requests to
 #   https://caratforus-dev.myshopify.com/apps/carat/...
