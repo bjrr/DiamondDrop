@@ -101,11 +101,26 @@ describe("criterion 143 — the Final Sale disclosure is pinned and matches the 
 });
 
 describe("criterion 143 / §4.5 separation — the disclosure must not read as ending our responsibility", () => {
-  it("the heading scopes the restriction to change-of-mind reasons, not a flat 'cannot be returned'", () => {
-    // The owner's specific revision (spec §13.1): the heading must not read
-    // as a blanket "this item cannot be returned" with the qualifier
-    // dropped — that would misstate criteria 141-142's scope.
-    expect(FINAL_SALE_DISCLOSURE_HEADING).toMatch(/change-of-mind reasons/i);
+  it("the BODY paragraph carries the change-of-mind scoping the heading no longer states", () => {
+    // OWNER REVISION 2026-09-24: the heading is now a plain "Final Sale —
+    // this item cannot be returned or exchanged." It previously carried the
+    // qualifier "for change-of-mind reasons" itself.
+    //
+    // The scoping did not disappear, it MOVED. The body paragraph is now the
+    // only thing standing between the heading and a reading that Final Sale
+    // denies every remedy — which criteria 141-142 and the locked policy
+    // forbid. So the assertion moves with it: the heading is pinned
+    // byte-for-byte elsewhere in this file, and here we pin the thing that
+    // now does the scoping work.
+    //
+    // THE PRACTICAL CONSEQUENCE, for whoever renders this next: the heading
+    // MUST NOT be shown alone. Anywhere it appears without the body and
+    // claims paragraphs — a cart line, an order summary, an email — it is an
+    // unqualified statement that the item cannot be returned, which is not
+    // what the policy says and not what we mean.
+    expect(FINAL_SALE_DISCLOSURE_BODY).toMatch(/change your mind/i);
+    expect(FINAL_SALE_DISCLOSURE_BODY).toMatch(/prefer another style/i);
+    expect(FINAL_SALE_DISCLOSURE_BODY).toMatch(/wrong size or configuration/i);
   });
 
   it("the claims paragraph names the categories of claim Final Sale does not block (criterion 142)", () => {

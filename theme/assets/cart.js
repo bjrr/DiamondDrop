@@ -437,7 +437,38 @@ window.CaratCartPricing = (function () {
   // functions and a new call site to remember. Unlike the checkout-confirm
   // panel, both these controls' visibility is a plain function of the
   // CURRENT mode, not a one-shot reveal tied to a single interception.
+  //
+  // 2026-09-24 UPDATE: mode is no longer the ONLY input for the F1
+  // dynamic-checkout wrapper specifically — see the Luxury Steals comment on
+  // `isDynamicCheckoutLuxuryStealGateOpen` immediately below. The switch-to-
+  // bank wrapper is unaffected; this array still lists both together because
+  // `hideModeRedundantControls` genuinely treats them identically.
   var MODE_REDUNDANT_IN_BANK_SELECTORS = [SWITCH_TO_BANK_WRAPPER_SELECTOR, DYNAMIC_CHECKOUT_WRAPPER_SELECTOR];
+
+  // LUXURY STEALS, OWNER RULING 2026-09-24 (Slice 3 task 3-5 follow-up) --
+  // "we don't display any payment method or allow anything to happen until
+  // it is acknowledged." The F1 dynamic-checkout wrapper can now be hidden
+  // for TWO INDEPENDENT reasons: Bank mode (this section's original,
+  // unrelated rule) and an unacknowledged Luxury Steal
+  // (`buy-buttons.liquid`'s own comment explains the render-time half).
+  // `hideModeRedundantControls` below is UNCHANGED and needs no Luxury Steal
+  // awareness — hiding is always safe regardless of WHICH reason applies, or
+  // whether both do. Only the reveal direction is a hazard: unconditionally
+  // clearing `hidden` here would silently re-expose a payment method the
+  // customer has not agreed to Final Sale terms for, the moment ANY
+  // unrelated mode-switch interaction elsewhere on the page (e.g. the cart
+  // drawer's Card Checkout button) calls back into this function. So the
+  // dynamic-checkout wrapper's own reveal is gated by
+  // `data-carat-ls-gate-required`/`data-carat-ls-acknowledged` --
+  // `assets/luxury-steal-gate.js` owns writing the latter and calls the
+  // PUBLIC `apply()` (never these internals) to ask for a recompute once it
+  // changes, so this one function stays the single place either trigger's
+  // "should this be visible right now" question gets answered — never two
+  // copies of the decision that could disagree.
+  function isDynamicCheckoutLuxuryStealGateOpen(wrapper) {
+    if (wrapper.getAttribute('data-carat-ls-gate-required') !== 'true') return true;
+    return wrapper.getAttribute('data-carat-ls-acknowledged') === 'true';
+  }
 
   function hideModeRedundantControls() {
     MODE_REDUNDANT_IN_BANK_SELECTORS.forEach(function (selector) {
@@ -448,10 +479,17 @@ window.CaratCartPricing = (function () {
   }
 
   function showModeRedundantControls() {
-    MODE_REDUNDANT_IN_BANK_SELECTORS.forEach(function (selector) {
-      document.querySelectorAll(selector).forEach(function (wrapper) {
+    document.querySelectorAll(SWITCH_TO_BANK_WRAPPER_SELECTOR).forEach(function (wrapper) {
+      wrapper.removeAttribute('hidden');
+    });
+    document.querySelectorAll(DYNAMIC_CHECKOUT_WRAPPER_SELECTOR).forEach(function (wrapper) {
+      // Composed, not overwritten (see the comment above): leave `hidden`
+      // exactly as it is when the Luxury Steal gate is not yet satisfied,
+      // rather than clearing it and letting `luxury-steal-gate.js` fight to
+      // put it back.
+      if (isDynamicCheckoutLuxuryStealGateOpen(wrapper)) {
         wrapper.removeAttribute('hidden');
-      });
+      }
     });
   }
 

@@ -589,7 +589,7 @@
   "luxury_steals": {
     "badge": "Final Sale",
     "disclosure": {
-      "heading": "Final Sale — this item cannot be returned or exchanged for change-of-mind reasons.",
+      "heading": "Final Sale — this item cannot be returned or exchanged.",
       "body": "Luxury Steals are limited pieces offered at exceptional prices. Because of that, this item can’t be returned or exchanged if you change your mind, prefer another style, or choose the wrong size or configuration. Please review the specifications and your selected options carefully before ordering.",
       "claims": "This does not affect claims for an item that arrives damaged, is not what you ordered, does not match its description, or may have a manufacturing issue covered by our warranty. If something is wrong with your order, contact us and we’ll review it under the applicable CaratForUs warranty or claims policy."
     },

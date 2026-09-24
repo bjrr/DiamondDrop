@@ -517,7 +517,7 @@ once implemented, in the same manner as the slice 2C strings.
 
 **Product page disclosure:**
 
-> Final Sale — this item cannot be returned or exchanged for change-of-mind reasons.
+> Final Sale — this item cannot be returned or exchanged.
 >
 > Luxury Steals are limited pieces offered at exceptional prices. Because of that, this item can’t be returned or exchanged if you change your mind, prefer another style, or choose the wrong size or configuration. Please review the specifications and your selected options carefully before ordering.
 >

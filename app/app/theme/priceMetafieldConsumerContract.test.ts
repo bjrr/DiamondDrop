@@ -506,6 +506,14 @@ describe("R16 step 5 — audit: every Liquid comparison against a JSON metafield
     const NON_PRICE_CARAT_READERS = [
       join(THEME_ROOT, "snippets", "luxury-badge-card.liquid"),
       join(THEME_ROOT, "snippets", "luxury-product-gate.liquid"),
+      // 2026-09-24, owner ruling ("we don't display any payment method or
+      // allow anything to happen until it is acknowledged"): the dynamic-
+      // checkout wrapper's OWN `hidden` condition now also reads the
+      // selected variant's `carat.luxury_steal.value` directly, composed
+      // with the existing Bank-mode condition — see that wrapper's own
+      // comment in buy-buttons.liquid. Same boolean eligibility flag as the
+      // two files above, still carries no money.
+      join(THEME_ROOT, "snippets", "buy-buttons.liquid"),
     ];
     const allCaratReaders = files.filter((f) =>
       readFileSync(f, "utf8").includes("metafields.carat.")

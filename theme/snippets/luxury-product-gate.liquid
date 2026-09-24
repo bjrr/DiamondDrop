@@ -32,11 +32,29 @@
 
   THIS IS PREVENTIVE, NOT THE ENFORCEMENT (D6, spec §10). The order-time
   `orders/create` check (task 3-4) is what actually binds; this UI is the
-  honest, accessible front door to it. A dynamic/accelerated checkout button
-  (Shop Pay etc., `buy-buttons.liquid`'s `payment_button`) can bypass this
-  gate entirely by design of that Shopify feature -- out of this file's
-  reach without touching a Dawn file beyond the allowed single-line hook, and
-  explicitly the gap the order-time check exists to cover.
+  honest, accessible front door to it.
+
+  OWNER RULING, 2026-09-24: "we don't display any payment method or allow
+  anything to happen until it is acknowledged." A dynamic/accelerated
+  checkout button (Shop Pay etc.) never touches THIS form's submit flow at
+  all, so disabling Add to Cart alone did nothing to it -- closed by
+  `buy-buttons.liquid` itself now composing this same Luxury Steal condition
+  into its `payment_button` wrapper's `hidden` state (see that file's own
+  comment on `data-carat-dynamic-checkout-wrapper` and
+  `assets/cart.js`'s `showModeRedundantControls` for how the composition with
+  the UNRELATED Bank-mode hidden condition is kept from racing). That is a
+  Dawn-file edit beyond this task's usual single-line-hook rule, explicitly
+  authorized by the architect for this specific wrapper because no render
+  hook could reach it.
+
+  THE `required` ATTRIBUTE ON THE CHECKBOX BELOW closes the remaining gap for
+  a JS-disabled visitor: Add to Cart is a REAL native `<button type="submit">`
+  in `buy-buttons.liquid` that this file cannot disable without JavaScript,
+  so without `required` a JS-off visitor could submit it unacknowledged. The
+  checkbox itself is associated to the form via its own `form="<product_form_id>"`
+  attribute below, the same external-association mechanism the hidden ack-id
+  input already uses, so the browser's native constraint validation blocks
+  submission with no script running at all.
 
   SCARCITY (criterion 130). "Only X left" renders ONLY when
   `inventory_management` is `shopify` (i.e. Shopify is actually tracking real
@@ -53,9 +71,10 @@
   - product: {Object} Product Liquid object
   - section: {Object} the enclosing section (for id-scoping)
   - product_form_id: {String} the `<form>` id the buy-buttons snippet already
-    rendered elsewhere in this section -- the hidden acknowledgment-id input
-    below associates to it via the HTML `form=""` attribute, since this
-    container is a DOM SIBLING of that form, not a descendant of it.
+    rendered elsewhere in this section -- both the hidden acknowledgment-id
+    input AND the acknowledgment checkbox below associate to it via their own
+    HTML `form=""` attribute, since this container is a DOM SIBLING of that
+    form, not a descendant of it.
 
   Usage:
   {%- render 'luxury-product-gate', product: product, section: section, product_form_id: product_form_id -%}
@@ -130,6 +149,8 @@
           class="carat-luxury-gate__checkbox"
           data-carat-ls-checkbox
           aria-describedby="Luxury-Steal-Disclosure-{{ section.id }} Luxury-Steal-Acknowledgment-{{ section.id }}"
+          form="{{ product_form_id }}"
+          required
         >
         <label for="Luxury-Steal-Checkbox-{{ section.id }}" class="carat-luxury-gate__checkbox-label">
           <span class="visually-hidden">{{ 'luxury_steals.acknowledgment.checkbox_label' | t }}: </span>

@@ -179,12 +179,39 @@
             for the switch-to-bank control and, now, for F2), so it also recovers after a
             stale HTML swap rather than only ever reacting to the one click that first
             triggered it.
+
+            LUXURY STEALS, OWNER RULING 2026-09-24 -- "we don't display any payment method or
+            allow anything to happen until it is acknowledged." A second, independent reason
+            to render this wrapper hidden: the SELECTED VARIANT's own `.value` (same rule as
+            every other Luxury Steal metafield read in this theme -- criterion 149), read here
+            rather than assumed from `luxury-product-gate.liquid`'s own render, because this
+            wrapper's initial `hidden` has to be correct on the very FIRST paint, before any
+            acknowledgment could possibly exist yet. `data-carat-ls-gate-required` is a
+            SEPARATE, static marker (present whenever the selected variant is assigned,
+            regardless of current `hidden` state) that `assets/cart.js`'s
+            `showModeRedundantControls` reads to compose -- not overwrite -- its own
+            bank-mode-driven un-hide with this second condition; see that file's own comment
+            for why the two must compose rather than race. `data-carat-ls-acknowledged`
+            defaults to `"false"` here and is the ONLY thing `assets/luxury-steal-gate.js`
+            ever writes on this element -- it never sets/clears `hidden` on this wrapper for
+            the "reveal" direction itself, precisely so it cannot race the bank-mode condition
+            it has no visibility into.
           {%- endcomment -%}
           {%- if show_dynamic_checkout -%}
+            {%- liquid
+              assign carat_ls_dynamic_checkout_gated = false
+              if product.selected_or_first_available_variant.metafields.carat.luxury_steal.value
+                assign carat_ls_dynamic_checkout_gated = true
+              endif
+            -%}
             <div
               class="product-form__dynamic-checkout-wrapper"
               data-carat-dynamic-checkout-wrapper
-              {% if cart.attributes.carat_payment_mode == 'bank' %}
+              {% if carat_ls_dynamic_checkout_gated %}
+                data-carat-ls-gate-required="true"
+                data-carat-ls-acknowledged="false"
+              {% endif %}
+              {% if cart.attributes.carat_payment_mode == 'bank' or carat_ls_dynamic_checkout_gated %}
                 hidden
               {% endif %}
             >

@@ -41,7 +41,13 @@ function signedProxyUrl(path: string, params: Record<string, string>): string {
     ...params,
     shop: SHOP,
     path_prefix: "/apps/carat",
-    timestamp: String(Math.floor(Date.now() / 1000)),
+    // Seconds since epoch WITHOUT Math.floor: the repo's money-safety lint
+    // bans Math.round/floor/ceil/trunc outright, aliased or not, so that a
+    // money rounding can never be written casually. This is a timestamp
+    // rather than money, but the rule is deliberately unconditional and
+    // worth honouring rather than suppressing — dropping the millisecond
+    // digits as text is exact and needs no arithmetic at all.
+    timestamp: String(Date.now()).slice(0, -3),
   });
   // Same construction the server verifies with: signature removed, remaining
   // pairs sorted by key, joined as key=value with NO separator.
@@ -71,7 +77,9 @@ const DRAFT_COMPLETE = `#graphql
   }
 `;
 
-async function gql<T>(admin: { graphql: Function }, query: string, variables?: object): Promise<T> {
+type AdminGraphql = (query: string, options?: { variables?: object }) => Promise<Response>;
+
+async function gql<T>(admin: { graphql: AdminGraphql }, query: string, variables?: object): Promise<T> {
   const response = await admin.graphql(query, variables ? { variables } : undefined);
   const body = (await response.json()) as { errors?: unknown; data?: T };
   // Every Admin API failure arrives on HTTP 200.
@@ -80,7 +88,7 @@ async function gql<T>(admin: { graphql: Function }, query: string, variables?: o
 }
 
 async function placeOrder(
-  admin: { graphql: Function },
+  admin: { graphql: AdminGraphql },
   label: string,
   customAttributes: { key: string; value: string }[]
 ): Promise<{ orderId: string; orderName: string }> {

@@ -85,6 +85,93 @@
   var SELECTOR = '[data-carat-luxury-gate]';
   var PROXY_PATH = '/apps/carat/luxury-acknowledgment';
   var DESCRIBEDBY_ATTR = 'aria-describedby';
+  var DYNAMIC_CHECKOUT_SELECTOR = '[data-carat-dynamic-checkout-wrapper]';
+  var LS_GATE_REQUIRED_ATTR = 'data-carat-ls-gate-required';
+  var LS_ACKNOWLEDGED_ATTR = 'data-carat-ls-acknowledged';
+
+  // Owner ruling, 2026-09-24: "we don't display any payment method or allow
+  // anything to happen until it is acknowledged." `buy-buttons.liquid`
+  // renders the accelerated/dynamic checkout wrapper (Shop Pay etc.) hidden
+  // when EITHER the cart is in Bank mode OR the selected variant is an
+  // unacknowledged Luxury Steal -- two independent reasons composed into one
+  // `hidden` attribute. This file NEVER sets or clears that `hidden`
+  // attribute directly for the "reveal" direction, because it has no
+  // visibility into the OTHER reason (cart mode); see
+  // `assets/cart.js`'s `showModeRedundantControls` (and buy-buttons.liquid's
+  // own comment) for the composed decision. Revoking is different: hiding is
+  // always safe regardless of mode, so that direction IS applied directly
+  // here, immediately, with no round trip -- a revealed payment method must
+  // never outlive the acknowledgment that revealed it by even one network
+  // round trip.
+  //
+  // `syncDynamicCheckoutGate(form, assigned)` -- called at every BIND
+  // (initial render, variant-change swap, product-info:loaded rebind), i.e.
+  // the same moments the checkbox/hidden-input/buttons are reset -- puts the
+  // wrapper into the correct STRUCTURAL state for the currently selected
+  // variant: gated-and-hidden when assigned, not-gated-by-us when not. Dawn's
+  // own variant-change patch (`product-info.js` `handleUpdateProductInfo`)
+  // does NOT touch buy-buttons markup at all (verified by reading that
+  // function -- it only patches price/SKU/inventory/volume nodes and the
+  // hidden `id` input), so without this call the wrapper would carry
+  // whatever Luxury Steal state the INITIAL page load happened to render,
+  // silently wrong after any same-page variant switch.
+  //
+  // `setDynamicCheckoutAcknowledged(form, acknowledged)` -- called only from
+  // the checkbox's own change handler, assumes `syncDynamicCheckoutGate` has
+  // already run for this bind (so `LS_GATE_REQUIRED_ATTR` is already
+  // correct) and only flips the acknowledgment marker (and, on revoke,
+  // `hidden` directly). On GRANT it asks `assets/cart.js`'s PUBLIC `apply()`
+  // -- never its `_internal` -- to recompute, exactly as
+  // `product-form.js` already calls `window.CaratCartPricing?.setPaymentMode`
+  // defensively elsewhere in this theme.
+  function syncDynamicCheckoutGate(form, assigned) {
+    if (!form) return;
+    var wrappers = form.querySelectorAll(DYNAMIC_CHECKOUT_SELECTOR);
+    var wasGated = false;
+    for (var i = 0; i < wrappers.length; i++) {
+      var wrapper = wrappers[i];
+      if (assigned) {
+        wrapper.setAttribute(LS_GATE_REQUIRED_ATTR, 'true');
+        wrapper.setAttribute(LS_ACKNOWLEDGED_ATTR, 'false');
+        wrapper.setAttribute('hidden', '');
+      } else {
+        if (wrapper.getAttribute(LS_GATE_REQUIRED_ATTR) === 'true') wasGated = true;
+        wrapper.removeAttribute(LS_GATE_REQUIRED_ATTR);
+        wrapper.removeAttribute(LS_ACKNOWLEDGED_ATTR);
+        // `hidden` is deliberately NOT touched here -- see the file-level
+        // comment. Ask apply() to recompute (composing with current mode)
+        // only when this wrapper was actually gated by us a moment ago;
+        // otherwise this would fire on every ordinary non-Luxury-Steal bind.
+      }
+    }
+    if (!assigned && wasGated) requestDynamicCheckoutRecompute();
+  }
+
+  function setDynamicCheckoutAcknowledged(form, acknowledged) {
+    if (!form) return;
+    var wrappers = form.querySelectorAll(DYNAMIC_CHECKOUT_SELECTOR);
+    var relevant = false;
+    for (var i = 0; i < wrappers.length; i++) {
+      var wrapper = wrappers[i];
+      if (wrapper.getAttribute(LS_GATE_REQUIRED_ATTR) !== 'true') continue;
+      relevant = true;
+      wrapper.setAttribute(LS_ACKNOWLEDGED_ATTR, acknowledged ? 'true' : 'false');
+      if (!acknowledged) wrapper.setAttribute('hidden', '');
+    }
+    if (acknowledged && relevant) requestDynamicCheckoutRecompute();
+  }
+
+  // Fire-and-forget by design: a failed recompute must not block the rest of
+  // the acknowledgment flow (the hidden ack-id input is already set by the
+  // caller before this runs), and apply()'s own failure handling never
+  // reveals anything on a failed request -- so the fail-safe direction here
+  // is "stays hidden", matching the owner ruling's spirit even on an error.
+  function requestDynamicCheckoutRecompute() {
+    if (!window.CaratCartPricing || typeof window.CaratCartPricing.apply !== 'function') return;
+    window.CaratCartPricing.apply().catch(function (e) {
+      console.error('[CaratLuxurySteals] dynamic checkout visibility recompute failed', e);
+    });
+  }
 
   // Adds/removes ONE token from a (possibly pre-existing, possibly
   // Dawn-owned) space-separated `aria-describedby` list, leaving every other
@@ -164,6 +251,7 @@
       // and restores `aria-describedby` to exactly what it was before this
       // file's own token was added, per `setButtonsDisabled`'s contract.
       setButtonsDisabled(form, false, statusId);
+      syncDynamicCheckoutGate(form, false);
       root.dataset.caratLsBound = 'true';
       return;
     }
@@ -191,12 +279,14 @@
     setStatus(root, hintText);
     setError(root, '');
     setButtonsDisabled(form, true, statusId);
+    syncDynamicCheckoutGate(form, true);
 
     if (checkbox) {
       checkbox.addEventListener('change', function () {
         if (!checkbox.checked) {
           if (hiddenInput) hiddenInput.value = '';
           setButtonsDisabled(form, true, statusId);
+          setDynamicCheckoutAcknowledged(form, false);
           setStatus(root, hintText);
           setError(root, '');
           return;
@@ -222,6 +312,7 @@
             if (!data || !data.acknowledgmentId) throw new Error('acknowledgment response missing acknowledgmentId');
             if (hiddenInput) hiddenInput.value = data.acknowledgmentId;
             setButtonsDisabled(form, false, statusId);
+            setDynamicCheckoutAcknowledged(form, true);
             setStatus(root, '');
           })
           .catch(function (e) {
@@ -232,6 +323,7 @@
             checkbox.checked = false;
             if (hiddenInput) hiddenInput.value = '';
             setButtonsDisabled(form, true, statusId);
+            setDynamicCheckoutAcknowledged(form, false);
             setStatus(root, hintText);
             setError(root, errorText);
           })

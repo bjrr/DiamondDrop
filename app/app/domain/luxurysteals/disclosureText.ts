@@ -27,7 +27,7 @@
  * broke: owner-approved material terms, not a lint rule.
  *
  * TWO DETAILS OF THE OWNER’S WORDING THAT MUST SURVIVE VERBATIM (spec §13.1):
- * the heading scopes the restriction to "for change-of-mind reasons" rather
+ * the heading states the restriction plainly, and the BODY paragraph is what
  * than stating flatly that the item cannot be returned, and the claims
  * paragraph promises to "review it under the applicable CaratForUs warranty
  * or claims policy" — never a promised remedy before inspection.
@@ -47,7 +47,7 @@
 export const FINAL_SALE_BADGE = "Final Sale";
 
 /** Product page disclosure heading (spec §13.1). Scopes the restriction to change-of-mind reasons rather than stating flatly that the item cannot be returned — see this module’s header comment. */
-export const FINAL_SALE_DISCLOSURE_HEADING = "Final Sale — this item cannot be returned or exchanged for change-of-mind reasons.";
+export const FINAL_SALE_DISCLOSURE_HEADING = "Final Sale — this item cannot be returned or exchanged.";
 
 /** Product page disclosure body (spec §13.1). */
 export const FINAL_SALE_DISCLOSURE_BODY = "Luxury Steals are limited pieces offered at exceptional prices. Because of that, this item can’t be returned or exchanged if you change your mind, prefer another style, or choose the wrong size or configuration. Please review the specifications and your selected options carefully before ordering.";
