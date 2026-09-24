@@ -390,7 +390,29 @@ No unresolved architectural question. Implementation may begin on tasks 3-1 and
 
 ## 11. Carried-forward register
 
-Unchanged: F-2C-1 … F-2C-5. Slice 3 adds none.
+Unchanged: F-2C-1 … F-2C-5. Slice 3 adds the following.
+
+These are **unverified behaviours, not known defects** — recorded because the
+storefront work (3-5) had no browser, no Shopify CLI and no theme test harness
+available, and "reviewed by code trace" is not the same claim as "observed
+working". Slice 2C's lesson stands: every one of its four phases had a defect
+that only a live gate could reach.
+
+| # | What is unproven | How it gets closed |
+|---|---|---|
+| F-3-1 | The acknowledgment POST round trip from a real PDP — gate → `/apps/carat/luxury-acknowledgment` → `_carat_ls_ack` on the line → order | Live gate against `caratforus-dev` |
+| F-3-2 | Criterion 146 in a browser: switching variants re-renders the gate, resets the checkbox and clears the hidden input | Live gate; both the normal `variant-change` path and the combined-listings path |
+| F-3-3 | The combined-listings path specifically — code-reviewed only, with no fixture in this repo | Live gate, or an explicit decision that combined listings are out of MVP1 |
+| F-3-4 | `shopify theme check`, plus any visual or screen-reader pass | Run the CLI where it is available; AT pass before public launch |
+| F-3-5 | That the badge, disclosure and gate render at all on a real product | Live gate — it needs an assigned Luxury Steal variant, which needs 3-2b's admin path |
+
+F-3-5 is the dependency worth noting: none of this can be exercised until a
+real variant is assigned through the admin, so the live gate runs after 3-2b,
+not before.
+
+**Accepted, not carried:** accelerated-checkout and no-JS bypass of the gate.
+Those are the D6 residual, covered by the order-time check, and they are not
+going to be closed by a browser test.
 
 ## 12. Non-blocking note
 
