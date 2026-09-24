@@ -81,18 +81,32 @@ export default async function setup() {
 
   // Point every worker at the disposable database. setupEnv.ts loads .env into
   // each worker, so this must win over whatever .env says.
+  //
+  // DIRECT_URL MUST BE OVERRIDDEN TOO, NOT ONLY DATABASE_URL. schema.prisma's
+  // datasource comment is explicit that `directUrl` is what the Prisma CLI
+  // (migrate/db push/introspect) actually connects through, while the app's
+  // Prisma Client reads the pooled `url` (DATABASE_URL). Overriding only
+  // DATABASE_URL left `migrate deploy` below applying every migration to
+  // whatever `carat_dev` (or wherever .env's DIRECT_URL happens to point)
+  // instead of this run's disposable database — which then had no tables at
+  // all, so the seed step immediately failed with "table does not exist" on
+  // the very first model it touched. Discovered while validating Slice 3
+  // task 3-1's migration: it kept "succeeding" against the shared dev
+  // database silently while the disposable-DB run it was supposedly
+  // exercising had nothing in it.
   process.env.DATABASE_URL = testUrl.toString();
+  process.env.DIRECT_URL = testUrl.toString();
 
   console.log("Applying migrations and seed to the disposable database...");
   execSync("npx prisma migrate deploy", {
     stdio: "pipe",
     cwd: process.cwd(),
-    env: { ...process.env, DATABASE_URL: testUrl.toString() },
+    env: { ...process.env, DATABASE_URL: testUrl.toString(), DIRECT_URL: testUrl.toString() },
   });
   execSync("npx tsx prisma/seed.ts", {
     stdio: "pipe",
     cwd: process.cwd(),
-    env: { ...process.env, DATABASE_URL: testUrl.toString() },
+    env: { ...process.env, DATABASE_URL: testUrl.toString(), DIRECT_URL: testUrl.toString() },
   });
 
   // Build the server bundle UNCONDITIONALLY. httpServer.test.ts mounts the
