@@ -514,6 +514,11 @@ describe("R16 step 5 — audit: every Liquid comparison against a JSON metafield
       // comment in buy-buttons.liquid. Same boolean eligibility flag as the
       // two files above, still carries no money.
       join(THEME_ROOT, "snippets", "buy-buttons.liquid"),
+      // 2026-09-24, owner request: the Final Sale disclaimer also appears on
+      // each qualifying cart line (page and drawer). Reads the LINE's own
+      // `item.variant.metafields.carat.luxury_steal.value` to decide whether
+      // to render — same boolean eligibility flag, still no money.
+      join(THEME_ROOT, "snippets", "luxury-cart-line-disclosure.liquid"),
     ];
     const allCaratReaders = files.filter((f) =>
       readFileSync(f, "utf8").includes("metafields.carat.")
