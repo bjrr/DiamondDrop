@@ -253,6 +253,35 @@ variant of a Luxury Steal product; the new behaviour deliberately does not, so
 a normal sibling must still be recalculated. That is criterion 147 at the
 pricing layer, and it is asserted directly.
 
+**152. A failed `carat.luxury_steal` sync retries and is surfaced, but must
+NOT make the variant unavailable.**
+
+CLAUDE.md rule 17 governs a failed publish of a *price* to Shopify: hold the
+last published price, retry, alert, and after 48 hours unresolved make the
+affected variant unavailable. Applying that wholesale here would be wrong, and
+the difference is worth stating rather than inheriting by reflex.
+
+A failed price sync leaves Shopify selling at a **wrong price** — real money,
+and withdrawing the variant is the safe end state. A failed Luxury Steal
+metafield sync leaves the storefront showing a Luxury Steal **without its
+badge, disclosure or acknowledgment gate**. That is a disclosure defect, not a
+mispricing, and criterion 127 already makes it fail safe: the order-time check
+reads Postgres, so such an order is caught and held rather than fulfilled. The
+customer sees the wrong presentation; the enforcement still binds.
+
+Withdrawing the variant after 48 hours would therefore take a correctly-priced,
+in-stock item off sale because a boolean did not reach a cache — a worse
+outcome than the defect, and self-inflicted.
+
+So: **retry, record the failure durably, surface it in the admin. Do not
+change purchasability.** The previously published metafield state stays in
+place, and nothing is marked synced before Shopify confirms (criterion 126,
+which does carry over unchanged).
+
+This is a deliberate narrowing of rule 17 for a non-money cache, not an
+exemption from it. Any metafield that carries money stays under rule 17 in
+full.
+
 ## 5. Data model
 
 | # | Change | Why |
