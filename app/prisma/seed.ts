@@ -22,6 +22,11 @@
 import { createHash } from "node:crypto";
 
 import { resolveActivePricingProfile } from "../app/db/repositories/pricingProfileRepository.server";
+import {
+  LUXURY_STEALS_ACKNOWLEDGMENT_POLICY_SLUG,
+  LUXURY_STEALS_ACKNOWLEDGMENT_POLICY_VERSION,
+  LUXURY_STEALS_ACKNOWLEDGMENT_TEXT,
+} from "../app/domain/luxurysteals/acknowledgmentText";
 
 import "dotenv/config";
 import {
@@ -118,6 +123,49 @@ async function seedPolicyVersion(): Promise<void> {
   });
 
   console.log(`Seeded policy_version "${slug}" v${version}.`);
+}
+
+/**
+ * Slice 3 task 3-3 (docs/specs/SLICE-3-LUXURY-STEALS.md §4.3, criteria
+ * 134-135). The Luxury Steals Final Sale acknowledgment's `policy_version`
+ * row — `apps.carat.luxury-acknowledgment.tsx` resolves the latest version
+ * under this slug at capture time and refuses to record an acknowledgment
+ * if none exists.
+ *
+ * FIND-THEN-CREATE, NOT `upsert`. `policy_version` is append-only (this
+ * migration's `policy_version_no_update` trigger fires on ANY UPDATE, even
+ * a no-op `SET` with an empty data object) — `seedPolicyVersion` above uses
+ * `upsert` with `update: {}`, which is the exact hazard this file's own
+ * header comment warns against for L1 tables. This function does not repeat
+ * that mistake: it is looked up by the same natural key its DB unique
+ * constraint enforces (`slug`, `version`) and only created if absent, a
+ * no-op on every re-run rather than an UPDATE the trigger would reject.
+ */
+async function seedLuxuryStealsAcknowledgmentPolicy(): Promise<void> {
+  const slug = LUXURY_STEALS_ACKNOWLEDGMENT_POLICY_SLUG;
+  const version = LUXURY_STEALS_ACKNOWLEDGMENT_POLICY_VERSION;
+
+  const existing = await prisma.policyVersion.findUnique({ where: { slug_version: { slug, version } } });
+  if (existing) {
+    console.log(`  (unchanged) policy_version "${slug}" v${version}.`);
+    return;
+  }
+
+  const contentHash = createHash("sha256").update(LUXURY_STEALS_ACKNOWLEDGMENT_TEXT, "utf8").digest("hex");
+  await prisma.policyVersion.create({
+    data: {
+      slug,
+      version,
+      // Reuses the same fixed, obviously-synthetic effective date every
+      // other seeded row here uses (see SEED_EFFECTIVE_FROM above), so
+      // re-running this script always resolves to the same content.
+      effectiveFrom: SEED_EFFECTIVE_FROM,
+      text: LUXURY_STEALS_ACKNOWLEDGMENT_TEXT,
+      contentHash,
+    },
+  });
+
+  console.log(`  (created)   policy_version "${slug}" v${version}.`);
 }
 
 async function seedMetalPrices(): Promise<void> {
@@ -798,6 +846,7 @@ async function assertActiveProfileIsCurrent(): Promise<void> {
 
 async function main() {
   await seedPolicyVersion();
+  await seedLuxuryStealsAcknowledgmentPolicy();
   await seedMetalPrices();
   await seedStoneCosts();
   await seedCostComponents();
