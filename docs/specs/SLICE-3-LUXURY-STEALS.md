@@ -471,6 +471,69 @@ must render quantity only from real inventory.
 No unresolved architectural question. Implementation may begin on tasks 3-1 and
 3-2, which touch no customer-facing copy, while the copy is approved.
 
+## 14. Closure status
+
+Recorded 2026-09-24. **Implementation complete. Not yet closed** — one live
+proof outstanding, named below.
+
+### What is proven by live evidence, not only by tests
+
+| Proof | Evidence |
+|---|---|
+| Metafield round trip | Stage 1, against the real store: `ownerType` is PRODUCTVARIANT, `type` is `boolean`, value reads back `"true"`/`"false"`, and unassignment leaves an explicit `false` rather than deleting |
+| Order-time verification | Stage 2, in production: a real acknowledgment minted through the deployed App Proxy route, carried on a real order line, matched at `orders/create`; the companion order with no property recorded `unmatched` and alerted |
+| Both webhook deliveries processed | `webhook_event` shows two `orders/create` deliveries, evidence rows for both |
+
+Stage 2 also found the defect that mattered most in this slice, and no test
+could have: the deployed acknowledgment endpoint returned HTTP 500 because
+production had no Luxury Steals policy version. The row was created by
+`prisma/seed.ts`, which runs on developer machines and in the disposable
+integration database and nowhere else. **No customer could have completed a
+Luxury Steal purchase.** Fixed by migration 20260924020000, on the principle
+that reference data the application REQUIRES is schema, not fixtures.
+
+### What is verified by test but NOT by live evidence
+
+D28's tagging and fulfilment holds. 1851 unit tests, 570 integration tests,
+and the schema shapes confirmed by introspecting the live 2026-07 API rather
+than recalled — but **no tag and no hold has been applied to a real order
+yet.** The stage 3 harness exists and is committed; it cannot run until the
+three approved scopes are re-consented by the owner in the Shopify admin.
+
+Given this slice's own history, that distinction is not a formality. Stage 2C
+had four phases pass their suites and each still carried a defect only live
+evidence reached, and stage 2 of this slice found a total outage the same way.
+
+### Still unproven, and needing a browser
+
+F-3-2 … F-3-5: that the gate, badge, disclosure and cart terms actually
+render; that the gate resets on variant change; the combined-listings path;
+`shopify theme check`; and an assistive-technology pass. Contrast in
+particular **cannot be settled in code** — the theme's colours are
+merchant-configurable settings, so it must be checked per colour scheme.
+
+### Remaining owner decisions
+
+| # | Decision | Blocks |
+|---|---|---|
+| **Scope re-consent** | Re-approve the app's permissions so D28 can be proven live | Slice 3 closure |
+| **Return policy page** | Confirm one exists and contains the damaged / wrong-item / not-as-described / warranty carve-out | Luxury Steals going on sale |
+| **D11 counsel review** | Legal review of customer-facing acknowledgment and disclosure copy | Public launch |
+| **Real catalogue** | 20 of 21 dev-store variant mappings are stale; there is no realistic product to sell as a Luxury Steal | Luxury Steals going on sale |
+
+### Deliberately not built
+
+The Cart/Checkout Validation Function (D6). Its absence is why the order-time
+check is load-bearing rather than defensive, and why D28's hold matters: the
+storefront gate is preventive but bypassable by a crafted request, and
+accelerated checkout and no-JS are closed only because payment methods are
+now suppressed server-side until acknowledgment.
+
+Waitlists, restock promises, back-orders, a Luxury Steals RMA — there is no
+discretionary return window to build. Automated claim adjudication: criteria
+141-145 are constraints on slices 4, 5, 10 and 11, and when those are built
+they must not consult the Luxury Steal flag when deciding claim eligibility.
+
 ## 11. Carried-forward register
 
 Unchanged: F-2C-1 … F-2C-5. Slice 3 adds the following.
