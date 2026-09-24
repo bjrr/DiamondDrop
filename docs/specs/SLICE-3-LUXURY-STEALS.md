@@ -2,8 +2,8 @@
 
 ## Status
 
-**DRAFT — awaiting owner approval of the Final Sale disclosure copy (§13).
-No implementation has begun.**
+**APPROVED 2026-09-23 at `6b85eab`, with owner decisions D27 and D11 below.
+Disclosure copy approved (§13.1). Implementation in progress.**
 
 Author: Principal Architect / Tech Lead
 Date: 2026-09-23
@@ -73,17 +73,39 @@ for the storefront, exactly as published prices are.
 This is the same rule slice 2 already follows for price: metafields are a cache
 the storefront reads, never the thing the business decides from.
 
+### D27 — RESOLVED: assignment is variant-level
+
+**The authoritative assignment is per variant.** The admin UX may offer a
+product-level "apply to all variants" convenience action, but internally each
+variant is independently assignable. This supersedes D26's product-level
+wording; §5 and §4.7 carry the consequences.
+
+**Consequence for the cache.** D26 named a *product* metafield. Variant-level
+truth cannot be represented by one product-level boolean, so `carat.luxury_steal`
+becomes a **variant** metafield, keeping the namespace and key the owner named
+while preserving the variant-specific state D27 requires. No product-level
+rollup field is introduced — see criterion 148 for why the card badge is
+computed in Liquid instead.
+
+### D11 — RESOLVED: legal review is a pre-launch gate, not a slice 3 blocker
+
+Build against the owner-approved text now; the storefront password stays on.
+**Any counsel-approved wording change before launch must create or update the
+pinned copy and the policy version — never silently edit historical evidence.**
+An acknowledgment already captured records the text and version the customer
+actually saw, and that record is immutable by design.
+
 ## 4. Acceptance criteria
 
 Numbered continuing from slice 2C.
 
 ### 4.1 Assignment and identification
 
-**125.** Luxury Steal assignment is a column on the master product/variant in
-Postgres, set only through the admin path. Nothing derives it from a tag or
-from collection membership.
+**125.** Luxury Steal assignment is a column on `master_variant` in Postgres
+(D27), set only through the admin path. Nothing derives it from a tag or from
+collection membership.
 
-**126.** Assignment syncs to the `carat.luxury_steal` product metafield. The
+**126.** Assignment syncs to the `carat.luxury_steal` **variant** metafield. The
 sync follows slice 2A's discipline: never marked synced before Shopify
 confirms, and a sync failure leaves the previous published state authoritative.
 
@@ -168,21 +190,47 @@ apply only where an authorised promotion explicitly includes them.
 **145.** The Let Us Beat Your Quote 10% fallback does not apply to Luxury
 Steals. Recorded here; enforced in slice 10, which must read this criterion.
 
+### 4.7 Variant-level assignment (D27)
+
+**146.** The **selected variant** determines whether the Final Sale disclosure
+and acknowledgment are required. Selecting a non-assigned sibling must remove
+both; selecting an assigned one must restore them, with the acknowledgment
+returning to **unchecked**. A checkbox that stays ticked across a variant
+change would carry consent from a variant the customer never agreed to.
+
+**147.** One Luxury Steal variant must not make normal sibling variants Final
+Sale. Asserted directly, on a fixture product with a mixed variant set.
+
+**148.** A product or collection card may show the Luxury Steal badge when **at
+least one currently purchasable variant** is assigned. Computed in Liquid from
+the variant metafields and each variant's live `available`, not from a stored
+product-level rollup — a rollup would need recomputation on every inventory
+movement and would be wrong in the window before it caught up. The badge on a
+card is therefore advisory; the PDP's per-variant state is what gates
+add-to-cart.
+
+**149.** The `carat.luxury_steal` cache preserves per-variant state sufficient
+for the theme to render correctly without a second round trip.
+
+**150.** Order-time enforcement queries Postgres, never the metafield or any
+client-supplied flag. Restates criterion 127 at the variant grain, because D27
+is exactly where a "just read the cache, it's per variant now" shortcut becomes
+tempting.
+
 ## 5. Data model
 
 | # | Change | Why |
 |---|---|---|
-| M11 | `master_product.is_luxury_steal` (or a variant-level equivalent if the owner wants per-variant assignment) | Criterion 125 — the system of record |
+| M11 | `master_variant.is_luxury_steal` — NOT NULL, default `false` | Criteria 125 / 146-147 — the system of record, at the grain D27 requires |
 | M12 | `luxury_steal_order_check` — order ref, line ref, variant ref, matched acknowledgment id (nullable), outcome, checked-at | Criteria 137-140. A hold is a state we must be able to query and audit, not a log line |
 
 `Acknowledgment` (slice 0) needs **no change** — it already carries exact text,
 policy version, timestamp, affirmative action label and every reference this
 slice populates. That is the model doing the job it was built for.
 
-**Open for the owner:** product-level or variant-level assignment. Product-level
-is simpler and matches how Luxury Steals are described; variant-level is needed
-if one size or metal of a piece is a Steal and another is not. I recommend
-**product-level** unless you expect mixed variants.
+**Settled by D27: variant-level.** The admin "apply to all variants" action is a
+convenience that writes N variant rows; it is not a second storage location,
+and nothing may read assignment from the product.
 
 ## 6. Native Shopify vs custom
 
@@ -286,11 +334,11 @@ a Luxury Steal yet, and that blocks nothing here.
 
 ## 13. Copy
 
-### 13.1 Final Sale disclosure — PROPOSED, NEEDS OWNER APPROVAL
+### 13.1 Final Sale disclosure — OWNER-APPROVED 2026-09-23
 
-Shown on the product page and, abbreviated, on cards. Drafted to state the
-restriction plainly while preserving the §4.5 separation — the second paragraph
-is the one that must not be cut.
+Reproduced exactly as approved, including the curly apostrophes in "can’t"
+and "we’ll" and the em dash in the heading line. Pin character-for-character
+once implemented, in the same manner as the slice 2C strings.
 
 **Badge (cards and PDP):**
 
@@ -298,17 +346,23 @@ is the one that must not be cut.
 
 **Product page disclosure:**
 
-> **Final Sale — this item cannot be returned or exchanged.**
-> Luxury Steals are limited pieces offered at exceptional prices. Because of
-> that, this item can't be returned or exchanged if you change your mind,
-> prefer another style, or choose the wrong size or configuration. Please
-> review the specifications and your selected options carefully before
-> ordering.
+> Final Sale — this item cannot be returned or exchanged for change-of-mind reasons.
 >
-> This does not affect your rights if something is wrong with your order. If
-> your item arrives damaged, is not what you ordered, doesn't match its
-> description, or develops a manufacturing fault covered by our warranty,
-> contact us and we'll put it right.
+> Luxury Steals are limited pieces offered at exceptional prices. Because of that, this item can’t be returned or exchanged if you change your mind, prefer another style, or choose the wrong size or configuration. Please review the specifications and your selected options carefully before ordering.
+>
+> This does not affect claims for an item that arrives damaged, is not what you ordered, does not match its description, or may have a manufacturing issue covered by our warranty. If something is wrong with your order, contact us and we’ll review it under the applicable CaratForUs warranty or claims policy.
+
+The owner's revision is more careful than the draft it replaced, in two ways
+worth preserving against future editing:
+
+- the heading scopes the restriction to **change-of-mind reasons** rather than
+  stating flatly that the item cannot be returned;
+- the third paragraph promises a **review under the applicable policy** rather
+  than promising to "put it right", which would have committed to a remedy
+  before inspection.
+
+Criterion 143's test pins the whole string, so neither can be lost to a later
+edit.
 
 **Scarcity line — rendered only when it reflects real inventory:**
 
