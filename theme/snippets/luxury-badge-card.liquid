@@ -1,0 +1,53 @@
+{% comment %}
+  Renders the "Final Sale" badge on a product card when the product is a
+  Luxury Steal (Slice 3 task 3-5, docs/specs/SLICE-3-LUXURY-STEALS.md
+  criteria 129 and 148).
+
+  NO PRODUCT-LEVEL ROLLUP IS STORED (criterion 148). `carat.luxury_steal` is a
+  VARIANT metafield (D27) -- there is no product-level cache to read instead.
+  This loops every variant and shows the badge when AT LEAST ONE currently
+  purchasable (`.available`) variant is assigned. A variant that is assigned
+  but sold out does not surface the badge here, because the badge would then
+  advertise an offer nobody can actually buy; the card falls back to Dawn's
+  own existing Sold Out / Sale badge in that case. This computation happens on
+  every render rather than being cached, so it is never stale behind an
+  inventory movement the way a stored rollup would be.
+
+  This badge is advisory merchandising only. The PDP's per-variant read
+  (`luxury-product-gate.liquid`, against the SELECTED variant) is what
+  actually gates disclosure and add-to-cart -- see criterion 146.
+
+  THE `.value` RULE (criterion 149). Unassignment writes an explicit `false`
+  rather than deleting the metafield (criterion 128), so
+  `variant.metafields.carat.luxury_steal` ALONE resolves to a metafield drop
+  -- an object, and therefore truthy even when its value is `false`. Every
+  metafield read below goes through `.value`, matching the precedent already
+  shipped in `snippets/price.liquid`.
+
+  Accepts:
+  - card_product: {Object} Product Liquid object. Caller (card-product.liquid)
+    already guards `card_product and card_product != empty` before this is
+    rendered, so no blank-product guard is needed here.
+  - skip_styles: {Boolean} Forwarded from card-product.liquid's own param of
+    the same name -- suppresses the repeated stylesheet_tag when the caller is
+    rendering many cards in a loop and already included this file's CSS once.
+
+  Usage:
+  {% render 'luxury-badge-card', card_product: card_product, skip_styles: skip_styles %}
+{% endcomment %}
+{%- liquid
+  assign carat_ls_card_assigned = false
+  for carat_ls_card_variant in card_product.variants
+    if carat_ls_card_variant.metafields.carat.luxury_steal.value and carat_ls_card_variant.available
+      assign carat_ls_card_assigned = true
+    endif
+  endfor
+-%}
+{%- if carat_ls_card_assigned -%}
+  {%- unless skip_styles -%}
+    {{ 'component-luxury-gate.css' | asset_url | stylesheet_tag }}
+  {%- endunless -%}
+  <span class="badge color-{{ settings.sale_badge_color_scheme }} carat-luxury-badge carat-luxury-badge--card">
+    {{- 'luxury_steals.badge' | t -}}
+  </span>
+{%- endif -%}

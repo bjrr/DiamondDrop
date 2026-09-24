@@ -43,6 +43,7 @@
 
   <product-component view-event-payload="{{ card_product | standard_event_data: 'view', context: product_view_context | escape }}">
     <div class="card-wrapper product-card-wrapper underline-links-hover">
+      {%- render 'luxury-badge-card', card_product: card_product, skip_styles: skip_styles -%}
       <div
         class="
           card card--{{ settings.card_style }}

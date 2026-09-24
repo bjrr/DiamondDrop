@@ -1,0 +1,103 @@
+/**
+ * Component-scoped styling for the Luxury Steals badge, disclosure and
+ * acknowledgment gate (Slice 3 task 3-5). Per docs/PARALLEL-WORK-PLAN.md's
+ * Track A/B file boundary: no global selectors, no `:root` tokens defined
+ * here. Every custom property consumed below (--color-foreground,
+ * --color-background, --badge-corner-radius, etc.) is a token already
+ * defined globally by the theme; Track B owns changing what those tokens
+ * resolve to, not this file. All new selectors are scoped under the
+ * `.carat-luxury-` prefix so nothing here can collide with or override Dawn
+ * markup this task does not own.
+ */
+
+.carat-luxury-badge {
+  margin-bottom: 0.5rem;
+}
+
+.carat-luxury-badge--pdp {
+  display: inline-block;
+}
+
+.carat-luxury-gate__panel {
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  border-radius: var(--badge-corner-radius, 0);
+  padding: 1.5rem;
+  margin: 1.5rem 0;
+  background: rgb(var(--color-background));
+}
+
+.carat-luxury-gate__disclosure {
+  margin-top: 1rem;
+}
+
+.carat-luxury-gate__disclosure-heading {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem;
+}
+
+.carat-luxury-gate__disclosure-body,
+.carat-luxury-gate__disclosure-claims {
+  font-size: 1.4rem;
+  line-height: 1.5;
+  margin: 0 0 1rem;
+}
+
+.carat-luxury-gate__disclosure-claims {
+  margin-bottom: 0;
+}
+
+.carat-luxury-gate__scarcity {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: rgb(var(--color-foreground));
+  margin: 1rem 0 0;
+}
+
+.carat-luxury-gate__acknowledgment {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(var(--color-foreground), 0.15);
+}
+
+.carat-luxury-gate__acknowledgment-heading {
+  font-weight: 700;
+  letter-spacing: 0.05rem;
+  margin: 0 0 0.75rem;
+}
+
+.carat-luxury-gate__acknowledgment-body {
+  font-size: 1.3rem;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.carat-luxury-gate__control {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+  margin-top: 1.5rem;
+}
+
+.carat-luxury-gate__checkbox {
+  flex-shrink: 0;
+  width: 1.8rem;
+  height: 1.8rem;
+  margin-top: 0.2rem;
+}
+
+.carat-luxury-gate__checkbox-label {
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.carat-luxury-gate__status {
+  font-size: 1.3rem;
+  margin: 1rem 0 0;
+}
+
+.carat-luxury-gate__error {
+  font-size: 1.3rem;
+  color: #d82c0d;
+  margin: 1rem 0 0;
+}

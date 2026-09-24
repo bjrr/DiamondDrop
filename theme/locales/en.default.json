@@ -585,5 +585,24 @@
       "send_on": "YYYY-MM-DD",
       "send_on_label": "Send on (optional)"
     }
+  },
+  "luxury_steals": {
+    "badge": "Final Sale",
+    "disclosure": {
+      "heading": "Final Sale — this item cannot be returned or exchanged for change-of-mind reasons.",
+      "body": "Luxury Steals are limited pieces offered at exceptional prices. Because of that, this item can’t be returned or exchanged if you change your mind, prefer another style, or choose the wrong size or configuration. Please review the specifications and your selected options carefully before ordering.",
+      "claims": "This does not affect claims for an item that arrives damaged, is not what you ordered, does not match its description, or may have a manufacturing issue covered by our warranty. If something is wrong with your order, contact us and we’ll review it under the applicable CaratForUs warranty or claims policy."
+    },
+    "scarcity": {
+      "only_x_left": "Only {{ count }} left"
+    },
+    "acknowledgment": {
+      "heading": "FINAL SALE ACKNOWLEDGMENT",
+      "body_html": "I understand that this item is a Luxury Steal and is <strong>FINAL SALE</strong>. I understand that it cannot be returned or exchanged because I change my mind, prefer another style, select the wrong size or configuration, or otherwise no longer want the item. I have reviewed the item specifications and selected options before purchasing.",
+      "affirm_label": "I Understand & Agree",
+      "checkbox_label": "I have read the Final Sale Acknowledgment above and agree to it",
+      "gate_hint": "Add to Cart is disabled until you agree to the Final Sale terms above.",
+      "error": "We couldn't record your acknowledgment. Please try again before adding this item to your cart."
+    }
   }
 }
