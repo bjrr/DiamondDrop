@@ -44,6 +44,29 @@ sequential path the owner asked us to avoid.
 A consumes B's tokens; B never needs to know A's markup. If A finds it needs a
 global style change, that is a request to B, not an edit.
 
+### Amendment, 2026-09-24 — A may add render hooks to existing Dawn files
+
+The rule above ("A never edits an existing Dawn section") is unworkable as
+written, and slice 3 is where that shows. A Final Sale badge has to appear on
+`snippets/card-product.liquid`, and the disclosure and acknowledgment gate have
+to appear in `sections/main-product.liquid`. There is no Dawn extension point
+that reaches either without touching the file.
+
+**Amended rule.** Track A may add a **single-line render hook** to an existing
+Dawn file — `{% render 'luxury-...' %}` and nothing else. All markup, logic and
+copy live in A-owned `luxury-*` snippets. A still never restructures, restyles
+or reorders existing Dawn markup.
+
+Why this keeps the tracks parallel rather than quietly merging them: a one-line
+include is the smallest possible edit, it survives B rewriting everything
+around it, and a conflict on that line is trivially resolvable — unlike a
+conflict inside a block of interleaved markup. B continues to own layout and
+styling, including how A's components are styled, because A's snippets consume
+B's tokens.
+
+The collision risk is currently zero in any case: Track B has not started,
+because brand direction is still outstanding from the owner.
+
 ---
 
 ## Track A — Slice 3, Luxury Steals
