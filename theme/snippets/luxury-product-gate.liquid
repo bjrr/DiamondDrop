@@ -87,11 +87,14 @@
     assign carat_ls_assigned = true
   endif
 
+  # ONE LINE, DELIBERATELY. Inside a liquid tag every newline starts a NEW
+  # tag, so a condition wrapped across lines makes Liquid read `and` as a tag
+  # name and fail with "Unknown tag 'and'". Shopify's own compiler caught that
+  # on the first real theme push; nothing local could, because this repo has
+  # no Liquid parser. The same rule is why these are # line comments rather
+  # than a comment/endcomment block, which failed here for the same reason.
   assign carat_ls_show_scarcity = false
-  if carat_ls_assigned
-    and carat_ls_variant.inventory_management == 'shopify'
-    and carat_ls_variant.inventory_policy != 'continue'
-    and carat_ls_variant.inventory_quantity > 0
+  if carat_ls_assigned and carat_ls_variant.inventory_management == 'shopify' and carat_ls_variant.inventory_policy != 'continue' and carat_ls_variant.inventory_quantity > 0
     assign carat_ls_show_scarcity = true
   endif
 -%}
