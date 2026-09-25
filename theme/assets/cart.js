@@ -122,6 +122,45 @@ window.CaratCartPricing = (function () {
     });
   }
 
+  // Finds a line REGARDLESS of purchasability. findPurchasableLine below
+  // deliberately returns null for an unpurchasable line, which is right for
+  // choosing a figure to display and wrong for deciding whether the line
+  // exists at all. Conflating the two is what left unpurchasable lines
+  // showing "Calculating your price…" forever — see setNodeUnpurchasableState.
+  function findLineById(dto, lineId) {
+    for (var i = 0; i < dto.lines.length; i++) {
+      if (dto.lines[i].lineId === lineId) return dto.lines[i];
+    }
+    return null;
+  }
+
+  // A line the proxy resolved and marked NOT purchasable — no published
+  // CaratForUs price for that variant. This is a TERMINAL state, not a slow
+  // one: no later apply() will ever produce a figure for it, so leaving the
+  // "Calculating your price…" placeholder in place means a permanent loading
+  // spinner standing in for "we cannot price this".
+  //
+  // Found by the first real browser run of this surface (2026-09-25), which
+  // only became possible once the store-level App Proxy subpath was corrected
+  // from carat-1 to carat. No wrong price was ever displayed, so this was
+  // never a money defect — it hid an unpurchasable state behind a spinner.
+  //
+  // NOT flagged with data-carat-mode-error and NOT logged as an error: an
+  // unsynced variant is a legitimate, expected state, and treating it as a
+  // fault would bury real faults in noise. It carries its own attribute so a
+  // test or a future surface can tell the two apart.
+  //
+  // COPY REUSED, NOT INVENTED. `price_unavailable` is the existing approved
+  // string. Its "Please refresh." tail is a poor fit for a terminal state and
+  // has been raised with the owner; introducing a better string here would be
+  // shipping unapproved customer-facing copy, which is worse than a slightly
+  // off one.
+  function setNodeUnpurchasableState(node) {
+    node.setAttribute('data-carat-unpurchasable', 'true');
+    node.textContent =
+      (window.cartStrings && window.cartStrings.caratPriceUnavailable) || 'Price unavailable. Please refresh.';
+  }
+
   function findPurchasableLine(dto, lineId) {
     for (var i = 0; i < dto.lines.length; i++) {
       if (dto.lines[i].purchasable && dto.lines[i].lineId === lineId) return dto.lines[i];
@@ -284,7 +323,16 @@ window.CaratCartPricing = (function () {
       // the NEXT apply() call (already scheduled by the same cart mutation)
       // corrects it. selectDisplayMinorUnits returns this literal `null`
       // ONLY from its "line not found" branches.
-      if (minorUnits === null) return;
+      if (minorUnits === null) {
+        // Terminal vs transient. A line that IS present in the DTO and is
+        // explicitly unpurchasable will never resolve; anything else (a
+        // stale or removed line id) genuinely may on the next apply().
+        var resolvedLine = lineId ? findLineById(dto, lineId) : null;
+        if (resolvedLine && resolvedLine.purchasable === false) {
+          setNodeUnpurchasableState(node);
+        }
+        return;
+      }
 
       // UNDEFINED means something different and worse: a recognized kind
       // whose line (or the cart-level DTO itself) WAS found, but the
