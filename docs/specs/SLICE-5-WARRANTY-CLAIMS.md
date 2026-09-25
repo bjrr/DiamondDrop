@@ -235,6 +235,65 @@ every surface, including ones added later.
 **VERDICT: APPROVE WITH CONDITIONS.** Owner items in §11; neither blocks the
 core workflow.
 
+## 12. Closure status
+
+Recorded 2026-09-25. **Implementation complete and QA-reviewed. NOT closed** —
+three items below, one of which would stop a real customer.
+
+### QA review
+
+Independent review found **one medium finding and nothing else**. Everything
+else was confirmed sound, and confirmed by checking rather than by re-reading
+the claims: the reviewer independently recomputed the acknowledgment's sha256
+against the migration's hardcoded hash, traced every jeweller import for
+reachability rather than presence, and actively tried to defeat the status
+machine — finding three independent layers blocking a coverage decision before
+receipt.
+
+**The finding: a fence that proved nothing.** The route-level criterion-165
+guard asserted `"getWarrantyClaimForStaffReview" in warrantyClaimRoute`. That
+namespace object holds the module's own EXPORTS, so it only asked whether the
+route re-exports that name — never whether it imports and calls it, which is
+the whole regression the criterion exists to prevent.
+
+Worse than no test: it occupied the place a real guard belonged and reported
+success, so nobody would look again. Replaced with a source-text fence, a
+guard-the-guard test against renames, and **proof it fires** — a jeweller
+reference appended to the route made it fail on exactly that assertion, where
+the old fence stayed green through the identical change. Fixed in `98c12d2`.
+
+The boundary was never actually broken.
+
+### What blocks closure
+
+| # | Item | Severity |
+|---|---|---|
+| 1 | **The form needs Shopify Order and Line Item IDs**, e.g. `gid://shopify/Order/7184178970925`. A customer knows their order as **#1001**. The lookup is by id only; there is no name-based path. Query-string pre-fill exists for a deep link that does not yet exist. **As it stands a customer arriving cold cannot complete this form.** | Blocks real use |
+| 2 | No Shopify **Page** exists with the `page.warranty-claim` template, so the form is not reachable at any URL. A manual admin step; we hold no content scope and one should not be added for this. | Blocks verification |
+| 3 | Copy beyond the acknowledgment is drafted from the policy's own language and **not owner-approved** — marked as such in the section header, following the precedent already set by the bank-payment dialog. | Pre-launch |
+
+Item 1 is a product decision, not a defect: either a deep link from order
+history and emails, or a lookup by order number. It is raised with the owner.
+
+### Carried forward
+
+**When the R2 adapter lands, verify `storageKey` was issued for THIS claim.**
+The intake schema currently accepts it as an opaque client-supplied string.
+Not exploitable today — no bucket exists and the only implementation is the
+recording port — but on the day a production adapter ships, an attacker-chosen
+key would be trusted at face value. It needs a signed or nonce'd destination.
+
+Uploads are omitted rather than faked, for the same reason: a control that
+silently dropped a customer's photographs would be worse than none, because
+they would believe their evidence was submitted.
+
+### Verified
+
+110+ files and 2000+ unit tests across the suite; warranty integration 78
+tests across three files on fresh disposable databases; typecheck, lint,
+money-safety clean; theme check zero errors. Nothing in this slice has been
+exercised in a browser, because item 2 prevents it.
+
 ## 11. Owner items
 
 | # | Item | Blocks |
