@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caratforus.internal/schemas/group-buy-options.schema.json",
+  "title": "Group Buy campaign-options contract",
+  "description": "Versioned JSON contract describing WHAT MAY BE SOLD in a Group Buy campaign (docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md §12, locked 2026-09-19). Structural validation only — the authoritative validator is app/app/domain/groupbuy/campaignOptions.ts, which additionally (1) recursively refuses any forbidden pricing key anywhere in the document, by name, and (2) cross-checks validCombinations/tableView/orderingFlow against the declared option dimensions, both of which are beyond what plain JSON Schema can express. Every object below is CLOSED (additionalProperties: false) specifically so an unrecognised key — margin, uplift, a pricing-rule id, anything — is already rejected at the schema layer, not only by the TypeScript validator.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "campaign", "optionDimensions", "validCombinations", "tableView", "orderingFlow"],
+  "properties": {
+    "schemaVersion": {
+      "description": "Versioned from the start (§12): a campaign published today must remain readable when the format changes. Extend the enum for a new version; never reinterpret an old one's meaning.",
+      "type": "integer",
+      "enum": [1]
+    },
+    "campaign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["productType"],
+      "properties": {
+        "productType": {
+          "description": "Free text — \"ring\", \"bracelet\", \"necklace\", or any future product type. Never a fixed enum: §11 requires that nothing ring-shaped is hard-coded.",
+          "type": "string",
+          "minLength": 1
+        },
+        "title": { "type": "string" },
+        "description": { "type": "string" }
+      }
+    },
+    "optionDimensions": {
+      "description": "Campaign-specific option dimensions (§11) — metal, length, clasp, stone size, or anything else this product actually varies by. No fixed set.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "label", "required", "displayOrder", "allowedValues"],
+        "properties": {
+          "key": { "type": "string", "minLength": 1 },
+          "label": { "type": "string", "minLength": 1 },
+          "required": { "type": "boolean" },
+          "displayOrder": { "type": "number" },
+          "allowedValues": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "label"],
+              "properties": {
+                "value": { "type": "string", "minLength": 1 },
+                "label": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "validCombinations": {
+      "description": "Every purchasable configuration (§11: invalid combinations must not be purchasable). \"values\" keys/values are validated against optionDimensions by the TypeScript validator, not by this schema — a closed additionalProperties would defeat the whole point of a campaign-chosen key set.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["values"],
+        "properties": {
+          "values": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      }
+    },
+    "tableView": {
+      "description": "Public comparison-table configuration (README §10). No price column — the table shows the Regular/Card Price, computed and rendered elsewhere, never carried in this contract.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["columns"],
+      "properties": {
+        "columns": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "orderingFlow": {
+      "description": "The sequence of option dimensions presented while a customer chooses a configuration.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["steps"],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}
