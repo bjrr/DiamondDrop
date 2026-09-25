@@ -2494,20 +2494,45 @@ model WarrantyClaimLocalJewellerAuthorization {
 // actually arranged with a carrier, recorded as fact, not what a policy
 // threshold would compute.
 //
-// THE BOUNDARY THIS SECTION DOES NOT CROSS (read before touching
-// `signatureRequired` or `insuredValue*`). `SLICE-11-READINESS.md` G1: "order
-// value" — the denominator for both README's $100 signature threshold and
-// its "full order value" insurance rule — is undefined in every document
-// that governs this feature, and is an open owner question. Nothing in this
-// schema, and nothing in `app/app/domain/shipping/**`, derives
-// `signatureRequired` from an amount, validates `insuredValueMinorUnits`
-// against an order total, or contains the number 100 in any form. Recording
-// what staff arranged (this section) is a different, safe thing from
-// computing what policy requires (still blocked). See
-// `app/app/domain/shipping/signatureRequirement.ts` for where a future
-// implementer would naturally reach for that derivation, and why it isn't
-// there.
+// UPDATED FOR D29-D31 (docs/ARCHITECTURE-MVP1.md, resolved 2026-09-25;
+// domain enforcement in app/app/domain/shipping/**, committed 7fc17f0). The
+// boundary above no longer applies verbatim — "order value" is now defined
+// (D29: shipment merchandise value) and the $100.00 threshold is now real
+// (D31) — but two things it protected remain true and are still enforced
+// below: this schema does not compute the threshold itself (the domain
+// module owns `decideStandardSignatureRequirementByRule`; this schema only
+// HOLDS what that function and a staff override produced), and G2 (what
+// insurance mechanism/provider can reach full merchandise value on a
+// high-value piece) is still unanswered, so `insuredValueMinorUnits` is
+// never forced to equal `computedMerchandiseValueMinorUnits` below — see
+// that field's own doc comment.
 // =============================================================================
+
+/// D31 — matches `app/app/domain/shipping/signatureRequirement.ts`'s
+/// `SignatureRequirementSource` exactly (`"rule" | "staff_override"`).
+/// Recording ONLY that a signature was required, without recording why,
+/// loses the accountability D31 asks for: "the rule fired on its own" and "a
+/// named person decided" are different facts, and only the second has
+/// someone answerable for it.
+enum SignatureRequiredSource {
+  rule
+  staff_override
+
+  @@map("signature_required_source")
+}
+
+/// D31 — matches `app/app/domain/shipping/signatureRequirement.ts`'s
+/// `SignatureServiceUsed` exactly. Evidence of what happened, which may
+/// differ from what `signatureRequired`/`signatureRequiredSource` say was
+/// required — staff may apply a stricter service than the rule demanded,
+/// and this column records the reality, not the policy.
+enum SignatureServiceUsed {
+  none
+  standard
+  adult_signature_required
+
+  @@map("signature_service_used")
+}
 
 /// M-shipment (criteria 171-175, 179). Tracking is NOT NULL — criterion 172:
 /// "every shipment has tracking" is unconditional in README, so a shipment
@@ -2534,19 +2559,47 @@ model Shipment {
 
   /// Criterion 173 — money as integer minor units + currency, present
   /// together or absent together (`shipment_insured_value_coherent`, this
-  /// slice's migration). NEVER validated against an order total here — see
-  /// this file's section header and criterion 174/175.
+  /// slice's migration). D30/G2 — this is what was ACTUALLY ARRANGED with
+  /// the carrier/insurer, never forced to equal `computedMerchandiseValueMinorUnits`
+  /// below: no insurance provider is named for reaching full merchandise
+  /// value on a high-value piece (G2, still open), so the two figures are
+  /// allowed to differ visibly rather than one silently overwriting the
+  /// other — a mismatch is information for staff to see, not an error to
+  /// normalise away.
   insuredValueMinorUnits BigInt? @map("insured_value_minor_units")
   insuredValueCurrency   String? @map("insured_value_currency") @db.Char(3)
   insuranceReference     String? @map("insurance_reference")
 
-  /// Criterion 174 — a fact staff recorded about what was actually arranged
-  /// for THIS shipment, never a value this schema or any domain function
-  /// derives from an amount. Defaults false: most shipments arrange nothing
-  /// beyond the default until a staff member records otherwise.
-  signatureRequired              Boolean   @default(false) @map("signature_required")
-  signatureRequiredSetByActorRef String?   @map("signature_required_set_by_actor_ref")
-  signatureRequiredSetAt         DateTime? @map("signature_required_set_at") @db.Timestamptz(6)
+  /// D29 — the OUTPUT of `computeShipmentMerchandiseValue` for this
+  /// shipment's contents: what the D29/D31 rule actually computed, kept
+  /// distinct from `insuredValueMinorUnits` (what staff arranged) per D30.
+  /// Nullable: a shipment recorded before this figure was computed (or by a
+  /// caller that hasn't wired the computation up yet) simply has none yet —
+  /// this column does not gate anything else on this row.
+  computedMerchandiseValueMinorUnits BigInt? @map("computed_merchandise_value_minor_units")
+  computedMerchandiseValueCurrency   String? @map("computed_merchandise_value_currency") @db.Char(3)
+
+  /// Criterion 174/D31 — `signatureRequired` is the ACTUAL requirement for
+  /// this shipment (rule, or a staff override upgrading it — see
+  /// `resolveShipmentSignatureRequirement`). `signatureRequiredSource`
+  /// distinguishes which produced it; NOT NULL, defaulting to `rule` (the
+  /// same default posture as `signatureRequired` itself — absent any staff
+  /// action, the rule alone is the source of record). The
+  /// `signatureRequiredSetByActorRef`/`SetAt` pair is populated if and only
+  /// if `signatureRequiredSource = staff_override`
+  /// (`shipment_signature_source_coherent`, this slice's migration) — it is
+  /// the OVERRIDE's provenance specifically, not a general-purpose "who
+  /// touched this row" field.
+  signatureRequired              Boolean                 @default(false) @map("signature_required")
+  signatureRequiredSource        SignatureRequiredSource @default(rule) @map("signature_required_source")
+  signatureRequiredSetByActorRef String?                 @map("signature_required_set_by_actor_ref")
+  signatureRequiredSetAt         DateTime?               @map("signature_required_set_at") @db.Timestamptz(6)
+  /// D31 — the service ACTUALLY USED, which may differ from what
+  /// `signatureRequired` says was required (a carrier substitution, a staff
+  /// mistake, whatever the real world produced). Evidence, never derived —
+  /// see `app/app/domain/shipping/signatureRequirement.ts`'s
+  /// `SignatureServiceUsed`, which has no function that computes this value.
+  signatureServiceUsed           SignatureServiceUsed?   @map("signature_service_used")
 
   /// "Delivery evidence" (criterion 171) — what the carrier confirmed, not
   /// what the app predicts. Both nullable: a freshly-recorded shipment has

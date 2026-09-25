@@ -147,8 +147,12 @@ describe("shipment_signature_required_provenance_coherent — criterion 174", ()
   });
 
   it("accepts a shipment with a complete staff decision recorded", async () => {
+    // D29-D31 wiring (migration 20260925040000) added signatureRequiredSource:
+    // override provenance is only coherent alongside source='staff_override'
+    // now — see shipment_signature_source_coherent below.
     const shipment = await createShipment({
       signatureRequired: true,
+      signatureRequiredSource: "staff_override",
       signatureRequiredSetByActorRef: "staff:alice",
       signatureRequiredSetAt: new Date(),
     });
@@ -299,5 +303,172 @@ describe("ShipmentAddressChangeEvent: append-only history — criteria 176-178",
         },
       })
     ).rejects.toThrow();
+  });
+});
+
+describe("D29-D31 wiring — new columns and their CHECK constraints", () => {
+  it("defaults signatureRequiredSource to 'rule' with no override provenance", async () => {
+    const shipment = await createShipment();
+    expect(shipment.signatureRequiredSource).toBe("rule");
+    expect(shipment.signatureRequiredSetByActorRef).toBeNull();
+    expect(shipment.signatureRequiredSetAt).toBeNull();
+    expect(shipment.signatureServiceUsed).toBeNull();
+    expect(shipment.computedMerchandiseValueMinorUnits).toBeNull();
+  });
+
+  describe("shipment_computed_merchandise_value_coherent / non_negative", () => {
+    it("accepts a well-formed positive computed merchandise value", async () => {
+      const shipment = await createShipment({
+        computedMerchandiseValueMinorUnits: 150_00n,
+        computedMerchandiseValueCurrency: "USD",
+      });
+      expect(shipment.computedMerchandiseValueMinorUnits).toBe(150_00n);
+    });
+
+    it("accepts zero (an all-promotional-item shipment)", async () => {
+      const shipment = await createShipment({
+        computedMerchandiseValueMinorUnits: 0n,
+        computedMerchandiseValueCurrency: "USD",
+      });
+      expect(shipment.computedMerchandiseValueMinorUnits).toBe(0n);
+    });
+
+    it("refuses an amount with no currency, even bypassing the application via raw SQL", async () => {
+      await expect(
+        prisma.$executeRawUnsafe(
+          `INSERT INTO "shipment" (
+             id, order_ref, carrier, tracking_number, ship_date,
+             computed_merchandise_value_minor_units, computed_merchandise_value_currency,
+             address_line1, address_city, address_postal_code, address_country,
+             entered_by_actor_ref, updated_at
+           ) VALUES (
+             gen_random_uuid(), $1, 'USPS', $2, '2026-09-25',
+             15000, NULL,
+             'x', 'y', 'z', 'US', 'staff:alice', CURRENT_TIMESTAMP
+           )`,
+          `gid://shopify/Order/${uniq()}`,
+          `TRACK-${uniq()}`
+        )
+      ).rejects.toThrow();
+    });
+
+    it("refuses a negative computed merchandise value", async () => {
+      await expect(
+        createShipment({ computedMerchandiseValueMinorUnits: -1n, computedMerchandiseValueCurrency: "USD" })
+      ).rejects.toThrow();
+    });
+  });
+
+  describe("shipment_signature_source_coherent", () => {
+    it("accepts source='rule' with no provenance", async () => {
+      const shipment = await createShipment({ signatureRequiredSource: "rule" });
+      expect(shipment.signatureRequiredSource).toBe("rule");
+    });
+
+    it("accepts source='staff_override' with complete provenance and required=true", async () => {
+      const shipment = await createShipment({
+        signatureRequired: true,
+        signatureRequiredSource: "staff_override",
+        signatureRequiredSetByActorRef: "staff:alice",
+        signatureRequiredSetAt: new Date(),
+      });
+      expect(shipment.signatureRequiredSource).toBe("staff_override");
+    });
+
+    it("refuses source='staff_override' with no actor, even bypassing the application via raw SQL", async () => {
+      await expect(
+        prisma.$executeRawUnsafe(
+          `INSERT INTO "shipment" (
+             id, order_ref, carrier, tracking_number, ship_date,
+             signature_required, signature_required_source, signature_required_set_by_actor_ref, signature_required_set_at,
+             address_line1, address_city, address_postal_code, address_country,
+             entered_by_actor_ref, updated_at
+           ) VALUES (
+             gen_random_uuid(), $1, 'USPS', $2, '2026-09-25',
+             true, 'staff_override', NULL, CURRENT_TIMESTAMP,
+             'x', 'y', 'z', 'US', 'staff:alice', CURRENT_TIMESTAMP
+           )`,
+          `gid://shopify/Order/${uniq()}`,
+          `TRACK-${uniq()}`
+        )
+      ).rejects.toThrow();
+    });
+
+    it("refuses source='rule' that still carries override provenance", async () => {
+      await expect(
+        prisma.$executeRawUnsafe(
+          `INSERT INTO "shipment" (
+             id, order_ref, carrier, tracking_number, ship_date,
+             signature_required_source, signature_required_set_by_actor_ref, signature_required_set_at,
+             address_line1, address_city, address_postal_code, address_country,
+             entered_by_actor_ref, updated_at
+           ) VALUES (
+             gen_random_uuid(), $1, 'USPS', $2, '2026-09-25',
+             'rule', 'staff:alice', CURRENT_TIMESTAMP,
+             'x', 'y', 'z', 'US', 'staff:alice', CURRENT_TIMESTAMP
+           )`,
+          `gid://shopify/Order/${uniq()}`,
+          `TRACK-${uniq()}`
+        )
+      ).rejects.toThrow();
+    });
+  });
+
+  describe("shipment_signature_override_requires_true", () => {
+    it("refuses source='staff_override' with signatureRequired=false, even with complete provenance", async () => {
+      await expect(
+        prisma.$executeRawUnsafe(
+          `INSERT INTO "shipment" (
+             id, order_ref, carrier, tracking_number, ship_date,
+             signature_required, signature_required_source, signature_required_set_by_actor_ref, signature_required_set_at,
+             address_line1, address_city, address_postal_code, address_country,
+             entered_by_actor_ref, updated_at
+           ) VALUES (
+             gen_random_uuid(), $1, 'USPS', $2, '2026-09-25',
+             false, 'staff_override', 'staff:alice', CURRENT_TIMESTAMP,
+             'x', 'y', 'z', 'US', 'staff:alice', CURRENT_TIMESTAMP
+           )`,
+          `gid://shopify/Order/${uniq()}`,
+          `TRACK-${uniq()}`
+        )
+      ).rejects.toThrow();
+    });
+  });
+
+  describe("signatureServiceUsed — evidence, independent of what was required", () => {
+    it("can record 'standard' even when the rule/override did not require a signature at all", async () => {
+      const shipment = await createShipment({
+        signatureRequired: false,
+        signatureRequiredSource: "rule",
+        signatureServiceUsed: "standard",
+      });
+      expect(shipment.signatureRequired).toBe(false);
+      expect(shipment.signatureServiceUsed).toBe("standard");
+    });
+
+    it("can record 'none' even when a signature was required — the mismatch is not refused; it is evidence", async () => {
+      const shipment = await createShipment({
+        signatureRequired: true,
+        signatureRequiredSource: "staff_override",
+        signatureRequiredSetByActorRef: "staff:alice",
+        signatureRequiredSetAt: new Date(),
+        signatureServiceUsed: "none",
+      });
+      expect(shipment.signatureRequired).toBe(true);
+      expect(shipment.signatureServiceUsed).toBe("none");
+    });
+  });
+
+  describe("insured value and computed merchandise value may differ visibly (D30/G2)", () => {
+    it("stores both figures independently, with no equality enforced", async () => {
+      const shipment = await createShipment({
+        computedMerchandiseValueMinorUnits: 500_000_00n,
+        computedMerchandiseValueCurrency: "USD",
+        insuredValueMinorUnits: 50_000_00n, // far below the computed figure — a real G2 scenario (carrier cap)
+        insuredValueCurrency: "USD",
+      });
+      expect(shipment.computedMerchandiseValueMinorUnits).toBe(500_000_00n);
+      expect(shipment.insuredValueMinorUnits).toBe(50_000_00n);
+    });
   });
 });
