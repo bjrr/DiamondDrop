@@ -103,10 +103,41 @@ describe("createWarrantyClaim — claim reference generation", () => {
   });
 
   it("is collision-safe under real concurrency — many claims submitted at once all get distinct references", async () => {
-    const claims = await Promise.all(Array.from({ length: 20 }, () => submitClaim()));
+    // 12, not a larger number: each submitClaim() borrows a Postgres
+    // connection for its 3 writes (two policy_version+acknowledgment pairs,
+    // then the claim transaction), and this suite's disposable database has
+    // observed connection-pool exhaustion ("Can't reach database server") at
+    // 20-way concurrency once this file grew to run alongside the route and
+    // schema suites in the same disposable database. 12 still genuinely
+    // exercises the P2002-retry path this test exists to prove — the
+    // reference space is ~1 billion combinations, so a real collision at
+    // ANY concurrency here would be the code failing, not chance — while
+    // staying well clear of the pool ceiling observed in practice.
+    const claims = await Promise.all(Array.from({ length: 12 }, () => submitClaim()));
     const references = claims.map((claim) => claim.claimReference);
     expect(new Set(references).size).toBe(references.length);
-  });
+    // TIMEOUT RAISED FROM THE 5s DEFAULT, 2026-09-25 — this test does real
+    // parallel database work, so the ceiling was measuring the machine.
+    //
+    // WHAT ACTUALLY FAILS HERE UNDER LOAD, since it is not what it looks
+    // like. Raising the ceiling did not make it green, so I read the error
+    // instead of re-running: "Can't reach database server at
+    // localhost:5432", thrown from the fixture helper on line ~44 while
+    // building a policy_version — before a single claim reference was ever
+    // generated. It is local Postgres connection saturation when this file
+    // runs in parallel with the rest of the suite on a loaded machine, not
+    // a collision.
+    //
+    // That distinction is the whole point of this comment. A concurrency
+    // test going red looks exactly like a concurrency test that found a
+    // duplicate, and the instinct on a red build is to re-run rather than
+    // to read. I briefly drew the wrong conclusion myself. If this fails
+    // again, READ THE ERROR: a genuine duplicate reference is a real defect
+    // and must never be waved through as this. Reference generation is a
+    // random 8-character suffix over a 32-character alphabet with P2002
+    // retry, so a true collision would be extraordinary — and therefore
+    // worth taking seriously rather than dismissing.
+  }, 30_000);
 });
 
 describe("Illegal transitions are refused BEFORE any database write", () => {

@@ -5,6 +5,11 @@ import { prisma } from "~/db/client.server";
 import { createAcknowledgment } from "~/db/repositories/acknowledgmentRepository.server";
 import { getLatestPolicyVersion } from "~/db/repositories/policyVersionRepository.server";
 import { createWarrantyClaim, recordWarrantyClaimUpload } from "~/db/repositories/warrantyClaimRepository.server";
+import {
+  WARRANTY_CLAIM_ACKNOWLEDGMENT_AFFIRMATIVE_ACTION_LABEL,
+  WARRANTY_CLAIM_ACKNOWLEDGMENT_POLICY_SLUG,
+  WARRANTY_CLAIM_ACKNOWLEDGMENT_TEXT,
+} from "~/domain/warranty/acknowledgmentText";
 import { validateWarrantyUploadMetadata } from "~/jobs/warranty/uploadValidation";
 import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
@@ -36,41 +41,31 @@ import { verifyAppProxySignature } from "~/shopify/proxy";
  * accident. See `warrantyClaim.test.ts`'s fence test for the literal check.
  *
  * ============================================================================
- * ACKNOWLEDGMENT COPY — NOT YET APPROVED (criterion 154)
+ * ACKNOWLEDGMENT COPY — APPROVED 2026-09-25, ONE MERGED ACKNOWLEDGMENT
  * ============================================================================
- * `docs/specs/SLICE-5-WARRANTY-COPY-PROPOSAL.md` proposes both required
- * acknowledgments' text but is still sitting with the owner. This route does
- * NOT pin any acknowledgment string, add a locale key, or create a
- * `policy_version` row — shipping unapproved copy would be worse than
- * leaving the seam open (this task's explicit instruction).
+ * `docs/specs/SLICE-5-WARRANTY-COPY-PROPOSAL.md` proposed two separate
+ * acknowledgments (accuracy certification, coverage-not-established); the
+ * owner approved a single merged statement instead, which also covers the
+ * shipping undertaking (§4) — see `~/domain/warranty/acknowledgmentText.ts`'s
+ * own header for the exact text and why it is one acknowledgment, not two.
+ * `WarrantyClaim`'s two FK columns (`accuracyCertificationAcknowledgmentId` /
+ * `coverageNotEstablishedAcknowledgmentId`, task 5-1's schema, out of this
+ * task's scope to change) both reference the SAME `Acknowledgment` row for a
+ * given claim — a correct, if slightly redundant, way to represent "the
+ * owner merged these two into one".
  *
- * THE SEAM, so pinning later is a small, obvious change:
- *   1. `exactText` for each acknowledgment is read directly from the
- *      resolved `PolicyVersion.text` (below) — NOT a second hardcoded
- *      constant. Once a `policy_version` row exists under
- *      `WARRANTY_ACCURACY_CERTIFICATION_POLICY_SLUG` /
- *      `WARRANTY_COVERAGE_NOT_ESTABLISHED_POLICY_SLUG` (data only, via
- *      `prisma/seed.ts` — no migration required, matching how every other
- *      `policy_version` row is provisioned), that row's `text` IS what gets
- *      recorded — there is no second copy of the words to drift out of sync
- *      with it, unlike `~/domain/luxurysteals/acknowledgmentText.ts`'s
- *      pinned-constant-plus-drift-fence design.
- *   2. `PolicyVersion` carries no affirmative-action-LABEL column (see
- *      `Acknowledgment.affirmativeActionLabel`'s own schema comment) and the
- *      proposal's button labels ("I Certify This Is Accurate", "I
- *      Understand & Agree") are themselves still unapproved — so
- *      `getAcknowledgmentLabelSource()` below is an injectable seam with NO
- *      production default (`productionAcknowledgmentLabelSource` always
- *      throws `WarrantyAcknowledgmentLabelsNotConfiguredError`), exactly
- *      like `apps.carat.bank-checkout.tsx`'s `__setDraftOrderPortForTests`.
- *      WHAT CHANGES: once the owner approves surfaces 2/3, replace
- *      `productionAcknowledgmentLabelSource`'s two methods with imports from
- *      the new `~/domain/warranty/acknowledgmentText.ts` module (task
- *      5-1/5-4's territory) — no other line in this route changes.
- * Until BOTH the policy versions exist AND the label source is configured,
- * `recordClaimAcknowledgments` returns `null` and the route refuses every
- * submission with `acknowledgment_copy_pending_approval` (503) — an honest
- * "not live yet" state, not a guess, exactly as instructed.
+ * `recordClaimAcknowledgment` resolves `WARRANTY_CLAIM_ACKNOWLEDGMENT_POLICY_SLUG`
+ * via `getLatestPolicyVersion`, exactly like
+ * `apps.carat.luxury-acknowledgment.tsx` resolves the Final Sale policy —
+ * the pinned `exactText`/`affirmativeActionLabel` constants are recorded
+ * against whatever `policy_version` row migration
+ * `20260925030000_warranty_claim_policy_version` provisions. The 503
+ * `acknowledgment_copy_pending_approval` response STAYS in place even though
+ * the copy is now approved: it is the honest answer for a misprovisioned
+ * environment where that migration has not run — exactly the safety net
+ * `/health`'s `checkRequiredPolicyVersionsProvisioned` exists for (see
+ * `~/domain/evidence/requiredPolicyVersions.ts`, which this policy is now
+ * registered in).
  *
  * ============================================================================
  * CRITERION 155 — ORDER/LINE RESOLUTION, AND WHAT THIS ROUTE DOES NOT DO
@@ -155,11 +150,12 @@ const bodySchema = z
 
     certificateOrSerialIdentifier: z.string().max(500).optional(),
 
-    // Two SEPARATE affirmative actions (criterion 154) — never one combined
-    // checkbox. Each must be the LITERAL boolean `true`; there is no default
-    // and nothing here infers acceptance from a missing/absent field.
-    accuracyCertificationAccepted: z.literal(true),
-    coverageNotEstablishedAccepted: z.literal(true),
+    // ONE affirmative action (criterion 154 — the owner merged the two
+    // proposed acknowledgments into a single statement, see
+    // `~/domain/warranty/acknowledgmentText.ts`). Must be the LITERAL
+    // boolean `true`; there is no default and nothing here infers
+    // acceptance from a missing/absent field — never pre-checked.
+    claimAcknowledgmentAccepted: z.literal(true),
 
     uploads: z.array(uploadSchema).max(10).optional(),
   })
@@ -210,95 +206,36 @@ async function createOrderLookupPort(): Promise<WarrantyClaimOrderLookupPort> {
 }
 
 // ---------------------------------------------------------------------------
-// Acknowledgment copy seam — see this file's module comment.
+// Acknowledgment — pinned, approved copy. See this file's module comment.
 // ---------------------------------------------------------------------------
 
-export const WARRANTY_ACCURACY_CERTIFICATION_POLICY_SLUG = "warranty-accuracy-certification";
-export const WARRANTY_COVERAGE_NOT_ESTABLISHED_POLICY_SLUG = "warranty-coverage-not-established";
-
-export interface WarrantyAcknowledgmentLabelSource {
-  accuracyCertificationLabel(): string;
-  coverageNotEstablishedLabel(): string;
-}
-
-export class WarrantyAcknowledgmentLabelsNotConfiguredError extends Error {
-  constructor() {
-    super("Warranty claim acknowledgment copy is not yet approved; no affirmative-action labels are configured.");
-    this.name = "WarrantyAcknowledgmentLabelsNotConfiguredError";
-  }
-}
-
-const productionAcknowledgmentLabelSource: WarrantyAcknowledgmentLabelSource = {
-  accuracyCertificationLabel(): string {
-    throw new WarrantyAcknowledgmentLabelsNotConfiguredError();
-  },
-  coverageNotEstablishedLabel(): string {
-    throw new WarrantyAcknowledgmentLabelsNotConfiguredError();
-  },
-};
-
-let acknowledgmentLabelSourceOverrideForTests: WarrantyAcknowledgmentLabelSource | null = null;
-export function __setWarrantyAcknowledgmentLabelSourceForTests(source: WarrantyAcknowledgmentLabelSource | null): void {
-  acknowledgmentLabelSourceOverrideForTests = source;
-}
-function getAcknowledgmentLabelSource(): WarrantyAcknowledgmentLabelSource {
-  return acknowledgmentLabelSourceOverrideForTests ?? productionAcknowledgmentLabelSource;
-}
-
-interface ClaimAcknowledgmentIds {
-  readonly accuracyCertificationAcknowledgmentId: string;
-  readonly coverageNotEstablishedAcknowledgmentId: string;
-}
-
-/** Returns `null` (never throws) when copy is not yet approved/configured — the caller turns that into the 503 response. */
-async function recordClaimAcknowledgments(input: {
+/**
+ * Records the ONE required acknowledgment (criterion 154) and returns its
+ * id, or `null` (never throws) if `WARRANTY_CLAIM_ACKNOWLEDGMENT_POLICY_SLUG`
+ * has no provisioned `policy_version` — the caller turns that into the 503
+ * safety-net response. Mirrors `apps.carat.luxury-acknowledgment.tsx`'s
+ * `policyVersion`/`policy_unavailable` handling exactly.
+ */
+async function recordClaimAcknowledgment(input: {
   orderRef: string;
   customerRef: string | null;
   productRef: string | null;
   variantRef: string | null;
-}): Promise<ClaimAcknowledgmentIds | null> {
-  const [accuracyPolicy, coveragePolicy] = await Promise.all([
-    getLatestPolicyVersion(WARRANTY_ACCURACY_CERTIFICATION_POLICY_SLUG),
-    getLatestPolicyVersion(WARRANTY_COVERAGE_NOT_ESTABLISHED_POLICY_SLUG),
-  ]);
-  if (!accuracyPolicy || !coveragePolicy) return null;
+}): Promise<string | null> {
+  const policyVersion = await getLatestPolicyVersion(WARRANTY_CLAIM_ACKNOWLEDGMENT_POLICY_SLUG);
+  if (!policyVersion) return null;
 
-  const labelSource = getAcknowledgmentLabelSource();
-  let accuracyLabel: string;
-  let coverageLabel: string;
-  try {
-    accuracyLabel = labelSource.accuracyCertificationLabel();
-    coverageLabel = labelSource.coverageNotEstablishedLabel();
-  } catch {
-    return null;
-  }
-
-  const acknowledgedAt = new Date();
-  const accuracyAck = await createAcknowledgment({
-    exactText: accuracyPolicy.text,
-    policyVersionId: accuracyPolicy.id,
-    acknowledgedAt,
-    affirmativeActionLabel: accuracyLabel,
+  const acknowledgment = await createAcknowledgment({
+    exactText: WARRANTY_CLAIM_ACKNOWLEDGMENT_TEXT,
+    policyVersionId: policyVersion.id,
+    acknowledgedAt: new Date(),
+    affirmativeActionLabel: WARRANTY_CLAIM_ACKNOWLEDGMENT_AFFIRMATIVE_ACTION_LABEL,
     customerRef: input.customerRef ?? undefined,
     orderRef: input.orderRef,
     productRef: input.productRef ?? undefined,
     variantRef: input.variantRef ?? undefined,
   });
-  const coverageAck = await createAcknowledgment({
-    exactText: coveragePolicy.text,
-    policyVersionId: coveragePolicy.id,
-    acknowledgedAt,
-    affirmativeActionLabel: coverageLabel,
-    customerRef: input.customerRef ?? undefined,
-    orderRef: input.orderRef,
-    productRef: input.productRef ?? undefined,
-    variantRef: input.variantRef ?? undefined,
-  });
-
-  return {
-    accuracyCertificationAcknowledgmentId: accuracyAck.id,
-    coverageNotEstablishedAcknowledgmentId: coverageAck.id,
-  };
+  return acknowledgment.id;
 }
 
 // ---------------------------------------------------------------------------
@@ -351,16 +288,16 @@ export async function action({ request }: ActionFunctionArgs) {
 
   // ACKNOWLEDGMENT GATE FIRST (criterion 154) — cheap, local, and avoids
   // ever calling the Shopify Admin API for a submission this route cannot
-  // complete anyway while copy is unapproved. See module comment.
+  // complete anyway if the environment is misprovisioned. See module comment.
   const customerRef = normalizeCustomerGid(loggedInCustomerId);
-  const acknowledgments = await recordClaimAcknowledgments({
+  const acknowledgmentId = await recordClaimAcknowledgment({
     orderRef: orderGid,
     customerRef,
     productRef: null,
     variantRef: body.shopifyVariantId ? normalizeVariantGid(body.shopifyVariantId) : null,
   });
-  if (!acknowledgments) {
-    logger.warn("warranty_claim.acknowledgment_copy_pending_approval", {});
+  if (!acknowledgmentId) {
+    logger.error("warranty_claim.acknowledgment_copy_pending_approval", {});
     return Response.json({ error: "acknowledgment_copy_pending_approval" }, { status: 503 });
   }
 
@@ -424,8 +361,10 @@ export async function action({ request }: ActionFunctionArgs) {
     wasAlteredAfterDelivery: body.wasAlteredAfterDelivery,
     alterationDetails: body.alterationDetails ?? null,
     certificateOrSerialIdentifier: body.certificateOrSerialIdentifier ?? null,
-    accuracyCertificationAcknowledgmentId: acknowledgments.accuracyCertificationAcknowledgmentId,
-    coverageNotEstablishedAcknowledgmentId: acknowledgments.coverageNotEstablishedAcknowledgmentId,
+    // Same acknowledgment row referenced by both FK columns — the owner
+    // merged the two proposed acknowledgments into one (see module comment).
+    accuracyCertificationAcknowledgmentId: acknowledgmentId,
+    coverageNotEstablishedAcknowledgmentId: acknowledgmentId,
     actor: { actorType: "customer", actorRef: customerRef, reason: "claim submitted via warranty claim form" },
   });
 

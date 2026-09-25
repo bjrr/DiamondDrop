@@ -5,6 +5,11 @@ import {
   LUXURY_STEALS_ACKNOWLEDGMENT_POLICY_VERSION,
   LUXURY_STEALS_ACKNOWLEDGMENT_TEXT,
 } from "~/domain/luxurysteals/acknowledgmentText";
+import {
+  WARRANTY_CLAIM_ACKNOWLEDGMENT_POLICY_SLUG,
+  WARRANTY_CLAIM_ACKNOWLEDGMENT_POLICY_VERSION,
+  WARRANTY_CLAIM_ACKNOWLEDGMENT_TEXT,
+} from "~/domain/warranty/acknowledgmentText";
 
 /**
  * The registry of `policy_version` rows the application REQUIRES in order to
@@ -112,6 +117,11 @@ export const REQUIRED_POLICY_VERSIONS: readonly RequiredPolicyVersion[] = [
     slug: LUXURY_STEALS_ACKNOWLEDGMENT_POLICY_SLUG,
     version: LUXURY_STEALS_ACKNOWLEDGMENT_POLICY_VERSION,
     text: LUXURY_STEALS_ACKNOWLEDGMENT_TEXT,
+  }),
+  toRequiredPolicyVersion({
+    slug: WARRANTY_CLAIM_ACKNOWLEDGMENT_POLICY_SLUG,
+    version: WARRANTY_CLAIM_ACKNOWLEDGMENT_POLICY_VERSION,
+    text: WARRANTY_CLAIM_ACKNOWLEDGMENT_TEXT,
   }),
 ];
 

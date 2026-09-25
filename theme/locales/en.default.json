@@ -345,6 +345,8 @@
         "switch_to_bank_payment": "Switch to Bank Payment Pricing",
         "switch_to_bank_payment_note": "Eligible items will update to their Bank Payment Price.",
         "price_unavailable": "Price unavailable. Please refresh.",
+        "item_unavailable_heading": "Price unavailable",
+        "item_unavailable_supporting_text": "This item is not currently available for purchase. Please check back later or contact us for assistance.",
         "checkout_reprice_failed": "We could not switch your cart to Card pricing. Please try again.",
         "switch_to_bank_failed": "We could not switch your cart to Bank Payment pricing. Please try again."
       },

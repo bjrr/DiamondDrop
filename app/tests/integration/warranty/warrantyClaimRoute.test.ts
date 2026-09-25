@@ -3,14 +3,13 @@ import { createHmac, randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { prisma } from "~/db/client.server";
-import * as warrantyClaimRoute from "~/routes/apps.carat.warranty-claim";
 import {
-  __setWarrantyAcknowledgmentLabelSourceForTests,
-  __setWarrantyClaimOrderLookupPortForTests,
-  action,
-  WARRANTY_ACCURACY_CERTIFICATION_POLICY_SLUG,
-  WARRANTY_COVERAGE_NOT_ESTABLISHED_POLICY_SLUG,
-} from "~/routes/apps.carat.warranty-claim";
+  WARRANTY_CLAIM_ACKNOWLEDGMENT_AFFIRMATIVE_ACTION_LABEL,
+  WARRANTY_CLAIM_ACKNOWLEDGMENT_POLICY_SLUG,
+  WARRANTY_CLAIM_ACKNOWLEDGMENT_TEXT,
+} from "~/domain/warranty/acknowledgmentText";
+import * as warrantyClaimRoute from "~/routes/apps.carat.warranty-claim";
+import { __setWarrantyClaimOrderLookupPortForTests, action } from "~/routes/apps.carat.warranty-claim";
 import { RecordingWarrantyClaimOrderLookupPort } from "~/shopify/admin/warrantyClaimOrderLookupAdapter.server";
 
 /**
@@ -20,19 +19,25 @@ import { RecordingWarrantyClaimOrderLookupPort } from "~/shopify/admin/warrantyC
  * real HMAC signing, `action()` called directly, evidence asserted against
  * the database rather than mocked.
  *
- * ACKNOWLEDGMENT COPY IS INTENTIONALLY NOT SEEDED IN ANY REAL MIGRATION OR
- * SEED SCRIPT (see the route's own module comment — the owner has not
- * approved it). The "happy path" tests below seed their OWN throwaway
- * `policy_version` rows directly, as TEST FIXTURE DATA in this disposable
- * integration database only — exactly like `warrantyClaimSchema.test.ts`'s
- * `createAcknowledgment` helper already does for the other two
- * acknowledgments on this same model. Nothing here pins, ships, or approves
- * real customer-facing copy; the placeholder text below is deliberately
- * NOT the proposal's wording, so it cannot be mistaken for it.
+ * THE ACKNOWLEDGMENT IS NOW REAL, APPROVED COPY (owner approval 2026-09-25).
+ * Migration `20260925030000_warranty_claim_policy_version` provisions its
+ * `policy_version` row, and `tests/integration/globalSetup.ts` runs every
+ * migration against this disposable database before any test file runs —
+ * so unlike the earlier draft of this suite, nothing here seeds a throwaway
+ * policy fixture; the route's normal, always-available acknowledgment path
+ * is exercised directly, the same way a real deployment would use it.
+ *
+ * NOT COVERED HERE: the `acknowledgment_copy_pending_approval` 503 safety
+ * net for a MISPROVISIONED environment (the migration not having run).
+ * `policy_version` is append-only, so there is no way to delete the row
+ * this migration inserts from within a test; that code path
+ * (`if (!policyVersion) return null`) is unchanged from the version this
+ * suite proved returns 503 before the copy was approved, and the same
+ * safety net `/health`'s `checkRequiredPolicyVersionsProvisioned` covers
+ * now that this slug is registered in `~/domain/evidence/requiredPolicyVersions`.
  */
 
 let seq = 0;
-let policyVersionCounter = 1;
 const uniq = () => `${Date.now() % 900_000}-${(seq += 1)}`;
 
 const SHOP = "caratforus-dev.myshopify.com";
@@ -86,39 +91,10 @@ function baseClaimBody(overrides: Record<string, unknown> = {}) {
     problemDescription: "Prong appears to have a defective solder joint.",
     hadImpactOrDamageEvent: false,
     wasAlteredAfterDelivery: false,
-    accuracyCertificationAccepted: true,
-    coverageNotEstablishedAccepted: true,
+    claimAcknowledgmentAccepted: true,
     ...overrides,
   };
 }
-
-/** Test-fixture-only PolicyVersion rows under the route's two slugs — see this file's header comment. NOT real approved copy. */
-async function seedAcknowledgmentPolicies(): Promise<void> {
-  const version = policyVersionCounter++;
-  await prisma.policyVersion.create({
-    data: {
-      slug: WARRANTY_ACCURACY_CERTIFICATION_POLICY_SLUG,
-      version,
-      effectiveFrom: new Date(),
-      text: `[TEST FIXTURE — NOT REAL COPY] accuracy certification text v${version}`,
-      contentHash: `test-hash-accuracy-${version}`,
-    },
-  });
-  await prisma.policyVersion.create({
-    data: {
-      slug: WARRANTY_COVERAGE_NOT_ESTABLISHED_POLICY_SLUG,
-      version,
-      effectiveFrom: new Date(),
-      text: `[TEST FIXTURE — NOT REAL COPY] coverage not established text v${version}`,
-      contentHash: `test-hash-coverage-${version}`,
-    },
-  });
-}
-
-const FAKE_LABEL_SOURCE = {
-  accuracyCertificationLabel: () => "[TEST] Accuracy Label",
-  coverageNotEstablishedLabel: () => "[TEST] Coverage Label",
-};
 
 /** Wires a fake order-lookup port pre-seeded to resolve exactly this order/line. Returns the port so a test can also seed additional combinations. */
 function useResolvableOrderLookup(orderGid: string, lineGid: string, extra: { customerGid?: string | null } = {}) {
@@ -163,7 +139,6 @@ async function createVariant(overrides: { shopifyVariantGid?: string } = {}) {
 
 afterEach(() => {
   __setWarrantyClaimOrderLookupPortForTests(null);
-  __setWarrantyAcknowledgmentLabelSourceForTests(null);
 });
 
 describe("resource-route shape", () => {
@@ -215,16 +190,14 @@ describe("malformed or hostile bodies are refused, not partially processed", () 
     expect(body.error).toBe("invalid_request");
   });
 
-  it("rejects accuracyCertificationAccepted: false (not literal true) with 400", async () => {
-    const response = await callAction(
-      claimRequest({ body: baseClaimBody({ accuracyCertificationAccepted: false }) })
-    );
+  it("rejects claimAcknowledgmentAccepted: false (not literal true) with 400", async () => {
+    const response = await callAction(claimRequest({ body: baseClaimBody({ claimAcknowledgmentAccepted: false }) }));
     expect(response.status).toBe(400);
   });
 
-  it("rejects coverageNotEstablishedAccepted missing entirely with 400", async () => {
+  it("rejects claimAcknowledgmentAccepted missing entirely with 400 — never pre-checked, never inferred", async () => {
     const body = baseClaimBody();
-    delete (body as Record<string, unknown>).coverageNotEstablishedAccepted;
+    delete (body as Record<string, unknown>).claimAcknowledgmentAccepted;
     const response = await callAction(claimRequest({ body }));
     expect(response.status).toBe(400);
   });
@@ -237,52 +210,18 @@ describe("malformed or hostile bodies are refused, not partially processed", () 
   });
 
   it("requires impactOrDamageDetails when hadImpactOrDamageEvent is true", async () => {
-    const response = await callAction(
-      claimRequest({ body: baseClaimBody({ hadImpactOrDamageEvent: true }) })
-    );
+    const response = await callAction(claimRequest({ body: baseClaimBody({ hadImpactOrDamageEvent: true }) }));
     expect(response.status).toBe(400);
   });
 
   it("requires alterationDetails when wasAlteredAfterDelivery is true", async () => {
-    const response = await callAction(
-      claimRequest({ body: baseClaimBody({ wasAlteredAfterDelivery: true }) })
-    );
+    const response = await callAction(claimRequest({ body: baseClaimBody({ wasAlteredAfterDelivery: true }) }));
     expect(response.status).toBe(400);
-  });
-});
-
-describe("criterion 154 — acknowledgment copy not yet approved refuses every submission", () => {
-  it("returns 503 acknowledgment_copy_pending_approval when no policy_version rows exist for either slug, and creates no claim/acknowledgment", async () => {
-    const beforeClaims = await prisma.warrantyClaim.count();
-    const beforeAcks = await prisma.acknowledgment.count();
-
-    const response = await callAction(claimRequest({ body: baseClaimBody() }));
-
-    expect(response.status).toBe(503);
-    const body = (await response.json()) as { error: string };
-    expect(body.error).toBe("acknowledgment_copy_pending_approval");
-    await expect(prisma.warrantyClaim.count()).resolves.toBe(beforeClaims);
-    await expect(prisma.acknowledgment.count()).resolves.toBe(beforeAcks);
-  });
-
-  it("still refuses when policy versions exist but no label source is configured", async () => {
-    await seedAcknowledgmentPolicies();
-    const response = await callAction(claimRequest({ body: baseClaimBody() }));
-    expect(response.status).toBe(503);
-  });
-
-  it("never calls the Shopify order-lookup port while copy is pending approval", async () => {
-    const port = new RecordingWarrantyClaimOrderLookupPort();
-    __setWarrantyClaimOrderLookupPortForTests(port);
-    await callAction(claimRequest({ body: baseClaimBody() }));
-    expect(port.calls).toHaveLength(0);
   });
 });
 
 describe("criterion 155 — order/line resolution", () => {
   it("refuses a claim whose order/line does not resolve, and creates no claim", async () => {
-    await seedAcknowledgmentPolicies();
-    __setWarrantyAcknowledgmentLabelSourceForTests(FAKE_LABEL_SOURCE);
     __setWarrantyClaimOrderLookupPortForTests(new RecordingWarrantyClaimOrderLookupPort()); // resolves nothing
 
     const before = await prisma.warrantyClaim.count();
@@ -295,8 +234,6 @@ describe("criterion 155 — order/line resolution", () => {
   });
 
   it("refuses when the resolved order belongs to a different logged-in customer", async () => {
-    await seedAcknowledgmentPolicies();
-    __setWarrantyAcknowledgmentLabelSourceForTests(FAKE_LABEL_SOURCE);
     const claimBody = baseClaimBody();
     useResolvableOrderLookup(claimBody.orderRef, claimBody.lineRef, { customerGid: "gid://shopify/Customer/999999" });
 
@@ -307,8 +244,6 @@ describe("criterion 155 — order/line resolution", () => {
   });
 
   it("succeeds when the resolved order's customer matches the logged-in customer", async () => {
-    await seedAcknowledgmentPolicies();
-    __setWarrantyAcknowledgmentLabelSourceForTests(FAKE_LABEL_SOURCE);
     const claimBody = baseClaimBody();
     useResolvableOrderLookup(claimBody.orderRef, claimBody.lineRef, { customerGid: "gid://shopify/Customer/111111" });
 
@@ -321,8 +256,6 @@ describe("criterion 155 — order/line resolution", () => {
 
 describe("criterion 156 — no shipping instruction appears anywhere in the response", () => {
   it("the success response contains only claimId/claimReference/status, with no address- or shipping-like content", async () => {
-    await seedAcknowledgmentPolicies();
-    __setWarrantyAcknowledgmentLabelSourceForTests(FAKE_LABEL_SOURCE);
     const claimBody = baseClaimBody();
     useResolvableOrderLookup(claimBody.orderRef, claimBody.lineRef);
 
@@ -344,10 +277,8 @@ describe("criterion 165 — this route never touches jeweller data", () => {
   });
 });
 
-describe("claim creation — the evidence row", () => {
-  it("records both acknowledgments, distinct evidence rows, referencing the seeded policy versions", async () => {
-    await seedAcknowledgmentPolicies();
-    __setWarrantyAcknowledgmentLabelSourceForTests(FAKE_LABEL_SOURCE);
+describe("criterion 154 — the evidence row: one acknowledgment, the owner-approved text", () => {
+  it("records exactly one acknowledgment, referenced by BOTH FK columns, matching the pinned approved text/label/slug", async () => {
     const claimBody = baseClaimBody();
     useResolvableOrderLookup(claimBody.orderRef, claimBody.lineRef);
 
@@ -357,20 +288,23 @@ describe("claim creation — the evidence row", () => {
 
     const claim = await prisma.warrantyClaim.findUniqueOrThrow({
       where: { id: claimId },
-      include: { accuracyCertificationAcknowledgment: true, coverageNotEstablishedAcknowledgment: true },
+      include: { accuracyCertificationAcknowledgment: { include: { policyVersion: true } }, coverageNotEstablishedAcknowledgment: true },
     });
-    expect(claim.accuracyCertificationAcknowledgmentId).not.toBe(claim.coverageNotEstablishedAcknowledgmentId);
-    expect(claim.accuracyCertificationAcknowledgment.affirmativeActionLabel).toBe("[TEST] Accuracy Label");
-    expect(claim.coverageNotEstablishedAcknowledgment.affirmativeActionLabel).toBe("[TEST] Coverage Label");
-    expect(claim.accuracyCertificationAcknowledgment.policyVersionId).not.toBe(
-      claim.coverageNotEstablishedAcknowledgment.policyVersionId
+
+    // The owner merged the two proposed acknowledgments into one — both FK
+    // columns reference the SAME row.
+    expect(claim.accuracyCertificationAcknowledgmentId).toBe(claim.coverageNotEstablishedAcknowledgmentId);
+    expect(claim.accuracyCertificationAcknowledgment.exactText).toBe(WARRANTY_CLAIM_ACKNOWLEDGMENT_TEXT);
+    expect(claim.accuracyCertificationAcknowledgment.affirmativeActionLabel).toBe(
+      WARRANTY_CLAIM_ACKNOWLEDGMENT_AFFIRMATIVE_ACTION_LABEL
     );
+    expect(claim.accuracyCertificationAcknowledgment.policyVersion.slug).toBe(WARRANTY_CLAIM_ACKNOWLEDGMENT_POLICY_SLUG);
     expect(claim.status).toBe("submitted");
   });
+});
 
+describe("claim creation — the evidence row", () => {
   it("resolves masterVariantId when shopifyVariantId matches a known variant", async () => {
-    await seedAcknowledgmentPolicies();
-    __setWarrantyAcknowledgmentLabelSourceForTests(FAKE_LABEL_SOURCE);
     const variant = await createVariant();
     const claimBody = baseClaimBody({ shopifyVariantId: variant.shopifyVariantGid });
     useResolvableOrderLookup(claimBody.orderRef, claimBody.lineRef);
@@ -383,8 +317,6 @@ describe("claim creation — the evidence row", () => {
   });
 
   it("does NOT refuse the claim when shopifyVariantId matches no known variant (variant resolution never gates criterion 155)", async () => {
-    await seedAcknowledgmentPolicies();
-    __setWarrantyAcknowledgmentLabelSourceForTests(FAKE_LABEL_SOURCE);
     const claimBody = baseClaimBody({ shopifyVariantId: `gid://shopify/ProductVariant/${randomUUID()}` });
     useResolvableOrderLookup(claimBody.orderRef, claimBody.lineRef);
 
@@ -396,8 +328,6 @@ describe("claim creation — the evidence row", () => {
   });
 
   it("does not persist a customer first name field beyond the required purchaserName (PII minimization)", async () => {
-    await seedAcknowledgmentPolicies();
-    __setWarrantyAcknowledgmentLabelSourceForTests(FAKE_LABEL_SOURCE);
     const claimBody = baseClaimBody();
     useResolvableOrderLookup(claimBody.orderRef, claimBody.lineRef);
 
@@ -410,8 +340,6 @@ describe("claim creation — the evidence row", () => {
 
 describe("uploads — attacker-supplied metadata, validated before anything is written", () => {
   it("rejects a disallowed content type with 422 and creates no claim", async () => {
-    await seedAcknowledgmentPolicies();
-    __setWarrantyAcknowledgmentLabelSourceForTests(FAKE_LABEL_SOURCE);
     const claimBody = baseClaimBody({
       uploads: [{ kind: "photo", storageKey: "warranty/x/1.pdf", contentType: "application/pdf", sizeBytes: 1000, checksum: "sha256:abc" }],
     });
@@ -427,8 +355,6 @@ describe("uploads — attacker-supplied metadata, validated before anything is w
   });
 
   it("rejects an oversized upload with 422 and creates no claim", async () => {
-    await seedAcknowledgmentPolicies();
-    __setWarrantyAcknowledgmentLabelSourceForTests(FAKE_LABEL_SOURCE);
     const claimBody = baseClaimBody({
       uploads: [{ kind: "photo", storageKey: "warranty/x/1.jpg", contentType: "image/jpeg", sizeBytes: 1_000_000_000, checksum: "sha256:abc" }],
     });
@@ -436,13 +362,9 @@ describe("uploads — attacker-supplied metadata, validated before anything is w
 
     const response = await callAction(claimRequest({ body: claimBody }));
     expect(response.status).toBe(422);
-    const before = await prisma.warrantyClaim.count();
-    expect(before).toBeGreaterThanOrEqual(0); // sanity — no crash reading count
   });
 
   it("records a well-formed upload against the created claim", async () => {
-    await seedAcknowledgmentPolicies();
-    __setWarrantyAcknowledgmentLabelSourceForTests(FAKE_LABEL_SOURCE);
     const claimBody = baseClaimBody({
       uploads: [{ kind: "photo", storageKey: "warranty/x/1.jpg", contentType: "image/jpeg", sizeBytes: 500_000, checksum: "sha256:abc123" }],
     });

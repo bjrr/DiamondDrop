@@ -150,15 +150,69 @@ window.CaratCartPricing = (function () {
   // fault would bury real faults in noise. It carries its own attribute so a
   // test or a future surface can tell the two apart.
   //
-  // COPY REUSED, NOT INVENTED. `price_unavailable` is the existing approved
-  // string. Its "Please refresh." tail is a poor fit for a terminal state and
-  // has been raised with the owner; introducing a better string here would be
-  // shipping unapproved customer-facing copy, which is worse than a slightly
-  // off one.
-  function setNodeUnpurchasableState(node) {
+  // OWNER-APPROVED COPY, 2026-09-25 — replaces the earlier borrowed
+  // `price_unavailable` string, whose "Please refresh." tail was flagged as a
+  // poor fit for a TERMINAL state (no refresh ever fixes it). Both pieces
+  // pinned character-for-character in `theme/locales/en.default.json`'s
+  // `sections.cart.pricing.item_unavailable_heading` /
+  // `.item_unavailable_supporting_text`.
+  //
+  // ONE SENTENCE PER LINE, NOT PER NODE (architect correction, 2026-09-25,
+  // after looking at the live theme). This function runs independently on
+  // EVERY `data-carat-money` node bound to an unpurchasable line — up to
+  // four per line on the cart page (line-unit, line-card, line-bank,
+  // line-saving) — and an earlier revision gave every one of them the full
+  // heading + sentence, which repeated the same explanation four times in a
+  // row for one item and read as broken rather than informative. The FIX:
+  // `kind` (the node's own `data-carat-money` value, already known by every
+  // caller) decides how much text a given node gets. `line-unit` — the ONE
+  // per-line kind confirmed to appear EXACTLY once per line on both surfaces
+  // (`grep -c 'data-carat-money="line-unit"'` returns 1 in both
+  // sections/main-cart-items.liquid and snippets/cart-drawer.liquid, unlike
+  // e.g. line-total, which is deliberately duplicated across responsive
+  // columns and would have repeated the sentence right back if chosen
+  // instead) — carries heading + supporting sentence, exactly as before.
+  // Every other per-line kind carries the heading ALONE: "Price unavailable"
+  // in the Bank Payment Price slot answers exactly what that field would
+  // have shown; the explanation of what to do about it belongs once, not
+  // beside every figure. Cart-level kinds (cart-subtotal, cart-total,
+  // cart-card-total, cart-bank-total, cart-saving) never reach this function
+  // at all — `resolvedLine.purchasable === false` is a per-LINE flag, so
+  // this call site only ever fires for per-line kinds.
+  //
+  // Heading in a `<strong>` (needs no new CSS — bold is the native UA
+  // default, and every node this runs on is already a bare, unstyled inline
+  // span). No new wrapper element on any node, so this still cannot change
+  // the surrounding cart layout beyond occasional line-wrapping of text that
+  // used to fit on one line.
+  //
+  // NEVER THE NATIVE SHOPIFY PRICE, STILL. This function has never read
+  // `variant.price`/`item.final_line_price`/any other native field and does
+  // not start now — the money-critical rule stays: no CaratForUs price means
+  // no price shown, not someone else's number standing in for ours.
+  //
+  // NO INTERNAL REASON ANYWHERE A CUSTOMER CAN READ IT. Neither string below
+  // names a cause (sync, mapping, calculation, database) — only the ONE
+  // customer-facing fact, that the item cannot currently be bought. The
+  // `data-carat-unpurchasable` attribute this function sets is a bare
+  // boolean flag, same as before; the actual reason, if any is ever logged,
+  // stays server-side/console-only, never written into the DOM.
+  function setNodeUnpurchasableState(node, kind) {
     node.setAttribute('data-carat-unpurchasable', 'true');
-    node.textContent =
-      (window.cartStrings && window.cartStrings.caratPriceUnavailable) || 'Price unavailable. Please refresh.';
+    var strings = window.cartStrings || {};
+    var heading = strings.caratItemUnavailableHeading || 'Price unavailable';
+
+    node.textContent = '';
+    var headingEl = document.createElement('strong');
+    headingEl.textContent = heading;
+    node.appendChild(headingEl);
+
+    if (kind === 'line-unit') {
+      var supportingText =
+        strings.caratItemUnavailableSupportingText ||
+        'This item is not currently available for purchase. Please check back later or contact us for assistance.';
+      node.appendChild(document.createTextNode(' ' + supportingText));
+    }
   }
 
   function findPurchasableLine(dto, lineId) {
@@ -254,6 +308,25 @@ window.CaratCartPricing = (function () {
   // apply()'s own fetch-failure log so the two failure modes (a request that
   // failed vs. a value this file does not know how to display) are
   // distinguishable in the console rather than reading as the same error.
+  //
+  // DELIBERATELY KEEPS THE OLD `price_unavailable` STRING RATHER THAN
+  // ADOPTING setNodeUnpurchasableState's NEW OWNER-APPROVED COPY (2026-09-25
+  // decision, recorded because the task that added the new copy asked
+  // explicitly not to silently make one string serve two meanings). Every
+  // caller of THIS function is a different kind of problem than "the item is
+  // not for sale": an unrecognized data-carat-money value (a theme bug), a
+  // recognized kind whose field is missing from an otherwise-resolved DTO (a
+  // server bug), a non-numeric minor-units value (a server bug), or a failed
+  // apply() request (markPendingNodesAsFailed — often a genuinely TRANSIENT
+  // network/proxy hiccup, unlike setNodeUnpurchasableState's terminal case).
+  // "This item is not currently available for purchase" would be WRONG for
+  // all four — it asserts something about the ITEM when the actual fault is
+  // in this file's own pipeline, and for the transient case specifically,
+  // "Please refresh." is an accurate instruction this function's callers
+  // still deserve, not a poor fit the way it was for the terminal state. No
+  // owner-approved replacement exists for THIS case, so none is invented
+  // here — see `window.cartStrings.caratPriceUnavailable` (theme.liquid)
+  // for the string this still reads, unchanged.
   function setNodeErrorState(node, logMessage) {
     node.setAttribute('data-carat-mode-error', 'true');
     // Not localized — this task owns JS only, and the theme's locale JSON is
@@ -329,7 +402,7 @@ window.CaratCartPricing = (function () {
         // stale or removed line id) genuinely may on the next apply().
         var resolvedLine = lineId ? findLineById(dto, lineId) : null;
         if (resolvedLine && resolvedLine.purchasable === false) {
-          setNodeUnpurchasableState(node);
+          setNodeUnpurchasableState(node, kind);
         }
         return;
       }
