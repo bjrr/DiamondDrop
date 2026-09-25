@@ -871,3 +871,125 @@ export async function getWarrantyClaimForStaffReview(claimId: string): Promise<W
     },
   }) as Promise<WarrantyClaimStaffView | null>;
 }
+
+// ---------------------------------------------------------------------------
+// Staff triage LIST (task 5-4's index route). Named and shaped to mirror
+// `~/domain/bankpayment/verification.server.ts`'s `searchBankPaymentOrders` —
+// a reader of one should recognise the other. Every admin list route in this
+// codebase reads through a named repository function like this one, never
+// raw Prisma in the route (`app.bank-payments._index.tsx`, `alerts.tsx`).
+//
+// A LIST projection, not `getWarrantyClaimForStaffReview`'s full record —
+// deliberately narrower than the detail read. It NEVER reads
+// `warrantyClaimLocalJewellerAuthorization`: not because a staff surface may
+// not see that data (the detail route legitimately does, via
+// `getWarrantyClaimForStaffReview`), but because a triage list has no use
+// for it, and the fewer functions that can reach it, the harder criterion
+// 165 is to breach by accident later. It also excludes remedy money and
+// long free-text fields (coverage reason, inspection notes) that a list row
+// does not need — an explicit `select`, not `include`, same discipline as
+// `getWarrantyClaimForCustomer`.
+// ---------------------------------------------------------------------------
+
+const WARRANTY_CLAIM_STAFF_LIST_DEFAULT_PAGE_SIZE = 25;
+const WARRANTY_CLAIM_STAFF_LIST_MAX_PAGE_SIZE = 100;
+
+export interface SearchWarrantyClaimsForStaffInput {
+  /** Omit for every status. Pass the specific non-terminal statuses (e.g. everything but `resolved`/`closed`) for an "open queue" view — this function has no built-in opinion about which statuses count as "open". */
+  readonly status?: WarrantyClaimStatus | readonly WarrantyClaimStatus[];
+  /** Matched (case-insensitive, substring) against claim reference, order ref, purchaser name and purchaser email; matched exactly against `id` when it looks like a UUID — mirrors `searchBankPaymentOrders`'s id fallback. */
+  readonly query?: string;
+  /** 1-based. Defaults to 1. */
+  readonly page?: number;
+  /** Defaults to 25, capped at 100 regardless of what is requested — "a list route with no bound is a future outage". */
+  readonly pageSize?: number;
+}
+
+export interface WarrantyClaimStaffListRow {
+  readonly id: string;
+  readonly claimReference: string;
+  readonly status: WarrantyClaimStatus;
+  readonly orderRef: string;
+  readonly purchaserName: string;
+  readonly purchaserEmail: string;
+  readonly submittedAt: Date;
+  readonly authorizedAt: Date | null;
+  readonly receivedAt: Date | null;
+  readonly coverageDecision: WarrantyCoverageDecision | null;
+}
+
+export interface SearchWarrantyClaimsForStaffResult {
+  readonly rows: readonly WarrantyClaimStaffListRow[];
+  readonly totalCount: number;
+  readonly page: number;
+  readonly pageSize: number;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isStatusList(
+  status: WarrantyClaimStatus | readonly WarrantyClaimStatus[]
+): status is readonly WarrantyClaimStatus[] {
+  return Array.isArray(status);
+}
+
+const STAFF_LIST_SELECT = {
+  id: true,
+  claimReference: true,
+  status: true,
+  orderRef: true,
+  purchaserName: true,
+  purchaserEmail: true,
+  submittedAt: true,
+  authorizedAt: true,
+  receivedAt: true,
+  coverageDecision: true,
+} satisfies Prisma.WarrantyClaimSelect;
+
+/**
+ * Ordered OLDEST-SUBMITTED-FIRST, always, regardless of filter — a triage
+ * queue's natural order is FIFO: the claim that has been waiting longest for
+ * a staff action surfaces first. `id` is a stable tiebreak so a page's
+ * contents do not reshuffle between requests when two claims share a
+ * `submittedAt` timestamp (same idiom as `searchBankPaymentOrders`'s single
+ * `orderBy`, extended with a tiebreak because this list is paginated and
+ * that one is not).
+ */
+export async function searchWarrantyClaimsForStaff(
+  input: SearchWarrantyClaimsForStaffInput = {}
+): Promise<SearchWarrantyClaimsForStaffResult> {
+  const page = Math.max(1, input.page ?? 1);
+  const pageSize = Math.min(WARRANTY_CLAIM_STAFF_LIST_MAX_PAGE_SIZE, Math.max(1, input.pageSize ?? WARRANTY_CLAIM_STAFF_LIST_DEFAULT_PAGE_SIZE));
+
+  const where: Prisma.WarrantyClaimWhereInput = {};
+  if (input.status !== undefined) {
+    where.status = isStatusList(input.status) ? { in: [...input.status] } : { equals: input.status };
+  }
+
+  const trimmedQuery = input.query?.trim();
+  if (trimmedQuery) {
+    const orConditions: Prisma.WarrantyClaimWhereInput[] = [
+      { claimReference: { contains: trimmedQuery, mode: "insensitive" } },
+      { orderRef: { contains: trimmedQuery, mode: "insensitive" } },
+      { purchaserName: { contains: trimmedQuery, mode: "insensitive" } },
+      { purchaserEmail: { contains: trimmedQuery, mode: "insensitive" } },
+    ];
+    if (UUID_PATTERN.test(trimmedQuery)) {
+      orConditions.push({ id: trimmedQuery });
+    }
+    where.OR = orConditions;
+  }
+
+  const [rows, totalCount] = await Promise.all([
+    prisma.warrantyClaim.findMany({
+      where,
+      select: STAFF_LIST_SELECT,
+      orderBy: [{ submittedAt: "asc" }, { id: "asc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.warrantyClaim.count({ where }),
+  ]);
+
+  return { rows, totalCount, page, pageSize };
+}

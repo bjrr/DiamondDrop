@@ -93,6 +93,16 @@ const EXEMPT_UI_ACTION_ROUTES: Readonly<Record<string, string>> = {
     "Origin and is same-origin by construction, unlike an App Proxy, webhook or " +
     "cron caller. If this route ever accepts a POST from anywhere but its own " +
     "rendered form, this exemption stops being true and must be re-argued.",
+  "app.warranty-claims.$id.tsx":
+    "the staff warranty claim review/workflow surface (Slice 5 task 5-4). Same " +
+    "argument as app.bank-payments.$id.tsx and app.luxury-steals._index.tsx: this " +
+    "route IS a real production mutation (authorises inspection, records receipt, " +
+    "decides coverage, records the remedy, and records internal local-jeweller " +
+    "authorisation), and stands on the same load-bearing leg alone — Shopify Admin " +
+    "iframes this route at the app's own URL, so a form inside it posts with the " +
+    "app's own Origin and is same-origin by construction, unlike an App Proxy, " +
+    "webhook or cron caller. If this route ever accepts a POST from anywhere but " +
+    "its own rendered form, this exemption stops being true and must be re-argued.",
 };
 
 function routeFiles(): string[] {

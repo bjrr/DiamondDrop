@@ -143,7 +143,26 @@ describe("criterion 29 — the pricing slice never reaches the Shopify Admin API
     await expect(
       new UnimplementedPriceSyncPort().applyVariantPrice()
     ).rejects.toBeInstanceOf(PriceSyncNotImplementedError);
-  });
+    // TIMEOUT RAISED FROM THE 5s DEFAULT, 2026-09-25 — for module loading,
+    // not for the assertion.
+    //
+    // This test flaked three times in one day on a machine running several
+    // agents concurrently. Every time it was a 5000ms timeout rather than a
+    // failed assertion, and every time it passed in isolation. The reason is
+    // visible in the runs' own numbers: one reported collect 1321s and
+    // prepare 879s against tests 17.6s. Nearly all the wall-clock goes on
+    // Vitest resolving and preparing modules under CPU starvation, and this
+    // test's first act is a dynamic import() of the ports module — so it pays
+    // that cost INSIDE its own timeout, which a test importing at the top of
+    // the file never does.
+    //
+    // Raising the ceiling does not weaken the check. The assertion is a
+    // rejects-instanceof on an immediate throw, so a genuine regression still
+    // fails fast and is unaffected. What the old value actually measured was
+    // how loaded the machine was — and a suite that reports load as a product
+    // defect teaches people to re-run red builds until they go green, which
+    // is how a real failure eventually gets waved through.
+  }, 30_000);
 });
 
 describe("criterion 35 — engine.ts performs no arithmetic of its own", () => {
