@@ -1,0 +1,194 @@
+/**
+ * Component-scoped styling for the Warranty Claim Form (Slice 5 task 5-5).
+ * No global selectors, no `:root` tokens defined here -- every custom
+ * property consumed below (--color-foreground, --color-background,
+ * --inputs-border-width, etc.) is a token already defined globally by the
+ * theme. Field/error/status markup reuses EXISTING Dawn classes
+ * (.field/.field__input/.field__label/.form-status/.form__message) rather
+ * than reinventing them -- see the section file's own comment for the
+ * precedent this follows.
+ *
+ * CONTRAST -- read before changing any colour here. This form carries
+ * material policy text (the "don't send it yet" notice, the warranty
+ * acknowledgment). Per the architect's ruling on the cart's price-
+ * unavailable copy (2026-09-25): de-emphasis for such text is expressed
+ * with size/weight/spacing/borders only, NEVER with reduced colour
+ * contrast. Every rule below that touches policy-carrying text -- the
+ * notice, the acknowledgment, field/summary error text -- uses
+ * `rgb(var(--color-foreground))` at full alpha, identical to ordinary body
+ * text. The ONE place this file uses a sub-1 alpha
+ * (`.carat-warranty-claim__field-help`) is genuinely routine field-level
+ * HELP text (e.g. "where do I find this"), not a policy or material term,
+ * and matches Dawn's own already-shipped `.field__label` treatment
+ * (`rgba(var(--color-foreground), 0.75)`, defined in base.css) rather than
+ * inventing a new dimmed tier -- see that rule's own comment below for why
+ * this one is the deliberate exception.
+ */
+
+.carat-warranty-claim {
+  max-width: 70rem;
+}
+
+.carat-warranty-claim__intro {
+  color: rgb(var(--color-foreground));
+  line-height: 1.6;
+  margin: 0 0 2rem;
+}
+
+.carat-warranty-claim__notice {
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  border-radius: var(--badge-corner-radius, 0);
+  padding: 1.5rem;
+  margin: 0 0 2.5rem;
+}
+
+.carat-warranty-claim__notice-heading {
+  font-weight: 700;
+  color: rgb(var(--color-foreground));
+  margin: 0 0 0.5rem;
+}
+
+.carat-warranty-claim__notice-body {
+  color: rgb(var(--color-foreground));
+  line-height: 1.5;
+  margin: 0;
+}
+
+.carat-warranty-claim__error-summary,
+.carat-warranty-claim__confirmation {
+  margin-bottom: 2rem;
+}
+
+.carat-warranty-claim__confirmation {
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  border-radius: var(--badge-corner-radius, 0);
+  padding: 1.5rem;
+}
+
+.carat-warranty-claim__field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.carat-warranty-claim__field-row > .field {
+  flex: 1 1 20rem;
+  margin-bottom: 0;
+}
+
+.carat-warranty-claim__field-row--three > .field {
+  flex-basis: 16rem;
+}
+
+form[data-carat-warranty-form] > .field,
+form[data-carat-warranty-form] > .carat-warranty-claim__fieldset,
+form[data-carat-warranty-form] > .carat-warranty-claim__acknowledgment,
+form[data-carat-warranty-form] > .carat-warranty-claim__uploads-note {
+  margin-bottom: 2rem;
+}
+
+/**
+ * Routine field-level HELP text (e.g. "where to find your Order ID"), not
+ * material/policy content -- deliberately matches Dawn's own already-
+ * shipped `.field__label` colour (base.css, `rgba(foreground, 0.75)`)
+ * rather than full contrast, on the reasoning that this is the same
+ * category of UI text Dawn itself already renders that way, not a new
+ * dimmed tier invented for this form.
+ */
+.carat-warranty-claim__field-help {
+  display: block;
+  font-size: 1.2rem;
+  color: rgba(var(--color-foreground), 0.75);
+  margin-top: 0.4rem;
+}
+
+.carat-warranty-claim__field-error {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  margin-top: 0.5rem;
+}
+
+.field__label--static {
+  position: static;
+  display: block;
+  pointer-events: auto;
+  font-size: 1.4rem;
+  color: rgb(var(--color-foreground));
+  letter-spacing: normal;
+  margin-bottom: 0.5rem;
+}
+
+.carat-warranty-claim__uploads-note {
+  color: rgb(var(--color-foreground));
+  font-size: 1.3rem;
+  line-height: 1.5;
+}
+
+.carat-warranty-claim__fieldset {
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  border-radius: var(--badge-corner-radius, 0);
+  padding: 1.5rem;
+  margin: 0;
+}
+
+.carat-warranty-claim__legend {
+  font-weight: 600;
+  color: rgb(var(--color-foreground));
+  padding: 0 0.5rem;
+}
+
+.carat-warranty-claim__radio-group {
+  display: flex;
+  gap: 2rem;
+  margin: 1rem 0;
+}
+
+.carat-warranty-claim__radio {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: rgb(var(--color-foreground));
+  cursor: pointer;
+}
+
+.carat-warranty-claim__acknowledgment {
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  border-radius: var(--badge-corner-radius, 0);
+  padding: 1.5rem;
+}
+
+.carat-warranty-claim__acknowledgment-text {
+  color: rgb(var(--color-foreground));
+  line-height: 1.5;
+  margin: 0 0 1.5rem;
+}
+
+.carat-warranty-claim__control {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+}
+
+.carat-warranty-claim__checkbox {
+  flex-shrink: 0;
+  width: 1.8rem;
+  height: 1.8rem;
+  margin-top: 0.2rem;
+}
+
+.carat-warranty-claim__checkbox-label {
+  font-weight: 600;
+  color: rgb(var(--color-foreground));
+  cursor: pointer;
+}
+
+.carat-warranty-claim__actions {
+  margin-top: 2.5rem;
+}
+
+.carat-warranty-claim__status {
+  margin-top: 1rem;
+}

@@ -1,0 +1,552 @@
+{% comment %}
+  Renders the storefront Warranty Claim Form (Slice 5 task 5-5,
+  docs/WARRANTY-CLAIMS.md, docs/specs/SLICE-5-WARRANTY-CLAIMS.md criteria
+  153-156). POSTs to `POST /apps/carat/warranty-claim`
+  (app/app/routes/apps.carat.warranty-claim.tsx) via
+  `assets/warranty-claim-form.js` -- a plain `<form>`, NOT Shopify's native
+  `{% form %}` tag, because there is no native Shopify form type for a
+  custom App Proxy submission (same reasoning as
+  `snippets/bank-payment-checkout-dialog.liquid`, whose field/error markup
+  conventions this file follows closely: `.field`/`.field__input`/
+  `.field__label`/`.field--with-error` and `.form-status`/`.form__message`
+  are all EXISTING Dawn classes reused here, not reinvented).
+
+  COPY STATUS -- read before editing any string in this file or its locale
+  keys. Only TWO strings are owner-approved and evidence-pinned: the
+  acknowledgment text and its affirmative-action label
+  (`templates.warranty_claim.form.acknowledgment_text` /
+  `.acknowledgment_affirm_label`, imported byte-for-byte from
+  `app/app/domain/warranty/acknowledgmentText.ts`'s
+  `WARRANTY_CLAIM_ACKNOWLEDGMENT_TEXT` /
+  `_AFFIRMATIVE_ACTION_LABEL`, proven identical by
+  `app/app/domain/warranty/acknowledgmentThemeLocale.test.ts`). EVERY OTHER
+  string in this file's locale keys -- the intro, the notice, every field
+  label, every error and the confirmation copy -- is DRAFT, not yet through
+  an owner-approval pass (spec §11 owner item 2 names exactly this form's
+  copy as needing approval before shipping is complete; see this task's
+  handoff for the full explanation). Drafted as closely as possible from
+  ALREADY-LOCKED language in `docs/WARRANTY-CLAIMS.md` §1/§3/§9 rather than
+  invented from scratch, and shipped functional per the architect's
+  instruction rather than blocked on that approval -- matching the SAME
+  precedent already in this theme: `snippets/bank-payment-checkout-
+  dialog.liquid`'s own header comment marks its
+  `bank_payment_checkout_form.*` keys "DRAFT pending owner approval" too.
+
+  CRITERION 156 -- THE ONE THIS FILE IS MOST CAREFUL ABOUT. No address, no
+  "send it to us", no shipping instruction anywhere in this file, its locale
+  keys, or its JS -- not in the intro, not in the notice, not in the
+  confirmation. `WARRANTY-CLAIMS.md` §3 requires CaratForUs to authorize
+  inspection first, and criterion 156 is explicit that the system NEVER
+  issues shipping instructions before that authorization -- not in this
+  form, not in a status page, not in an email, and this form is none of
+  those places. The confirmation view (post-submit) states plainly that
+  the customer will be contacted before authorization, not to send the
+  item, and gives no address, no timeframe, and no local-jeweller mention
+  (criterion 165 -- see below).
+
+  NO LOCAL JEWELLER, ANYWHERE (criterion 165). Not drafted, not mentioned,
+  not a form option. That path is internal-only until CaratForUs authorizes
+  it for one specific resolved claim (`WARRANTY-CLAIMS.md` §7).
+
+  NO TURNAROUND TIME, NO REMEDY IMPLICATION (§12/P1/P2). No "shortly", no
+  "as soon as possible", no promise of repair over replacement/refund
+  anywhere in this file's copy.
+
+  UPLOADS -- OMITTED, NOT FAKED. `docs/specs/SLICE-5-WARRANTY-CLAIMS.md` §5:
+  the R2 bucket does not exist and all four `STORAGE_*` env vars are empty
+  in every environment. Building a file-input control here would either do
+  nothing when clicked or silently drop whatever the customer selected --
+  both worse than not offering it. This form has NO upload control at all;
+  `templates.warranty_claim.form.uploads_note` tells the customer plainly
+  (with no internal-infrastructure reason attached -- "isn't available in
+  this form yet", never "our storage bucket isn't provisioned") that photos/
+  video aren't collected here yet, and invites them to mention that fact in
+  the problem description instead. `shopifyVariantId` is similarly not
+  collected as an explicit visible field -- see the JS file's own comment on
+  why it is a best-effort, query-string-only convenience rather than
+  something asked of the customer directly.
+
+  ORDER ID / LINE ITEM ID -- A REAL, FLAGGED UX GAP, NOT SILENTLY ACCEPTED.
+  The intake route's contract (`apps.carat.warranty-claim.tsx`) resolves
+  `orderRef`/`lineRef` against Shopify's numeric Order/LineItem ids -- NOT
+  the customer-facing order number ("#1001") -- and this task's scope is
+  theme-only, so that contract cannot change here. A typical customer does
+  not know these numeric ids offhand. This form supports pre-filling them
+  from `?order_id=`/`?line_item_id=`/`?variant_id=` query-string parameters
+  (for a future deep link from an order-confirmation email or account page,
+  which does not exist yet and is out of this task's scope to build) and
+  falls back to plain, honest, VISIBLE required fields with help text
+  pointing the customer to contact support if unsure -- never a claim that
+  the ids are somewhere they might not actually be. Flagged explicitly in
+  the task handoff as worth a product/architecture look, not fixed
+  unilaterally here.
+
+  Accepts (schema settings): heading (optional override).
+{% endcomment %}
+{{ 'component-warranty-claim-form.css' | asset_url | stylesheet_tag }}
+
+{%- style -%}
+  .section-{{ section.id }}-padding {
+    padding-top: {{ section.settings.padding_top | times: 0.75 | round: 0 }}px;
+    padding-bottom: {{ section.settings.padding_bottom | times: 0.75 | round: 0 }}px;
+  }
+
+  @media screen and (min-width: 750px) {
+    .section-{{ section.id }}-padding {
+      padding-top: {{ section.settings.padding_top }}px;
+      padding-bottom: {{ section.settings.padding_bottom }}px;
+    }
+  }
+{%- endstyle -%}
+
+<div class="color-{{ section.settings.color_scheme }} gradient">
+  <div class="page-width page-width--narrow section-{{ section.id }}-padding carat-warranty-claim">
+    {%- if section.settings.heading != blank -%}
+      <h2 class="title title-wrapper--no-top-margin {{ section.settings.heading_size }}">
+        {{ section.settings.heading }}
+      </h2>
+    {%- else -%}
+      {%- comment -%}
+        Visually hidden when unset, matching contact-form.liquid's own
+        treatment -- `sections/main-page.liquid` (rendered first in
+        templates/page.warranty-claim.json) already shows the Shopify page's
+        own title as an <h1>; a second VISIBLE heading here would duplicate
+        it for a merchant who titled that page "Warranty Claim".
+      {%- endcomment -%}
+      <h2 class="visually-hidden">{{ 'templates.warranty_claim.form.heading' | t }}</h2>
+    {%- endif -%}
+
+    <p class="carat-warranty-claim__intro">
+      {{- 'templates.warranty_claim.form.intro' | t -}}
+    </p>
+
+    {%- comment -%}
+      Criterion 156 -- always visible, ahead of every field, never behind a
+      toggle. Not a warning about a fault; a plain statement of process.
+    {%- endcomment -%}
+    <div class="carat-warranty-claim__notice" role="note">
+      <p class="carat-warranty-claim__notice-heading">
+        {{- 'templates.warranty_claim.form.notice_heading' | t -}}
+      </p>
+      <p class="carat-warranty-claim__notice-body">
+        {{- 'templates.warranty_claim.form.notice_body' | t -}}
+      </p>
+    </div>
+
+    <div
+      id="WarrantyClaimErrorSummary"
+      class="carat-warranty-claim__error-summary form-status-list"
+      role="alert"
+      tabindex="-1"
+      hidden
+      data-carat-warranty-error-summary
+    ></div>
+
+    <div
+      id="WarrantyClaimConfirmation"
+      class="carat-warranty-claim__confirmation"
+      role="status"
+      tabindex="-1"
+      hidden
+      data-carat-warranty-confirmation
+    ></div>
+
+    <form id="WarrantyClaimForm" novalidate data-carat-warranty-form>
+      <div class="carat-warranty-claim__field-row">
+        <div class="field field--with-error">
+          <input
+            type="text"
+            id="WarrantyClaimOrderId"
+            name="order_id"
+            class="field__input"
+            required
+            aria-describedby="WarrantyClaimOrderId-help WarrantyClaimOrderId-error"
+          >
+          <label class="field__label" for="WarrantyClaimOrderId">
+            {{- 'templates.warranty_claim.form.order_id_label' | t }}
+            <span aria-hidden="true">*</span></label
+          >
+          <small id="WarrantyClaimOrderId-help" class="carat-warranty-claim__field-help">
+            {{- 'templates.warranty_claim.form.order_id_help' | t -}}
+          </small>
+          <small
+            id="WarrantyClaimOrderId-error"
+            class="carat-warranty-claim__field-error form__message"
+            hidden
+            data-carat-warranty-field-error
+          >
+            <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+            <span data-carat-warranty-field-error-text></span>
+          </small>
+        </div>
+        <div class="field field--with-error">
+          <input
+            type="text"
+            id="WarrantyClaimLineItemId"
+            name="line_item_id"
+            class="field__input"
+            required
+            aria-describedby="WarrantyClaimLineItemId-help WarrantyClaimLineItemId-error"
+          >
+          <label class="field__label" for="WarrantyClaimLineItemId">
+            {{- 'templates.warranty_claim.form.line_item_id_label' | t }}
+            <span aria-hidden="true">*</span></label
+          >
+          <small id="WarrantyClaimLineItemId-help" class="carat-warranty-claim__field-help">
+            {{- 'templates.warranty_claim.form.line_item_id_help' | t -}}
+          </small>
+          <small
+            id="WarrantyClaimLineItemId-error"
+            class="carat-warranty-claim__field-error form__message"
+            hidden
+            data-carat-warranty-field-error
+          >
+            <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+            <span data-carat-warranty-field-error-text></span>
+          </small>
+        </div>
+      </div>
+
+      {%- comment -%}
+        Best-effort convenience only, never asked of the customer directly --
+        see this section's own header comment and the JS file's comment on
+        `variant_id`. Populated from `?variant_id=` when present; otherwise
+        left blank and simply omitted from the submitted request.
+      {%- endcomment -%}
+      <input type="hidden" id="WarrantyClaimVariantId" name="variant_id" value="">
+
+      <div class="field field--with-error">
+        <input
+          type="text"
+          id="WarrantyClaimPurchaserName"
+          name="purchaser_name"
+          class="field__input"
+          autocomplete="name"
+          required
+          value="{{ customer.name | escape }}"
+          aria-describedby="WarrantyClaimPurchaserName-error"
+        >
+        <label class="field__label" for="WarrantyClaimPurchaserName">
+          {{- 'templates.warranty_claim.form.purchaser_name_label' | t }}
+          <span aria-hidden="true">*</span></label
+        >
+        <small
+          id="WarrantyClaimPurchaserName-error"
+          class="carat-warranty-claim__field-error form__message"
+          hidden
+          data-carat-warranty-field-error
+        >
+          <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+          <span data-carat-warranty-field-error-text></span>
+        </small>
+      </div>
+
+      <div class="field field--with-error">
+        <input
+          type="email"
+          id="WarrantyClaimPurchaserEmail"
+          name="purchaser_email"
+          class="field__input"
+          autocomplete="email"
+          spellcheck="false"
+          autocapitalize="off"
+          required
+          value="{{ customer.email | escape }}"
+          aria-describedby="WarrantyClaimPurchaserEmail-error"
+        >
+        <label class="field__label" for="WarrantyClaimPurchaserEmail">
+          {{- 'templates.warranty_claim.form.purchaser_email_label' | t }}
+          <span aria-hidden="true">*</span></label
+        >
+        <small
+          id="WarrantyClaimPurchaserEmail-error"
+          class="carat-warranty-claim__field-error form__message"
+          hidden
+          data-carat-warranty-field-error
+        >
+          <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+          <span data-carat-warranty-field-error-text></span>
+        </small>
+      </div>
+
+      <div class="field field--with-error">
+        <textarea
+          id="WarrantyClaimItemConfiguration"
+          name="item_configuration"
+          class="text-area field__input"
+          rows="3"
+          required
+          placeholder="{{ 'templates.warranty_claim.form.item_configuration_placeholder' | t }}"
+          aria-describedby="WarrantyClaimItemConfiguration-error"
+        ></textarea>
+        <label class="form__label field__label" for="WarrantyClaimItemConfiguration">
+          {{- 'templates.warranty_claim.form.item_configuration_label' | t }}
+          <span aria-hidden="true">*</span></label
+        >
+        <small
+          id="WarrantyClaimItemConfiguration-error"
+          class="carat-warranty-claim__field-error form__message"
+          hidden
+          data-carat-warranty-field-error
+        >
+          <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+          <span data-carat-warranty-field-error-text></span>
+        </small>
+      </div>
+
+      <div class="carat-warranty-claim__field-row carat-warranty-claim__field-row--three">
+        <div class="field">
+          <label class="field__label field__label--static" for="WarrantyClaimPurchaseDate">
+            {{- 'templates.warranty_claim.form.purchase_date_label' | t -}}
+          </label>
+          <input type="date" id="WarrantyClaimPurchaseDate" name="purchase_date" class="field__input">
+        </div>
+        <div class="field">
+          <label class="field__label field__label--static" for="WarrantyClaimDeliveryDate">
+            {{- 'templates.warranty_claim.form.delivery_date_label' | t -}}
+          </label>
+          <input type="date" id="WarrantyClaimDeliveryDate" name="delivery_date" class="field__input">
+        </div>
+        <div class="field">
+          <label class="field__label field__label--static" for="WarrantyClaimIssueNoticedDate">
+            {{- 'templates.warranty_claim.form.issue_first_noticed_date_label' | t -}}
+          </label>
+          <input type="date" id="WarrantyClaimIssueNoticedDate" name="issue_first_noticed_date" class="field__input">
+        </div>
+      </div>
+
+      <div class="field field--with-error">
+        <textarea
+          id="WarrantyClaimProblemDescription"
+          name="problem_description"
+          class="text-area field__input"
+          rows="6"
+          required
+          aria-describedby="WarrantyClaimProblemDescription-error"
+        ></textarea>
+        <label class="form__label field__label" for="WarrantyClaimProblemDescription">
+          {{- 'templates.warranty_claim.form.problem_description_label' | t }}
+          <span aria-hidden="true">*</span></label
+        >
+        <small
+          id="WarrantyClaimProblemDescription-error"
+          class="carat-warranty-claim__field-error form__message"
+          hidden
+          data-carat-warranty-field-error
+        >
+          <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+          <span data-carat-warranty-field-error-text></span>
+        </small>
+      </div>
+
+      <p class="carat-warranty-claim__uploads-note">
+        {{- 'templates.warranty_claim.form.uploads_note' | t -}}
+      </p>
+
+      <fieldset class="carat-warranty-claim__fieldset">
+        <legend class="carat-warranty-claim__legend">
+          {{- 'templates.warranty_claim.form.impact_question_label' | t }}
+          <span aria-hidden="true">*</span>
+        </legend>
+        <div class="carat-warranty-claim__radio-group">
+          <label class="carat-warranty-claim__radio">
+            <input type="radio" name="had_impact_or_damage_event" value="yes" required data-carat-warranty-impact-radio>
+            {{- 'templates.warranty_claim.form.impact_yes' | t -}}
+          </label>
+          <label class="carat-warranty-claim__radio">
+            <input type="radio" name="had_impact_or_damage_event" value="no" required data-carat-warranty-impact-radio>
+            {{- 'templates.warranty_claim.form.impact_no' | t -}}
+          </label>
+        </div>
+        <div class="field field--with-error" id="WarrantyClaimImpactDetailsWrapper" hidden data-carat-warranty-impact-details-wrapper>
+          <textarea
+            id="WarrantyClaimImpactDetails"
+            name="impact_or_damage_details"
+            class="text-area field__input"
+            rows="3"
+            aria-describedby="WarrantyClaimImpactDetails-error"
+          ></textarea>
+          <label class="form__label field__label" for="WarrantyClaimImpactDetails">
+            {{- 'templates.warranty_claim.form.impact_details_label' | t -}}
+          </label>
+          <small
+            id="WarrantyClaimImpactDetails-error"
+            class="carat-warranty-claim__field-error form__message"
+            hidden
+            data-carat-warranty-field-error
+          >
+            <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+            <span data-carat-warranty-field-error-text></span>
+          </small>
+        </div>
+      </fieldset>
+
+      <fieldset class="carat-warranty-claim__fieldset">
+        <legend class="carat-warranty-claim__legend">
+          {{- 'templates.warranty_claim.form.altered_question_label' | t }}
+          <span aria-hidden="true">*</span>
+        </legend>
+        <div class="carat-warranty-claim__radio-group">
+          <label class="carat-warranty-claim__radio">
+            <input type="radio" name="was_altered_after_delivery" value="yes" required data-carat-warranty-altered-radio>
+            {{- 'templates.warranty_claim.form.altered_yes' | t -}}
+          </label>
+          <label class="carat-warranty-claim__radio">
+            <input type="radio" name="was_altered_after_delivery" value="no" required data-carat-warranty-altered-radio>
+            {{- 'templates.warranty_claim.form.altered_no' | t -}}
+          </label>
+        </div>
+        <div class="field field--with-error" id="WarrantyClaimAlterationDetailsWrapper" hidden data-carat-warranty-alteration-details-wrapper>
+          <textarea
+            id="WarrantyClaimAlterationDetails"
+            name="alteration_details"
+            class="text-area field__input"
+            rows="3"
+            aria-describedby="WarrantyClaimAlterationDetails-error"
+          ></textarea>
+          <label class="form__label field__label" for="WarrantyClaimAlterationDetails">
+            {{- 'templates.warranty_claim.form.altered_details_label' | t -}}
+          </label>
+          <small
+            id="WarrantyClaimAlterationDetails-error"
+            class="carat-warranty-claim__field-error form__message"
+            hidden
+            data-carat-warranty-field-error
+          >
+            <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+            <span data-carat-warranty-field-error-text></span>
+          </small>
+        </div>
+      </fieldset>
+
+      <div class="field">
+        <input
+          type="text"
+          id="WarrantyClaimCertificate"
+          name="certificate_or_serial"
+          class="field__input"
+          placeholder="{{ 'templates.warranty_claim.form.certificate_label' | t }}"
+        >
+        <label class="field__label" for="WarrantyClaimCertificate">
+          {{- 'templates.warranty_claim.form.certificate_label' | t -}}
+        </label>
+      </div>
+
+      {%- comment -%}
+        The ONE owner-approved, evidence-pinned string this form renders --
+        see this file's header comment. Never pre-checked (criterion 154 /
+        WARRANTY-CLAIMS.md §2's "acknowledgment... does not itself establish
+        warranty coverage").
+      {%- endcomment -%}
+      <div class="carat-warranty-claim__acknowledgment">
+        <p id="WarrantyClaimAcknowledgmentText" class="carat-warranty-claim__acknowledgment-text">
+          {{- 'templates.warranty_claim.form.acknowledgment_text' | t -}}
+        </p>
+        <div class="carat-warranty-claim__control">
+          <input
+            type="checkbox"
+            id="WarrantyClaimAcknowledgment"
+            name="acknowledgment"
+            class="carat-warranty-claim__checkbox"
+            required
+            aria-describedby="WarrantyClaimAcknowledgmentText WarrantyClaimAcknowledgment-error"
+            data-carat-warranty-acknowledgment
+          >
+          <label for="WarrantyClaimAcknowledgment" class="carat-warranty-claim__checkbox-label">
+            {{- 'templates.warranty_claim.form.acknowledgment_affirm_label' | t -}}
+          </label>
+        </div>
+        <small
+          id="WarrantyClaimAcknowledgment-error"
+          class="carat-warranty-claim__field-error form__message"
+          hidden
+          data-carat-warranty-field-error
+        >
+          <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+          <span data-carat-warranty-field-error-text></span>
+        </small>
+      </div>
+
+      <div class="carat-warranty-claim__actions">
+        <button type="submit" class="button" data-carat-warranty-submit>
+          {{- 'templates.warranty_claim.form.submit' | t -}}
+        </button>
+      </div>
+
+      <p
+        id="WarrantyClaimStatus"
+        class="carat-warranty-claim__status form-status"
+        role="status"
+        aria-live="polite"
+        hidden
+        data-carat-warranty-status
+      ></p>
+    </form>
+  </div>
+</div>
+
+<script src="{{ 'warranty-claim-form.js' | asset_url }}" defer="defer"></script>
+
+{% schema %}
+{
+  "name": "Warranty claim form",
+  "tag": "section",
+  "class": "section",
+  "disabled_on": {
+    "groups": ["header", "footer"]
+  },
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading"
+    },
+    {
+      "type": "select",
+      "id": "heading_size",
+      "options": [
+        { "value": "h2", "label": "Small" },
+        { "value": "h1", "label": "Medium" },
+        { "value": "h0", "label": "Large" }
+      ],
+      "default": "h1",
+      "label": "Heading size"
+    },
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "Color scheme",
+      "default": "scheme-1"
+    },
+    {
+      "type": "header",
+      "content": "Section padding"
+    },
+    {
+      "type": "range",
+      "id": "padding_top",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "Top padding",
+      "default": 36
+    },
+    {
+      "type": "range",
+      "id": "padding_bottom",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "Bottom padding",
+      "default": 36
+    }
+  ],
+  "presets": [
+    {
+      "name": "Warranty claim form"
+    }
+  ]
+}
+{% endschema %}

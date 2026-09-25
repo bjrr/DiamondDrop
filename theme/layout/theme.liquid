@@ -389,6 +389,31 @@
         },
       };
 
+      // Slice 5 task 5-5 -- see sections/warranty-claim-form.liquid's own
+      // header comment for which of these strings are owner-approved
+      // (acknowledgment_text/acknowledgment_affirm_label are rendered
+      // directly in that section's markup, not through this object at all,
+      // precisely because they are pinned/tested separately) versus draft
+      // copy shipped functional pending approval.
+      window.warrantyClaimStrings = {
+        error_summary_heading: `{{ 'templates.warranty_claim.form.error_summary_heading' | t }}`,
+        submitting: `{{ 'templates.warranty_claim.form.submitting' | t }}`,
+        success_heading: `{{ 'templates.warranty_claim.form.success_heading' | t }}`,
+        success_body_html: `{{ 'templates.warranty_claim.form.success_body_html' | t }}`,
+        error_order_id_required: `{{ 'templates.warranty_claim.form.error_order_id_required' | t }}`,
+        error_line_item_id_required: `{{ 'templates.warranty_claim.form.error_line_item_id_required' | t }}`,
+        error_purchaser_name_required: `{{ 'templates.warranty_claim.form.error_purchaser_name_required' | t }}`,
+        error_purchaser_email_required: `{{ 'templates.warranty_claim.form.error_purchaser_email_required' | t }}`,
+        error_item_configuration_required: `{{ 'templates.warranty_claim.form.error_item_configuration_required' | t }}`,
+        error_problem_description_required: `{{ 'templates.warranty_claim.form.error_problem_description_required' | t }}`,
+        error_impact_details_required: `{{ 'templates.warranty_claim.form.error_impact_details_required' | t }}`,
+        error_alteration_details_required: `{{ 'templates.warranty_claim.form.error_alteration_details_required' | t }}`,
+        error_acknowledgment_required: `{{ 'templates.warranty_claim.form.error_acknowledgment_required' | t }}`,
+        error_order_not_found: `{{ 'templates.warranty_claim.form.error_order_not_found' | t }}`,
+        error_service_unavailable: `{{ 'templates.warranty_claim.form.error_service_unavailable' | t }}`,
+        error_network: `{{ 'templates.warranty_claim.form.error_network' | t }}`,
+      };
+
       window.variantStrings = {
         addToCart: `{{ 'products.product.add_to_cart' | t }}`,
         soldOut: `{{ 'products.product.sold_out' | t }}`,
