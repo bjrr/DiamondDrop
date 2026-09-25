@@ -471,6 +471,80 @@ must render quantity only from real inventory.
 No unresolved architectural question. Implementation may begin on tasks 3-1 and
 3-2, which touch no customer-facing copy, while the copy is approved.
 
+## 13A. Browser gate — results, 2026-09-25
+
+Run against `caratforus-dev` with the storefront password ON, on unpublished
+theme 182985687341. The live theme was never touched.
+
+### The blocker it found first: the App Proxy was never wired up
+
+Every storefront call to `/apps/carat/*` returned a hard 404 — not a redirect,
+not our app's 404. Fly's logs showed the requests never arrived at all.
+
+**Root cause, found by the owner in Shopify Admin: the store-level App Proxy
+subpath was `carat-1`, not `carat`.** Shopify appends `-1` on a subpath
+collision, silently. Nothing on our side could have revealed it: the app's own
+deployed configuration — pulled back from Shopify and diffed — correctly reads
+`subpath = "carat"`, because that is the *app's* declaration, while the
+*store's installed* proxy carried the suffixed value. The two disagreed and
+only the Admin UI showed it.
+
+This had been listed as an unproven path since the deployment and was never a
+Slice 3 defect. **It also means Slice 2's cart pricing had never worked on the
+storefront**, which is the larger finding.
+
+After the owner corrected the subpath, a proxied request appears in Fly's log
+carrying `shop`, `path_prefix`, `timestamp` and `signature` — parameters only
+Shopify's proxy adds, verified by our own signature check before responding
+201. That is proof of genuine forwarding, not of reachability.
+
+### Slice 3 — all checks pass
+
+| Check | Result |
+|---|---|
+| Badge, disclosure (both paragraphs), scarcity from real inventory | render |
+| Acknowledgment unchecked, `required` present | yes |
+| Add to Cart `aria-disabled`, native `disabled` untouched | yes |
+| Payment methods suppressed before acknowledgment | wrapper `hidden`, server-rendered |
+| Acknowledgment mints through the real proxy | 201, id returned |
+| On acknowledgment: payment methods revealed, buttons enabled | yes |
+| **Criterion 146** — switch to non-assigned sibling | gate removed, buttons restored |
+| **Criterion 146** — switch BACK to the Luxury Steal | gate restored, **consent RESET**, acknowledgment cleared, payment methods hidden again |
+| Cart line carries `_carat_ls_ack` | yes, the id minted through the proxy |
+| Cart page shows Final Sale badge, heading AND claims paragraph | yes — heading never alone |
+| **Bank/Card mode switch does not reopen payment controls** | stays hidden, `acknowledged=false`, Add to Cart still disabled |
+
+The mode-switch result is the one that mattered most: Slice 2's `mode-switch`
+recomputes that wrapper's hidden state on every apply, and the composition
+holds rather than racing.
+
+### Found while re-proving Slice 2: unsynced lines never stop "Calculating"
+
+With the proxy working, `/apps/carat/cart` returns a correct 200 DTO —
+`purchasable: false, reason: "unsynced"` for a variant with no published
+CaratForUs price. Correct server behaviour.
+
+**But the cart displays "Calculating your price…" indefinitely.**
+`assets/cart.js` treats a null per-line figure as a transient "not yet" and
+returns early, on the reasoning that the next `apply()` corrects it. For a
+line the proxy marked *unpurchasable*, no later call will ever resolve it, so
+the placeholder is permanent. The `caratPriceUnavailable` string exists and is
+used on the error path, but the unpurchasable path never reaches it.
+
+Not a money defect — no wrong price is shown, and the item is not purchasable
+at a CaratForUs price. It is a misleading UI that hides an unpurchasable state
+behind a loading spinner. **Slice 2 scope, recorded not fixed**, pending the
+owner's call. The fix is to distinguish "line not found" (transient) from
+"line explicitly unpurchasable" (terminal) and show the existing unavailable
+string for the latter.
+
+### Still not verified
+
+The cart **drawer** (the cart page renders correctly and uses the same snippet
+through the same one-line hook), an assistive-technology pass, and measured
+contrast — which, per F-3-4, cannot be settled in code because the theme's
+colours are merchant-configurable and must be checked per scheme.
+
 ## 14. Closure status
 
 Recorded 2026-09-24. **Implementation complete. Not yet closed** — one live
