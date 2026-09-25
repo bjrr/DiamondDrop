@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { AdminGraphqlClient } from "./productClient.server";
 import { AdminApiError } from "./productClient.server";
-import { ShopifyLuxuryStealOrderReviewAdapter, buildLuxuryStealHoldHandle } from "./luxuryStealOrderReviewAdapter.server";
+import {
+  ShopifyLuxuryStealOrderReviewAdapter,
+  buildLuxuryStealHoldHandle,
+  LUXURY_STEAL_HOLD_HANDLE_MAX_LENGTH,
+} from "./luxuryStealOrderReviewAdapter.server";
 
 /** Same fake-client shape as `draftOrderAdapter.test.ts` — asserts on the SERIALISED variables, never an intermediate object. */
 function fakeClient(replies: unknown[] | unknown) {
@@ -116,6 +120,22 @@ describe("ShopifyLuxuryStealOrderReviewAdapter.listFulfillmentOrders", () => {
 });
 
 describe("buildLuxuryStealHoldHandle", () => {
+  it("stays within Shopify's 64-character handle limit, with headroom for longer ids", () => {
+    // NOT a hypothetical bound. A real hold in production was rejected with
+    // "handle is too long (maximum is 64)" because the first version embedded
+    // the whole gid. Introspection could not have caught it -- the schema says
+    // String and says nothing about length -- and every unit test passed with
+    // the oversized value, because none of them measured it.
+    //
+    // Checked against an id far longer than Shopify currently issues, so the
+    // margin is tested rather than the one case that happens to fit today.
+    const realistic = buildLuxuryStealHoldHandle("gid://shopify/FulfillmentOrder/8330163061037");
+    expect(realistic.length).toBeLessThanOrEqual(LUXURY_STEAL_HOLD_HANDLE_MAX_LENGTH);
+
+    const oversized = buildLuxuryStealHoldHandle(`gid://shopify/FulfillmentOrder/${"9".repeat(30)}`);
+    expect(oversized.length).toBeLessThanOrEqual(LUXURY_STEAL_HOLD_HANDLE_MAX_LENGTH);
+  });
+
   it("derives the same handle every time for the same fulfilment order, and a different one for a different order", () => {
     // Redelivery recomputes the handle from the payload alone. Anything
     // time-based or random here would silently defeat the duplicate

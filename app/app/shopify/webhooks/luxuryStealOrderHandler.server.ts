@@ -6,6 +6,7 @@ import { createAuditEvent } from "~/db/repositories/auditEventRepository.server"
 import { isMasterVariantLuxurySteal, recordLuxuryStealOrderCheck } from "~/db/repositories/luxuryStealRepository.server";
 import { normalizeShopifyVariantGid } from "~/domain/cart/shopifyVariantId";
 import { resolveEmailPort as defaultResolveEmailPort, type EmailPortResolution } from "~/lib/email/configuredPort.server";
+import { AdminApiError } from "~/shopify/admin/productClient.server";
 import { logger } from "~/lib/logger.server";
 import type { AdminGraphqlClient } from "~/shopify/admin/productClient.server";
 import {
@@ -570,17 +571,39 @@ async function reconcileShopifyOrderReviewState(
         after: { fulfillmentOrderGid: fulfillmentOrder.id, status: result.status, userErrorCodes: result.userErrorCodes },
       });
     } catch (error) {
-      const errorName = error instanceof Error ? error.name : "UnknownError";
+      // WHY THE MESSAGE AND NOT JUST THE NAME.
+      //
+      // This previously recorded `error.name`, which for a plain `Error` is
+      // the literal string "Error" — and that is exactly what the first live
+      // gate produced: a hold that failed, correctly flagged as failed, with
+      // no way to find out why. Investigating it took a direct Admin API
+      // probe against the affected fulfilment order, which is not available
+      // to staff looking at a held order weeks later.
+      //
+      // A failed hold is the single worst outcome in this handler: the order
+      // is unverified AND unprotected. It is the last place where the reason
+      // should be discarded. AdminApiError already formats Shopify's own
+      // userErrors into its message and carries them individually on
+      // `problems`, so both are recorded — nothing here is a secret, and
+      // CLAUDE.md's logging rule excludes secrets and payment data, not
+      // diagnostic detail.
+      const detail =
+        error instanceof AdminApiError
+          ? { name: error.name, message: error.message, problems: [...error.problems] }
+          : error instanceof Error
+            ? { name: error.name, message: error.message }
+            : { name: "UnknownError", message: String(error) };
+
       logger.error("luxury_steal_order.fulfillment_hold_failed", {
         orderRef: input.orderRef,
         fulfillmentOrderGid: fulfillmentOrder.id,
-        error: errorName,
+        ...detail,
       });
       await recordLuxuryStealOrderAuditEvent({
         orderRef: input.orderRef,
         action: "luxury_steal_order.fulfillment_hold_failed",
-        after: { fulfillmentOrderGid: fulfillmentOrder.id },
-        reason: errorName,
+        after: { fulfillmentOrderGid: fulfillmentOrder.id, ...detail },
+        reason: detail.message,
       });
       failures.push(`hold on fulfillment order ${fulfillmentOrder.id}`);
     }

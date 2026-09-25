@@ -156,7 +156,22 @@ const FULFILLMENT_ORDER_STATUS_QUERY = `#graphql
   }`;
 
 /** Namespaced so this app's deterministic hold handle can never collide with a hold any OTHER app or the merchant places under its own scheme. */
-const LUXURY_STEAL_HOLD_HANDLE_NAMESPACE = "carat:luxury-steal-unverified";
+const LUXURY_STEAL_HOLD_HANDLE_NAMESPACE = "carat:ls-unverified";
+
+/**
+ * SHOPIFY ENFORCES 64 CHARACTERS ON THIS FIELD, and it told us so only in
+ * production: a real hold was rejected with "handle is too long (maximum is
+ * 64)". Introspection confirmed `handle` exists and is a String — schemas do
+ * not carry length validation — and every unit test passed with the oversized
+ * value, because none of them measured it.
+ *
+ * The first version embedded the whole gid and came to 74 characters. Only
+ * the numeric id carries information; the `gid://shopify/FulfillmentOrder/`
+ * prefix is 31 characters of constant overhead. Dropping it costs nothing:
+ * the id is still unique, still derived from the payload alone, so a
+ * redelivery still recomputes the same handle.
+ */
+export const LUXURY_STEAL_HOLD_HANDLE_MAX_LENGTH = 64;
 
 /**
  * PURE. Deterministic per fulfilment order — the SAME handle every time,
@@ -165,7 +180,8 @@ const LUXURY_STEAL_HOLD_HANDLE_NAMESPACE = "carat:luxury-steal-unverified";
  * signal (live-verified 2026-09-24 — see module doc comment).
  */
 export function buildLuxuryStealHoldHandle(fulfillmentOrderGid: string): string {
-  return `${LUXURY_STEAL_HOLD_HANDLE_NAMESPACE}:${fulfillmentOrderGid}`;
+  const numericId = fulfillmentOrderGid.split("/").pop() ?? fulfillmentOrderGid;
+  return `${LUXURY_STEAL_HOLD_HANDLE_NAMESPACE}:${numericId}`;
 }
 
 export interface FulfillmentOrderSummary {
