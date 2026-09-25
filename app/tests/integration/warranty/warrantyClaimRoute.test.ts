@@ -1,5 +1,7 @@
 import { createHmac, randomUUID } from "node:crypto";
 
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { prisma } from "~/db/client.server";
@@ -272,8 +274,60 @@ describe("criterion 156 — no shipping instruction appears anywhere in the resp
 });
 
 describe("criterion 165 — this route never touches jeweller data", () => {
-  it("imports nothing from the local-jeweller table or the staff-only read", () => {
-    expect("getWarrantyClaimForStaffReview" in warrantyClaimRoute).toBe(false);
+  /**
+   * REPLACED A VACUOUS FENCE, 2026-09-25 (QA review).
+   *
+   * The previous version asserted:
+   *
+   *     expect("getWarrantyClaimForStaffReview" in warrantyClaimRoute).toBe(false)
+   *
+   * `warrantyClaimRoute` is a namespace object of the module's own EXPORTS, so
+   * that only asked whether the route re-exports a binding by that name. It
+   * said nothing about whether the route IMPORTS and CALLS it — which is the
+   * entire regression criterion 165 exists to prevent. Adding
+   * `import { getWarrantyClaimForStaffReview } from ...` and using it in the
+   * action body would have sailed straight through, green.
+   *
+   * It was worse than no test: it occupied the place where a real guard
+   * belonged and reported success, so nobody would look again.
+   *
+   * This reads the route's SOURCE instead, the same way
+   * `metafieldEligibilityFence.test.ts` and `csrfResourceRouteFence.test.ts`
+   * do. Comments are stripped first, because this file's own header
+   * legitimately explains what it must never import.
+   */
+  const ROUTE_PATH = join(process.cwd(), "app", "routes", "apps.carat.warranty-claim.tsx");
+
+  function routeSourceWithoutComments(): string {
+    const raw = readFileSync(ROUTE_PATH, "utf8");
+    return raw
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+  }
+
+  it("the route file exists where this fence expects it — guard the guard", () => {
+    // Without this, a rename turns every assertion below into a vacuous pass
+    // against an empty string, which is the failure mode being fixed.
+    expect(existsSync(ROUTE_PATH)).toBe(true);
+    expect(routeSourceWithoutComments().length).toBeGreaterThan(500);
+  });
+
+  it.each([
+    ["getWarrantyClaimForStaffReview", /getWarrantyClaimForStaffReview/],
+    ["the local-jeweller table", /localJewellerAuthorization/i],
+    ["any jeweller identifier at all", /jewell?er/i],
+    ["the staff triage read", /searchWarrantyClaimsForStaff/],
+  ])(
+    "the customer intake route's source never references %s",
+    (_label, pattern) => {
+      expect(routeSourceWithoutComments()).not.toMatch(pattern);
+    }
+  );
+
+  it("the fence itself can fail — proven against a synthetic violating source", () => {
+    // A fence nobody has watched fire is a fence nobody should trust.
+    const violating = 'import { getWarrantyClaimForStaffReview } from "~/db/repositories/warrantyClaimRepository.server";';
+    expect(violating).toMatch(/getWarrantyClaimForStaffReview/);
   });
 });
 
