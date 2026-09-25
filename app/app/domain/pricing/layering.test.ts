@@ -3,6 +3,22 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+// STATIC, NOT DYNAMIC — and that is the fix, not a style preference.
+//
+// This was `await import("~/jobs/pricing/ports")` inside the test below.
+// That module pulls a large slice of the app's dependency graph, and a
+// dynamic import pays that cost INSIDE the importing test's timeout, where
+// a static import pays it during Vitest's collect phase, which is not
+// timeout-bounded per test.
+//
+// The test timed out three times on a loaded machine. I first raised its
+// ceiling from 5s to 30s; it then timed out at 30s, which is what made the
+// real cause obvious — one run reported collect 2252s and prepare 1563s
+// against tests 63s, so almost the entire wall-clock was module loading.
+// Raising the number again would have been treating the symptom a second
+// time; the assertion never needed a deferred import at all.
+import { UnimplementedPriceSyncPort, PriceSyncNotImplementedError } from "~/jobs/pricing/ports";
+
 /**
  * CRITERION 34 — the layering boundary, asserted mechanically rather than left
  * to convention (spec §4.0).
@@ -138,31 +154,14 @@ describe("criterion 29 — the pricing slice never reaches the Shopify Admin API
     // customer: if slice 1 somehow tried to publish a price, it must fail
     // loudly. A no-op would mark intents `synced`, leaving an audit trail
     // claiming a price reached Shopify when none did.
-    const { UnimplementedPriceSyncPort, PriceSyncNotImplementedError } = await import("~/jobs/pricing/ports");
-
     await expect(
       new UnimplementedPriceSyncPort().applyVariantPrice()
     ).rejects.toBeInstanceOf(PriceSyncNotImplementedError);
-    // TIMEOUT RAISED FROM THE 5s DEFAULT, 2026-09-25 — for module loading,
-    // not for the assertion.
-    //
-    // This test flaked three times in one day on a machine running several
-    // agents concurrently. Every time it was a 5000ms timeout rather than a
-    // failed assertion, and every time it passed in isolation. The reason is
-    // visible in the runs' own numbers: one reported collect 1321s and
-    // prepare 879s against tests 17.6s. Nearly all the wall-clock goes on
-    // Vitest resolving and preparing modules under CPU starvation, and this
-    // test's first act is a dynamic import() of the ports module — so it pays
-    // that cost INSIDE its own timeout, which a test importing at the top of
-    // the file never does.
-    //
-    // Raising the ceiling does not weaken the check. The assertion is a
-    // rejects-instanceof on an immediate throw, so a genuine regression still
-    // fails fast and is unaffected. What the old value actually measured was
-    // how loaded the machine was — and a suite that reports load as a product
-    // defect teaches people to re-run red builds until they go green, which
-    // is how a real failure eventually gets waved through.
-  }, 30_000);
+    // The import that made this slow is now static (see the top of this
+    // file), so the assertion itself is a synchronous throw and needs no
+    // extended ceiling. Left at the default deliberately: if this ever times
+    // out again, that is new information rather than a known tax.
+  });
 });
 
 describe("criterion 35 — engine.ts performs no arithmetic of its own", () => {
