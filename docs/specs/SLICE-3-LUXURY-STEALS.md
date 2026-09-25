@@ -538,17 +538,59 @@ owner's call. The fix is to distinguish "line not found" (transient) from
 "line explicitly unpurchasable" (terminal) and show the existing unavailable
 string for the latter.
 
+### Accessibility and contrast — measured live, 2026-09-25
+
+**Contrast, on the active scheme (dark text on white).** Measured in the
+browser with proper alpha compositing — my first attempt ignored the alpha
+channel and reported every element as 18.73:1, which is the giveaway that a
+measurement is wrong: real numbers vary.
+
+| Element | Ratio | Size | AA threshold | Result |
+|---|---|---|---|---|
+| Disclosure heading | 18.73:1 | 15px/600 | 4.5 | pass |
+| Disclosure body | 8.42:1 | 14px/400 | 4.5 | pass |
+| **Claims paragraph** | 8.42:1 | 14px/400 | 4.5 | pass |
+| Acknowledgment label | 8.42:1 | 15px/600 | 4.5 | pass |
+| Status explanation | 8.42:1 | 13px/400 | 4.5 | pass |
+| Scarcity line | 18.73:1 | 13px/600 | 4.5 | pass |
+
+The claims paragraph is the one that mattered: it carries 75% alpha, and the
+question was whether de-emphasis had cost legibility. At 8.42:1 it clears AA
+with room to spare.
+
+**This does not generalise to other colour schemes.** The theme's colours are
+merchant-configurable, so this is a measurement of one scheme, not a property
+of the code. F-3-4's requirement to re-check per scheme stands.
+
+**Structure, verified in the live DOM:**
+
+- a real `<input type="checkbox">`, `required`, keyboard reachable
+- a programmatic `<label for>` — accessible name "I have read the Final Sale
+  Acknowledgment above and agree to it"
+- `aria-describedby` on the checkbox resolving to **both** the disclosure and
+  the acknowledgment blocks, with both target ids confirmed present — a
+  dangling reference would announce nothing and look identical in source
+- a `role="status"` region carrying the explanation
+- submit buttons using `aria-disabled` with native `disabled` untouched, so
+  Dawn's sold-out mechanism is unaffected, and each carries
+  `aria-describedby` to the status region so a user who tabs straight to the
+  button hears why it is disabled
+
 ### Still not verified
 
-The cart **drawer** (the cart page renders correctly and uses the same snippet
-through the same one-line hook), an assistive-technology pass, and measured
-contrast — which, per F-3-4, cannot be settled in code because the theme's
-colours are merchant-configurable and must be checked per scheme.
+The cart **drawer** — the cart page renders correctly through the same snippet
+and the same one-line hook, so this is low risk, but it has not been opened.
+And contrast in any colour scheme other than the current one.
 
 ## 14. Closure status
 
-Recorded 2026-09-24. **Implementation complete. Not yet closed** — one live
-proof outstanding, named below.
+**CLOSED 2026-09-25.** Implementation complete, D28 live-proven, browser gate
+passed. Updated from the 2026-09-24 draft, which listed the live D28 proof as
+outstanding; it has since passed and is recorded in §13A.
+
+Everything in this slice that can be verified without real product data has
+been verified against the real store and the deployed app, not against
+fixtures.
 
 ### What is proven by live evidence, not only by tests
 
