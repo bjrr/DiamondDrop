@@ -45,8 +45,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   /// POOLED FOR THE APP, DIRECT FOR MIGRATIONS — and the split is required,
   /// not a tuning preference.
   ///
@@ -132,7 +132,12 @@ model Acknowledgment {
   /// Slice 3 M12 back-relation only — required by Prisma for the FK on
   /// `LuxuryStealOrderCheck.matchedAcknowledgmentId`. Adds no column here and
   /// changes nothing about how Acknowledgment rows are written or read.
-  luxuryStealOrderChecks LuxuryStealOrderCheck[]
+  luxuryStealOrderChecks              LuxuryStealOrderCheck[]
+  /// Slice 5 M13 back-relations only — required by Prisma for the two NOT
+  /// NULL FKs on `WarrantyClaim` (criterion 154: both acknowledgments are
+  /// mandatory, not optional). Adds no column here.
+  warrantyClaimAccuracyCertifications WarrantyClaim[]         @relation("WarrantyClaimAccuracyCertification")
+  warrantyClaimCoverageNotEstablished WarrantyClaim[]         @relation("WarrantyClaimCoverageNotEstablished")
 
   @@index([policyVersionId])
   @@index([customerRef])
@@ -585,12 +590,12 @@ model PricingProfile {
   /// requires a new rule id rather than a data edit that would silently
   /// re-price history.
   regularCardPriceRuleId String   @map("regular_card_price_rule_id")
-  fixedCardUpliftRate  Decimal  @map("fixed_card_uplift_rate") @db.Decimal(9, 6)
-  effectiveFrom   DateTime @map("effective_from")
-  createdBy       String   @map("created_by")
+  fixedCardUpliftRate    Decimal  @map("fixed_card_uplift_rate") @db.Decimal(9, 6)
+  effectiveFrom          DateTime @map("effective_from")
+  createdBy              String   @map("created_by")
   /// See model doc comment. D14 placeholder marker.
-  isPlaceholder   Boolean  @default(false) @map("is_placeholder")
-  createdAt       DateTime @default(now()) @map("created_at")
+  isPlaceholder          Boolean  @default(false) @map("is_placeholder")
+  createdAt              DateTime @default(now()) @map("created_at")
 
   priceCalculations PriceCalculation[]
   groupBuyCampaigns GroupBuyCampaign[]
@@ -645,10 +650,10 @@ model MasterVariant {
   /// this source; a piece is made in one place, so this is required rather
   /// than a list. The RATE is resolved effective-dated at calculation time and
   /// snapshotted with the calculation — only the choice of source lives here.
-  laborSource                  LaborSource         @map("labor_source")
-  minBankPaymentPriceMinorUnits       BigInt?             @map("min_bank_payment_price_minor_units")
-  minBankPaymentPriceCurrency         String?             @map("min_bank_payment_price_currency") @db.Char(3)
-  shopifyVariantGid            String?             @unique @map("shopify_variant_gid")
+  laborSource                   LaborSource         @map("labor_source")
+  minBankPaymentPriceMinorUnits BigInt?             @map("min_bank_payment_price_minor_units")
+  minBankPaymentPriceCurrency   String?             @map("min_bank_payment_price_currency") @db.Char(3)
+  shopifyVariantGid             String?             @unique @map("shopify_variant_gid")
   /// R17 (owner ruling, 2026-09-20) — the mapping the `inventory_levels/update`
   /// webhook resolves through. Populated from the Admin API's
   /// `InventoryItem.id` (via `ProductVariant.inventoryItem.id`, never the
@@ -659,14 +664,14 @@ model MasterVariant {
   /// identical to the handler correctly finding no match, which is exactly
   /// what cost the live-verification session real time before R15/R17's
   /// root cause was found.
-  shopifyInventoryItemGid      String?             @unique @map("shopify_inventory_item_gid")
+  shopifyInventoryItemGid       String?             @unique @map("shopify_inventory_item_gid")
   /// Slice 2 M1 (owner §7.3). Per-variant escape hatch from the Bank Payment
   /// Discount: a bank-mode cart still charges an ineligible line the Regular/
   /// Card Price (owner §7.4, criterion 41). Defaults ON — most variants are
   /// eligible, and the flag exists to turn a specific one OFF, not the other
   /// way round. This is the SYSTEM OF RECORD (criterion 40); Shopify's own
   /// metafield mirror of it is presentation cache only.
-  bankPaymentDiscountEligible  Boolean             @default(true) @map("bank_payment_discount_eligible")
+  bankPaymentDiscountEligible   Boolean             @default(true) @map("bank_payment_discount_eligible")
   /// Slice 3, M11 (docs/specs/SLICE-3-LUXURY-STEALS.md, D27, criteria
   /// 125-128, 146-150). THE authoritative Luxury Steal assignment — variant
   /// grain, not product grain (D27 supersedes D26's product-level wording).
@@ -680,15 +685,15 @@ model MasterVariant {
   /// synced FROM this column (task 3-2), never the reverse, and a stale or
   /// missing cache must fail safe by falling back to THIS column (criterion
   /// 127/150). Default false: most variants are ordinary Buy Now stock.
-  isLuxurySteal                Boolean             @default(false) @map("is_luxury_steal")
-  status                       MasterVariantStatus @default(draft)
+  isLuxurySteal                 Boolean             @default(false) @map("is_luxury_steal")
+  status                        MasterVariantStatus @default(draft)
   /// Compare-and-set anchor for slice 2's sync (§9.4): the sync executes
   /// only if the intent's priceCalculationId is still the newest computed
   /// calculation for this variant.
-  lastSyncedPriceCalculationId String?             @unique @map("last_synced_price_calculation_id") @db.Uuid
-  lastSyncedPriceCalculation   PriceCalculation?   @relation("LastSyncedCalculation", fields: [lastSyncedPriceCalculationId], references: [id])
-  createdAt                    DateTime            @default(now()) @map("created_at")
-  updatedAt                    DateTime            @updatedAt @map("updated_at")
+  lastSyncedPriceCalculationId  String?             @unique @map("last_synced_price_calculation_id") @db.Uuid
+  lastSyncedPriceCalculation    PriceCalculation?   @relation("LastSyncedCalculation", fields: [lastSyncedPriceCalculationId], references: [id])
+  createdAt                     DateTime            @default(now()) @map("created_at")
+  updatedAt                     DateTime            @updatedAt @map("updated_at")
 
   weightOverrides          VariantWeightOverride[]
   stones                   MasterVariantStone[]
@@ -703,6 +708,7 @@ model MasterVariant {
   bankPaymentOrderLines    BankPaymentOrderLine[]
   adminAlertNotifications  AdminAlertNotification[]
   luxuryStealSyncFailures  LuxuryStealSyncFailure[]
+  warrantyClaims           WarrantyClaim[]
 
   @@unique([masterProductId, metal, purity, bandId])
   @@index([status])
@@ -898,8 +904,8 @@ model PriceRecalculationRun {
   /// convention), this is a genuine FK: pricing_input_change is a fixed,
   /// pre-existing row a run always points at, not a self-generated id a run
   /// invents.
-  pricingInputChangeId String?              @map("pricing_input_change_id") @db.Uuid
-  pricingInputChange   PricingInputChange?  @relation(fields: [pricingInputChangeId], references: [id])
+  pricingInputChangeId String?             @map("pricing_input_change_id") @db.Uuid
+  pricingInputChange   PricingInputChange? @relation(fields: [pricingInputChangeId], references: [id])
 
   computed      Int @default(0)
   skipped       Int @default(0)
@@ -994,7 +1000,7 @@ model PriceOverride {
   /// An override sets the BANK PAYMENT price. The floors that warn about it are
   /// measured on it, and the advertised card price is re-derived from it.
   overrideBankPaymentPriceMinorUnits BigInt? @map("override_bank_payment_price_minor_units")
-  currency                String  @db.Char(3)
+  currency                           String  @db.Char(3)
 
   /// Slice 2 T3 (owner §2.4, criterion 16). When true, this override chain is
   /// exempt from automatic expiry on a material recalculation and is retired
@@ -1024,21 +1030,21 @@ model PriceOverride {
 }
 
 model PriceCalculation {
-  id                      String                 @id @default(uuid()) @db.Uuid
-  runId                   String                 @map("run_id") @db.Uuid
-  masterVariantId         String                 @map("master_variant_id") @db.Uuid
-  masterVariant           MasterVariant          @relation("VariantCalculations", fields: [masterVariantId], references: [id])
-  pricingProfileId        String                 @map("pricing_profile_id") @db.Uuid
-  pricingProfile          PricingProfile         @relation(fields: [pricingProfileId], references: [id])
-  profileVersion          Int                    @map("profile_version")
-  engineVersion           String                 @map("engine_version")
-  roundingRuleId          String                 @map("rounding_rule_id")
-  priceEndingRuleId       String                 @map("price_ending_rule_id")
-  asOf                    DateTime               @map("as_of")
-  snapshotId              String                 @map("snapshot_id") @db.Uuid
-  snapshot                Snapshot               @relation(fields: [snapshotId], references: [id])
-  costBasisSize           Decimal?               @map("cost_basis_size") @db.Decimal(6, 2)
-  landedCostMinorUnits    BigInt                 @map("landed_cost_minor_units")
+  id                         String                 @id @default(uuid()) @db.Uuid
+  runId                      String                 @map("run_id") @db.Uuid
+  masterVariantId            String                 @map("master_variant_id") @db.Uuid
+  masterVariant              MasterVariant          @relation("VariantCalculations", fields: [masterVariantId], references: [id])
+  pricingProfileId           String                 @map("pricing_profile_id") @db.Uuid
+  pricingProfile             PricingProfile         @relation(fields: [pricingProfileId], references: [id])
+  profileVersion             Int                    @map("profile_version")
+  engineVersion              String                 @map("engine_version")
+  roundingRuleId             String                 @map("rounding_rule_id")
+  priceEndingRuleId          String                 @map("price_ending_rule_id")
+  asOf                       DateTime               @map("as_of")
+  snapshotId                 String                 @map("snapshot_id") @db.Uuid
+  snapshot                   Snapshot               @relation(fields: [snapshotId], references: [id])
+  costBasisSize              Decimal?               @map("cost_basis_size") @db.Decimal(6, 2)
+  landedCostMinorUnits       BigInt                 @map("landed_cost_minor_units")
   /// The BANK PAYMENT PRICE: the number the 40% markup, the 20% margin floor
   /// and the $100 profit floor were all measured on, and the price a customer
   /// pays by an eligible bank method.
@@ -1046,11 +1052,11 @@ model PriceCalculation {
   /// The Regular/Card Price is derived from it by the versioned rule recorded
   /// on the pricing profile, and is deliberately NOT stored a second time —
   /// one price, one source of truth, no possibility of the pair disagreeing.
-  bankPaymentPriceMinorUnits BigInt @map("bank_payment_price_minor_units")
-  currency                String                 @db.Char(3)
-  status                  PriceCalculationStatus
-  failureReason           String?                @map("failure_reason")
-  createdAt               DateTime               @default(now()) @map("created_at")
+  bankPaymentPriceMinorUnits BigInt                 @map("bank_payment_price_minor_units")
+  currency                   String                 @db.Char(3)
+  status                     PriceCalculationStatus
+  failureReason              String?                @map("failure_reason")
+  createdAt                  DateTime               @default(now()) @map("created_at")
 
   syncIntents           PriceSyncIntent[]
   lastSyncedByVariant   MasterVariant?         @relation("LastSyncedCalculation")
@@ -1069,28 +1075,28 @@ model PriceCalculation {
 /// raw SQL, Prisma cannot express it): at most one non-terminal intent
 /// (status NOT IN synced/rejected/failed/superseded) per masterVariantId.
 model PriceSyncIntent {
-  id                      String                @id @default(uuid()) @db.Uuid
-  masterVariantId         String                @map("master_variant_id") @db.Uuid
-  masterVariant           MasterVariant         @relation(fields: [masterVariantId], references: [id])
-  priceCalculationId      String                @map("price_calculation_id") @db.Uuid
-  priceCalculation        PriceCalculation      @relation(fields: [priceCalculationId], references: [id])
-  decision                PriceSyncDecision
-  status                  PriceSyncIntentStatus
-  previousBankPaymentPriceMinorUnits BigInt?           @map("previous_bank_payment_price_minor_units")
-  previousBankPaymentPriceCurrency String?             @map("previous_bank_payment_price_currency") @db.Char(3)
-  deltaBps                Int?                  @map("delta_bps")
+  id                                 String                @id @default(uuid()) @db.Uuid
+  masterVariantId                    String                @map("master_variant_id") @db.Uuid
+  masterVariant                      MasterVariant         @relation(fields: [masterVariantId], references: [id])
+  priceCalculationId                 String                @map("price_calculation_id") @db.Uuid
+  priceCalculation                   PriceCalculation      @relation(fields: [priceCalculationId], references: [id])
+  decision                           PriceSyncDecision
+  status                             PriceSyncIntentStatus
+  previousBankPaymentPriceMinorUnits BigInt?               @map("previous_bank_payment_price_minor_units")
+  previousBankPaymentPriceCurrency   String?               @map("previous_bank_payment_price_currency") @db.Char(3)
+  deltaBps                           Int?                  @map("delta_bps")
   /// D15 requires the DOLLAR change alongside the percentage one. Stored
   /// rather than derived so the audit row is self-contained: the previous price
   /// can be superseded later, but this record of what changed stays intact.
-  deltaMinorUnits         BigInt?               @map("delta_minor_units")
-  decidedBy               String?               @map("decided_by")
-  decidedAt               DateTime?             @map("decided_at")
-  reason                  String?
-  syncedAt                DateTime?             @map("synced_at")
-  shopifyVariantGid       String?               @map("shopify_variant_gid")
-  attemptCount            Int                   @default(0) @map("attempt_count")
-  createdAt               DateTime              @default(now()) @map("created_at")
-  updatedAt               DateTime              @updatedAt @map("updated_at")
+  deltaMinorUnits                    BigInt?               @map("delta_minor_units")
+  decidedBy                          String?               @map("decided_by")
+  decidedAt                          DateTime?             @map("decided_at")
+  reason                             String?
+  syncedAt                           DateTime?             @map("synced_at")
+  shopifyVariantGid                  String?               @map("shopify_variant_gid")
+  attemptCount                       Int                   @default(0) @map("attempt_count")
+  createdAt                          DateTime              @default(now()) @map("created_at")
+  updatedAt                          DateTime              @updatedAt @map("updated_at")
 
   @@index([masterVariantId])
   @@index([status])
@@ -1224,7 +1230,7 @@ model PriceCalculationFailure {
 
   /// A later recalculation succeeded. Closes the episode and is what
   /// automatic no-human-action restoration (owner §7 recovery step 3) reads.
-  resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(6)
+  resolvedAt      DateTime? @map("resolved_at") @db.Timestamptz(6)
   /// Owner §7 recovery step 5: "record the resolution timestamp and
   /// trigger/actor." "scheduled" for the routine recalculation run that
   /// discovers the fix, or a staff identifier for a manually triggered one.
@@ -1232,7 +1238,7 @@ model PriceCalculationFailure {
   /// always "a later sync succeeded" and names no separate trigger, while a
   /// calculation can be corrected by either a routine run or a deliberate
   /// staff action and owner §7 requires telling those apart.
-  resolvedTrigger String? @map("resolved_trigger")
+  resolvedTrigger String?   @map("resolved_trigger")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -1350,15 +1356,15 @@ enum AdminAlertEmailDeliveryStatus {
 }
 
 model AdminAlertNotification {
-  id     String               @id @default(uuid()) @db.Uuid
+  id         String               @id @default(uuid()) @db.Uuid
   sourceKind AdminAlertSourceKind @map("source_kind")
   /// The failure episode's own id -- `price_calculation_failure.id` or
   /// `price_sync_failure.id`, per `sourceKind` -- for EVERY member,
   /// including `bank_payment_guarantee` (see that member's own doc comment
   /// for why it is the episode, never `bank_payment_order.id`). Not a DB
   /// foreign key -- see the enum doc comment above.
-  sourceId String @map("source_id") @db.Uuid
-  event    AdminAlertEvent
+  sourceId   String               @map("source_id") @db.Uuid
+  event      AdminAlertEvent
 
   /// Denormalized from the episode row for admin listing/filtering without
   /// a second join back through `sourceId` -- both failure tables already
@@ -1475,8 +1481,8 @@ model BankPaymentOrder {
   /// 49/50). Money paired with its own currency per the F-16 convention even
   /// though it will ordinarily match the order's line currency, rather than
   /// assuming that agreement implicitly.
-  verifiedPaymentAmountMinorUnits BigInt?   @map("verified_payment_amount_minor_units")
-  verifiedPaymentCurrency         String?   @map("verified_payment_currency") @db.Char(3)
+  verifiedPaymentAmountMinorUnits BigInt?            @map("verified_payment_amount_minor_units")
+  verifiedPaymentCurrency         String?            @map("verified_payment_currency") @db.Char(3)
   /// Phase 2C-c. Was free-text `String?` -- widened to the closed
   /// `BankPaymentMethod` enum so the four electronic-only eligible methods
   /// (`CLAUDE.md` #14) are enforced by the database, not by a staff member
@@ -1486,8 +1492,8 @@ model BankPaymentOrder {
   verifiedPaymentMethod           BankPaymentMethod? @map("verified_payment_method")
   /// "Reference where available" (owner §8.7) -- the one verification field
   /// that may legitimately stay NULL even once verified.
-  verifiedPaymentReference        String?   @map("verified_payment_reference")
-  verifiedAt                      DateTime? @map("verified_at") @db.Timestamptz(6)
+  verifiedPaymentReference        String?            @map("verified_payment_reference")
+  verifiedAt                      DateTime?          @map("verified_at") @db.Timestamptz(6)
   /// Phase 2C-c revision, D23 (docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md
   /// §19.1, criteria 112-114). Was a free-typed `verifiedBy String?` -- a
   /// field nobody could attribute, which is worse than no field because it
@@ -1499,8 +1505,8 @@ model BankPaymentOrder {
   /// A request that carries no associated user is REFUSED, never defaulted
   /// (criterion 114) -- there is no code path that would write one of these
   /// two columns without the other.
-  verifiedByShopifyUserId         BigInt?   @map("verified_by_shopify_user_id")
-  verifiedByEmail                 String?   @map("verified_by_email")
+  verifiedByShopifyUserId         BigInt?            @map("verified_by_shopify_user_id")
+  verifiedByEmail                 String?            @map("verified_by_email")
 
   /// Set on conversion to a real Shopify order (criterion 51). Distinct from
   /// `shopifyDraftOrderGid`: the draft and the completed order are two
@@ -1528,12 +1534,12 @@ model BankPaymentOrder {
   /// their own. Naming and typing them the same would make a future
   /// migration that adds a member to one look correct while silently
   /// changing the other's meaning too.
-  cancellationEmailStatus BankPaymentCancellationEmailStatus? @map("cancellation_email_status")
+  cancellationEmailStatus            BankPaymentCancellationEmailStatus? @map("cancellation_email_status")
   /// The provider's own message id (proof Resend ACCEPTED the send, not
   /// merely that this code attempted one -- see `EmailPort.send`'s own doc
   /// comment). Set ONLY when `cancellationEmailStatus` is `sent`; enforced by
   /// `bank_payment_order_cancellation_email_message_id_only_when_sent`.
-  cancellationEmailProviderMessageId String? @map("cancellation_email_provider_message_id")
+  cancellationEmailProviderMessageId String?                             @map("cancellation_email_provider_message_id")
   /// Set together with `cancellationEmailStatus`, always -- the sweep
   /// records both in the same write. This is the retry story in full:
   /// completion is a compare-and-set to `cancelled`, and the sweep's order
@@ -1542,7 +1548,7 @@ model BankPaymentOrder {
   /// is therefore never retried automatically -- this row is the ONLY
   /// record that it needs manual follow-up, which is why it must be
   /// durable rather than a log line (owner verification list).
-  cancellationEmailAttemptedAt DateTime? @map("cancellation_email_attempted_at") @db.Timestamptz(6)
+  cancellationEmailAttemptedAt       DateTime?                           @map("cancellation_email_attempted_at") @db.Timestamptz(6)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -1801,7 +1807,7 @@ model GroupBuyCampaignVariant {
   /// Frozen BANK PAYMENT base. Tier multipliers apply to this; tier safety
   /// judges it; the Group Buy card price is derived from the tier result.
   frozenBaseBankPaymentPriceMinorUnits BigInt @map("frozen_base_bank_payment_price_minor_units")
-  frozenLandedCostMinorUnits BigInt @map("frozen_landed_cost_minor_units")
+  frozenLandedCostMinorUnits           BigInt @map("frozen_landed_cost_minor_units")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -1934,14 +1940,14 @@ model GroupBuyRefund {
   /// the order, on every card line, at every tier drop.
   paymentBasis           PaymentBasis @map("payment_basis")
   /// What the customer actually paid, per unit, IN `paymentBasis`.
-  paidPerUnitMinorUnits  BigInt @map("paid_per_unit_minor_units")
+  paidPerUnitMinorUnits  BigInt       @map("paid_per_unit_minor_units")
   /// The campaign's final tier price, per unit, in the SAME basis.
-  finalPerUnitMinorUnits BigInt @map("final_per_unit_minor_units")
+  finalPerUnitMinorUnits BigInt       @map("final_per_unit_minor_units")
   /// Units still qualifying on this line at close.
-  qualifyingUnits        Int    @map("qualifying_units")
+  qualifyingUnits        Int          @map("qualifying_units")
   /// (paid - final) x units, floored at zero — a refund never becomes a charge.
-  refundAmountMinorUnits BigInt @map("refund_amount_minor_units")
-  currency               String @db.Char(3)
+  refundAmountMinorUnits BigInt       @map("refund_amount_minor_units")
+  currency               String       @db.Char(3)
 
   status GroupBuyRefundStatus @default(pending)
 
@@ -2104,4 +2110,379 @@ model LuxuryStealSyncFailure {
   /// price_sync_failure_one_open_per_variant / price_calculation_failure_one_open_per_variant.
   @@index([masterVariantId])
   @@map("luxury_steal_sync_failure")
+}
+
+// =============================================================================
+// Slice 5 — Warranty Claims (docs/WARRANTY-CLAIMS.md — locked policy,
+// docs/specs/SLICE-5-WARRANTY-CLAIMS.md, task 5-1). M13-M16 plus one
+// internal-only satellite table (below). Ref columns (orderRef/lineRef/
+// customerRef) follow the plain-Shopify-GID-string convention already
+// established on `Acknowledgment` and `LuxuryStealOrderCheck` — a claim is
+// filed against whatever Shopify reports, and resolving those refs against
+// `MasterVariant` (when possible) is the intake route's job (task 5-3), not
+// this task's.
+//
+// STATE MACHINE. The authoritative transition rules live in the PURE domain
+// function `app/domain/warranty/claimStatus.ts` — read that module's header
+// first; this schema's `warranty_claim_guard` trigger (this slice's
+// migration, hand-authored SQL) is a database-level mirror of the exact same
+// table, not an independent design, so the two must be read and changed
+// together. Two facts are enforced STRUCTURALLY, at both layers (criteria
+// 159/168):
+//   - a coverage decision (`approved_covered`/`denied_not_covered`) is only
+//     reachable through `received_inspection_pending`, and is additionally
+//     gated on `received_at IS NOT NULL` by a CHECK constraint independent of
+//     the transition table itself (belt-and-suspenders: even a hand-crafted
+//     UPDATE that satisfies the transition graph still cannot decide a claim
+//     with no recorded receipt);
+//   - `resolved` is only reachable from `remedy_in_progress` (which itself
+//     requires `approved_covered`) or from `denied_not_covered` — never
+//     directly from an undecided status.
+// =============================================================================
+
+/// The eleven statuses of WARRANTY-CLAIMS.md §8, modelled as an explicit
+/// directed graph (see `app/domain/warranty/claimStatus.ts`). Adding a value
+/// here without also adding it to that module's transition table AND this
+/// slice's `warranty_claim_guard` trigger leaves it unreachable — the graph
+/// is stated as what IS allowed, not what is forbidden (same fail-closed
+/// design as `group_buy_campaign_guard`), so an unrecognised status has no
+/// legal way in.
+enum WarrantyClaimStatus {
+  submitted
+  under_review
+  /// A pause state, not a fork. `pausedFromStatus` on the claim row records
+  /// exactly which status it paused FROM, and resuming returns to exactly
+  /// that status — never to a caller-chosen destination. This is what makes
+  /// it safe for this state to be reachable both before and after receipt
+  /// (`under_review` and `received_inspection_pending` both request more
+  /// information) without ever letting "ask for more info, then resume"
+  /// become a shortcut around actually recording receipt — see the domain
+  /// module's header comment for the full reasoning.
+  more_information_requested
+  /// Set only by an explicit authenticated-staff act (criterion 157) — never
+  /// inferred. `authorizedAt`/`authorizedByActorRef` below record it; this
+  /// status existing is what criterion 156 gates shipping instructions on.
+  authorized_for_inspection
+  in_transit_to_carat_for_us
+  /// Reaching this status is the ONLY thing that sets `receivedAt` (criterion
+  /// 159) — package/item condition and inspection evidence are recorded with
+  /// it.
+  received_inspection_pending
+  /// Covered. `coverageDecision = covered`.
+  approved_covered
+  /// Not covered. `coverageDecision = not_covered` AND `coverageDecisionReason`
+  /// is required — CHECK constraint `warranty_claim_denial_requires_reason`
+  /// (criterion 160).
+  denied_not_covered
+  /// CaratForUs has selected the remedy (`WarrantyClaimRemedy`, never the
+  /// customer — criterion 162) and it is being executed.
+  remedy_in_progress
+  resolved
+  closed
+
+  @@map("warranty_claim_status")
+}
+
+enum WarrantyCoverageDecision {
+  covered
+  not_covered
+
+  @@map("warranty_coverage_decision")
+}
+
+enum WarrantyRemedyKind {
+  repair
+  replacement
+  refund
+  /// "Another reasonable resolution when required/appropriate" — §6.
+  other
+
+  @@map("warranty_remedy_kind")
+}
+
+enum WarrantyClaimRemedyStatus {
+  pending
+  processing
+  completed
+  failed
+
+  @@map("warranty_claim_remedy_status")
+}
+
+enum WarrantyClaimUploadKind {
+  photo
+  video
+
+  @@map("warranty_claim_upload_kind")
+}
+
+/// M13. The claim itself — intake (§2), authorisation (§3), inbound shipping
+/// evidence (§4), receipt/inspection (§5) and the current coverage decision
+/// summary. `events` (M14) is the append-only history of how it got here;
+/// this row is the current-state projection, same relationship as
+/// `GroupBuyRefund` to `GroupBuyRefundEvent`.
+model WarrantyClaim {
+  id             String @id @default(uuid()) @db.Uuid
+  /// Customer/support-facing reference (e.g. "WC-000123"). Generated by the
+  /// repository layer (task 5-2), not by a DB default/sequence, so its format
+  /// stays an application decision.
+  claimReference String @unique @map("claim_reference")
+
+  orderRef    String  @map("order_ref")
+  lineRef     String  @map("line_ref")
+  /// "customer/account ID when available" (§2) — nullable because a guest
+  /// checkout may not carry one.
+  customerRef String? @map("customer_ref")
+
+  /// Resolved link to the internal design/cost definition, when the intake
+  /// route (task 5-3) can resolve `lineRef`/`variantRef` to one. Nullable:
+  /// criterion 155 refuses a claim whose ORDER/LINE cannot be resolved, but a
+  /// resolved order line does not guarantee a `MasterVariant` match exists
+  /// for every historical/Shopify-native SKU — that gap is recorded here as
+  /// "unresolved", not guessed at.
+  masterVariantId              String?        @map("master_variant_id") @db.Uuid
+  masterVariant                MasterVariant? @relation(fields: [masterVariantId], references: [id])
+  /// Free-text "exact item/line item and configuration" (§2) as submitted —
+  /// always populated, independent of whether `masterVariantId` resolves.
+  itemConfigurationDescription String         @map("item_configuration_description")
+
+  purchaserName  String @map("purchaser_name")
+  purchaserEmail String @map("purchaser_email")
+
+  purchaseDate          DateTime? @map("purchase_date") @db.Date
+  /// "carrier-confirmed delivery date where available" (§2).
+  deliveryDate          DateTime? @map("delivery_date") @db.Date
+  issueFirstNoticedDate DateTime? @map("issue_first_noticed_date") @db.Date
+
+  problemDescription String @map("problem_description")
+
+  hadImpactOrDamageEvent Boolean @map("had_impact_or_damage_event")
+  impactOrDamageDetails  String? @map("impact_or_damage_details")
+
+  wasAlteredAfterDelivery Boolean @map("was_altered_after_delivery")
+  alterationDetails       String? @map("alteration_details")
+
+  certificateOrSerialIdentifier String? @map("certificate_or_serial_identifier")
+
+  /// Criterion 154 — "submitting a claim does not mark it covered" is
+  /// captured as EVIDENCE, not a checkbox column. Both acknowledgments are
+  /// REQUIRED (NOT NULL FK) so no claim row can exist without them having
+  /// been recorded through the slice 0 `Acknowledgment` model.
+  accuracyCertificationAcknowledgmentId  String         @map("accuracy_certification_acknowledgment_id") @db.Uuid
+  accuracyCertificationAcknowledgment    Acknowledgment @relation("WarrantyClaimAccuracyCertification", fields: [accuracyCertificationAcknowledgmentId], references: [id])
+  coverageNotEstablishedAcknowledgmentId String         @map("coverage_not_established_acknowledgment_id") @db.Uuid
+  coverageNotEstablishedAcknowledgment   Acknowledgment @relation("WarrantyClaimCoverageNotEstablished", fields: [coverageNotEstablishedAcknowledgmentId], references: [id])
+
+  submittedAt DateTime @default(now()) @map("submitted_at") @db.Timestamptz(6)
+
+  status           WarrantyClaimStatus  @default(submitted)
+  /// Meaningful ONLY while `status = more_information_requested` — the exact
+  /// status `resume_after_more_information` returns to. See this file's
+  /// section header and `app/domain/warranty/claimStatus.ts`.
+  pausedFromStatus WarrantyClaimStatus? @map("paused_from_status")
+
+  /// §3 — set only by `authorize_for_inspection`, never inferred (criterion
+  /// 157). Criterion 156 (no shipping instruction before this) is enforced by
+  /// task 5-3/5-4's route layer reading THIS field, never a status string
+  /// comparison that a future status value could quietly slip past.
+  authorizedAt         DateTime? @map("authorized_at") @db.Timestamptz(6)
+  authorizedByActorRef String?   @map("authorized_by_actor_ref")
+
+  /// §4 — retained "where available" (§4), i.e. optional even on an
+  /// authorised claim: the customer may not have shipped yet.
+  inboundTrackingCarrier        String? @map("inbound_tracking_carrier")
+  inboundTrackingNumber         String? @map("inbound_tracking_number")
+  inboundInsuranceReference     String? @map("inbound_insurance_reference")
+  inboundInsuredValueMinorUnits BigInt? @map("inbound_insured_value_minor_units")
+  inboundInsuredValueCurrency   String? @map("inbound_insured_value_currency") @db.Char(3)
+
+  /// §5 — set only by `record_receipt`. `receivedAt` is criterion 159's gate;
+  /// see `warranty_claim_decision_requires_receipt` and
+  /// `warranty_claim_guard` in this slice's migration.
+  receivedAt          DateTime? @map("received_at") @db.Timestamptz(6)
+  packageCondition    String?   @map("package_condition")
+  itemCondition       String?   @map("item_condition")
+  inspectionNotes     String?   @map("inspection_notes")
+  inspectedByActorRef String?   @map("inspected_by_actor_ref")
+
+  /// §5/§6 — set only by `decide_coverage`. `coverageDecisionReason` is
+  /// REQUIRED when `coverageDecision = not_covered`
+  /// (`warranty_claim_denial_requires_reason`, criterion 160); optional for
+  /// `covered`.
+  coverageDecision          WarrantyCoverageDecision? @map("coverage_decision")
+  coverageDecisionReason    String?                   @map("coverage_decision_reason")
+  coverageDecidedAt         DateTime?                 @map("coverage_decided_at") @db.Timestamptz(6)
+  coverageDecidedByActorRef String?                   @map("coverage_decided_by_actor_ref")
+
+  resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(6)
+  closedAt   DateTime? @map("closed_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  events  WarrantyClaimEvent[]
+  uploads WarrantyClaimUpload[]
+  remedy  WarrantyClaimRemedy?
+
+  @@index([orderRef])
+  @@index([status])
+  @@index([customerRef])
+  @@index([masterVariantId])
+  @@map("warranty_claim")
+}
+
+/// M14. Append-only (this slice's migration extends the
+/// `prevent_evidence_mutation`/`prevent_evidence_truncate` triggers from
+/// migrations 20260913000100/20260914000000). Criterion 169 — WHO
+/// (`actorType`/`actorRef`), WHEN (`createdAt`), FROM/TO (`fromStatus`/
+/// `toStatus`), and WHY (`reason`, plus `metadata` for the supporting facts
+/// recorded at that specific transition — e.g. tracking/insurance values
+/// captured at authorisation, package/item condition captured at receipt).
+/// `fromStatus` is nullable only for the single event created alongside
+/// claim submission, which has no prior status.
+model WarrantyClaimEvent {
+  id      String        @id @default(uuid()) @db.Uuid
+  claimId String        @map("claim_id") @db.Uuid
+  claim   WarrantyClaim @relation(fields: [claimId], references: [id])
+
+  fromStatus WarrantyClaimStatus? @map("from_status")
+  toStatus   WarrantyClaimStatus  @map("to_status")
+
+  actorType ActorType @map("actor_type")
+  actorRef  String?   @map("actor_ref")
+  reason    String?
+  metadata  Json?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([claimId, createdAt])
+  @@map("warranty_claim_event")
+}
+
+/// M15. Upload REFERENCES only — key, content type, size, checksum. Never
+/// the bytes (spec §5: uploads go behind a port; the production storage
+/// adapter lands when `STORAGE_*` credentials do — this table is that port's
+/// domain-side record and does not change shape when the adapter arrives).
+/// Append-only: an uploaded piece of evidence is never silently edited or
+/// removed, same reasoning as every other evidence table in this schema.
+model WarrantyClaimUpload {
+  id      String        @id @default(uuid()) @db.Uuid
+  claimId String        @map("claim_id") @db.Uuid
+  claim   WarrantyClaim @relation(fields: [claimId], references: [id])
+
+  kind        WarrantyClaimUploadKind @map("kind")
+  storageKey  String                  @map("storage_key")
+  contentType String                  @map("content_type")
+  sizeBytes   BigInt                  @map("size_bytes")
+  checksum    String
+
+  uploadedByActorType ActorType @map("uploaded_by_actor_type")
+  uploadedByActorRef  String?   @map("uploaded_by_actor_ref")
+  uploadedAt          DateTime  @default(now()) @map("uploaded_at") @db.Timestamptz(6)
+
+  @@index([claimId])
+  @@map("warranty_claim_upload")
+}
+
+/// M16. The remedy CaratForUs selected (§6) and its external references.
+/// Never customer-selected (criterion 162) — nothing here is written from a
+/// customer-facing input; task 5-2's repository only exposes a staff/admin
+/// write path.
+///
+/// IDEMPOTENCY (criterion 163): `@@unique([claimId])` — at most ONE remedy
+/// row per claim, structurally. A retried or duplicated "process this
+/// claim's remedy" call cannot insert a second payable/executable row; it
+/// hits the constraint and must read back the existing row instead (task
+/// 5-2's job). Retries of a FAILED remedy update `status`/`failureReason`/
+/// `processorReference` on this same row rather than inserting a new one —
+/// mirroring `GroupBuyRefund`'s single-row-per-line design, not a
+/// read-then-write race.
+///
+/// Money (criterion 164): refund fields are BigInt minor units + CHAR(3)
+/// currency, populated if and only if `kind = refund`
+/// (`warranty_claim_remedy_refund_money_coherent`, this slice's migration —
+/// mirrors `price_override_kind_bank_payment_price_coherent`'s coupling
+/// style). `repair`/`replacement`/`other` carry no money here; a refund
+/// remedy still executes through Shopify (spec §6), this row is the record
+/// of that decision and its outcome, not a parallel payment rail.
+model WarrantyClaimRemedy {
+  id      String        @id @default(uuid()) @db.Uuid
+  claimId String        @unique @map("claim_id") @db.Uuid
+  claim   WarrantyClaim @relation(fields: [claimId], references: [id])
+
+  kind   WarrantyRemedyKind
+  status WarrantyClaimRemedyStatus @default(pending)
+
+  refundAmountMinorUnits BigInt? @map("refund_amount_minor_units")
+  currency               String? @map("currency") @db.Char(3)
+
+  processorReference String? @map("processor_reference")
+  failureReason      String? @map("failure_reason")
+
+  decidedByActorRef String    @map("decided_by_actor_ref")
+  decidedAt         DateTime  @map("decided_at") @db.Timestamptz(6)
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  localJewellerAuthorization WarrantyClaimLocalJewellerAuthorization?
+
+  @@map("warranty_claim_remedy")
+}
+
+/// INTERNAL ONLY (§7, criteria 165-166). Deliberately its OWN table, joined
+/// only by `remedyId`, rather than columns on `WarrantyClaim` or even on
+/// `WarrantyClaimRemedy` itself. Reasoning (criterion 165's "structurally
+/// obvious", not just commented): the natural query for any customer-facing
+/// claim view — status page, confirmation email, an API response a
+/// storefront can read — is "this claim" or "this claim's remedy", i.e.
+/// `warranty_claim` and/or `warranty_claim_remedy` alone. Neither of those
+/// tables carries a single jeweller column, so a customer-facing serialiser
+/// built the obvious way (select the claim, select its remedy) cannot leak
+/// this data by accident; leaking it would require a DELIBERATE extra join
+/// to a table named, unambiguously, `..._local_jeweller_authorization`. Task
+/// 5-2's repository must not expose a read of this table from any
+/// customer-reachable function, and task 5-3 (customer intake/status routes)
+/// must never import it — noted here for that task's and QA's benefit.
+///
+/// Retains exactly what criterion 166 lists: jeweller selection, the
+/// authorisation and approved scope/cost, communications, invoice/payment
+/// evidence, and completion evidence. `@@unique([remedyId])` — at most one
+/// jeweller arrangement per remedy, matching the remedy's own one-row-per-
+/// claim design.
+model WarrantyClaimLocalJewellerAuthorization {
+  id       String              @id @default(uuid()) @db.Uuid
+  remedyId String              @unique @map("remedy_id") @db.Uuid
+  remedy   WarrantyClaimRemedy @relation(fields: [remedyId], references: [id])
+
+  jewellerName    String  @map("jeweller_name")
+  jewellerContact String? @map("jeweller_contact")
+
+  authorizedScope          String   @map("authorized_scope")
+  authorizedCostMinorUnits BigInt   @map("authorized_cost_minor_units")
+  authorizedCostCurrency   String   @map("authorized_cost_currency") @db.Char(3)
+  authorizedByActorRef     String   @map("authorized_by_actor_ref")
+  authorizedAt             DateTime @map("authorized_at") @db.Timestamptz(6)
+
+  /// "communications" (criterion 166) — free-text log; a structured thread
+  /// is out of scope for MVP1 and not requested.
+  communicationsLog String? @map("communications_log")
+
+  invoiceReference        String? @map("invoice_reference")
+  invoiceAmountMinorUnits BigInt? @map("invoice_amount_minor_units")
+  invoiceAmountCurrency   String? @map("invoice_amount_currency") @db.Char(3)
+  paymentReference        String? @map("payment_reference")
+  /// Criterion 167 — reimbursement is NEVER automatic. A value here records a
+  /// specific manual decision after the fact; nothing in the workflow writes
+  /// it as a side effect of anything else.
+  reimbursementReference  String? @map("reimbursement_reference")
+
+  completionEvidence String?   @map("completion_evidence")
+  completedAt        DateTime? @map("completed_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("warranty_claim_local_jeweller_authorization")
 }
