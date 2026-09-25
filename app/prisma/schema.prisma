@@ -2486,3 +2486,136 @@ model WarrantyClaimLocalJewellerAuthorization {
 
   @@map("warranty_claim_local_jeweller_authorization")
 }
+
+// =============================================================================
+// Slice 11 (subset) — Shipment Evidence (docs/specs/SLICE-11-SHIPMENT-
+// EVIDENCE.md, docs/specs/SLICE-11-READINESS.md, task 5-1-equivalent scope:
+// schema + pure domain only). ONE ROW PER OUTBOUND PACKAGE — what staff
+// actually arranged with a carrier, recorded as fact, not what a policy
+// threshold would compute.
+//
+// THE BOUNDARY THIS SECTION DOES NOT CROSS (read before touching
+// `signatureRequired` or `insuredValue*`). `SLICE-11-READINESS.md` G1: "order
+// value" — the denominator for both README's $100 signature threshold and
+// its "full order value" insurance rule — is undefined in every document
+// that governs this feature, and is an open owner question. Nothing in this
+// schema, and nothing in `app/app/domain/shipping/**`, derives
+// `signatureRequired` from an amount, validates `insuredValueMinorUnits`
+// against an order total, or contains the number 100 in any form. Recording
+// what staff arranged (this section) is a different, safe thing from
+// computing what policy requires (still blocked). See
+// `app/app/domain/shipping/signatureRequirement.ts` for where a future
+// implementer would naturally reach for that derivation, and why it isn't
+// there.
+// =============================================================================
+
+/// M-shipment (criteria 171-175, 179). Tracking is NOT NULL — criterion 172:
+/// "every shipment has tracking" is unconditional in README, so a shipment
+/// row cannot exist without one, structurally, rather than as a convention a
+/// caller could skip. `shipDate` is likewise NOT NULL: this row represents a
+/// package that has actually shipped, not a fulfillment-pending placeholder.
+model Shipment {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Shopify order reference (plain GID string, matching the
+  /// `Acknowledgment`/`LuxuryStealOrderCheck` ref convention) — one order MAY
+  /// have more than one `Shipment` row (split packages); each package is
+  /// independently tracked/insured, consistent with README's rule applying
+  /// per shipment, not per order. `lineRefs` is not modelled here — no
+  /// document specifies split-shipment line attribution, and inventing that
+  /// mapping is out of this task's scope (see spec §8).
+  orderRef String @map("order_ref")
+
+  carrier        String
+  service        String?
+  /// Criterion 172 — unconditional, never null.
+  trackingNumber String   @map("tracking_number")
+  shipDate       DateTime @map("ship_date") @db.Date
+
+  /// Criterion 173 — money as integer minor units + currency, present
+  /// together or absent together (`shipment_insured_value_coherent`, this
+  /// slice's migration). NEVER validated against an order total here — see
+  /// this file's section header and criterion 174/175.
+  insuredValueMinorUnits BigInt? @map("insured_value_minor_units")
+  insuredValueCurrency   String? @map("insured_value_currency") @db.Char(3)
+  insuranceReference     String? @map("insurance_reference")
+
+  /// Criterion 174 — a fact staff recorded about what was actually arranged
+  /// for THIS shipment, never a value this schema or any domain function
+  /// derives from an amount. Defaults false: most shipments arrange nothing
+  /// beyond the default until a staff member records otherwise.
+  signatureRequired              Boolean   @default(false) @map("signature_required")
+  signatureRequiredSetByActorRef String?   @map("signature_required_set_by_actor_ref")
+  signatureRequiredSetAt         DateTime? @map("signature_required_set_at") @db.Timestamptz(6)
+
+  /// "Delivery evidence" (criterion 171) — what the carrier confirmed, not
+  /// what the app predicts. Both nullable: a freshly-recorded shipment has
+  /// not been delivered yet.
+  deliveredAt                   DateTime? @map("delivered_at") @db.Timestamptz(6)
+  deliveryConfirmationReference String?   @map("delivery_confirmation_reference")
+  proofOfSignatureReference     String?   @map("proof_of_signature_reference")
+
+  /// Criterion 176 — the address this shipment is going to. Populated by the
+  /// caller (a later repository/route task) from the checkout/payment-
+  /// approved address; this schema does not fetch or validate it against
+  /// Shopify — see spec §8. Plain fields, not JSON, so `ShipmentAddressChangeEvent`
+  /// below can carry the same shape symmetrically.
+  addressLine1      String  @map("address_line1")
+  addressLine2      String? @map("address_line2")
+  addressCity       String  @map("address_city")
+  addressRegion     String? @map("address_region")
+  addressPostalCode String  @map("address_postal_code")
+  addressCountry    String  @map("address_country")
+
+  /// Criterion 179 — staff provenance. Never a customer-submitted value: a
+  /// shipment row is staff's record of what they arranged, not a form a
+  /// customer fills in.
+  enteredByActorRef String   @map("entered_by_actor_ref")
+  enteredAt         DateTime @default(now()) @map("entered_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  addressChanges ShipmentAddressChangeEvent[]
+
+  @@index([orderRef])
+  @@index([trackingNumber])
+  @@map("shipment")
+}
+
+/// Criteria 176-178 — append-only (this slice's migration extends
+/// `prevent_evidence_mutation`/`prevent_evidence_truncate`, migrations
+/// 20260913000100/20260914000000, unchanged). A change is recorded, never
+/// overwritten in place: the before/after address, who changed it, when, and
+/// why when given. `reason` is optional, mirroring `AuditEvent.reason`'s own
+/// optionality — this repo has never required a reason to make an audit
+/// trail valid, only that one be captured when offered.
+model ShipmentAddressChangeEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  shipmentId String   @map("shipment_id") @db.Uuid
+  shipment   Shipment @relation(fields: [shipmentId], references: [id])
+
+  fromAddressLine1      String  @map("from_address_line1")
+  fromAddressLine2      String? @map("from_address_line2")
+  fromAddressCity       String  @map("from_address_city")
+  fromAddressRegion     String? @map("from_address_region")
+  fromAddressPostalCode String  @map("from_address_postal_code")
+  fromAddressCountry    String  @map("from_address_country")
+
+  toAddressLine1      String  @map("to_address_line1")
+  toAddressLine2      String? @map("to_address_line2")
+  toAddressCity       String  @map("to_address_city")
+  toAddressRegion     String? @map("to_address_region")
+  toAddressPostalCode String  @map("to_address_postal_code")
+  toAddressCountry    String  @map("to_address_country")
+
+  reason String?
+
+  actorType ActorType @map("actor_type")
+  actorRef  String?   @map("actor_ref")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([shipmentId, createdAt])
+  @@map("shipment_address_change_event")
+}
