@@ -18,6 +18,7 @@ import {
   recordWarrantyClaimReceipt,
   recordWarrantyClaimUpload,
   resolveWarrantyClaim,
+  searchWarrantyClaimsForStaff,
   staffRecordLocalJewellerAuthorization,
   startWarrantyClaimReview,
   updateWarrantyClaimRemedyStatus,
@@ -59,7 +60,7 @@ async function createAcknowledgment(slugPrefix: string) {
   });
 }
 
-async function submitClaim() {
+async function submitClaim(overrides: { purchaserEmail?: string } = {}) {
   const accuracy = await createAcknowledgment("warranty-accuracy-certification");
   const coverageNotEstablished = await createAcknowledgment("warranty-coverage-not-established");
   return createWarrantyClaim({
@@ -67,7 +68,7 @@ async function submitClaim() {
     lineRef: `gid://shopify/LineItem/${uniq()}`,
     itemConfigurationDescription: "14k gold solitaire ring, size 7",
     purchaserName: "Test Purchaser",
-    purchaserEmail: "purchaser@example.com",
+    purchaserEmail: overrides.purchaserEmail ?? "purchaser@example.com",
     problemDescription: "Prong appears to have a defective solder joint.",
     hadImpactOrDamageEvent: false,
     wasAlteredAfterDelivery: false,
@@ -376,5 +377,118 @@ describe("Uploads — metadata only (spec §5)", () => {
 
     const count = await prisma.warrantyClaimUpload.count({ where: { claimId: claim.id } });
     expect(count).toBe(0);
+  });
+});
+
+describe("searchWarrantyClaimsForStaff — the triage list (task 5-4)", () => {
+  // Combined with `query: <claimReference>` in every case below — this file
+  // (and the schema-test file sharing the same disposable database) creates
+  // many other "submitted" claims, and the list is deliberately
+  // oldest-first/paginated (see the function's own doc comment), so a plain
+  // status filter with no query would put a freshly created claim on a page
+  // far past the default page size. Scoping by the claim's own unique
+  // reference isolates exactly what each assertion is about, independent of
+  // how many other claims exist in this shared database.
+  it("filters by a single status", async () => {
+    const submitted = await submitClaim();
+    const covered = await submitClaim();
+    await walkToApprovedCovered(covered.id);
+
+    const submittedResult = await searchWarrantyClaimsForStaff({ status: "submitted", query: submitted.claimReference });
+    expect(submittedResult.rows.map((row) => row.id)).toContain(submitted.id);
+
+    const coveredUnderSubmittedFilter = await searchWarrantyClaimsForStaff({
+      status: "submitted",
+      query: covered.claimReference,
+    });
+    expect(coveredUnderSubmittedFilter.rows.map((row) => row.id)).not.toContain(covered.id);
+  });
+
+  it("filters by a list of statuses", async () => {
+    const submitted = await submitClaim();
+    const covered = await submitClaim();
+    await walkToApprovedCovered(covered.id);
+    const untouched = await submitClaim();
+    await startWarrantyClaimReview(untouched.id, { actorType: "staff", actorRef: "staff:x" });
+
+    const submittedResult = await searchWarrantyClaimsForStaff({
+      status: ["submitted", "approved_covered"],
+      query: submitted.claimReference,
+    });
+    expect(submittedResult.rows.map((row) => row.id)).toContain(submitted.id);
+
+    const coveredResult = await searchWarrantyClaimsForStaff({
+      status: ["submitted", "approved_covered"],
+      query: covered.claimReference,
+    });
+    expect(coveredResult.rows.map((row) => row.id)).toContain(covered.id);
+
+    const untouchedResult = await searchWarrantyClaimsForStaff({
+      status: ["submitted", "approved_covered"],
+      query: untouched.claimReference,
+    });
+    expect(untouchedResult.rows.map((row) => row.id)).not.toContain(untouched.id);
+  });
+
+  it("is deterministically ordered oldest-submitted-first", async () => {
+    // A shared, unique-to-this-test purchaser email lets `query` return
+    // exactly these three claims together, in one real combined page — this
+    // database accumulates claims across the whole suite, so ordering
+    // assertions against an UNSCOPED list would be flaky by construction
+    // long before this test's own logic is wrong.
+    const email = `warranty-ordering-${uniq()}@example.com`;
+    const first = await submitClaim({ purchaserEmail: email });
+    const second = await submitClaim({ purchaserEmail: email });
+    const third = await submitClaim({ purchaserEmail: email });
+
+    const result = await searchWarrantyClaimsForStaff({ query: email });
+    expect(result.rows.map((row) => row.id)).toEqual([first.id, second.id, third.id]);
+  });
+
+  it("paginates: page 1 and page 2 do not overlap, and totalCount reflects the full filtered set", async () => {
+    const claims = await Promise.all(Array.from({ length: 5 }, () => submitClaim()));
+    const claimIds = new Set(claims.map((c) => c.id));
+
+    const page1 = await searchWarrantyClaimsForStaff({ status: "submitted", page: 1, pageSize: 2 });
+    const page2 = await searchWarrantyClaimsForStaff({ status: "submitted", page: 2, pageSize: 2 });
+
+    const page1Ids = page1.rows.map((r) => r.id).filter((id) => claimIds.has(id));
+    const page2Ids = page2.rows.map((r) => r.id).filter((id) => claimIds.has(id));
+    expect(page1.rows).toHaveLength(2);
+    expect(page2.rows).toHaveLength(2);
+    for (const id of page1Ids) expect(page2Ids).not.toContain(id);
+    expect(page1.totalCount).toBeGreaterThanOrEqual(5);
+    expect(page1.totalCount).toBe(page2.totalCount);
+  });
+
+  it("caps pageSize at the maximum regardless of what is requested", async () => {
+    const result = await searchWarrantyClaimsForStaff({ pageSize: 10_000 });
+    expect(result.pageSize).toBe(100);
+  });
+
+  it("matches free-text query against claimReference, orderRef, purchaserName, purchaserEmail", async () => {
+    const claim = await submitClaim();
+    const byReference = await searchWarrantyClaimsForStaff({ query: claim.claimReference });
+    expect(byReference.rows.map((r) => r.id)).toContain(claim.id);
+
+    const byOrderRef = await searchWarrantyClaimsForStaff({ query: claim.orderRef });
+    expect(byOrderRef.rows.map((r) => r.id)).toContain(claim.id);
+  });
+
+  it("never returns jeweller data — the projection has no remedy field to leak it through", async () => {
+    const claim = await submitClaim();
+    await walkToApprovedCovered(claim.id);
+    const remedy = await createWarrantyClaimRemedy({ claimId: claim.id, kind: "repair", decidedByActorRef: "staff:alice" });
+    await staffRecordLocalJewellerAuthorization({
+      remedyId: remedy.id,
+      jewellerName: "Example Local Jewellers",
+      authorizedScope: "Re-solder loose prong",
+      authorizedCostMinorUnits: 75_00n,
+      authorizedCostCurrency: "USD",
+      authorizedByActorRef: "staff:alice",
+    });
+
+    const result = await searchWarrantyClaimsForStaff({ query: claim.claimReference });
+    expect(JSON.stringify(result)).not.toMatch(/jewell/i);
   });
 });
