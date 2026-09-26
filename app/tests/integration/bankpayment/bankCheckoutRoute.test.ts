@@ -20,12 +20,25 @@ import { action, __setDraftOrderPortForTests } from "~/routes/apps.carat.bank-ch
  * `write_draft_orders` is not yet granted on the dev store (spec §7/§11),
  * and the adapter's own serialisation contract is 2C-1's tested surface,
  * not this route's — see `draftOrderAdapter.test.ts`.
+ *
+ * REQUIRED CUSTOMER ACCOUNTS (docs/REQUIRED-CUSTOMER-ACCOUNTS.md, LOCKED,
+ * approved 2026-09-26) — SECURITY FIX, 2026-09-26. This route used to accept
+ * ANY signed App Proxy request and never once looked at
+ * `loggedInCustomerId`. `checkoutRequest()` below now defaults to an
+ * AUTHENTICATED request (`logged_in_customer_id: DEFAULT_CUSTOMER_ID`), so
+ * every pre-existing test in this file keeps exercising the authenticated
+ * happy path rather than the now-removed anonymous path. See the "docs/
+ * REQUIRED-CUSTOMER-ACCOUNTS.md" describe block below for the tests that
+ * specifically exercise the auth gate itself.
  */
 
 let fixtureSequence = 0;
 const uniq = (): string => `${Date.now() % 900_000}-${(fixtureSequence += 1)}`;
 
 const SHOP = "caratforus-dev.myshopify.com";
+/** The default authenticated caller for every test that does not specifically exercise authentication. */
+const DEFAULT_CUSTOMER_ID = "222222";
+const DEFAULT_CUSTOMER_GID = `gid://shopify/Customer/${DEFAULT_CUSTOMER_ID}`;
 
 function signedPost(path: string, queryParams: Record<string, string>, body: unknown): Request {
   const secret = process.env.SHOPIFY_API_SECRET as string;
@@ -46,8 +59,18 @@ function signedPost(path: string, queryParams: Record<string, string>, body: unk
   });
 }
 
+/**
+ * Defaults to an AUTHENTICATED request (`logged_in_customer_id:
+ * DEFAULT_CUSTOMER_ID`) — see this file's REQUIRED CUSTOMER ACCOUNTS header
+ * comment. A test that specifically needs an anonymous caller passes
+ * `query: { shop: SHOP }` explicitly (no `logged_in_customer_id`).
+ */
 function checkoutRequest(overrides: Partial<{ path: string; query: Record<string, string>; body: unknown }> = {}) {
-  return signedPost(overrides.path ?? "/apps/carat/bank-checkout", overrides.query ?? { shop: SHOP }, overrides.body);
+  return signedPost(
+    overrides.path ?? "/apps/carat/bank-checkout",
+    overrides.query ?? { shop: SHOP, logged_in_customer_id: DEFAULT_CUSTOMER_ID },
+    overrides.body
+  );
 }
 
 const SHIPPING_ADDRESS = {
@@ -327,6 +350,105 @@ describe("signature verification", () => {
 
     const response = await action({ request, params: {}, context: {} } as never);
     expect(response.status).toBe(401);
+  });
+});
+
+describe("docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4/§9 case 2 — no anonymous Bank Payment checkout", () => {
+  it("refuses an anonymous request (no logged_in_customer_id) with 401 authentication_required, BEFORE the body is parsed, and creates no draft order", async () => {
+    const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 50_000n });
+    const port = fakeDraftOrderPort();
+    __setDraftOrderPortForTests(port);
+
+    const response = await action({
+      request: checkoutRequest({
+        query: { shop: SHOP },
+        body: {
+          mode: "bank",
+          email: `Buyer-${uniq()}@Example.com`,
+          shippingAddress: SHIPPING_ADDRESS,
+          lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 1 }],
+        },
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: string; message: string };
+    expect(body.error).toBe("authentication_required");
+    // The owner-approved gate copy, verbatim (docs §4) — not reworded.
+    expect(body.message).toBe("Please sign in or create a CaratForUs account to continue.");
+    expect(port.createCalls).toHaveLength(0);
+  });
+
+  it("refuses an anonymous request even with a hostile/malformed body — the auth gate runs before body parsing", async () => {
+    const response = await action({
+      request: new Request(
+        (() => {
+          const url = new URL("https://shop.example.com/apps/carat/bank-checkout");
+          url.searchParams.set("shop", SHOP);
+          const secret = process.env.SHOPIFY_API_SECRET as string;
+          const message = `shop=${SHOP}`;
+          const signature = createHmac("sha256", secret).update(message, "utf8").digest("hex");
+          url.searchParams.set("signature", signature);
+          return url;
+        })(),
+        { method: "POST", headers: { "content-type": "application/json" }, body: "{not json at all" }
+      ),
+      params: {},
+      context: {},
+    } as never);
+    expect(response.status).toBe(401);
+  });
+
+  it("persists the AUTHENTICATED customer identity as customerGid, never the browser-supplied email", async () => {
+    const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 60_000n });
+    const port = fakeDraftOrderPort();
+    __setDraftOrderPortForTests(port);
+
+    const response = await action({
+      request: checkoutRequest({
+        query: { shop: SHOP, logged_in_customer_id: "999888" },
+        body: {
+          mode: "bank",
+          email: `Buyer-${uniq()}@Example.com`,
+          shippingAddress: SHIPPING_ADDRESS,
+          lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 1 }],
+        },
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { bankPaymentOrderId: string };
+    const stored = await prisma.bankPaymentOrder.findUniqueOrThrow({ where: { id: body.bankPaymentOrderId } });
+    expect(stored.customerGid).toBe("gid://shopify/Customer/999888");
+  });
+
+  it("the authenticated happy path still works end to end", async () => {
+    const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 70_000n });
+    const port = fakeDraftOrderPort();
+    __setDraftOrderPortForTests(port);
+
+    const response = await action({
+      request: checkoutRequest({
+        body: {
+          mode: "bank",
+          email: `Buyer-${uniq()}@Example.com`,
+          shippingAddress: SHIPPING_ADDRESS,
+          lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 1 }],
+        },
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { bankPaymentOrderId: string };
+    const stored = await prisma.bankPaymentOrder.findUniqueOrThrow({ where: { id: body.bankPaymentOrderId } });
+    expect(stored.customerGid).toBe(DEFAULT_CUSTOMER_GID);
+    expect(port.createCalls).toHaveLength(1);
   });
 });
 

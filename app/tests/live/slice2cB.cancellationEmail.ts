@@ -105,6 +105,9 @@ async function anOrderDueForCancellation(customerEmail: string) {
     data: {
       shopifyDraftOrderGid: `gid://shopify/DraftOrder/2cb-${suffix}`,
       customerEmail,
+      // docs/REQUIRED-CUSTOMER-ACCOUNTS.md — every real row now carries the
+      // authenticated Shopify customer identity, never just an email.
+      customerGid: `gid://shopify/Customer/2cb-${suffix}`,
       status: "open",
       quotedAt,
       guaranteeExpiresAt: new Date(quotedAt.getTime() + 24 * 60 * 60 * 1000),

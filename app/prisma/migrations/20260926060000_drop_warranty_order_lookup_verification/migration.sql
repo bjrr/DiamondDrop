@@ -1,0 +1,41 @@
+-- D33's guest warranty-order-lookup verification flow is superseded by
+-- docs/REQUIRED-CUSTOMER-ACCOUNTS.md (LOCKED OWNER REQUIREMENT, 2026-09-26),
+-- which requires an authenticated Shopify customer account for warranty
+-- self-service and explicitly forbids a guest order-number + email lookup.
+-- The application code that wrote and read this table
+-- (`warrantyOrderLookupVerificationRepository.server.ts`, the guest branch of
+-- `apps.carat.warranty-order-lookup.tsx`, and `apps.carat.warranty-order-
+-- verify.tsx`) is already deleted; this table has had no reader or writer
+-- since that removal.
+--
+-- THIS IS A REAL, INTENDED, DATA-DESTRUCTIVE DROP — NOT A NO-OP CLEANUP.
+-- Production HAS run this flow: real rows exist, holding a purchaser email
+-- and a SHA-256 token hash per guest lookup attempt. They are being deleted
+-- deliberately, not incidentally. Verified before writing this migration
+-- (architect-approved, 2026-09-26):
+--   * no foreign key anywhere in schema.prisma references this table;
+--   * no reference to it or its enum exists in app/domain/evidence/ or any
+--     audit-event registry;
+--   * a short-lived verification token and the email it was compared
+--     against is not itself a business record anything downstream depends
+--     on, and is not evidence required to be retained under
+--     docs/WARRANTY-CLAIMS.md (a completed WarrantyClaim's own evidence trail
+--     is untouched by this drop -- WarrantyOrderLookupVerification was never
+--     linked to WarrantyClaim by foreign key in the first place).
+-- Retaining this table would leave dead storage holding purchaser emails,
+-- against CLAUDE.md's minimise-PII rule, for no compensating audit value.
+--
+-- TIMESTAMP NOTE: this migration was originally authored as
+-- 20260926040000_drop_warranty_order_lookup_verification and collided with
+-- another agent's 20260926040000_rma_return_policy_acknowledgment_version,
+-- independently hand-authored within minutes of this one and already
+-- committed. Hand-picked timestamps have no collision protection -- before
+-- choosing one, run `ls prisma/migrations` (or equivalent) and confirm the
+-- intended prefix is not already taken, especially when multiple agents may
+-- be working in this directory at once.
+
+-- DropTable
+DROP TABLE "warranty_order_lookup_verification";
+
+-- DropEnum
+DROP TYPE "warranty_order_lookup_verification_email_status";

@@ -241,6 +241,9 @@ async function aQuotedOrder(input: {
     data: {
       shopifyDraftOrderGid: `gid://shopify/DraftOrder/${suffix}`,
       customerEmail: `sweep-${suffix}@example.com`,
+      // docs/REQUIRED-CUSTOMER-ACCOUNTS.md — every real row now carries the
+      // authenticated Shopify customer identity, never just an email.
+      customerGid: `gid://shopify/Customer/${suffix}`,
       status: "open",
       quotedAt: input.quotedAt,
       guaranteeExpiresAt: input.guaranteeExpiresAt,

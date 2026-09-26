@@ -105,7 +105,7 @@ async function main() {
   check(orderRoot !== undefined, "Query.order exists");
   if (orderRoot) {
     const idArg = orderRoot.args?.find((a) => a.name === "id");
-    check(idArg !== undefined, 'Query.order has an "id" argument (used by findOrderByGid)');
+    check(idArg !== undefined, 'Query.order has an "id" argument (used by warrantyClaimOrderLookupAdapter.server.ts)');
     check(namedTypeMatches(orderRoot, "Order"), `Query.order returns Order (got ${orderRoot.type.ofType?.name ?? orderRoot.type.name})`);
   }
 

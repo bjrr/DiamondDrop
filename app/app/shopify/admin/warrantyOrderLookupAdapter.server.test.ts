@@ -58,7 +58,7 @@ describe("ShopifyWarrantyOrderLookupAdapter.findOrderByName", () => {
     });
   });
 
-  it("handles a guest order with no customer on file (customerGid null)", async () => {
+  it("handles an order with no customer on file (customerGid null)", async () => {
     const { client } = fakeClient({
       data: {
         orders: {
@@ -86,34 +86,8 @@ describe("ShopifyWarrantyOrderLookupAdapter.findOrderByName", () => {
   });
 });
 
-describe("ShopifyWarrantyOrderLookupAdapter.findOrderByGid", () => {
-  it("queries by id and maps the result", async () => {
-    const { client, calls } = fakeClient({
-      data: {
-        order: {
-          id: "gid://shopify/Order/1",
-          name: "#1001",
-          email: "purchaser@example.com",
-          customer: { id: "gid://shopify/Customer/1" },
-          lineItems: { nodes: [] },
-        },
-      },
-    });
-    const adapter = new ShopifyWarrantyOrderLookupAdapter(client);
-    const result = await adapter.findOrderByGid("gid://shopify/Order/1");
-    expect(calls[0]!.variables).toEqual({ id: "gid://shopify/Order/1" });
-    expect(result?.orderName).toBe("#1001");
-  });
-
-  it("returns null when the order does not exist", async () => {
-    const { client } = fakeClient({ data: { order: null } });
-    const adapter = new ShopifyWarrantyOrderLookupAdapter(client);
-    await expect(adapter.findOrderByGid("gid://shopify/Order/999")).resolves.toBeNull();
-  });
-});
-
 describe("RecordingWarrantyOrderLookupPort", () => {
-  it("resolves a seeded order by name, and the same order by its GID", async () => {
+  it("resolves a seeded order by name", async () => {
     const port = new RecordingWarrantyOrderLookupPort();
     port.seedByName("#1001", {
       orderGid: "gid://shopify/Order/1",
@@ -123,15 +97,12 @@ describe("RecordingWarrantyOrderLookupPort", () => {
     });
 
     await expect(port.findOrderByName("#1001")).resolves.toMatchObject({ orderName: "#1001" });
-    await expect(port.findOrderByGid("gid://shopify/Order/1")).resolves.toMatchObject({ orderName: "#1001" });
     await expect(port.findOrderByName("#404")).resolves.toBeNull();
   });
 
   it("records every call made against it", async () => {
     const port = new RecordingWarrantyOrderLookupPort();
     await port.findOrderByName("#1001");
-    await port.findOrderByGid("gid://shopify/Order/1");
     expect(port.byNameCalls).toEqual(["#1001"]);
-    expect(port.byGidCalls).toEqual(["gid://shopify/Order/1"]);
   });
 });

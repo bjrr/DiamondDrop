@@ -21,11 +21,20 @@
   L3 exists to catch, avoided here by construction rather than by a
   re-apply step.
 
-  D20 — prefilled from `customer`/`customer.default_address` where present
-  (Liquid's own signal for a logged-in session), never gated on it: a guest
-  can fill this in and check out without an account. Nothing here is
-  server-persisted by this snippet; Shopify's own `customer` object is the
-  read, matching criteria 97-99's "read from Shopify, never duplicate".
+  ACCOUNT REQUIRED (supersedes the original D20 note as of
+  docs/REQUIRED-CUSTOMER-ACCOUNTS.md, a locked owner decision). The server
+  route (apps.carat.bank-checkout.tsx) now rejects any Bank Payment request
+  without an authenticated Shopify customer identity — anonymous submission
+  fails closed there regardless of what this template does. This snippet is
+  gated to match: a signed-out shopper (`customer` is `nil`) never sees the
+  form fields at all, only a sign-in requirement (see the `customer`
+  conditional below), so nobody fills in a full shipping form only to hit a
+  401 at the end. When `customer` IS present, fields are still prefilled
+  from `customer`/`customer.default_address` exactly as before — nothing
+  here is server-persisted by this snippet; Shopify's own `customer` object
+  is the read, matching criteria 97-99's "read from Shopify, never
+  duplicate". Client-side gating is presentation only, never enforcement;
+  the 401 path above is what actually protects this endpoint.
 
   Criterion 84 — the not-committed disclosure is static, unconditional
   markup directly under the heading, so it is visible before any field is
@@ -33,7 +42,16 @@
   or tooltip.
 
   COPY STATUS: every `bank_payment_checkout_form.*` locale key below is a
-  DRAFT pending owner approval (see the 2C-6 handoff). None is pinned in
+  DRAFT pending owner approval (see the 2C-6 handoff), EXCEPT
+  `sign_in_required_message` (rendered by this file) and
+  `error_authentication_required` (rendered from `bank-payment-checkout.js`
+  via `window.cartStrings.caratBankCheckout` in layout/theme.liquid, for the
+  same-401-after-page-load edge case — see that JS file's own comment on
+  `messageKeyForFailure`). Both carry the owner-approved gate sentence from
+  docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4 and must stay character-for-character
+  identical to that document and to the matching server-side message in
+  apps.carat.bank-checkout.tsx/apps.carat.rma-intake.tsx — do not reword,
+  expand or split it. None of the draft keys is pinned in
   ownerApprovedCopy.test.ts yet — that happens only after sign-off, matching
   how the cancellation email's copy was handled in Slice 2C-b.
 {%- endcomment -%}
@@ -47,7 +65,11 @@
   >
     <div class="carat-bank-checkout-modal__header">
       <h2 id="CaratBankCheckoutTitle" class="carat-bank-checkout-modal__title h3">
-        {{ 'sections.cart.bank_payment_checkout_form.heading' | t }}
+        {%- if customer -%}
+          {{ 'sections.cart.bank_payment_checkout_form.heading' | t }}
+        {%- else -%}
+          {{ 'sections.cart.bank_payment_checkout_form.sign_in_required_heading' | t }}
+        {%- endif -%}
       </h2>
       <button
         id="ModalClose-CaratBankCheckoutModal"
@@ -62,12 +84,23 @@
     {%- comment -%}
       Criterion 84: not-committed / not-guaranteed-until-verified disclosure.
       Always rendered, never `hidden`, ahead of every field — see this
-      file's own header comment.
+      file's own header comment. Kept OUTSIDE the `customer` conditional
+      below on purpose: criterion 84 requires this specific element to never
+      sit behind any conditional, so the account-required gate branches
+      AFTER it rather than around it.
     {%- endcomment -%}
     <p class="carat-bank-checkout-modal__disclosure" data-carat-bank-checkout-disclosure>
       {{ 'sections.cart.bank_payment_checkout_form.not_committed_disclosure' | t }}
     </p>
 
+    {%- comment -%}
+      ACCOUNT REQUIRED — see this file's own header comment. A signed-out
+      shopper (`customer` is `nil`) gets the sign-in requirement below
+      INSTEAD of the error-summary/form; a signed-in shopper gets the real
+      form unchanged. This is a server-side render-time decision (Liquid's
+      own `customer` object), not a client-side hide-after-render.
+    {%- endcomment -%}
+    {%- if customer -%}
     {%- comment -%}
       Error summary: JS populates this with a heading + a list of what
       failed and moves focus here on any submission failure (client
@@ -329,5 +362,33 @@
         data-carat-bank-checkout-status
       ></p>
     </form>
+    {%- else -%}
+    {%- comment -%}
+      Sign-in requirement (docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4). Real
+      heading above (the `h2#CaratBankCheckoutTitle` swaps its text for this
+      branch — see this file's own header comment), a plain-text pinned
+      sentence, and a genuine link the shopper can reach and activate with
+      the keyboard alone. No colour-only signal: the state is conveyed by
+      this content replacing the form entirely, not by a badge or tint.
+      `modal-dialog`'s own `show()` (global.js) computes the focus trap's
+      tabbable elements from what is actually in the DOM at open time, so
+      with no form present the trap correctly contains only the close
+      button and this sign-in link — no extra wiring needed here.
+    {%- endcomment -%}
+    <div class="carat-bank-checkout-modal__signin-required" data-carat-bank-checkout-signin-required>
+      <p class="carat-bank-checkout-modal__signin-message">
+        {{ 'sections.cart.bank_payment_checkout_form.sign_in_required_message' | t }}
+      </p>
+      <div class="carat-bank-checkout-modal__actions">
+        <a
+          href="{{ routes.account_login_url }}?return_url={{ request.path | url_encode }}"
+          class="button"
+          data-carat-bank-checkout-signin-link
+        >
+          {{ 'customer.log_in' | t }}
+        </a>
+      </div>
+    </div>
+    {%- endif -%}
   </div>
 </modal-dialog>

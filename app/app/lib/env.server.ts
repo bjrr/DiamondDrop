@@ -52,14 +52,6 @@ const envSchema = z.object({
   EMAIL_API_KEY: z.string().optional(), // first transactional email (slice 7+)
   EMAIL_FROM: z.string().optional(),
   STAFF_EMAIL_ALLOWLIST: z.string().optional(), // first admin auth (slice 2+)
-  // D33 — the storefront page path a guest's emailed warranty order-lookup
-  // verification link points to (that page's JS then POSTs the token to
-  // apps.carat.warranty-order-verify; the link itself must not perform the
-  // redemption on a bare GET — see that route's own doc comment on
-  // email-scanner link prefetch). Defaults in code to "/pages/warranty-claim-verify"
-  // when unset — a naming ASSUMPTION for whoever builds that storefront page,
-  // not an owner-locked slug; override here if a different page is used.
-  WARRANTY_ORDER_VERIFY_PATH: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

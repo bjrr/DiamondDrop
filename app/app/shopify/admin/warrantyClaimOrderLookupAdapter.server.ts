@@ -26,11 +26,15 @@ import { AdminApiError } from "./productClient.server";
  * 10), and — most importantly — NO CUSTOMER-OWNERSHIP VERIFICATION beyond
  * returning `customerGid`/`orderEmail` for the CALLER to compare against
  * what the claimant supplied. Deciding whether the order genuinely belongs
- * to the person filing the claim is `apps.carat.warranty-claim.tsx`'s job
- * (a light same-logged-in-customer check) and, more substantively, staff
- * review during `under_review` (`WARRANTY-CLAIMS.md` §3 — CaratForUs
- * reviews every claim before authorizing anything) — never fully automated
- * here.
+ * to the person filing the claim is `apps.carat.warranty-claim.tsx`'s job.
+ * UPDATED 2026-09-26 (docs/REQUIRED-CUSTOMER-ACCOUNTS.md): that route now
+ * enforces a HARD match — `resolvedOrder.customerGid` must equal the
+ * authenticated caller exactly, refusing an anonymous caller, a mismatched
+ * customer, and an order with no customer on file alike — superseding the
+ * "light" same-logged-in-customer check this comment used to describe. More
+ * substantively, staff review during `under_review` (`WARRANTY-CLAIMS.md`
+ * §3 — CaratForUs reviews every claim before authorizing anything) still
+ * never happens here.
  */
 
 interface GraphqlEnvelope {

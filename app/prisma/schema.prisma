@@ -1478,6 +1478,31 @@ model BankPaymentOrder {
   /// postal address beside it; that reasoning does not extend to it.
   customerEmail String @map("customer_email")
 
+  /// docs/REQUIRED-CUSTOMER-ACCOUNTS.md (LOCKED, approved 2026-09-26) §4/§9
+  /// case 2 -- THE AUTHORIZATION BASIS, unlike `customerEmail` above. The
+  /// AUTHENTICATED Shopify customer identity (`gid://shopify/Customer/<id>`)
+  /// resolved from the signed App Proxy `logged_in_customer_id` -- never
+  /// from the request body's `email`, which a signed-out browser can set to
+  /// anything.
+  ///
+  /// NOT NULL, DELIBERATELY, AT THE DB LEVEL -- not merely enforced by the
+  /// fixed route's fail-closed application check. A row with no authenticated
+  /// customer is precisely the state docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4
+  /// makes impossible, and "the route is correct" is exactly the assumption
+  /// that produced the defect this column closes (`apps.carat.bank-checkout.tsx`
+  /// shipped with zero references to `loggedInCustomerId`). The constraint is
+  /// what catches the next route, backfill or script that gets this wrong --
+  /// a comment cannot enforce anything. Every pre-existing test fixture that
+  /// constructed a `bank_payment_order` row with no customer identity has
+  /// been updated to supply one (architect review, 2026-09-26) rather than
+  /// relaxing this column to accommodate them. See migration
+  /// 20260926050000_bank_payment_order_customer_gid for the backfill of
+  /// pre-existing rows (that migration runs against production via the Fly
+  /// release command, not only dev -- read its header before assuming any
+  /// row this touches is disposable) and for what to do if a row is ever
+  /// found that represents a real customer's order predating this column.
+  customerGid String @map("customer_gid")
+
   /// The instant the 24-hour guarantee (criterion 44) starts counting from.
   quotedAt           DateTime @map("quoted_at") @db.Timestamptz(6)
   guaranteeExpiresAt DateTime @map("guarantee_expires_at") @db.Timestamptz(6)
@@ -1561,6 +1586,7 @@ model BankPaymentOrder {
   lines BankPaymentOrderLine[]
 
   @@index([status])
+  @@index([customerGid])
   @@map("bank_payment_order")
 }
 
@@ -2492,87 +2518,15 @@ model WarrantyClaimLocalJewellerAuthorization {
   @@map("warranty_claim_local_jeweller_authorization")
 }
 
-/// D33 (docs/ARCHITECTURE-MVP1.md) — the guest warranty-order-lookup
-/// verification flow. A guest supplies an order number + email; if they
-/// match a real order, a short-lived, single-use token is emailed to that
-/// order's address, and ONLY successful redemption reveals the order/line
-/// data `apps.carat.warranty-claim.tsx` needs. Deliberately NOT keyed to a
-/// `WarrantyClaim` row — a lookup can happen (and expire, or be abandoned)
-/// with no claim ever filed, so this is its own append-adjacent evidence
-/// table, not a column on `WarrantyClaim`.
-///
-/// TOKEN HANDLING MIRRORS A PASSWORD: `tokenHash` is a SHA-256 digest of a
-/// random 256-bit value minted by the application; the raw token is never
-/// stored anywhere, only returned once (in the email) at creation time. A
-/// leaked database row cannot be turned back into a working link.
-/// `@@unique` on `tokenHash` is both the lookup index and (with the
-/// application's conditional `UPDATE ... WHERE consumed_at IS NULL` — see
-/// `warrantyOrderLookupVerificationRepository.server.ts`) the mechanism that
-/// makes redemption single-use under concurrent attempts: two simultaneous
-/// redemptions race on updating the SAME row, and Postgres row-level locking
-/// guarantees at most one UPDATE reports a changed row.
-///
-/// `purchaserEmail`/`orderName` are stored only so a redeemed token's
-/// original claim (which order, whose email matched) is auditable without
-/// re-deriving it — the actual line-item data returned to the customer is
-/// always re-fetched fresh from Shopify at redemption time, never served
-/// from here (see the repository's own header comment).
-model WarrantyOrderLookupVerification {
-  id String @id @default(uuid()) @db.Uuid
-
-  tokenHash String @unique @map("token_hash")
-
-  orderRef       String @map("order_ref")
-  orderName      String @map("order_name")
-  purchaserEmail String @map("purchaser_email")
-
-  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
-  /// Set exactly once, by the single conditional UPDATE described above.
-  /// Never cleared/reused — a consumed row stays consumed forever.
-  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
-
-  /// THE DURABLE DELIVERY RECORD for this row's own verification email —
-  /// team-lead review note: a support agent looking at THIS row must be able
-  /// to tell "sent" apart from "attempted and failed" apart from "never
-  /// attempted because unconfigured" without cross-referencing logs. Mirrors
-  /// `BankPaymentOrder.cancellationEmailStatus`'s exact shape/reasoning (a
-  /// SEPARATE enum from that one and from `AdminAlertEmailDeliveryStatus`,
-  /// even though the members are identical, because each records a
-  /// different, independent send — see that column's own doc comment for why
-  /// sharing one enum across unrelated sends would be a false relationship).
-  /// NULL means the dispatch attempt has not completed (or the process
-  /// crashed before recording it) — written from the same fire-and-forget
-  /// path the route already uses for the send itself, and always AFTER the
-  /// HTTP response has already gone out, so this write can never introduce
-  /// the timing side-channel the route's own module comment describes, and a
-  /// failure to write this column is caught and logged, never allowed to
-  /// affect the customer's lookup request.
-  verificationEmailStatus            WarrantyOrderLookupVerificationEmailStatus? @map("verification_email_status")
-  /// The provider's own message id — proof of ACCEPTANCE, not merely of an
-  /// attempt (see `EmailPort.send`'s own doc comment). Set only when
-  /// `verificationEmailStatus = sent`, enforced by
-  /// `warranty_order_lookup_verification_email_message_id_only_when_sent`.
-  verificationEmailProviderMessageId String?                                      @map("verification_email_provider_message_id")
-  /// Set together with `verificationEmailStatus`, always — enforced by
-  /// `warranty_order_lookup_verification_email_attempted_pairing`.
-  verificationEmailAttemptedAt       DateTime?                                    @map("verification_email_attempted_at") @db.Timestamptz(6)
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  @@index([expiresAt])
-  @@map("warranty_order_lookup_verification")
-}
-
-/// See `WarrantyOrderLookupVerification.verificationEmailStatus`'s own doc
-/// comment for why this is a distinct type from `BankPaymentCancellationEmailStatus`
-/// and `AdminAlertEmailDeliveryStatus` despite identical members.
-enum WarrantyOrderLookupVerificationEmailStatus {
-  sent
-  skipped_unconfigured
-  failed
-
-  @@map("warranty_order_lookup_verification_email_status")
-}
+// D33's guest warranty-order-lookup verification flow (model
+// WarrantyOrderLookupVerification, enum WarrantyOrderLookupVerificationEmailStatus)
+// was REMOVED 2026-09-26 — superseded by docs/REQUIRED-CUSTOMER-ACCOUNTS.md
+// (LOCKED OWNER REQUIREMENT), which requires an authenticated Shopify
+// customer account for warranty self-service and forbids a guest
+// order-number + email lookup entirely. Dropped via migration
+// 20260926060000_drop_warranty_order_lookup_verification — see that
+// migration's own comment for why this was a real, intended data-destructive
+// drop (production had live rows) rather than a no-op cleanup.
 
 // =============================================================================
 // Slice 11 (subset) — Shipment Evidence (docs/specs/SLICE-11-SHIPMENT-

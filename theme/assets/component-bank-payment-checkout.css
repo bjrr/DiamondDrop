@@ -157,3 +157,11 @@
 .carat-bank-checkout-modal__status {
   margin: 1.5rem 0 0;
 }
+
+/* Sign-in requirement (docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4), rendered
+   instead of the form for a signed-out shopper — see
+   bank-payment-checkout-dialog.liquid. Reuses `.carat-bank-checkout-modal
+   __actions` for the link so it lines up with the form's own button row. */
+.carat-bank-checkout-modal__signin-message {
+  margin: 0 0 1.5rem;
+}

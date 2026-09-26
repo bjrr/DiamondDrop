@@ -37,12 +37,28 @@ import { RecordingWarrantyClaimOrderLookupPort } from "~/shopify/admin/warrantyC
  * suite proved returns 503 before the copy was approved, and the same
  * safety net `/health`'s `checkRequiredPolicyVersionsProvisioned` covers
  * now that this slug is registered in `~/domain/evidence/requiredPolicyVersions`.
+ *
+ * REQUIRED CUSTOMER ACCOUNTS (docs/REQUIRED-CUSTOMER-ACCOUNTS.md, LOCKED,
+ * approved 2026-09-26) — SECURITY FIX, 2026-09-26. This route used to accept
+ * an anonymous caller and only lightly checked ownership (block only when
+ * BOTH a logged-in customer AND an order customer were present and
+ * disagreed). `claimRequest()` below now defaults to an AUTHENTICATED
+ * request (`logged_in_customer_id: DEFAULT_CUSTOMER_ID`), and
+ * `useResolvableOrderLookup()` defaults the resolved order's own customer to
+ * match that same id, so every pre-existing test in this file that does not
+ * care about ownership keeps exercising the authenticated happy path rather
+ * than the now-removed guest path. Tests that DO care about authentication
+ * override one side or the other explicitly — see "REQUIRED CUSTOMER
+ * ACCOUNTS" describe block below.
  */
 
 let seq = 0;
 const uniq = () => `${Date.now() % 900_000}-${(seq += 1)}`;
 
 const SHOP = "caratforus-dev.myshopify.com";
+/** The default authenticated caller for every test that does not specifically exercise authentication/ownership. */
+const DEFAULT_CUSTOMER_ID = "111111";
+const DEFAULT_CUSTOMER_GID = `gid://shopify/Customer/${DEFAULT_CUSTOMER_ID}`;
 
 function signedPost(path: string, queryParams: Record<string, string>, body: unknown, options: { rawBody?: string } = {}): Request {
   const secret = process.env.SHOPIFY_API_SECRET as string;
@@ -63,10 +79,16 @@ function signedPost(path: string, queryParams: Record<string, string>, body: unk
   });
 }
 
+/**
+ * Defaults to an AUTHENTICATED request (`logged_in_customer_id: DEFAULT_CUSTOMER_ID`)
+ * — see this file's REQUIRED CUSTOMER ACCOUNTS header comment. A test that
+ * specifically needs an anonymous caller passes `query: { shop: SHOP }`
+ * explicitly (no `logged_in_customer_id`).
+ */
 function claimRequest(overrides: Partial<{ query: Record<string, string>; body: unknown; rawBody: string }> = {}) {
   return signedPost(
     "/apps/carat/warranty-claim",
-    overrides.query ?? { shop: SHOP },
+    overrides.query ?? { shop: SHOP, logged_in_customer_id: DEFAULT_CUSTOMER_ID },
     overrides.body,
     overrides.rawBody !== undefined ? { rawBody: overrides.rawBody } : {}
   );
@@ -98,12 +120,21 @@ function baseClaimBody(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** Wires a fake order-lookup port pre-seeded to resolve exactly this order/line. Returns the port so a test can also seed additional combinations. */
+/**
+ * Wires a fake order-lookup port pre-seeded to resolve exactly this
+ * order/line. Defaults the resolved order's OWN customer to
+ * `DEFAULT_CUSTOMER_GID` — matching `claimRequest()`'s default authenticated
+ * caller — so a test that does not care about ownership gets the
+ * authenticated happy path. Pass `customerGid: null` explicitly to simulate
+ * an order with no customer on file, or a different gid to simulate a
+ * mismatch. Returns the port so a test can also seed additional
+ * combinations.
+ */
 function useResolvableOrderLookup(orderGid: string, lineGid: string, extra: { customerGid?: string | null } = {}) {
   const port = new RecordingWarrantyClaimOrderLookupPort();
   port.seed(orderGid, lineGid, {
     orderName: "#1001",
-    customerGid: extra.customerGid ?? null,
+    customerGid: extra.customerGid !== undefined ? extra.customerGid : DEFAULT_CUSTOMER_GID,
     orderEmail: "purchaser@example.com",
   });
   __setWarrantyClaimOrderLookupPortForTests(port);
@@ -174,6 +205,56 @@ describe("method and signature guards", () => {
     });
     const response = await callAction(request);
     expect(response.status).toBe(401);
+  });
+});
+
+describe("docs/REQUIRED-CUSTOMER-ACCOUNTS.md §5/§9 cases 3-5 — no guest path anywhere in this route", () => {
+  it("refuses an anonymous request (no logged_in_customer_id) with 401 authentication_required, BEFORE the body is parsed, and creates no claim", async () => {
+    const before = await prisma.warrantyClaim.count();
+
+    const response = await callAction(
+      claimRequest({ query: { shop: SHOP }, body: baseClaimBody() })
+    );
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: string; message: string };
+    expect(body.error).toBe("authentication_required");
+    // The owner-approved gate copy, verbatim (docs §4) — not reworded.
+    expect(body.message).toBe("Please sign in or create a CaratForUs account to continue.");
+    await expect(prisma.warrantyClaim.count()).resolves.toBe(before);
+  });
+
+  it("refuses an anonymous request even with hostile/malformed JSON — the auth gate runs before body parsing", async () => {
+    const response = await callAction(
+      claimRequest({ query: { shop: SHOP }, rawBody: "{not json at all" })
+    );
+    expect(response.status).toBe(401);
+  });
+
+  it("refuses when the resolved order has no customer on file, even for an authenticated caller (no self-service bypass for a customer-less order)", async () => {
+    const claimBody = baseClaimBody();
+    useResolvableOrderLookup(claimBody.orderRef, claimBody.lineRef, { customerGid: null });
+
+    const before = await prisma.warrantyClaim.count();
+    const response = await callAction(claimRequest({ body: claimBody }));
+
+    expect(response.status).toBe(422);
+    const body = (await response.json()) as { error: string };
+    // SAME generic response as "does not exist" / "belongs to someone else"
+    // (docs §5, §9 case 5) — this endpoint must not distinguish the three.
+    expect(body.error).toBe("order_or_line_unresolved");
+    await expect(prisma.warrantyClaim.count()).resolves.toBe(before);
+  });
+
+  it("the authenticated happy path still works end to end", async () => {
+    const claimBody = baseClaimBody();
+    useResolvableOrderLookup(claimBody.orderRef, claimBody.lineRef);
+
+    const response = await callAction(claimRequest({ body: claimBody }));
+    expect(response.status).toBe(201);
+    const dto = (await response.json()) as { claimId: string; status: string };
+    const claim = await prisma.warrantyClaim.findUniqueOrThrow({ where: { id: dto.claimId } });
+    expect(claim.customerRef).toBe(DEFAULT_CUSTOMER_GID);
   });
 });
 

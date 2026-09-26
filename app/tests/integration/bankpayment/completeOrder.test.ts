@@ -119,6 +119,9 @@ async function aBankOrder(opts: { verified: boolean; status?: "open" | "cancelle
     data: {
       shopifyDraftOrderGid: `gid://shopify/DraftOrder/${suffix}`,
       customerEmail: `completion-${suffix}@example.com`,
+      // docs/REQUIRED-CUSTOMER-ACCOUNTS.md — every real row now carries the
+      // authenticated Shopify customer identity, never just an email.
+      customerGid: `gid://shopify/Customer/${suffix}`,
       status: opts.status ?? "open",
       quotedAt: now,
       guaranteeExpiresAt: new Date(now.getTime() + 86_400_000),

@@ -59,6 +59,43 @@ import { verifyAppProxySignature } from "~/shopify/proxy";
  * (`quotedAt`, `guaranteeExpiresAt`, and each line's
  * `priceCalculationId`/`masterVariantId`), not to evaluate the guarantee
  * itself.
+ *
+ * ============================================================================
+ * REQUIRED CUSTOMER ACCOUNTS — docs/REQUIRED-CUSTOMER-ACCOUNTS.md (LOCKED,
+ * approved 2026-09-26). READ THAT DOCUMENT IN FULL BEFORE CHANGING THIS ROUTE.
+ * ============================================================================
+ * SECURITY FIX, 2026-09-26: this route used to accept ANY signed App Proxy
+ * request and never once looked at `loggedInCustomerId`. Signature
+ * verification proves the request came through Shopify's own proxy; it does
+ * NOT prove who the customer is. The identity persisted on
+ * `BankPaymentOrder.customerEmail` was taken straight from the request
+ * body's `email` field — browser-supplied, so a signed-out visitor could
+ * invoke this route directly and create a real Shopify draft order and
+ * invoice for any purchasable Buy Now variant with no account at all.
+ * Policy §4/§9 case 2 require this to fail closed.
+ *
+ * Fixed the same way `apps.carat.rma-intake.tsx` fixes the identical bug
+ * class:
+ *   - Identity comes ONLY from the signed App Proxy `logged_in_customer_id`,
+ *     never from any client-supplied field. A request with no
+ *     `logged_in_customer_id` is refused with `401 authentication_required`
+ *     (the owner-approved gate copy, verbatim) BEFORE the body is even
+ *     parsed — an anonymous visitor cannot reach any further branch of this
+ *     route.
+ *   - The resulting `gid://shopify/Customer/<id>` is persisted as
+ *     `BankPaymentOrder.customerGid` — THE AUTHORIZATION BASIS. The body's
+ *     `email` field remains stored on `customerEmail` (invoice/delivery
+ *     contact, and what the 24-hour-guarantee cancellation email is sent
+ *     to — see that column's own schema.prisma comment) but is never
+ *     authoritative for WHO is checking out, only where to send mail.
+ *   - `bank_payment_order.customer_gid` is a NOT NULL database column
+ *     (migration 20260926050000), indexed for support lookups — a
+ *     repository-level backstop, not just an application check, so this
+ *     route is not the only thing standing between an anonymous caller and
+ *     a durable customer-attributed Shopify draft order. Every pre-existing
+ *     test fixture elsewhere that built a `bank_payment_order` row with no
+ *     customer identity was updated to supply one (architect review,
+ *     2026-09-26) rather than relaxing the column to accommodate them.
  */
 
 const MAX_REQUEST_LINES = 100;
@@ -110,6 +147,28 @@ function badRequest(reason: string) {
 
 function unpurchasableLines(lines: readonly { shopifyVariantId: string; reason: "unknown_variant" | "unsynced" }[]) {
   return Response.json({ error: "unpurchasable_lines", lines }, { status: 400 });
+}
+
+/**
+ * `gid://shopify/Customer/<id>` from the App Proxy's `logged_in_customer_id`.
+ * UNLIKE a guest-tolerant route, this function's only caller in `action`
+ * below NEVER passes a `null`/absent id past the authentication gate — see
+ * this file's REQUIRED CUSTOMER ACCOUNTS module comment. Mirrors
+ * `apps.carat.rma-intake.tsx`'s `normalizeCustomerGid` exactly.
+ */
+function normalizeCustomerGid(rawId: string): string {
+  return rawId.startsWith("gid://") ? rawId : `gid://shopify/Customer/${rawId}`;
+}
+
+function authenticationRequired() {
+  return Response.json(
+    {
+      error: "authentication_required",
+      // docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4's approved gate copy, verbatim.
+      message: "Please sign in or create a CaratForUs account to continue.",
+    },
+    { status: 401 }
+  );
 }
 
 /**
@@ -183,6 +242,8 @@ interface QuotedCheckoutLine extends QuotedLineForResult {
 async function performBankCheckout(input: {
   draftOrderPort: DraftOrderPort;
   resolvedEmail: string;
+  /** THE AUTHORIZATION BASIS (docs/REQUIRED-CUSTOMER-ACCOUNTS.md) — the authenticated Shopify customer identity, never the browser-supplied email. */
+  customerGid: string;
   shippingAddress: DraftOrderShippingAddressInput;
   quotedLines: readonly QuotedCheckoutLine[];
   idempotencyKey: string;
@@ -233,6 +294,7 @@ async function performBankCheckout(input: {
       data: {
         shopifyDraftOrderGid: created.draftOrderGid,
         customerEmail: input.resolvedEmail,
+        customerGid: input.customerGid,
         quotedAt,
         guaranteeExpiresAt,
       },
@@ -312,11 +374,22 @@ export async function action({ request }: ActionFunctionArgs) {
   // Signature verified BEFORE anything else — same discipline as every
   // other apps.carat.* route.
   const url = new URL(request.url);
-  const { verified } = verifyAppProxySignature(url.searchParams, getEnv().SHOPIFY_API_SECRET);
+  const { verified, loggedInCustomerId } = verifyAppProxySignature(url.searchParams, getEnv().SHOPIFY_API_SECRET);
   if (!verified) {
     logger.warn("bank_checkout.proxy_rejected", { reason: "invalid_or_missing_signature" });
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
+
+  // docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4/§9 case 2 — checked BEFORE the
+  // body is even parsed. An anonymous visitor (no `logged_in_customer_id` in
+  // the signed App Proxy params) gets refused here, unconditionally; there
+  // is no downstream branch of this route an anonymous caller can reach.
+  // See this file's REQUIRED CUSTOMER ACCOUNTS module comment.
+  if (!loggedInCustomerId) {
+    logger.warn("bank_checkout.anonymous_rejected", {});
+    return authenticationRequired();
+  }
+  const customerGid = normalizeCustomerGid(loggedInCustomerId);
 
   let body: unknown;
   try {
@@ -461,15 +534,16 @@ export async function action({ request }: ActionFunctionArgs) {
       idempotencyKeyRepository,
       idempotencyKey,
       "bank_payment_checkout",
-      // Audit payload for the idempotency row — counts and the resolved
-      // email only. NEVER the shipping address (criteria 97-99) and NEVER
-      // a price, cost or margin figure beyond what the customer is already
-      // being quoted.
-      { resolvedEmail, mode, lineCount: quotedLines.length },
+      // Audit payload for the idempotency row — counts, the resolved email
+      // and the authenticated customer identity. NEVER the shipping address
+      // (criteria 97-99) and NEVER a price, cost or margin figure beyond
+      // what the customer is already being quoted.
+      { resolvedEmail, customerGid, mode, lineCount: quotedLines.length },
       () =>
         performBankCheckout({
           draftOrderPort,
           resolvedEmail,
+          customerGid,
           shippingAddress,
           quotedLines,
           idempotencyKey,

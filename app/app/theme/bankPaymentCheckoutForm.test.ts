@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { Liquid, type TagToken } from "liquidjs";
 import { describe, expect, it } from "vitest";
 
 import { loadBankPaymentCheckout } from "./bankPaymentCheckoutFormSandbox";
@@ -10,7 +11,7 @@ import { loadBankPaymentCheckout } from "./bankPaymentCheckoutFormSandbox";
  * disclosures (docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md §5.3 criteria
  * 83-86, §4 D20, §16).
  *
- * FOUR THINGS THIS FILE PROVES, MATCHING THE 2C-6 BRIEF:
+ * FIVE THINGS THIS FILE PROVES, MATCHING THE 2C-6 BRIEF:
  *  1. The form posts the right body shape to `/apps/carat/bank-checkout`
  *     (pure `_internal` functions, via the real
  *     `theme/assets/bank-payment-checkout.js`).
@@ -26,6 +27,20 @@ import { loadBankPaymentCheckout } from "./bankPaymentCheckoutFormSandbox";
  *     section the Section Rendering API swaps (SLICE-2B-CART-SURFACE-
  *     INVENTORY.md D1/D2/L3), which is what makes re-binding unnecessary in
  *     the first place (see bank-payment-checkout.js's own header comment).
+ *  5. THE ACCOUNT-REQUIRED GATE (docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4,
+ *     added after this file's original four items) actually changes what
+ *     renders for a signed-out shopper, not merely that a `{%- if %}` tag
+ *     exists in the source. Every OTHER assertion in this file — including
+ *     item 3's disclosure check — is a SOURCE-TEXT scan, the exact
+ *     limitation `priceMetafieldConsumerContract.test.ts`'s header comment
+ *     documents under R16 ("a source-inspection test can prove a cast is
+ *     WRITTEN; it cannot prove a comparison WORKS WITH REAL DATA"). The same
+ *     hazard applies to control flow: a source scan can prove `{%- if
+ *     customer -%}` is written around the form, but not which branch a real
+ *     signed-in vs. signed-out shopper is actually shown. The block at the
+ *     end of this file (search "real rendering, both branches") closes that
+ *     gap the same way R16 did — `liquidjs`, rendering the REAL snippet,
+ *     against real signed-in/signed-out fixtures, asserted on OUTPUT.
  */
 
 const THEME_ROOT = join(process.cwd(), "..", "theme");
@@ -616,5 +631,182 @@ describe("mode preservation across a cart re-render is unaffected (L3)", () => {
     const source = readFileSync(join(THEME_ROOT, "assets", "bank-payment-checkout.js"), "utf8");
     expect(source).toMatch(/document\.addEventListener\(\s*'click'/);
     expect(source).toMatch(/document\.addEventListener\(\s*'submit'/);
+  });
+});
+
+// -----------------------------------------------------------------------
+// 5. The account-required gate (docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4) —
+//    real Liquid rendering, both branches. See this file's own header
+//    comment (item 5) for why a source-text scan cannot prove this and a
+//    real render can — same reasoning, same library, as R16's
+//    priceMetafieldConsumerContract.test.ts.
+// -----------------------------------------------------------------------
+
+describe("the account-required gate (docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4) — real rendering, both branches", () => {
+  const DIALOG = "snippets/bank-payment-checkout-dialog.liquid";
+
+  /**
+   * Same no-op stub as priceMetafieldConsumerContract.test.ts's own (not
+   * imported — see this repo's own convention of restating small,
+   * self-contained test helpers rather than sharing them across
+   * independent test files). This dialog's one `{% render %}` call
+   * (`bank-checkout-country-options`) only fills the country `<select>`
+   * with `<option>`s, which is irrelevant to which branch of the customer
+   * gate renders; liquidjs's REAL `render` tag would otherwise try to
+   * resolve that snippet from disk and throw ENOENT.
+   */
+  class NoopRenderTag {
+    parse(_tagToken: TagToken): void {
+      // Intentionally does not consume/validate arguments — inert here.
+    }
+    render(): string {
+      return "";
+    }
+  }
+
+  function createDialogEngine(): Liquid {
+    const engine = new Liquid();
+    engine.registerTag("render", new NoopRenderTag());
+    // `t` and `inline_asset_content` are deliberately left UNREGISTERED.
+    // liquidjs's documented behaviour for an unknown filter is to pass the
+    // input through unchanged (verified against the installed liquidjs
+    // version before relying on it here) — so `{{ '...heading' | t }}`
+    // renders the LITERAL locale key, which is exactly what every
+    // assertion below matches on. This deliberately does NOT exercise the
+    // real translated copy (that is proven elsewhere in this file, by the
+    // exact-string and forbidden-terminology tests against
+    // en.default.json) — matching R16's own division of labour between a
+    // rendering test (control flow: which branch, in which order) and a
+    // source test (copy: what the words actually say).
+    return engine;
+  }
+
+  const SIGNED_IN_CUSTOMER = {
+    email: "jane@example.com",
+    default_address: {
+      first_name: "Jane",
+      last_name: "Doe",
+      address1: "123 Main St",
+      address2: "",
+      city: "Reno",
+      province_code: "NV",
+      zip: "89501",
+      country_code: "US",
+      phone: "",
+    },
+  };
+
+  function dialogContext(customer: Record<string, unknown> | null) {
+    return {
+      customer,
+      routes: { account_login_url: "/account/login" },
+      request: { path: "/products/example-ring" },
+    };
+  }
+
+  async function renderDialog(customer: Record<string, unknown> | null): Promise<string> {
+    const engine = createDialogEngine();
+    const source = readLiquid(DIALOG);
+    return engine.parseAndRender(source, dialogContext(customer));
+  }
+
+  const HEADING_KEY = "sections.cart.bank_payment_checkout_form.heading";
+  const SIGN_IN_HEADING_KEY = "sections.cart.bank_payment_checkout_form.sign_in_required_heading";
+  const SIGN_IN_MESSAGE_KEY = "sections.cart.bank_payment_checkout_form.sign_in_required_message";
+  const DISCLOSURE_KEY = "sections.cart.bank_payment_checkout_form.not_committed_disclosure";
+
+  it("GUARDS THE GUARD: the signed-in and signed-out renders are structurally different outputs, not a vacuous pass either fixture would satisfy", async () => {
+    const signedIn = await renderDialog(SIGNED_IN_CUSTOMER);
+    const signedOut = await renderDialog(null);
+    expect(signedIn.length).toBeGreaterThan(0);
+    expect(signedOut.length).toBeGreaterThan(0);
+    expect(signedIn).not.toEqual(signedOut);
+    expect(signedIn).toContain('id="CaratBankCheckoutForm"');
+    expect(signedOut).not.toContain('id="CaratBankCheckoutForm"');
+  });
+
+  describe("signed in (a real `customer` object, exactly what Liquid gives an authenticated shopper)", () => {
+    it("renders the real heading and the real form, not the sign-in gate", async () => {
+      const out = await renderDialog(SIGNED_IN_CUSTOMER);
+      expect(out).toContain(HEADING_KEY);
+      expect(out).not.toContain(SIGN_IN_HEADING_KEY);
+      expect(out).not.toContain(SIGN_IN_MESSAGE_KEY);
+      expect(out).not.toContain("data-carat-bank-checkout-signin-required");
+      expect(out).toContain('id="CaratBankCheckoutForm"');
+      expect(out).toContain('id="CaratBankCheckoutEmail"');
+      expect(out).toContain("data-carat-bank-checkout-submit");
+      expect(out).toContain("data-carat-bank-checkout-error-summary");
+    });
+
+    it("prefills from the real `customer`/`customer.default_address` object, unchanged from before the gate existed", async () => {
+      const out = await renderDialog(SIGNED_IN_CUSTOMER);
+      expect(out).toContain('value="jane@example.com"');
+      expect(out).toContain('value="123 Main St"');
+      expect(out).toContain('value="Reno"');
+      expect(out).toContain('value="89501"');
+    });
+
+    it("criterion 84 — the not-committed disclosure actually renders in the output, before the form and before the submit button (the fixture the static source-text checks above never used)", async () => {
+      const out = await renderDialog(SIGNED_IN_CUSTOMER);
+      const disclosureIndex = out.indexOf(DISCLOSURE_KEY);
+      const formIndex = out.indexOf('id="CaratBankCheckoutForm"');
+      const submitIndex = out.indexOf("data-carat-bank-checkout-submit");
+      expect(disclosureIndex).toBeGreaterThan(-1);
+      expect(formIndex).toBeGreaterThan(-1);
+      expect(disclosureIndex).toBeLessThan(formIndex);
+      expect(disclosureIndex).toBeLessThan(submitIndex);
+    });
+  });
+
+  describe("signed out (`customer` is null, exactly what Liquid gives an anonymous visitor)", () => {
+    it("renders the approved gate copy and a sign-in link, not the real heading — this is NEW behaviour with no coverage before this gate existed", async () => {
+      const out = await renderDialog(null);
+      expect(out).toContain(SIGN_IN_HEADING_KEY);
+      expect(out).toContain(SIGN_IN_MESSAGE_KEY);
+      expect(out).toContain("data-carat-bank-checkout-signin-required");
+      expect(out).toContain("data-carat-bank-checkout-signin-link");
+      expect(out).not.toContain(HEADING_KEY);
+    });
+
+    it("the sign-in link returns the shopper to the page they were on, not the account page", async () => {
+      const out = await renderDialog(null);
+      expect(out).toContain('href="/account/login?return_url=%2Fproducts%2Fexample-ring"');
+    });
+
+    it("does NOT render the form or any of its fields — the entire point of the gate is that a signed-out shopper cannot fill in a form they cannot submit", async () => {
+      const out = await renderDialog(null);
+      expect(out).not.toContain('id="CaratBankCheckoutForm"');
+      expect(out).not.toContain('id="CaratBankCheckoutEmail"');
+      expect(out).not.toContain('id="CaratBankCheckoutAddress1"');
+      expect(out).not.toContain('id="CaratBankCheckoutCity"');
+      expect(out).not.toContain('id="CaratBankCheckoutZip"');
+      expect(out).not.toContain('id="CaratBankCheckoutCountry"');
+      expect(out).not.toContain("data-carat-bank-checkout-submit");
+      expect(out).not.toContain("data-carat-bank-checkout-error-summary");
+    });
+
+    it("criterion 84 — the not-committed disclosure STILL renders even though the form does not, proving it is genuinely unconditional rather than merely untested", async () => {
+      const out = await renderDialog(null);
+      expect(out).toContain(DISCLOSURE_KEY);
+    });
+
+    it("the close button remains present and keyboard-operable even in the gate state (dismissible without a Cancel button)", async () => {
+      const out = await renderDialog(null);
+      expect(out).toContain('id="ModalClose-CaratBankCheckoutModal"');
+    });
+  });
+
+  it("this test file's own claim about client-side gating is honest: neither theme file under test describes itself as the enforcement", () => {
+    // Guards against exactly the mistake CLAUDE.md and this task's brief
+    // both warn about — a client-side gate that gets described as if it
+    // were the security control. The 401 in apps.carat.bank-checkout.tsx is
+    // the actual enforcement; this dialog only avoids walking a signed-out
+    // shopper into a form they cannot submit.
+    const dialogSource = readLiquid(DIALOG);
+    const jsSource = readFileSync(join(THEME_ROOT, "assets", "bank-payment-checkout.js"), "utf8");
+    for (const source of [dialogSource, jsSource]) {
+      expect(source).not.toMatch(/gating (is|as) (the|an) enforcement/i);
+      expect(source).not.toMatch(/this (protects|secures|authorizes)/i);
+    }
   });
 });

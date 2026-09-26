@@ -181,10 +181,20 @@ window.CaratBankPaymentCheckout = (function () {
    * §5.1): unpurchasable_lines, group_buy_variant_present,
    * checkout_unresolved, checkout_failed_previously,
    * checkout_upstream_failed, checkout_unavailable, invalid_request. A
-   * status/body this file does not recognize (unauthorized, an unparsed
-   * body, a network failure the caller detects separately) falls back to a
-   * single generic message — never a blank or a raw error code shown to the
-   * customer.
+   * status/body this file does not recognize (unauthorized,
+   * method_not_allowed, an unparsed body, a network failure the caller
+   * detects separately) falls back to a single generic message — never a
+   * blank or a raw error code shown to the customer.
+   *
+   * authentication_required (401, docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4) is
+   * its own distinct case rather than falling through to error_generic. The
+   * dialog itself is gated server-side in Liquid (bank-payment-checkout-
+   * dialog.liquid only renders this form for a signed-in `customer`), so
+   * this branch should be unreachable in the intended flow — but a session
+   * that expires between page load and submit is a real, if rare, gap that
+   * client-side gating alone cannot close. The customer still deserves the
+   * real reason rather than a generic failure, matching the same
+   * owner-approved gate sentence used everywhere else this rule applies.
    */
   function messageKeyForFailure(_status, body) {
     var code = body && typeof body === 'object' ? body.error : null;
@@ -203,6 +213,8 @@ window.CaratBankPaymentCheckout = (function () {
         return 'error_checkout_unavailable';
       case 'invalid_request':
         return 'error_invalid_request';
+      case 'authentication_required':
+        return 'error_authentication_required';
       default:
         return 'error_generic';
     }

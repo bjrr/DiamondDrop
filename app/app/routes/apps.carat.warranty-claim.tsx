@@ -83,13 +83,46 @@ import { verifyAppProxySignature } from "~/shopify/proxy";
  * legitimate claims on older or Shopify-native products never modelled in
  * our catalogue.
  *
- * NOT DONE HERE: full verification that the order belongs to the person
- * filing the claim. This route does a LIGHT check (if the App Proxy
+ * ============================================================================
+ * REQUIRED CUSTOMER ACCOUNTS — docs/REQUIRED-CUSTOMER-ACCOUNTS.md (LOCKED,
+ * approved 2026-09-26). READ THAT DOCUMENT IN FULL BEFORE CHANGING THIS ROUTE.
+ * ============================================================================
+ * SECURITY FIX, 2026-09-26, SUPERSEDES THE PARAGRAPH THIS REPLACES. This
+ * route used to do only a LIGHT ownership check — "if the App Proxy
  * identifies a logged-in customer AND the resolved order has a customer on
- * file, they must match) but does not require either side to be present —
- * a guest checkout order and a guest-filed claim are both real. Deeper
- * ownership verification is `WARRANTY-CLAIMS.md` §3's job: staff reviews
- * every claim before authorizing anything.
+ * file, they must match" — which blocks ONLY when both sides happen to be
+ * known. A `null` `customerRef` (an anonymous caller) skipped the check
+ * entirely, so any signed-out visitor who could guess or discover a
+ * low-entropy Shopify order gid could file a real `WarrantyClaim` against
+ * it with no account at all. Policy §5/§9 cases 3-5 require this to fail
+ * closed. "A guest checkout order and a guest-filed claim are both real" was
+ * the deliberate design of this route until this policy landed; it is now
+ * superseded, not merely tightened.
+ *
+ * Fixed the same way `apps.carat.rma-intake.tsx` fixes the identical bug
+ * class — self-service warranty claims are no longer a guest path at all:
+ *   - Identity comes ONLY from the signed App Proxy `logged_in_customer_id`,
+ *     never from any client-supplied field. A request with no
+ *     `logged_in_customer_id` is refused with `401 authentication_required`
+ *     (the owner-approved gate copy, verbatim) BEFORE the body is even
+ *     parsed — an anonymous visitor cannot reach any further branch of this
+ *     route, including the acknowledgment gate or order lookup.
+ *   - Ownership of the resolved order is now a HARD requirement, not the
+ *     light check described above: `resolvedOrder.customerGid` must equal
+ *     the authenticated identity EXACTLY. An order with no customer on file,
+ *     or with a DIFFERENT customer, is refused with the SAME generic
+ *     `order_or_line_unresolved` response as an order that does not exist at
+ *     all — collapsing "doesn't exist," "isn't yours," and "has no customer
+ *     on file" into one outcome, so this endpoint cannot be used to
+ *     enumerate orders or learn anything about one that is not the caller's
+ *     own (docs §5, §9 case 5).
+ *   - A customer who cannot access the purchasing account is directed to
+ *     Customer Care (docs §5, §9 case 9) — this route does not, and must
+ *     never, offer a self-service bypass for that case.
+ *
+ * Deeper ownership verification beyond "this claim belongs to the
+ * authenticated caller" is still `WARRANTY-CLAIMS.md` §3's job: staff
+ * reviews every claim before authorizing anything.
  */
 
 const ORDER_GID_PATTERN = /^gid:\/\/shopify\/Order\/\d+$/;
@@ -104,9 +137,17 @@ function normalizeLineItemGid(raw: string): string {
 function normalizeVariantGid(raw: string): string {
   return raw.startsWith("gid://") ? raw : `gid://shopify/ProductVariant/${raw}`;
 }
-/** `gid://shopify/Customer/<id>` from the App Proxy's `logged_in_customer_id`, or `null` for a guest — mirrors `apps.carat.luxury-acknowledgment.tsx`. */
-function normalizeCustomerGid(rawId: string | null): string | null {
-  if (!rawId) return null;
+/**
+ * `gid://shopify/Customer/<id>` from the App Proxy's `logged_in_customer_id`.
+ * UNLIKE the earlier version of this function (and unlike the still-guest
+ * -tolerant `apps.carat.luxury-acknowledgment.tsx`, which predates
+ * docs/REQUIRED-CUSTOMER-ACCOUNTS.md and is a separate agent's concurrent
+ * work — not touched here), this route's caller in `action` below NEVER
+ * passes a `null`/absent id past the authentication gate — see this file's
+ * REQUIRED CUSTOMER ACCOUNTS module comment. Mirrors
+ * `apps.carat.rma-intake.tsx`'s `normalizeCustomerGid` exactly.
+ */
+function normalizeCustomerGid(rawId: string): string {
   return rawId.startsWith("gid://") ? rawId : `gid://shopify/Customer/${rawId}`;
 }
 
@@ -180,6 +221,19 @@ function badRequest(reason: string) {
   return Response.json({ error: "invalid_request", reason }, { status: 400 });
 }
 
+function authenticationRequired() {
+  return Response.json(
+    {
+      error: "authentication_required",
+      // docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4's approved gate copy, verbatim
+      // (reused here — no warranty-specific gate copy has been separately
+      // approved, same as `apps.carat.rma-intake.tsx`).
+      message: "Please sign in or create a CaratForUs account to continue.",
+    },
+    { status: 401 }
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Order/line lookup port wiring — mirrors `apps.carat.bank-checkout.tsx`'s
 // `createDraftOrderPort`/`__setDraftOrderPortForTests` exactly.
@@ -218,7 +272,8 @@ async function createOrderLookupPort(): Promise<WarrantyClaimOrderLookupPort> {
  */
 async function recordClaimAcknowledgment(input: {
   orderRef: string;
-  customerRef: string | null;
+  /** Always the authenticated identity now (docs/REQUIRED-CUSTOMER-ACCOUNTS.md) — the action() gate below refuses the request before this is ever called with an absent identity. */
+  customerRef: string;
   productRef: string | null;
   variantRef: string | null;
 }): Promise<string | null> {
@@ -230,7 +285,7 @@ async function recordClaimAcknowledgment(input: {
     policyVersionId: policyVersion.id,
     acknowledgedAt: new Date(),
     affirmativeActionLabel: WARRANTY_CLAIM_ACKNOWLEDGMENT_AFFIRMATIVE_ACTION_LABEL,
-    customerRef: input.customerRef ?? undefined,
+    customerRef: input.customerRef,
     orderRef: input.orderRef,
     productRef: input.productRef ?? undefined,
     variantRef: input.variantRef ?? undefined,
@@ -257,6 +312,17 @@ export async function action({ request }: ActionFunctionArgs) {
     logger.warn("warranty_claim.proxy_rejected", { reason: "invalid_or_missing_signature" });
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
+
+  // docs/REQUIRED-CUSTOMER-ACCOUNTS.md §5/§9 cases 3-5 — checked BEFORE the
+  // body is even parsed. An anonymous visitor (no `logged_in_customer_id` in
+  // the signed App Proxy params) gets refused here, unconditionally; there
+  // is no downstream branch of this route an anonymous caller can reach.
+  // See this file's REQUIRED CUSTOMER ACCOUNTS module comment.
+  if (!loggedInCustomerId) {
+    logger.warn("warranty_claim.anonymous_rejected", {});
+    return authenticationRequired();
+  }
+  const customerRef = normalizeCustomerGid(loggedInCustomerId);
 
   let rawBody: unknown;
   try {
@@ -286,10 +352,11 @@ export async function action({ request }: ActionFunctionArgs) {
     }
   }
 
-  // ACKNOWLEDGMENT GATE FIRST (criterion 154) — cheap, local, and avoids
-  // ever calling the Shopify Admin API for a submission this route cannot
-  // complete anyway if the environment is misprovisioned. See module comment.
-  const customerRef = normalizeCustomerGid(loggedInCustomerId);
+  // ACKNOWLEDGMENT GATE (criterion 154) — cheap, local, and avoids ever
+  // calling the Shopify Admin API for a submission this route cannot
+  // complete anyway if the environment is misprovisioned. `customerRef` was
+  // already established by the authentication gate above, before the body
+  // was even parsed. See module comment.
   const acknowledgmentId = await recordClaimAcknowledgment({
     orderRef: orderGid,
     customerRef,
@@ -326,9 +393,13 @@ export async function action({ request }: ActionFunctionArgs) {
     return Response.json({ error: "order_or_line_unresolved" }, { status: 422 });
   }
 
-  // Light ownership check — see module comment for why this is intentionally
-  // not the whole answer. Only blocks when BOTH sides are known and disagree.
-  if (customerRef && resolvedOrder.customerGid && customerRef !== resolvedOrder.customerGid) {
+  // HARD ownership requirement (docs/REQUIRED-CUSTOMER-ACCOUNTS.md §5, §9
+  // case 5) — NOT the light check this route used before. An order with no
+  // customer on file, or with a DIFFERENT customer, is refused with the SAME
+  // generic response as an order that does not exist at all, so this
+  // endpoint cannot be used to enumerate orders or learn anything about one
+  // that is not the caller's own.
+  if (resolvedOrder.customerGid !== customerRef) {
     logger.warn("warranty_claim.order_customer_mismatch", {});
     return Response.json({ error: "order_or_line_unresolved" }, { status: 422 });
   }

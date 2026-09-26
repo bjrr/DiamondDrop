@@ -4,6 +4,21 @@
  * slice5.orderLookupSchemaIntrospection.ts` for the schema-level pass, which
  * this gate complements rather than duplicates).
  *
+ * RETIRED TO AUTHENTICATED-ONLY, 2026-09-26 (`docs/REQUIRED-CUSTOMER-ACCOUNTS.md`,
+ * a LOCKED OWNER REQUIREMENT). D33's original guest order-number + email
+ * flow is gone — `apps.carat.warranty-order-verify.tsx` and its repository
+ * are deleted. This gate's own behaviour is unaffected by that: it always
+ * exercised the ADAPTER directly, never the guest route, so it still proves
+ * exactly what the surviving authenticated route
+ * (`apps.carat.warranty-order-lookup.tsx`) depends on. Only the framing below
+ * changed — sections that used to say "the guest and logged-in flows both
+ * depend on this" now describe the one flow that still exists.
+ *
+ * `findOrderByGid` WAS REMOVED FROM THE ADAPTER, 2026-09-26 (it existed only
+ * for the now-deleted redemption path and had zero remaining callers) — the
+ * sections that used to exercise it here are removed too, not left calling a
+ * method that no longer exists.
+ *
  * `warrantyOrderLookupAdapter.server.ts`'s `orders(query: "name:...")` and
  * `order(id:)` shapes were RECALLED, not live-verified, when D33 shipped (no
  * store credentials were available in that pass) — flagged explicitly in
@@ -26,8 +41,8 @@
  * ============================================================================
  * As of 2026-09-26, caratforus-dev has ZERO orders. Section 0 below finds a
  * real order to test the FOUND path against; when none exists, it logs that
- * and skips straight to the not-found assertions. A run that only exercised
- * sections 3-4 (not-found) has NOT verified that `orders(query: "name:#1001")`
+ * and skips straight to the not-found assertion. A run that only exercised
+ * section 2 (not-found) has NOT verified that `orders(query: "name:#1001")`
  * actually MATCHES the order with that exact name — only that a name which
  * certainly does not exist correctly returns `null` rather than throwing.
  * Schema introspection (the sibling gate above) cannot answer the match
@@ -35,15 +50,15 @@
  * string value produces what match. THIS STAYS OPEN until this gate is
  * re-run against a store that has at least one real order — which will
  * happen naturally the first time the owner places a test order for live
- * verification. Do not mark this closed on a run whose section 1/2 output
- * says "cannot exercise the positive-shape assertions".
+ * verification. Do not mark this closed on a run whose section 1 output says
+ * "cannot exercise the positive-shape assertions".
  *
  * RUN:  npx tsx tests/live/slice5.warrantyOrderLookup.ts
  *
- * SIDE EFFECTS: NONE. Every query here is read-only (`orders`, `order`) —
- * no draft order, no order, no acknowledgment, no database row of ours is
- * created. This is safe to re-run as often as useful, including once real
- * order data exists, to close the KNOWN OPEN ITEM above.
+ * SIDE EFFECTS: NONE. Every query here is read-only (`orders`) — no draft
+ * order, no order, no acknowledgment, no database row of ours is created.
+ * This is safe to re-run as often as useful, including once real order data
+ * exists, to close the KNOWN OPEN ITEM above.
  */
 import "dotenv/config";
 
@@ -101,8 +116,10 @@ async function main() {
 
   if (referenceOrder) {
     // -----------------------------------------------------------------------
-    // findOrderByName — the shape the GUEST and LOGGED-IN lookup flows both
-    // depend on to resolve a human-typed order number.
+    // findOrderByName — the shape the authenticated lookup flow
+    // (`apps.carat.warranty-order-lookup.tsx`) depends on to resolve a
+    // human-typed order number. (Formerly shared with a guest flow — see
+    // module header.)
     // -----------------------------------------------------------------------
     console.log(`1. adapter.findOrderByName("${referenceOrder.name}") — expect it to resolve to the SAME order`);
     const byName = await adapter.findOrderByName(referenceOrder.name);
@@ -118,35 +135,19 @@ async function main() {
       check(typeof line.title === "string" && line.title.length > 0, `lineItems[0].title is a non-empty string ("${line.title}")`);
       check(typeof line.quantity === "number" && line.quantity >= 1, `lineItems[0].quantity is a real number (${line.quantity})`);
     }
-
-    // -----------------------------------------------------------------------
-    // findOrderByGid — the shape the REDEMPTION path depends on to re-fetch
-    // fresh line items after a guest verification token is consumed.
-    // -----------------------------------------------------------------------
-    console.log(`\n2. adapter.findOrderByGid("${referenceOrder.id}") — expect the SAME order back`);
-    const byGid = await adapter.findOrderByGid(referenceOrder.id);
-    check(byGid !== null, "resolved (not null)");
-    if (byGid) {
-      check(byGid.orderGid === referenceOrder.id, "orderGid matches");
-      check(byGid.orderName === referenceOrder.name, `orderName matches (${byGid.orderName})`);
-      check(byGid.lineItems.length === byName?.lineItems.length, "same line item count as findOrderByName's answer for the same order");
-    }
   }
 
   // ---------------------------------------------------------------------------
-  // NOT FOUND — an order number/id that certainly does not exist must resolve
-  // to `null`, never throw and never silently return an unrelated order. This
-  // is criterion 155's exact refusal condition for the SIBLING intake route,
-  // and this adapter's `null` contract is what lets both lookup routes give
-  // the same generic "not found" answer D33 requires.
+  // NOT FOUND — an order number that certainly does not exist must resolve to
+  // `null`, never throw and never silently return an unrelated order. This is
+  // criterion 155's exact refusal condition for the SIBLING intake route
+  // (`apps.carat.warranty-claim.tsx`), and this adapter's `null` contract is
+  // what lets the authenticated lookup route give the same generic
+  // "not found" answer D33 requires.
   // ---------------------------------------------------------------------------
-  console.log("\n3. a name that certainly does not exist — expect null, not an error");
+  console.log("\n2. a name that certainly does not exist — expect null, not an error");
   const missingByName = await adapter.findOrderByName("#999999999999");
   check(missingByName === null, `findOrderByName returned null (got ${JSON.stringify(missingByName)})`);
-
-  console.log("\n4. a gid that certainly does not exist — expect null, not an error");
-  const missingByGid = await adapter.findOrderByGid("gid://shopify/Order/999999999999");
-  check(missingByGid === null, `findOrderByGid returned null (got ${JSON.stringify(missingByGid)})`);
 
   console.log(failures === 0 ? "\nLIVE GATE PASSED" : `\n${failures} ASSERTION(S) FAILED`);
   process.exit(failures === 0 ? 0 : 1);
