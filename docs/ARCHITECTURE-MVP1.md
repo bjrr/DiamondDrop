@@ -68,7 +68,7 @@ No headless storefront. No microservices. No message queue. No separate customer
 | ORM / migrations | Prisma | Typed access + versioned migrations; low ceremony. |
 | Money arithmetic | Integer minor units (`BIGINT` cents) for all stored/charged amounts; `decimal.js` at fixed scale for intermediate cost math | CLAUDE.md #6. Metal-cost math (price/gram × grams) needs decimal precision before rounding to cents under an explicit, versioned rounding rule. |
 | File uploads | S3-compatible private object storage (Cloudflare R2 recommended) + presigned upload, short-lived signed reads | Warranty photos, CAD/PDF quote evidence, custom-design inspiration. Must be private (PII + evidence). Shopify Files is public-by-URL and unsuitable. |
-| Transactional email | One provider (Resend recommended) | Order emails stay native Shopify. Only Group Buy milestones, RMA/warranty/quote status, and magic links go through this. |
+| Transactional email | One provider (Resend recommended) | Order emails stay native Shopify. Only Group Buy milestones and RMA/warranty/quote status communications go through this. Guest magic-link authentication is superseded by `docs/REQUIRED-CUSTOMER-ACCOUNTS.md`. |
 | Hosting | Single-instance container host (Fly.io or Render) | ~$7–25/mo, one region, simple logs, built-in cron. |
 | Tests | Vitest (unit + integration), Playwright smoke only | Business rules are pure functions — that is where nearly all test value is. |
 | CI | GitHub Actions: typecheck, lint, unit, integration, build | Cheap, sufficient. |
@@ -191,7 +191,7 @@ Slice 0's React Router configuration is complete and correct **for slice 0**. Th
 |---|---|---|
 | Product catalog, variants, media | **Shopify** | Variant = metal × ring-size band. |
 | Cart, checkout, payments, taxes | **Shopify** | Never replaced. |
-| Customer accounts, order history | **Shopify** | |
+| Customer accounts, order history | **Shopify** | Customer authentication is required before every purchase and before warranty/RMA self-service. Guest purchase is not supported; see `docs/REQUIRED-CUSTOMER-ACCOUNTS.md`. |
 | Inventory, sold-out behavior, no overselling | **Shopify** | Luxury Steals relies on this directly ("continue selling when out of stock" must be OFF). |
 | Order confirmation / shipping emails | **Shopify** | Policy text repeated in notification templates. |
 | Discount codes and their exclusions | **Shopify** | Native collection-scoped discounts exclude Group Buy + Luxury Steals. |
@@ -323,7 +323,7 @@ Price sync guardrail: computed prices are written to `price_calculation`, auto-a
 Variant = metal × band (Size 2–6 / 6.5–8 / 8.5–11). The customer's **exact** US size is captured as a line-item property and validated server-side against the product's allowed range/increment. Band price is computed from the highest-cost size in the band so the band never sells below floor. Internal cost math still evaluates exact size.
 
 ### 6.6 Customer identity on claim forms
-RMA and warranty forms must not reveal order data from order-number + email alone (enumeration risk). Logged-in customers are identified by App Proxy `logged_in_customer_id`. Guests receive an emailed, short-lived, single-use magic link before any order detail is displayed.
+**SUPERSEDED 2026-09-26 by `docs/REQUIRED-CUSTOMER-ACCOUNTS.md`.** RMA and warranty self-service require an authenticated Shopify customer account. Identify the customer from the signed Shopify identity (`logged_in_customer_id` or equivalent verified session identity) and expose only that customer's orders. Do not provide guest order-number/email lookup or a guest magic-link fallback. A customer who cannot access the purchasing account must contact CaratForUs Customer Care for manual verification.
 
 ### 6.7 Idempotency discipline
 Shopify's `refundCreate` has no generic idempotency token, so idempotency is ours: a UNIQUE `idempotency_key` row is committed before the API call, the call result is recorded against it, and a retry with the same key returns the stored result without a second call. Same pattern for merchandise credit and LUBYQ benefit issuance. This is the single most important safety property in the system.
