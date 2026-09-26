@@ -1,4 +1,5 @@
 import { prisma } from "~/db/client.server";
+import { getLatestGroupBuyCampaignOptionsUpload, type FrozenGroupBuyCampaignOptionsPayload } from "~/db/repositories/groupBuyRepository.server";
 import { hashCanonicalJson } from "~/domain/evidence/hash";
 import type { JsonValue } from "~/domain/evidence";
 import { MoneyDecimal, type MoneyDecimalValue } from "~/domain/money/decimal";
@@ -247,6 +248,32 @@ export async function openGroupBuyCampaign(
     throw new UnsafeTiersError(safety, summary);
   }
 
+  // PIN THE CAMPAIGN-OPTIONS CONFIGURATION IN FORCE, INTO THE FREEZE ITSELF
+  // (architect review, 2026-09-26). The options upload store's own "current"
+  // read (`getLatestGroupBuyCampaignOptionsUpload`) is correct today for any
+  // already-open campaign too, because uploads are permanently refused once a
+  // campaign is not draft — but an open/closed campaign's evidence should say
+  // what was true AT OPEN, by id, embedded here, rather than depend on a
+  // separate table continuing to answer the same question the same way
+  // indefinitely. `getFrozenGroupBuyCampaignOptions` is the read path that
+  // corresponds to this write; nothing after this point re-queries "latest"
+  // for an open/closed campaign. `null` when the campaign never had an
+  // options upload — that upload is optional (see
+  // `app.group-buy-campaigns.$id.tsx`'s header comment on that point), not a
+  // precondition of opening.
+  const currentOptionsUpload = await getLatestGroupBuyCampaignOptionsUpload(campaign.id);
+  const optionsAtFreeze: FrozenGroupBuyCampaignOptionsPayload | null = currentOptionsUpload
+    ? {
+        snapshotId: currentOptionsUpload.snapshotId,
+        campaignId: currentOptionsUpload.campaignId,
+        sequence: currentOptionsUpload.sequence,
+        uploadedBy: currentOptionsUpload.uploadedBy,
+        uploadedAt: currentOptionsUpload.uploadedAt.toISOString(),
+        options: currentOptionsUpload.options,
+        contentHash: currentOptionsUpload.contentHash,
+      }
+    : null;
+
   // The reproducibility contract. Normalised through JSON before hashing, the
   // same as pricing snapshots: the inputs carry optional fields that are
   // `undefined` in memory, and the canonicalizer refuses `undefined` rather
@@ -262,6 +289,7 @@ export async function openGroupBuyCampaign(
         inputs: p.inputs,
         result: p.result,
       })),
+      optionsAtFreeze,
     })
   ) as JsonValue;
 

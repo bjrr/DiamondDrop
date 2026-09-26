@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import type {
   GroupBuyCampaign,
+  GroupBuyCampaignStatus,
   GroupBuyCampaignTier,
   GroupBuyCampaignVariant,
   GroupBuyRefund,
@@ -10,6 +11,7 @@ import type {
 
 import { validateTierSet, tierBankPaymentPriceExact, type TierDefinition } from "~/domain/groupbuy/tiers";
 import { computeTierRefund, assertRefundTransition, type RefundStatus } from "~/domain/groupbuy/refunds";
+import type { GroupBuyCampaignOptions } from "~/domain/groupbuy/campaignOptions";
 import { getQualifyingUnits } from "~/jobs/groupbuy/unitLedger.server";
 import { MoneyDecimal } from "~/domain/money/decimal";
 import { Money } from "~/domain/money/money";
@@ -17,6 +19,8 @@ import { applyPriceEnding } from "~/domain/pricing/priceEnding";
 import { deriveRegularCardPrice } from "~/domain/pricing/regularCardPrice";
 import type { PriceEndingRuleId, RegularCardPriceRuleId } from "~/domain/pricing/types";
 import type { RoundingRuleId } from "~/domain/money/rounding";
+import { hashCanonicalJson } from "~/domain/evidence/hash";
+import type { JsonValue } from "~/domain/evidence";
 
 import { prisma } from "../client.server";
 
@@ -502,4 +506,378 @@ export async function getGroupBuyRefundForLine(
 
 export async function listGroupBuyRefundsForCampaign(campaignId: string): Promise<readonly GroupBuyRefund[]> {
   return prisma.groupBuyRefund.findMany({ where: { campaignId }, orderBy: { computedAt: "asc" } });
+}
+
+// ---------------------------------------------------------------------------
+// Staff admin surface support (Slice 6, `app.group-buy-campaigns*`) — list
+// and candidate-variant lookups for the campaign list/create/detail screens,
+// plus the campaign-options (§12) upload store. ADDITIVE ONLY: nothing above
+// this line is changed, and every function below either calls an existing
+// guard (`requireDraftCampaign`) or reads data that already exists.
+//
+// EXPLICIT SELECTS THROUGHOUT, never a raw spread of a Prisma row — a
+// campaign admin surface is exactly the place a convenient `include` would
+// quietly pull `frozenLandedCostMinorUnits`, `unsafeOverrideReason`, or a
+// pricing-profile relation into a rendered page (CLAUDE.md rule 10). Every
+// row type here is named and enumerated by hand.
+// ---------------------------------------------------------------------------
+
+export interface GroupBuyCampaignListRow {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly status: GroupBuyCampaignStatus;
+  readonly currency: string;
+  readonly scheduledCloseAt: Date | null;
+  readonly openedAt: Date | null;
+  readonly closedAt: Date | null;
+  readonly createdAt: Date;
+  readonly tierCount: number;
+  readonly variantCount: number;
+}
+
+/** Every campaign, newest first — the admin landing list. No price, cost, profile, or override field is selected. */
+export async function listGroupBuyCampaignsForStaff(): Promise<readonly GroupBuyCampaignListRow[]> {
+  const rows = await prisma.groupBuyCampaign.findMany({
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      status: true,
+      currency: true,
+      scheduledCloseAt: true,
+      openedAt: true,
+      closedAt: true,
+      createdAt: true,
+      _count: { select: { tiers: true, variants: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return rows.map((row) => ({
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    status: row.status,
+    currency: row.currency,
+    scheduledCloseAt: row.scheduledCloseAt,
+    openedAt: row.openedAt,
+    closedAt: row.closedAt,
+    createdAt: row.createdAt,
+    tierCount: row._count.tiers,
+    variantCount: row._count.variants,
+  }));
+}
+
+export interface GroupBuyCandidateVariantRow {
+  readonly masterVariantId: string;
+  readonly shopifyVariantGid: string | null;
+  readonly metal: string;
+  readonly purity: string;
+  readonly bandLabel: string | null;
+}
+
+export interface GroupBuyCandidateProductRow {
+  readonly masterProductId: string;
+  readonly name: string;
+  readonly variants: readonly GroupBuyCandidateVariantRow[];
+}
+
+/**
+ * Active variants grouped by product, for the "add eligible variant" picker.
+ * Same explicit-select discipline as `luxuryStealRepository.server.ts`'s
+ * `listLuxuryStealProductAssignments` (identification only — metal/purity/
+ * band — never cost, floor, or margin fields).
+ */
+export async function listMasterVariantsForGroupBuySelection(
+  query?: string
+): Promise<readonly GroupBuyCandidateProductRow[]> {
+  const products = await prisma.masterProduct.findMany({
+    where: query ? { name: { contains: query, mode: "insensitive" } } : undefined,
+    select: {
+      id: true,
+      name: true,
+      variants: {
+        where: { status: "active" },
+        select: {
+          id: true,
+          shopifyVariantGid: true,
+          metal: true,
+          purity: true,
+          band: { select: { label: true } },
+        },
+        orderBy: { createdAt: "asc" },
+      },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  return products.map((product) => ({
+    masterProductId: product.id,
+    name: product.name,
+    variants: product.variants.map((variant) => ({
+      masterVariantId: variant.id,
+      shopifyVariantGid: variant.shopifyVariantGid,
+      metal: variant.metal,
+      purity: variant.purity,
+      bandLabel: variant.band?.label ?? null,
+    })),
+  }));
+}
+
+export interface GroupBuyVariantIdentity {
+  readonly masterVariantId: string;
+  readonly productName: string;
+  readonly metal: string;
+  readonly purity: string;
+  readonly bandLabel: string | null;
+}
+
+/**
+ * Identity (never price/cost) for a known set of variant ids — used to label
+ * a campaign's already-configured eligible variants and to name variants in
+ * a tier-safety report, without re-deriving the whole candidate list.
+ */
+export async function getGroupBuyVariantIdentities(
+  masterVariantIds: readonly string[]
+): Promise<readonly GroupBuyVariantIdentity[]> {
+  if (masterVariantIds.length === 0) return [];
+  const variants = await prisma.masterVariant.findMany({
+    where: { id: { in: [...masterVariantIds] } },
+    select: {
+      id: true,
+      metal: true,
+      purity: true,
+      band: { select: { label: true } },
+      masterProduct: { select: { name: true } },
+    },
+  });
+  return variants.map((variant) => ({
+    masterVariantId: variant.id,
+    productName: variant.masterProduct.name,
+    metal: variant.metal,
+    purity: variant.purity,
+    bandLabel: variant.band?.label ?? null,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Campaign-options (§12) upload store.
+//
+// NO SCHEMA CHANGE. `GroupBuyCampaign` has no options column, and its one
+// `snapshotId` foreign key is already reserved for the pricing-FREEZE
+// snapshot `openCampaign.server.ts` writes at open — reusing it here would
+// make the freeze and the options upload fight over a single column. Stored
+// instead as its own row in the existing generic, append-only, content-hashed
+// `Snapshot` table (the same store the freeze itself uses), distinguished by
+// `kind` and carrying `campaignId` inside its own JSONB payload rather than a
+// relational column. `getLatestGroupBuyCampaignOptionsUpload` reads it back
+// by filtering that payload field — the `snapshot` table's payload column is
+// `jsonb` (see migration `20260913000000_init`), so a `path` filter on it is
+// a real, indexed-by-`kind` query, not a full-table scan of everything ever
+// snapshotted.
+//
+// TRUSTS ITS INPUT IS ALREADY VALIDATED. `saveGroupBuyCampaignOptionsUpload`
+// does not call `validateGroupBuyCampaignOptions` itself — the caller (the
+// upload action) must have already gotten an `{ ok: true }` result and is
+// passing that result's `value` through. This mirrors `openGroupBuyCampaign`,
+// which likewise never re-validates `validateTierSet`'s own output.
+//
+// DRAFT ONLY, same guard as every other pre-open configuration write in this
+// file: a campaign's saleable-configuration contract does not change once
+// live, for the same reason its tiers and eligible variants do not.
+//
+// RE-UPLOADING SIMPLY ADDS ANOTHER ROW; the getter picks the CURRENT one by
+// an explicit `sequence` integer (below), never by wall-clock `createdAt`.
+//
+// WHY NOT `createdAt`. The architect's review of this design (2026-09-26)
+// called out that "take the latest by timestamp" is implicit, not
+// deterministic: the `snapshot` table's `created_at` column is
+// `TIMESTAMP(3)` (millisecond precision — see migration
+// `20260913000000_init`), so two uploads for the same campaign close
+// together — a double-submit, or two fast sequential calls in a test — can
+// tie, and a tie makes "the most recent one" ambiguous. `sequence` instead is
+// an integer assigned INSIDE a transaction that first takes a row lock on the
+// campaign (`SELECT ... FOR UPDATE`), so a concurrent second upload for the
+// SAME campaign blocks until the first commits and then counts it — two
+// uploads for one campaign can never be assigned the same sequence, by
+// construction, not by convention. See `saveGroupBuyCampaignOptionsUpload`.
+// ---------------------------------------------------------------------------
+
+export const GROUP_BUY_CAMPAIGN_OPTIONS_SNAPSHOT_KIND = "groupbuy.campaign_options.v1";
+
+export interface GroupBuyCampaignOptionsUpload {
+  readonly snapshotId: string;
+  readonly campaignId: string;
+  /** 1-based, assigned transactionally at upload time. The sole "which one is current" ordering key — see the section header above. */
+  readonly sequence: number;
+  readonly options: GroupBuyCampaignOptions;
+  readonly uploadedBy: string;
+  readonly uploadedAt: Date;
+  readonly contentHash: string;
+}
+
+interface StoredGroupBuyCampaignOptionsPayload {
+  readonly campaignId: string;
+  readonly sequence: number;
+  readonly uploadedBy: string;
+  readonly uploadedAt: string;
+  readonly options: GroupBuyCampaignOptions;
+}
+
+/**
+ * Records a validated campaign-options upload with a transactionally
+ * assigned, campaign-scoped `sequence`.
+ *
+ * THE ROW LOCK IS THE WHOLE POINT. `SELECT ... FOR UPDATE` on the campaign's
+ * own row (no schema change needed — this is a lock, not a column) makes a
+ * concurrent second call for the SAME campaign wait for the first to commit,
+ * so "count existing uploads, then insert the next number" can never race:
+ * the second transaction only starts counting after the first transaction's
+ * insert is already visible to it. Two different campaigns never block each
+ * other, because each locks only its own row.
+ *
+ * DRAFT-ONLY, checked AFTER acquiring the lock and by re-reading status from
+ * inside the SAME transaction — not via the earlier `requireDraftCampaign`
+ * read-then-write helper, which would leave a window between checking draft
+ * status and taking the lock for a concurrent `openGroupBuyCampaign` to open
+ * the campaign in between.
+ */
+export async function saveGroupBuyCampaignOptionsUpload(
+  campaignId: string,
+  options: GroupBuyCampaignOptions,
+  uploadedBy: string
+): Promise<GroupBuyCampaignOptionsUpload> {
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<{ id: string; status: string }[]>`
+      SELECT id, status FROM group_buy_campaign WHERE id = ${campaignId}::uuid FOR UPDATE
+    `;
+    const campaign = locked[0];
+    if (!campaign) throw new GroupBuyCampaignNotFoundError(campaignId);
+    if (campaign.status !== "draft") {
+      throw new GroupBuyCampaignNotDraftForConfigurationError(campaignId, campaign.status);
+    }
+
+    const priorUploads = await tx.snapshot.count({
+      where: { kind: GROUP_BUY_CAMPAIGN_OPTIONS_SNAPSHOT_KIND, payload: { path: ["campaignId"], equals: campaignId } },
+    });
+    const sequence = priorUploads + 1;
+
+    const uploadedAt = new Date();
+    const payload = JSON.parse(
+      JSON.stringify({
+        kind: GROUP_BUY_CAMPAIGN_OPTIONS_SNAPSHOT_KIND,
+        campaignId,
+        sequence,
+        uploadedBy,
+        uploadedAt: uploadedAt.toISOString(),
+        options,
+      })
+    ) as JsonValue;
+    const contentHash = hashCanonicalJson(payload);
+
+    const snapshot = await tx.snapshot.create({
+      data: { kind: GROUP_BUY_CAMPAIGN_OPTIONS_SNAPSHOT_KIND, payload: payload as never, contentHash },
+    });
+
+    return { snapshotId: snapshot.id, campaignId, sequence, options, uploadedBy, uploadedAt, contentHash };
+  });
+}
+
+/**
+ * The CURRENT validated campaign-options upload for a campaign — the one
+ * with the highest `sequence`, never the one with the latest `createdAt`
+ * (see the section header above for why that distinction matters). Returns
+ * null if the campaign has never had an upload.
+ */
+export async function getLatestGroupBuyCampaignOptionsUpload(
+  campaignId: string
+): Promise<GroupBuyCampaignOptionsUpload | null> {
+  const snapshots = await prisma.snapshot.findMany({
+    where: { kind: GROUP_BUY_CAMPAIGN_OPTIONS_SNAPSHOT_KIND, payload: { path: ["campaignId"], equals: campaignId } },
+  });
+  if (snapshots.length === 0) return null;
+
+  let latest: (typeof snapshots)[number] | null = null;
+  let latestSequence = -1;
+  for (const snapshot of snapshots) {
+    const payload = snapshot.payload as unknown as StoredGroupBuyCampaignOptionsPayload;
+    if (payload.sequence > latestSequence) {
+      latestSequence = payload.sequence;
+      latest = snapshot;
+    }
+  }
+  if (!latest) return null;
+
+  const payload = latest.payload as unknown as StoredGroupBuyCampaignOptionsPayload;
+  return {
+    snapshotId: latest.id,
+    campaignId: payload.campaignId,
+    sequence: payload.sequence,
+    options: payload.options,
+    uploadedBy: payload.uploadedBy,
+    uploadedAt: new Date(payload.uploadedAt),
+    contentHash: latest.contentHash,
+  };
+}
+
+/**
+ * The campaign-options configuration PINNED into the pricing freeze at open
+ * (`openGroupBuyCampaign`, `app/jobs/groupbuy/openCampaign.server.ts`) —
+ * read from the freeze snapshot's OWN payload (`optionsAtFreeze`), never by
+ * re-running `getLatestGroupBuyCampaignOptionsUpload` against the mutable
+ * upload store.
+ *
+ * WHY THIS MUST BE SEPARATE FROM "LATEST", per the architect's review: once a
+ * campaign opens, no further upload can ever be recorded for it (the
+ * draft-only guard above is permanent, not merely current behaviour) — so
+ * today "latest" and "pinned at freeze" happen to agree for any already-open
+ * campaign. But an open/closed campaign's records should say what was true
+ * AT OPEN, by id, not by re-deriving an answer from a table that continues
+ * to exist and could in principle be queried differently later (a different
+ * selection rule, a future multi-kind snapshot cleanup, etc.). The freeze
+ * payload is the same kind of self-contained, recomputable record the
+ * pricing freeze itself already is — see this file's own header on why the
+ * freeze stores resolved INPUTS rather than only prices.
+ *
+ * Returns null when the campaign never had an options upload at the moment
+ * it opened (campaign-options upload is optional; see
+ * `app.group-buy-campaigns.$id.tsx`'s header comment on that point) or when
+ * `freezeSnapshotId` itself is null (an unopened campaign).
+ */
+/**
+ * The exact shape `openGroupBuyCampaign` embeds as the freeze payload's
+ * `optionsAtFreeze` field — `StoredGroupBuyCampaignOptionsPayload` plus the
+ * two columns that live outside an upload's own JSON blob (the upload's
+ * Snapshot row id and content hash). Exported so `openCampaign.server.ts`
+ * builds exactly this shape rather than an ad hoc lookalike.
+ */
+export interface FrozenGroupBuyCampaignOptionsPayload extends StoredGroupBuyCampaignOptionsPayload {
+  readonly snapshotId: string;
+  readonly contentHash: string;
+}
+
+export async function getFrozenGroupBuyCampaignOptions(
+  freezeSnapshotId: string | null
+): Promise<GroupBuyCampaignOptionsUpload | null> {
+  if (!freezeSnapshotId) return null;
+  const snapshot = await prisma.snapshot.findUnique({ where: { id: freezeSnapshotId } });
+  if (!snapshot) return null;
+
+  const payload = snapshot.payload as unknown as { optionsAtFreeze?: FrozenGroupBuyCampaignOptionsPayload | null };
+  const pinned = payload.optionsAtFreeze;
+  if (!pinned) return null;
+
+  return {
+    // The upload's OWN snapshot id (recorded at upload time) — a different
+    // Snapshot row than the freeze snapshot itself. Callers that display
+    // "uploaded as revision #N" need this one, not `freezeSnapshotId`.
+    snapshotId: pinned.snapshotId,
+    campaignId: pinned.campaignId,
+    sequence: pinned.sequence,
+    options: pinned.options,
+    uploadedBy: pinned.uploadedBy,
+    uploadedAt: new Date(pinned.uploadedAt),
+    contentHash: pinned.contentHash,
+  };
 }

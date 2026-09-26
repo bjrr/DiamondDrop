@@ -103,6 +103,27 @@ const EXEMPT_UI_ACTION_ROUTES: Readonly<Record<string, string>> = {
     "app's own Origin and is same-origin by construction, unlike an App Proxy, " +
     "webhook or cron caller. If this route ever accepts a POST from anywhere but " +
     "its own rendered form, this exemption stops being true and must be re-argued.",
+  "app.group-buy-campaigns.new.tsx":
+    "the Group Buy draft-campaign creation surface (Slice 6). Same argument as " +
+    "app.warranty-claims.$id.tsx and app.luxury-steals._index.tsx: this route IS a " +
+    "real production mutation (creates a draft campaign and its tier set), and " +
+    "stands on the same load-bearing leg alone — Shopify Admin iframes this route " +
+    "at the app's own URL, so a form inside it posts with the app's own Origin and " +
+    "is same-origin by construction, unlike an App Proxy, webhook or cron caller. " +
+    "If this route ever accepts a POST from anywhere but its own rendered form, " +
+    "this exemption stops being true and must be re-argued.",
+  "app.group-buy-campaigns.$id.tsx":
+    "the Group Buy campaign detail/configuration/open surface (Slice 6, docs/" +
+    "SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md §11-§13). Same argument as " +
+    "app.warranty-claims.$id.tsx: this route IS a real production mutation " +
+    "(replaces a draft campaign's tiers, adds/removes eligible variants, stores a " +
+    "validated campaign-options upload, and OPENS the campaign — freezing its " +
+    "pricing permanently), and stands on the same load-bearing leg alone — " +
+    "Shopify Admin iframes this route at the app's own URL, so a form inside it " +
+    "posts with the app's own Origin and is same-origin by construction, unlike " +
+    "an App Proxy, webhook or cron caller. If this route ever accepts a POST from " +
+    "anywhere but its own rendered form, this exemption stops being true and must " +
+    "be re-argued.",
 };
 
 function routeFiles(): string[] {
