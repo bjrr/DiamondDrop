@@ -22,6 +22,7 @@ Authoritative MVP1 policy documents:
 - `docs/LET-US-BEAT-YOUR-QUOTE.md` — competitor custom quotes, active online listings, competing Group Buys, verification, guarantee/fallback eligibility, acknowledgments, and evidence.
 - `docs/WARRANTY-CLAIMS.md` — 1-year limited manufacturing warranty claim intake, authorization, inbound shipping, inspection, coverage decision, remedies, and evidence.
 - `docs/BANK-CARD-PRICING.md` — locked Bank Payment Price vs Regular/Card Price policy, tiered card-price increases, $5 card-price rounding, eligible bank-payment methods, checkout behavior, and customer-facing savings display.
+- `docs/REQUIRED-CUSTOMER-ACCOUNTS.md` — locked requirement that every purchase and customer self-service order workflow use an authenticated Shopify customer account; guest purchase and guest magic-link access are not supported.
 - `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` — locked post-Slice-1 owner decisions for recalculation cadence/failures, Buy Now price placement, Group Buy payment selection/display, and the future campaign-options JSON contract.
 - `docs/CASH-CARD-PRICING.md` — superseded historical policy retained only for reproducibility of earlier versioned calculations.
 
@@ -51,7 +52,7 @@ Prefer Shopify-native capabilities for:
 
 - storefront and Online Store 2.0 primitives;
 - cart and checkout;
-- customer accounts;
+- customer accounts, **required before every purchase and before warranty/RMA self-service**;
 - orders and order history/status where practical;
 - payments;
 - standard transactional commerce behavior;
