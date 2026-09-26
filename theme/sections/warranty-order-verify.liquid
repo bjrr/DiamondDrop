@@ -1,0 +1,418 @@
+{% comment %}
+  Renders the storefront landing page for D33's guest warranty order-lookup
+  verification link (docs/ARCHITECTURE-MVP1.md D33,
+  app/app/routes/apps.carat.warranty-order-verify.tsx,
+  apps.carat.warranty-order-lookup.tsx). Reads `?token=` from the page URL
+  and, ONLY on an explicit button press, POSTs it to
+  `/apps/carat/warranty-order-verify` via `assets/warranty-order-verify.js`.
+  On success, hands the returned order/line-item identifiers to the existing
+  Warranty Claim Form (`sections/warranty-claim-form.liquid`) by navigating
+  to it with `?order_id=`/`?line_item_id=` -- fields that form's own
+  `assets/warranty-claim-form.js` (`prefillFromQueryString`) already reads.
+  No new claim-submission code exists here; this page only gets the customer
+  to that existing form with the right identifiers already filled in.
+
+  ============================================================================
+  WHY THIS PAGE MUST NOT SUBMIT ON LOAD -- READ BEFORE "SIMPLIFYING" THIS
+  ============================================================================
+  The verify route's own module comment (apps.carat.warranty-order-
+  verify.tsx) explains why: the token is single-use, and a corporate email
+  gateway's automated link-prefetch (Outlook Safe Links and similar,
+  well-documented real-world behaviour) issuing a bare GET against a page
+  that auto-fires the redemption would silently burn the customer's token
+  before they ever open the email, permanently locking them out with no
+  attacker involved. `assets/warranty-order-verify.js` only ever calls the
+  verify endpoint from a real `click` handler on
+  `[data-carat-warranty-verify-submit]` -- never from `DOMContentLoaded`,
+  never from a bare page load. Do not "helpfully" wire that button to
+  auto-click itself, and do not turn this into a `{% form %}` that a
+  prefetcher's markup parser could otherwise be tricked into associating with
+  autofill/auto-submit browser extensions -- it is a plain `<button
+  type="button">`, not a submit input, for exactly that reason.
+
+  TOKEN NEVER RENDERED. This file never echoes `token` into any attribute,
+  href, or visible text -- there is nothing here for a template engine to
+  even do that with, since Liquid has no access to the query string at all
+  (only `assets/warranty-order-verify.js`, running in the browser, reads
+  `window.location.search`). That script also scrubs the token out of the
+  visible address bar via `history.replaceState` immediately on load, before
+  rendering any state -- see its own header comment for why (the read-only
+  Referer-leak risk on the SUBSEQUENT navigation to the claim-form page,
+  which this section's whole job is to trigger).
+
+  COPY STATUS -- PROVISIONAL, NOT OWNER-APPROVED. Every
+  `templates.warranty_order_verify.form.*` locale string below is a DRAFT,
+  same standing precedent as `sections/warranty-claim-form.liquid`'s own
+  header comment and `snippets/bank-payment-checkout-dialog.liquid`'s: drafted
+  from already-locked language in `docs/WARRANTY-CLAIMS.md` and this task's
+  own route contracts rather than invented from scratch, shipped functional
+  pending an owner pass rather than blocked on it. No return/warranty/
+  final-sale POLICY term is restated here -- every panel that needs to say
+  more than "we couldn't verify this" links out to the warranty claim page or
+  a configurable contact page instead of asserting policy itself.
+
+  NEXT-STEP LINKS ARE CONFIGURABLE, NOT GUESSED. This section does not
+  hard-code a path to the warranty claim page or a support/contact page --
+  both are `url` picker settings below (`warranty_claim_url`/`contact_url`)
+  so the merchant can point them at whatever page/handle actually exists,
+  without a code change. If left unset, `contact_url` simply omits the link
+  (falls back to a plain, non-linked "contact us" sentence) rather than
+  guessing a path that might not exist; `warranty_claim_url` falls back to
+  `/pages/warranty-claim` in `assets/warranty-order-verify.js` only when
+  unset, matching the backend's own literal-default convention for the
+  companion `WARRANTY_ORDER_VERIFY_PATH` env var.
+
+  RETRY IS INTENTIONALLY NOT OFFERED FOR MOST FAILURES. Once ANY HTTP
+  response comes back from `/apps/carat/warranty-order-verify` -- success or
+  failure -- `redeemWarrantyOrderLookupVerification` has already run its
+  atomic `updateMany` (see that repository file's own code): the token is
+  consumed the instant the row is claimed, strictly BEFORE the route even
+  attempts to re-fetch the order from Shopify. That means a 404/500/502 that
+  happens AFTER a successful redemption (the order-lookup step failing) still
+  leaves the token spent -- clicking "Verify" again would only ever surface
+  "already used", never a working retry. `assets/warranty-order-verify.js`
+  therefore treats every completed HTTP response as terminal for this token:
+  the Ready panel is replaced by the standalone Error panel, which has no
+  retry control at all. The ONE exception is a `fetch()` promise rejection
+  (a genuine network failure, no response ever received from the server),
+  where the token was very likely never touched server-side at all -- that
+  case shows an inline message INSIDE the still-visible Ready panel instead,
+  and the same Verify button (left enabled) can simply be pressed again;
+  no separate "retry" control exists anywhere in this file.
+
+  Accepts (schema settings): heading (optional override), warranty_claim_url,
+  contact_url.
+{% endcomment %}
+{{ 'component-warranty-order-verify.css' | asset_url | stylesheet_tag }}
+
+{%- style -%}
+  .section-{{ section.id }}-padding {
+    padding-top: {{ section.settings.padding_top | times: 0.75 | round: 0 }}px;
+    padding-bottom: {{ section.settings.padding_bottom | times: 0.75 | round: 0 }}px;
+  }
+
+  @media screen and (min-width: 750px) {
+    .section-{{ section.id }}-padding {
+      padding-top: {{ section.settings.padding_top }}px;
+      padding-bottom: {{ section.settings.padding_bottom }}px;
+    }
+  }
+{%- endstyle -%}
+
+{%- liquid
+  # A plain "url" type section setting resolves directly to a String (or
+  # blank) -- unlike a "video_url" type setting (a drop with id/type
+  # properties) or a metafield (a drop needing a value property), so no
+  # accessor suffix is used here. This tag block uses a hash line comment
+  # rather than an HTML-comment-style multi-line tag, since the latter
+  # breaks across newlines inside this tag -- every newline here starts a
+  # new tag, and even the LITERAL TEXT of a multi-line comment tag's name,
+  # written inside a hash comment on its own line, is enough to confuse the
+  # parser into looking for a matching closer that was never opened as real
+  # markup (found the hard way while writing this very comment).
+  assign claim_url = section.settings.warranty_claim_url
+  assign contact_url = section.settings.contact_url
+-%}
+
+{%- capture next_step_html -%}
+  {%- if contact_url != blank -%}
+    {{ 'templates.warranty_order_verify.form.next_step_contact_html' | t: url: contact_url }}
+  {%- else -%}
+    {{ 'templates.warranty_order_verify.form.next_step_contact_text' | t }}
+  {%- endif -%}
+{%- endcapture -%}
+
+<div class="color-{{ section.settings.color_scheme }} gradient">
+  <div
+    class="page-width page-width--narrow section-{{ section.id }}-padding carat-warranty-verify"
+    data-carat-warranty-verify
+    data-claim-url="{{ claim_url | escape }}"
+  >
+    <noscript>
+      <p class="carat-warranty-verify__noscript">
+        {{- 'templates.warranty_order_verify.form.noscript_notice' | t -}}
+      </p>
+    </noscript>
+
+    {%- if section.settings.heading != blank -%}
+      <h2 class="title title-wrapper--no-top-margin {{ section.settings.heading_size }}">
+        {{ section.settings.heading }}
+      </h2>
+    {%- else -%}
+      {%- comment -%}
+        Visually hidden when unset -- `sections/main-page.liquid` (rendered
+        first in this page's template) already shows the Shopify page's own
+        title as an <h1>; see warranty-claim-form.liquid's identical
+        treatment for the same reasoning.
+      {%- endcomment -%}
+      <h2 class="visually-hidden">{{ 'templates.warranty_order_verify.form.heading' | t }}</h2>
+    {%- endif -%}
+
+    <p class="carat-warranty-verify__intro">
+      {{- 'templates.warranty_order_verify.form.intro' | t -}}
+    </p>
+
+    {%- comment -%}
+      MISSING TOKEN -- shown only when `assets/warranty-order-verify.js`
+      finds no `?token=` in the URL at all (e.g. the page was opened
+      directly, not from the emailed link). No network request is made in
+      this state; there is nothing to verify.
+    {%- endcomment -%}
+    <div
+      id="WarrantyVerifyMissingToken"
+      class="carat-warranty-verify__panel"
+      role="alert"
+      tabindex="-1"
+      hidden
+      data-carat-warranty-verify-missing-token
+    >
+      <p class="carat-warranty-verify__panel-heading">
+        {{- 'templates.warranty_order_verify.form.missing_token_heading' | t -}}
+      </p>
+      <p>{{- 'templates.warranty_order_verify.form.missing_token_body' | t -}}</p>
+      <p class="carat-warranty-verify__next-step">{{ next_step_html }}</p>
+    </div>
+
+    {%- comment -%}
+      READY -- a token is present but not yet redeemed. The submit control is
+      a plain `<button type="button">`, not inside a `{% form %}`/submit
+      input -- see this file's header comment on why. Nothing here fires
+      automatically; `data-carat-warranty-verify-submit` only reacts to a
+      real `click`.
+    {%- endcomment -%}
+    <div id="WarrantyVerifyReady" class="carat-warranty-verify__panel" hidden data-carat-warranty-verify-ready>
+      <h3 id="WarrantyVerifyReadyHeading" class="carat-warranty-verify__panel-heading" tabindex="-1">
+        {{- 'templates.warranty_order_verify.form.ready_heading' | t -}}
+      </h3>
+      <p>{{- 'templates.warranty_order_verify.form.ready_body' | t -}}</p>
+      <button type="button" class="button" data-carat-warranty-verify-submit>
+        {{- 'templates.warranty_order_verify.form.verify_button' | t -}}
+      </button>
+      <p
+        id="WarrantyVerifyStatus"
+        class="carat-warranty-verify__status form-status"
+        role="status"
+        aria-live="polite"
+        hidden
+        data-carat-warranty-verify-status
+      ></p>
+      {%- comment -%}
+        NETWORK FAILURE ONLY -- lives inside the Ready panel, not the
+        terminal Error panel below, precisely because a `fetch()` promise
+        rejection (no response ever received) is the ONE case where the
+        token was very likely never touched server-side -- see this file's
+        header comment. The customer stays on this same panel and can simply
+        press Verify again; no separate "retry" control is needed.
+      {%- endcomment -%}
+      <div
+        id="WarrantyVerifyReadyError"
+        class="carat-warranty-verify__panel-error"
+        role="alert"
+        tabindex="-1"
+        hidden
+        data-carat-warranty-verify-ready-error
+      >
+        <p class="carat-warranty-verify__panel-heading" data-carat-warranty-verify-ready-error-heading></p>
+        <p data-carat-warranty-verify-ready-error-body></p>
+      </div>
+    </div>
+
+    {%- comment -%}
+      SUCCESS -- the order was verified. The customer picks which line item
+      the claim is for, then Continue navigates (a normal page load, not a
+      fetch) to the Warranty Claim Form page with `?order_id=`/
+      `?line_item_id=` already filled in -- see this file's header comment.
+      Line-item radios are built entirely by JS from the server's response;
+      nothing about a specific order/item is known at theme-render time.
+    {%- endcomment -%}
+    <div id="WarrantyVerifySuccess" class="carat-warranty-verify__panel" hidden data-carat-warranty-verify-success>
+      <h3 id="WarrantyVerifySuccessHeading" class="carat-warranty-verify__panel-heading" tabindex="-1">
+        {{- 'templates.warranty_order_verify.form.success_heading' | t -}}
+      </h3>
+      <p id="WarrantyVerifySuccessIntro" data-carat-warranty-verify-success-intro></p>
+
+      <fieldset class="carat-warranty-verify__fieldset">
+        <legend class="carat-warranty-verify__legend">
+          {{- 'templates.warranty_order_verify.form.items_question_legend' | t -}}
+        </legend>
+        <div id="WarrantyVerifyItems" class="carat-warranty-verify__radio-group" data-carat-warranty-verify-items></div>
+        <small
+          id="WarrantyVerifyItemsError"
+          class="carat-warranty-verify__field-error form__message"
+          role="alert"
+          hidden
+          data-carat-warranty-verify-items-error
+        >
+          <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+          <span>{{- 'templates.warranty_order_verify.form.error_choose_item' | t -}}</span>
+        </small>
+      </fieldset>
+
+      <button type="button" class="button" data-carat-warranty-verify-continue>
+        {{- 'templates.warranty_order_verify.form.continue_button' | t -}}
+      </button>
+    </div>
+
+    {%- comment -%}
+      ERROR -- always terminal for this token (network failures never reach
+      this panel; see the inline error inside the Ready panel above for
+      that case). Only the heading/body text are set by JS from a small
+      error-code lookup -- the "next step" line below is the SAME static,
+      server-rendered markup as the missing-token panel's, reused as-is,
+      since every terminal error's next step is identical ("contact us");
+      only which problem occurred differs. No retry control -- see this
+      file's header comment on why one would never help here.
+    {%- endcomment -%}
+    <div
+      id="WarrantyVerifyError"
+      class="carat-warranty-verify__panel"
+      role="alert"
+      tabindex="-1"
+      hidden
+      data-carat-warranty-verify-error
+    >
+      <p id="WarrantyVerifyErrorHeading" class="carat-warranty-verify__panel-heading" data-carat-warranty-verify-error-heading></p>
+      <p id="WarrantyVerifyErrorBody" data-carat-warranty-verify-error-body></p>
+      <p class="carat-warranty-verify__next-step">{{ next_step_html }}</p>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Locale-driven strings for this page only -- deliberately kept local to
+  // this section rather than added to layout/theme.liquid's global
+  // `window.*Strings` blocks (see that file's own existing pattern for
+  // `warrantyClaimStrings` etc.): this section renders on exactly one page,
+  // so a page-scoped global costs nothing and avoids touching the
+  // shared, frequently-edited layout file for an unrelated feature.
+  window.warrantyOrderVerifyStrings = {
+    error_summary_by_code: {
+      invalid_token: {
+        heading: `{{ 'templates.warranty_order_verify.form.error_invalid_token_heading' | t }}`,
+        body: `{{ 'templates.warranty_order_verify.form.error_invalid_token_body' | t }}`,
+      },
+      token_expired: {
+        heading: `{{ 'templates.warranty_order_verify.form.error_token_expired_heading' | t }}`,
+        body: `{{ 'templates.warranty_order_verify.form.error_token_expired_body' | t }}`,
+      },
+      token_already_used: {
+        heading: `{{ 'templates.warranty_order_verify.form.error_token_already_used_heading' | t }}`,
+        body: `{{ 'templates.warranty_order_verify.form.error_token_already_used_body' | t }}`,
+      },
+      order_unresolvable: {
+        heading: `{{ 'templates.warranty_order_verify.form.error_order_unresolvable_heading' | t }}`,
+        body: `{{ 'templates.warranty_order_verify.form.error_order_unresolvable_body' | t }}`,
+      },
+      service_unavailable: {
+        heading: `{{ 'templates.warranty_order_verify.form.error_service_unavailable_heading' | t }}`,
+        body: `{{ 'templates.warranty_order_verify.form.error_service_unavailable_body' | t }}`,
+      },
+      network: {
+        heading: `{{ 'templates.warranty_order_verify.form.error_network_heading' | t }}`,
+        body: `{{ 'templates.warranty_order_verify.form.error_network_body' | t }}`,
+      },
+    },
+    verifying_status: `{{ 'templates.warranty_order_verify.form.verifying_status' | t }}`,
+    // `order`/`title`/`quantity` are NOT known at theme-render time -- they
+    // come from the verify endpoint's runtime response. This passes a
+    // square-bracket placeholder (`[order]`, etc.) as the interpolation
+    // argument -- exactly `layout/theme.liquid`'s existing
+    // `cart_quantity_error_html` / `quantity: '[quantity]'` precedent, and
+    // for the SAME reason: passing the double-curly-brace interpolation
+    // marker itself back in AS the argument value does not parse -- Liquid's
+    // own output-tag parser rejects that literal marker appearing a second
+    // time nested inside the same output tag (confirmed by `shopify theme
+    // check` on a first attempt at this exact line, and again when this very
+    // explanation quoted the marker directly in a comment on this line --
+    // do not requote it here either). The translation VALUE in
+    // en.default.json still legitimately uses Shopify's own double-curly
+    // interpolation syntax for these names; only the ARGUMENT this call
+    // supplies is bracket-style, and `assets/warranty-order-verify.js`
+    // finds-and-replaces that same `[order]`/`[title]`/`[quantity]` text
+    // once the real value is known (see `formatItemOption`/`showSuccess`
+    // there).
+    success_intro_html: `{{ 'templates.warranty_order_verify.form.success_intro_html' | t: order: '[order]' }}`,
+    item_option_with_quantity: `{{ 'templates.warranty_order_verify.form.item_option_with_quantity' | t: title: '[title]', quantity: '[quantity]' }}`,
+  };
+</script>
+<script src="{{ 'warranty-order-verify.js' | asset_url }}" defer="defer"></script>
+
+{% schema %}
+{
+  "name": "Warranty order verify",
+  "tag": "section",
+  "class": "section",
+  "disabled_on": {
+    "groups": ["header", "footer"]
+  },
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading"
+    },
+    {
+      "type": "select",
+      "id": "heading_size",
+      "options": [
+        { "value": "h2", "label": "Small" },
+        { "value": "h1", "label": "Medium" },
+        { "value": "h0", "label": "Large" }
+      ],
+      "default": "h1",
+      "label": "Heading size"
+    },
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "Color scheme",
+      "default": "scheme-1"
+    },
+    {
+      "type": "header",
+      "content": "Links"
+    },
+    {
+      "type": "url",
+      "id": "warranty_claim_url",
+      "label": "Warranty claim form page",
+      "info": "Where the customer continues after verification. If left blank, defaults to /pages/warranty-claim."
+    },
+    {
+      "type": "url",
+      "id": "contact_url",
+      "label": "Contact / support page (optional)",
+      "info": "Linked from every \"couldn't verify\" message. If left blank, that text is shown without a link."
+    },
+    {
+      "type": "header",
+      "content": "Section padding"
+    },
+    {
+      "type": "range",
+      "id": "padding_top",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "Top padding",
+      "default": 36
+    },
+    {
+      "type": "range",
+      "id": "padding_bottom",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "Bottom padding",
+      "default": 36
+    }
+  ],
+  "presets": [
+    {
+      "name": "Warranty order verify"
+    }
+  ]
+}
+{% endschema %}

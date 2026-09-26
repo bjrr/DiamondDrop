@@ -319,6 +319,39 @@
         "success_heading": "We've received your warranty claim",
         "success_body_html": "Thank you. Your warranty claim reference is <strong>{{ reference }}</strong>. Submitting this claim does not mean your item is covered under the warranty. Please don't send your item to us — we will contact you if we need more information, and before authorizing your item for inspection."
       }
+    },
+    "warranty_order_verify": {
+      "form": {
+        "heading": "Verify Warranty Claim Link",
+        "intro": "This page confirms the one-time link we emailed you and then takes you to the warranty claim form for the right order.",
+        "noscript_notice": "JavaScript is required to verify this link. Please enable JavaScript in your browser, or contact us for help.",
+        "missing_token_heading": "We couldn't find a verification link",
+        "missing_token_body": "This page is meant to be opened from the verification link in the email we sent you. Please open that email and use the link inside it. If you no longer have it, please contact us for help.",
+        "ready_heading": "Verify your order",
+        "ready_body": "Select Verify Order below to confirm this is your order. This link can only be used once, so only continue if you're ready.",
+        "verify_button": "Verify order",
+        "verifying_status": "Verifying your link…",
+        "success_heading": "Order verified",
+        "success_intro_html": "We found order <strong>{{ order }}</strong>. Select the item this claim is for, then continue.",
+        "items_question_legend": "Which item is this claim for?",
+        "item_option_with_quantity": "{{ title }} — Qty {{ quantity }}",
+        "continue_button": "Continue to warranty claim form",
+        "error_choose_item": "Select which item this claim is for.",
+        "error_invalid_token_heading": "This link isn't valid",
+        "error_invalid_token_body": "We couldn't recognize this verification link. Please check that you copied the whole link from the email, or contact us for help.",
+        "error_token_expired_heading": "This link has expired",
+        "error_token_expired_body": "Verification links only stay valid for a short time. Please contact us and we'll help you verify your order another way.",
+        "error_token_already_used_heading": "This link has already been used",
+        "error_token_already_used_body": "This verification link has already been used once and can't be used again. Please contact us if you still need to file a warranty claim.",
+        "error_order_unresolvable_heading": "We couldn't load your order",
+        "error_order_unresolvable_body": "Your link was verified, but we couldn't retrieve your order details right now. Please contact us for help.",
+        "error_service_unavailable_heading": "Something went wrong",
+        "error_service_unavailable_body": "We couldn't verify your link right now. Please contact us for help.",
+        "error_network_heading": "We couldn't reach the server",
+        "error_network_body": "Please check your connection and try again.",
+        "next_step_contact_html": "You can <a href=\"{{ url }}\">contact us</a> for help.",
+        "next_step_contact_text": "Please contact us for help."
+      }
     }
   },
   "sections": {
