@@ -66,6 +66,52 @@ export default async function setup() {
   const testUrl = new URL(process.env.INTEGRATION_DATABASE_URL ?? base);
   testUrl.pathname = `/${runName}`;
 
+  // EXPLICIT CONNECTION PARAMETERS, because the defaults made one test
+  // measure the machine instead of the code.
+  //
+  // warrantyClaimRepository.test.ts's "collision-safe under real
+  // concurrency" case fires 12 parallel submitClaim() calls and kept
+  // failing with P1001 "Can't reach database server at localhost:5432",
+  // thrown from fixture setup before a single claim reference was
+  // generated. It was written off as a flake three times, including by me.
+  // It is not a flake: it reproduces in ISOLATION with nothing else running,
+  // which refutes the "parallel with the rest of the suite" explanation
+  // recorded in that test's own comment.
+  //
+  // It is also NOT connection exhaustion, the other recorded explanation:
+  // the server reports max_connections 100 with 6 in use. What actually
+  // happens is that establishing a burst of new connections on a loaded
+  // machine exceeds Prisma's 5-SECOND default connect_timeout — the failing
+  // run took 5631ms, just past that ceiling — and Prisma reports a connect
+  // timeout as "can't reach the server", which reads like the database is
+  // down and sent three separate diagnoses chasing the wrong thing.
+  //
+  // THE NUMBERS MATTER, and my first attempt got them wrong in an
+  // instructive way. connection_limit=10 replaced the P1001 with P2024
+  // ("Timed out fetching a new connection from the connection pool"):
+  // createWarrantyClaim wraps its work in an INTERACTIVE TRANSACTION, which
+  // holds one connection for its whole duration, so 12 concurrent callers
+  // against a 10-connection pool starve by construction. The limit must sit
+  // ABOVE the highest concurrency any test uses, not below it.
+  //
+  // 25 clears the 12-way test with headroom. connect_timeout and
+  // pool_timeout at 30s cover both ways this can fail on a loaded machine —
+  // establishing a connection, and waiting for a free one.
+  //
+  // No assertion is weakened: the concurrency test still issues all 12
+  // requests concurrently and still proves distinct references. It now takes
+  // ~19s and actually REACHES that assertion, where before it died in
+  // fixture setup. Callers may override all three.
+  if (!testUrl.searchParams.has("connection_limit")) {
+    testUrl.searchParams.set("connection_limit", "25");
+  }
+  if (!testUrl.searchParams.has("connect_timeout")) {
+    testUrl.searchParams.set("connect_timeout", "30");
+  }
+  if (!testUrl.searchParams.has("pool_timeout")) {
+    testUrl.searchParams.set("pool_timeout", "30");
+  }
+
   const { admin } = adminUrl(base);
 
   console.log(`Creating disposable integration database ${runName}...`);

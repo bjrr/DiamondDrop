@@ -103,40 +103,39 @@ describe("createWarrantyClaim — claim reference generation", () => {
   });
 
   it("is collision-safe under real concurrency — many claims submitted at once all get distinct references", async () => {
-    // 12, not a larger number: each submitClaim() borrows a Postgres
-    // connection for its 3 writes (two policy_version+acknowledgment pairs,
-    // then the claim transaction), and this suite's disposable database has
-    // observed connection-pool exhaustion ("Can't reach database server") at
-    // 20-way concurrency once this file grew to run alongside the route and
-    // schema suites in the same disposable database. 12 still genuinely
-    // exercises the P2002-retry path this test exists to prove — the
-    // reference space is ~1 billion combinations, so a real collision at
-    // ANY concurrency here would be the code failing, not chance — while
-    // staying well clear of the pool ceiling observed in practice.
+    // 12 concurrent submissions, and the harness is configured to cope
+    // with them: tests/integration/globalSetup.ts sets connection_limit=25
+    // on the disposable database precisely so this test's concurrency fits
+    // inside the pool with headroom.
+    //
+    // HISTORY, because this test lied for a whole day and the wrong
+    // explanations were written down here. It failed with P1001 "Can't reach
+    // database server at localhost:5432", thrown from the fixture helper
+    // while building a policy_version — BEFORE a single claim reference was
+    // ever generated. So it never once exercised the collision safety it is
+    // named for, while being dismissed as a known flake three separate times.
+    //
+    // Three explanations were recorded here and all three were wrong:
+    // "parallel with the rest of the suite" (it reproduced in complete
+    // isolation), "connection-pool exhaustion at 20-way concurrency" (the
+    // server reports max_connections 100 with 6 in use), and reducing the
+    // count from 20 to 12 (it kept failing). The real cause was Prisma's
+    // 5-second default connect_timeout being exceeded while establishing a
+    // burst of connections on a loaded machine — and Prisma reports a
+    // connect timeout as "can't reach the server", which reads like the
+    // database is down and sent every diagnosis chasing the wrong thing.
+    //
+    // A test that dies before its assertion is not a weak test, it is an
+    // absent one. If this starts failing again, read the error class first:
+    // P1001 is establishment, P2024 is pool starvation, and neither is a
+    // collision. A REAL collision would be this code failing, not chance —
+    // the reference space is ~1 billion combinations.
     const claims = await Promise.all(Array.from({ length: 12 }, () => submitClaim()));
     const references = claims.map((claim) => claim.claimReference);
     expect(new Set(references).size).toBe(references.length);
-    // TIMEOUT RAISED FROM THE 5s DEFAULT, 2026-09-25 — this test does real
-    // parallel database work, so the ceiling was measuring the machine.
-    //
-    // WHAT ACTUALLY FAILS HERE UNDER LOAD, since it is not what it looks
-    // like. Raising the ceiling did not make it green, so I read the error
-    // instead of re-running: "Can't reach database server at
-    // localhost:5432", thrown from the fixture helper on line ~44 while
-    // building a policy_version — before a single claim reference was ever
-    // generated. It is local Postgres connection saturation when this file
-    // runs in parallel with the rest of the suite on a loaded machine, not
-    // a collision.
-    //
-    // That distinction is the whole point of this comment. A concurrency
-    // test going red looks exactly like a concurrency test that found a
-    // duplicate, and the instinct on a red build is to re-run rather than
-    // to read. I briefly drew the wrong conclusion myself. If this fails
-    // again, READ THE ERROR: a genuine duplicate reference is a real defect
-    // and must never be waved through as this. Reference generation is a
-    // random 8-character suffix over a 32-character alphabet with P2002
-    // retry, so a true collision would be extraordinary — and therefore
-    // worth taking seriously rather than dismissing.
+    // The 30s ceiling below is real, not padding: this genuinely does 12
+    // parallel submissions with their fixtures and now takes ~19s, because
+    // it actually runs to completion instead of dying in setup.
   }, 30_000);
 });
 
