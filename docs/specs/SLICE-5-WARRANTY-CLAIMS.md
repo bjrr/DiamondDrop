@@ -268,12 +268,25 @@ The boundary was never actually broken.
 
 | # | Item | Severity |
 |---|---|---|
-| 1 | **The form needs Shopify Order and Line Item IDs**, e.g. `gid://shopify/Order/7184178970925`. A customer knows their order as **#1001**. The lookup is by id only; there is no name-based path. Query-string pre-fill exists for a deep link that does not yet exist. **As it stands a customer arriving cold cannot complete this form.** | Blocks real use |
+| 1 | ~~The form needs Shopify Order and Line Item IDs~~ **RESOLVED 2026-09-26 by D33, committed `90dfc9d`.** A customer now identifies their order the way they actually know it. Logged in: orders resolve from the signed App Proxy `logged_in_customer_id`, and only orders genuinely belonging to that customer. Guest: order number plus email, treated as a lookup request that discloses nothing, with a short-lived single-use emailed token — only redemption reveals order or line data. `apps.carat.warranty-order-lookup.tsx` / `apps.carat.warranty-order-verify.tsx`. | ~~Blocks real use~~ Closed |
 | 2 | No Shopify **Page** exists with the `page.warranty-claim` template, so the form is not reachable at any URL. A manual admin step; we hold no content scope and one should not be added for this. | Blocks verification |
-| 3 | Copy beyond the acknowledgment is drafted from the policy's own language and **not owner-approved** — marked as such in the section header, following the precedent already set by the bank-payment dialog. | Pre-launch |
+| 3 | ~~Copy beyond the acknowledgment is not owner-approved~~ **The acknowledgment text and its affirmative-action label `I Certify & Agree` are owner-approved and pinned with the policy version.** Remaining supporting copy is still drafted from the policy's own language and carries the unapproved marker. | Pre-launch |
 
-Item 1 is a product decision, not a defect: either a deep link from order
-history and emails, or a lookup by order number. It is raised with the owner.
+Item 1 was a product decision rather than a defect, and the owner resolved it
+as D33 — lookup by order number, with guest access gated behind an emailed
+single-use token so the endpoint cannot be used to enumerate orders or email
+addresses. Implemented and committed.
+
+**Only item 2 now blocks verification, and it is an owner action, not
+engineering work.** Create the Shopify Page: Online Store → Pages → Add page;
+Title `Warranty Claim`; handle `warranty-claim`; template `warranty-claim`;
+leave the body empty (the template renders the form). We hold no content scope
+and should not add one for a single manual step.
+
+Known gap carried into follow-up, not a closure blocker: the verification
+email's outcome is currently recorded only in logs, so a customer who never
+received one is indistinguishable in the database from one who did. A durable
+per-row dispatch outcome is in progress.
 
 ### Carried forward
 
