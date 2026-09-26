@@ -130,6 +130,44 @@ export type RedeemWarrantyOrderLookupVerificationResult =
   | { outcome: "already_used" }
   | { outcome: "success"; orderRef: string; orderName: string; purchaserEmail: string };
 
+type WarrantyOrderLookupVerificationRow = { consumedAt: Date | null; expiresAt: Date; orderRef: string; orderName: string; purchaserEmail: string };
+
+/** Shared by `peekWarrantyOrderLookupVerification` and `redeemWarrantyOrderLookupVerification`'s follow-up-read path — one classification, not two that could drift apart. */
+function classifyWarrantyOrderLookupVerificationRow(
+  row: WarrantyOrderLookupVerificationRow | null,
+  now: Date
+): { outcome: "invalid" } | { outcome: "expired" } | { outcome: "already_used" } | { outcome: "active_or_success"; row: WarrantyOrderLookupVerificationRow } {
+  if (!row) return { outcome: "invalid" };
+  if (row.consumedAt) return { outcome: "already_used" };
+  if (row.expiresAt <= now) return { outcome: "expired" };
+  return { outcome: "active_or_success", row };
+}
+
+export type PeekWarrantyOrderLookupVerificationResult =
+  | { outcome: "invalid" }
+  | { outcome: "expired" }
+  | { outcome: "already_used" }
+  | { outcome: "active"; orderRef: string; orderName: string; purchaserEmail: string };
+
+/**
+ * READ-ONLY classification of a token by its RAW value — does NOT consume
+ * it. Exists so the caller (`apps.carat.warranty-order-verify.tsx`) can
+ * learn WHICH order to re-fetch from Shopify BEFORE spending the token's one
+ * use, per the team-lead review note on task #26's follow-up: consuming
+ * before confirming Shopify can actually answer meant a transient Shopify
+ * outage permanently stranded the customer — a real order lookup failure and
+ * a burned single-use link, from one blip. See `redeemWarrantyOrderLookupVerification`'s
+ * own comment for why the ATOMIC UPDATE, not this read, remains the only
+ * thing that can ever change `consumed_at` — this function changes nothing.
+ */
+export async function peekWarrantyOrderLookupVerification(rawToken: string): Promise<PeekWarrantyOrderLookupVerificationResult> {
+  const tokenHash = sha256Hex(rawToken);
+  const row = await prisma.warrantyOrderLookupVerification.findUnique({ where: { tokenHash } });
+  const classified = classifyWarrantyOrderLookupVerificationRow(row, new Date());
+  if (classified.outcome !== "active_or_success") return classified;
+  return { outcome: "active", orderRef: classified.row.orderRef, orderName: classified.row.orderName, purchaserEmail: classified.row.purchaserEmail };
+}
+
 /**
  * Atomically redeems a token by its RAW value: hashes it, then issues ONE
  * conditional UPDATE (`WHERE token_hash = ? AND consumed_at IS NULL AND
@@ -140,6 +178,19 @@ export type RedeemWarrantyOrderLookupVerificationResult =
  * This is read-then-write in appearance only; the WRITE's own WHERE clause
  * is the actual race-safe check, not a preceding SELECT (a preceding read
  * would be exactly the TOCTOU gap the assigning message called out).
+ *
+ * CALL THIS ONLY AFTER `apps.carat.warranty-order-verify.tsx` has already
+ * confirmed, via `peekWarrantyOrderLookupVerification` PLUS a successful
+ * Shopify re-fetch, that it can actually hand back real order data — see
+ * that route's own comment for the full ordering and why moving THIS call to
+ * be the LAST step (not the first) is what stops a transient Shopify failure
+ * from burning a token that was never actually redeemed for anything. This
+ * function's own atomicity guarantee is unchanged by that reordering: it is
+ * still the ONLY place `consumed_at` is ever set, still via one conditional
+ * UPDATE, so two callers racing to reach this point (both having peeked
+ * "active" and both having independently re-fetched from Shopify) still
+ * resolve to exactly one success — see the concurrency test for both this
+ * function directly and the route's own end-to-end ordering.
  *
  * The follow-up read (only reached when the UPDATE did not affect a row) is
  * purely to produce a more useful error for someone who already possesses a
@@ -163,8 +214,16 @@ export async function redeemWarrantyOrderLookupVerification(
     return { outcome: "success", orderRef: row.orderRef, orderName: row.orderName, purchaserEmail: row.purchaserEmail };
   }
 
+  // BY ELIMINATION: the UPDATE above already excludes any row that is both
+  // unconsumed AND unexpired (that combination is exactly its WHERE clause,
+  // so it would have matched and returned above). Reaching `active_or_success`
+  // here would mean the row changed between the UPDATE and this SELECT in a
+  // way that made it MORE valid, which cannot happen — `consumed_at` only
+  // ever moves from null to set, never back, and `expires_at` never moves at
+  // all. Treated as `expired` only as a defensive fallback that can never
+  // wrongly report a consumption that did not happen; it should be
+  // unreachable in practice.
   const existing = await prisma.warrantyOrderLookupVerification.findUnique({ where: { tokenHash } });
-  if (!existing) return { outcome: "invalid" };
-  if (existing.consumedAt) return { outcome: "already_used" };
-  return { outcome: "expired" };
+  const classified = classifyWarrantyOrderLookupVerificationRow(existing, now);
+  return classified.outcome === "active_or_success" ? { outcome: "expired" } : classified;
 }

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { prisma } from "~/db/client.server";
 import {
   createWarrantyOrderLookupVerification,
+  peekWarrantyOrderLookupVerification,
   performDummyWarrantyOrderLookupRoundTrip,
   recordWarrantyOrderLookupVerificationEmailOutcome,
   redeemWarrantyOrderLookupVerification,
@@ -116,6 +117,48 @@ describe("performDummyWarrantyOrderLookupRoundTrip", () => {
     const before = await prisma.warrantyOrderLookupVerification.count();
     await performDummyWarrantyOrderLookupRoundTrip();
     await expect(prisma.warrantyOrderLookupVerification.count()).resolves.toBe(before);
+  });
+});
+
+describe("peekWarrantyOrderLookupVerification — team-lead review note: read-only, never consumes", () => {
+  it("returns invalid for a token that was never issued", async () => {
+    await expect(peekWarrantyOrderLookupVerification("not-a-real-token")).resolves.toEqual({ outcome: "invalid" });
+  });
+
+  it("returns active with the original request's facts, and does NOT consume the token", async () => {
+    const input = fixtureInput();
+    const { id, token } = await createWarrantyOrderLookupVerification(input);
+
+    const peeked = await peekWarrantyOrderLookupVerification(token);
+    expect(peeked).toEqual({ outcome: "active", orderRef: input.orderRef, orderName: input.orderName, purchaserEmail: input.purchaserEmail });
+
+    // Unconsumed — a real redemption still succeeds afterward.
+    const row = await prisma.warrantyOrderLookupVerification.findUniqueOrThrow({ where: { id } });
+    expect(row.consumedAt).toBeNull();
+    await expect(redeemWarrantyOrderLookupVerification(token)).resolves.toMatchObject({ outcome: "success" });
+  });
+
+  it("can be called any number of times without affecting redemption", async () => {
+    const { token } = await createWarrantyOrderLookupVerification(fixtureInput());
+    await peekWarrantyOrderLookupVerification(token);
+    await peekWarrantyOrderLookupVerification(token);
+    await peekWarrantyOrderLookupVerification(token);
+
+    await expect(redeemWarrantyOrderLookupVerification(token)).resolves.toMatchObject({ outcome: "success" });
+  });
+
+  it("returns already_used for a consumed token", async () => {
+    const { token } = await createWarrantyOrderLookupVerification(fixtureInput());
+    await redeemWarrantyOrderLookupVerification(token);
+
+    await expect(peekWarrantyOrderLookupVerification(token)).resolves.toEqual({ outcome: "already_used" });
+  });
+
+  it("returns expired for an expired, never-consumed token", async () => {
+    const { id, token } = await createWarrantyOrderLookupVerification(fixtureInput());
+    await prisma.warrantyOrderLookupVerification.update({ where: { id }, data: { expiresAt: new Date(Date.now() - 60_000) } });
+
+    await expect(peekWarrantyOrderLookupVerification(token)).resolves.toEqual({ outcome: "expired" });
   });
 });
 

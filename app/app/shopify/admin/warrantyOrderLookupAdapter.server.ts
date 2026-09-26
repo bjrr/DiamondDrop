@@ -9,14 +9,25 @@ import { AdminApiError } from "./productClient.server";
  * has a GID, only the order number Shopify shows them (e.g. "#1001").
  *
  * CONFIDENCE GRADING (same convention as the twin file's own header,
- * `luxuryStealOrderReviewAdapter.server.ts`'s introspection note). The
- * `orders(first:, query:)` search-filter shape and the `name:` search
- * keyword are long-documented, stable Admin API surface, but — like
- * `warrantyClaimOrderLookupAdapter.server.ts` — NOT independently
- * live-introspected against a real store in this pass (no store credentials
- * available). Flagged for the architect/QA to live-verify against
- * caratforus-dev before this is wired to a live storefront form, same as
- * that twin file's own flag.
+ * `luxuryStealOrderReviewAdapter.server.ts`'s introspection note).
+ * SCHEMA-LEVEL SHAPE — LIVE-INTROSPECTED, 2026-09-26. `tests/live/
+ * slice5.orderLookupSchemaIntrospection.ts` ran `__type` introspection
+ * against caratforus-dev (Admin API 2026-07) and confirmed `Query.order`'s
+ * and `Query.orders`' argument names (`id`; `first`, `query`), and every
+ * field this file selects (`Order.id/name/email/customer/lineItems`,
+ * `Customer.id`, `LineItem.id/name/quantity`) — all exist with the expected
+ * named type. That closes the "does this field even exist" risk that would
+ * otherwise surface as a hard GraphQL error in production.
+ *
+ * STILL OPEN, AND SCHEMA INTROSPECTION CANNOT CLOSE IT: whether
+ * `orders(query: "name:#1001")`'s `name:` filter actually MATCHES the order
+ * with that exact name, rather than some other interpretation of the search
+ * string — that is BEHAVIOUR, not schema. `findOrderByName`'s not-found path
+ * (a name that certainly does not exist resolves to `null`, not an error) IS
+ * live-verified — see `tests/live/slice5.warrantyOrderLookup.ts`. The FOUND
+ * path is not, because caratforus-dev currently has zero orders to query
+ * against; see that gate file's own header for the plan to close it once
+ * real order data exists.
  *
  * SCOPE DISCIPLINE — READ BEFORE CHANGING THE QUERIES BELOW. This
  * deliberately does NOT query `customer(id:).orders(...)` (a "list every
