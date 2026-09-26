@@ -283,10 +283,28 @@ Title `Warranty Claim`; handle `warranty-claim`; template `warranty-claim`;
 leave the body empty (the template renders the form). We hold no content scope
 and should not add one for a single manual step.
 
-Known gap carried into follow-up, not a closure blocker: the verification
-email's outcome is currently recorded only in logs, so a customer who never
-received one is indistinguishable in the database from one who did. A durable
-per-row dispatch outcome is in progress.
+The verification email's dispatch outcome IS recorded durably: one
+`audit_event` row per outcome — `sent`, `failed`, `skipped_unconfigured` —
+keyed on `entityType: "warranty_order_lookup_verification"` and the
+verification row's id, written from a path that never throws into the
+request. A customer who never received a link is therefore distinguishable
+from one who did, which is the question support actually has to answer.
+
+(An earlier revision of this section and of commit `90dfc9d`'s message called
+this a known gap. That was wrong. It was inferred from the Prisma model
+carrying no email columns, without checking where the outcome is actually
+written — the shared `audit_event` table, not a column on the verification
+row. The code was already correct when both were written.)
+
+Latent configuration trap, recorded rather than fixed: `resolveEmailPort()`
+reports `configured: false` unless `STAFF_EMAIL_ALLOWLIST` is set, even for
+this customer-facing email, which never consults the allowlist. Production
+(`caratforus`) currently has all three of `EMAIL_API_KEY`, `EMAIL_FROM` and
+`STAFF_EMAIL_ALLOWLIST` set, verified 2026-09-26, so this does not bite
+today. It would bite silently in any environment that sets the two email
+variables but not the allowlist, which is the same shape as the outage where
+the acknowledgment policy version existed only in the seed. The
+`skipped_unconfigured` audit row above is what makes it detectable.
 
 ### Carried forward
 
