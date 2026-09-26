@@ -195,7 +195,7 @@ describe("guest flow — anti-enumeration", () => {
     expect(emailPort.sent).toHaveLength(1);
   });
 
-  it("durably records the email dispatch outcome as an audit_event, keyed on the verification row's id", async () => {
+  it("durably records a SENT outcome directly on the verification row, with the provider message id", async () => {
     const port = seededPort({ orderName: `#${uniq().replace("-", "")}` });
     __setWarrantyOrderLookupPortForTests(port);
     installRecordingEmailPort();
@@ -205,13 +205,12 @@ describe("guest flow — anti-enumeration", () => {
     await flushMicrotasks();
 
     const row = await prisma.warrantyOrderLookupVerification.findFirstOrThrow({ orderBy: { createdAt: "desc" } });
-    const events = await prisma.auditEvent.findMany({ where: { entityType: "warranty_order_lookup_verification", entityId: row.id } });
-    expect(events).toHaveLength(1);
-    expect(events[0]!.action).toBe("warranty_order_lookup.verification_email_sent");
-    expect((events[0]!.after as { emailDeliveryStatus?: string })?.emailDeliveryStatus).toBe("sent");
+    expect(row.verificationEmailStatus).toBe("sent");
+    expect(row.verificationEmailProviderMessageId).toBe("test-1");
+    expect(row.verificationEmailAttemptedAt).not.toBeNull();
   });
 
-  it("records a skipped_unconfigured audit_event when no email port is configured, and never throws", async () => {
+  it("durably records a SKIPPED_UNCONFIGURED outcome on the row when no email port is configured, and never fails the request", async () => {
     const port = seededPort({ orderName: `#${uniq().replace("-", "")}` });
     __setWarrantyOrderLookupPortForTests(port);
     __setResolveEmailPortForTests(() => ({ configured: false, reason: "email not configured: missing EMAIL_API_KEY" }));
@@ -222,10 +221,34 @@ describe("guest flow — anti-enumeration", () => {
     await flushMicrotasks();
 
     const row = await prisma.warrantyOrderLookupVerification.findFirstOrThrow({ orderBy: { createdAt: "desc" } });
-    const events = await prisma.auditEvent.findMany({ where: { entityType: "warranty_order_lookup_verification", entityId: row.id } });
-    expect(events).toHaveLength(1);
-    expect(events[0]!.action).toBe("warranty_order_lookup.verification_email_skipped_unconfigured");
-    expect((events[0]!.after as { emailDeliveryStatus?: string })?.emailDeliveryStatus).toBe("skipped_unconfigured");
+    expect(row.verificationEmailStatus).toBe("skipped_unconfigured");
+    expect(row.verificationEmailProviderMessageId).toBeNull();
+    expect(row.verificationEmailAttemptedAt).not.toBeNull();
+  });
+
+  it("durably records a FAILED outcome on the row when the email port throws, and never fails the request", async () => {
+    const port = seededPort({ orderName: `#${uniq().replace("-", "")}` });
+    __setWarrantyOrderLookupPortForTests(port);
+    __setResolveEmailPortForTests(() => ({
+      configured: true,
+      from: "no-reply@example.com",
+      recipients: [],
+      port: {
+        async send() {
+          throw new Error("provider unreachable");
+        },
+      },
+    }));
+    const [name] = [...port.byName.keys()];
+
+    const response = await callLookup(lookupRequest({ body: { orderNumber: name, purchaserEmail: "purchaser@example.com" } }));
+    expect(response.status).toBe(200); // the unawaited dispatch never affects the response
+    await flushMicrotasks();
+
+    const row = await prisma.warrantyOrderLookupVerification.findFirstOrThrow({ orderBy: { createdAt: "desc" } });
+    expect(row.verificationEmailStatus).toBe("failed");
+    expect(row.verificationEmailProviderMessageId).toBeNull();
+    expect(row.verificationEmailAttemptedAt).not.toBeNull();
   });
 });
 

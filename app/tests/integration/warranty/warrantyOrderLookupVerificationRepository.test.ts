@@ -4,6 +4,7 @@ import { prisma } from "~/db/client.server";
 import {
   createWarrantyOrderLookupVerification,
   performDummyWarrantyOrderLookupRoundTrip,
+  recordWarrantyOrderLookupVerificationEmailOutcome,
   redeemWarrantyOrderLookupVerification,
 } from "~/db/repositories/warrantyOrderLookupVerificationRepository.server";
 
@@ -49,6 +50,64 @@ describe("createWarrantyOrderLookupVerification", () => {
     const b = await createWarrantyOrderLookupVerification(fixtureInput());
     expect(a.token).not.toBe(b.token);
     expect(a.token.length).toBeGreaterThanOrEqual(32);
+  });
+});
+
+describe("recordWarrantyOrderLookupVerificationEmailOutcome — team-lead review note on task #26", () => {
+  it("defaults to no recorded outcome — a row created but never dispatched is distinguishable from one that was", async () => {
+    const { id } = await createWarrantyOrderLookupVerification(fixtureInput());
+    const row = await prisma.warrantyOrderLookupVerification.findUniqueOrThrow({ where: { id } });
+    expect(row.verificationEmailStatus).toBeNull();
+    expect(row.verificationEmailProviderMessageId).toBeNull();
+    expect(row.verificationEmailAttemptedAt).toBeNull();
+  });
+
+  it("records SENT with the provider message id and an attempted-at timestamp", async () => {
+    const { id } = await createWarrantyOrderLookupVerification(fixtureInput());
+    await recordWarrantyOrderLookupVerificationEmailOutcome({ verificationId: id, status: "sent", providerMessageId: "resend-abc123" });
+
+    const row = await prisma.warrantyOrderLookupVerification.findUniqueOrThrow({ where: { id } });
+    expect(row.verificationEmailStatus).toBe("sent");
+    expect(row.verificationEmailProviderMessageId).toBe("resend-abc123");
+    expect(row.verificationEmailAttemptedAt).not.toBeNull();
+  });
+
+  it("records FAILED with no provider message id", async () => {
+    const { id } = await createWarrantyOrderLookupVerification(fixtureInput());
+    await recordWarrantyOrderLookupVerificationEmailOutcome({ verificationId: id, status: "failed" });
+
+    const row = await prisma.warrantyOrderLookupVerification.findUniqueOrThrow({ where: { id } });
+    expect(row.verificationEmailStatus).toBe("failed");
+    expect(row.verificationEmailProviderMessageId).toBeNull();
+  });
+
+  it("records SKIPPED_UNCONFIGURED with no provider message id", async () => {
+    const { id } = await createWarrantyOrderLookupVerification(fixtureInput());
+    await recordWarrantyOrderLookupVerificationEmailOutcome({ verificationId: id, status: "skipped_unconfigured" });
+
+    const row = await prisma.warrantyOrderLookupVerification.findUniqueOrThrow({ where: { id } });
+    expect(row.verificationEmailStatus).toBe("skipped_unconfigured");
+    expect(row.verificationEmailProviderMessageId).toBeNull();
+  });
+
+  it("DATABASE CHECK CONSTRAINT: refuses a provider message id on a non-sent status, even bypassing the repository", async () => {
+    const { id } = await createWarrantyOrderLookupVerification(fixtureInput());
+    await expect(
+      prisma.warrantyOrderLookupVerification.update({
+        where: { id },
+        data: { verificationEmailStatus: "failed", verificationEmailProviderMessageId: "should-not-be-allowed", verificationEmailAttemptedAt: new Date() },
+      })
+    ).rejects.toThrow();
+  });
+
+  it("DATABASE CHECK CONSTRAINT: refuses a status with no attempted-at timestamp, even bypassing the repository", async () => {
+    const { id } = await createWarrantyOrderLookupVerification(fixtureInput());
+    await expect(
+      prisma.warrantyOrderLookupVerification.update({
+        where: { id },
+        data: { verificationEmailStatus: "sent" }, // attemptedAt left null
+      })
+    ).rejects.toThrow();
   });
 });
 

@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
 
+import type { WarrantyOrderLookupVerificationEmailStatus } from "@prisma/client";
+
 import { sha256Hex } from "~/domain/evidence/hash";
 import { computeWarrantyOrderVerificationExpiry } from "~/domain/warranty/orderLookupVerification";
 
@@ -82,6 +84,44 @@ export async function createWarrantyOrderLookupVerification(
  */
 export async function performDummyWarrantyOrderLookupRoundTrip(): Promise<void> {
   await prisma.warrantyOrderLookupVerification.count();
+}
+
+export interface RecordWarrantyOrderLookupVerificationEmailOutcomeInput {
+  verificationId: string;
+  status: WarrantyOrderLookupVerificationEmailStatus;
+  /** Only meaningful when `status = "sent"` — enforced by `warranty_order_lookup_verification_email_message_id_only_when_sent`. */
+  providerMessageId?: string | null;
+  attemptedAt?: Date;
+}
+
+/**
+ * THE DURABLE RECORD of the fire-and-forget verification email's outcome —
+ * team-lead review note on task #26. Mirrors `BankPaymentOrder`'s
+ * cancellation-email columns exactly: a support agent looking at THIS row
+ * must be able to tell "sent" apart from "attempted and failed" apart from
+ * "never attempted because unconfigured" without cross-referencing logs.
+ *
+ * CALLED FROM THE SAME FIRE-AND-FORGET PATH the route already uses for the
+ * send itself (`apps.carat.warranty-order-lookup.tsx`'s `dispatchVerificationEmail`),
+ * and — critically — only AFTER the HTTP response has already been returned
+ * to the caller. This function is never awaited by anything the response
+ * waits on, so it cannot reintroduce the timing side-channel the route's own
+ * module comment describes. The caller wraps this in a try/catch and never
+ * lets a failure here propagate — a failure to RECORD the outcome must never
+ * become a reason the customer's original lookup request fails; it already
+ * succeeded by the time this runs.
+ */
+export async function recordWarrantyOrderLookupVerificationEmailOutcome(
+  input: RecordWarrantyOrderLookupVerificationEmailOutcomeInput
+): Promise<void> {
+  await prisma.warrantyOrderLookupVerification.update({
+    where: { id: input.verificationId },
+    data: {
+      verificationEmailStatus: input.status,
+      verificationEmailProviderMessageId: input.providerMessageId ?? null,
+      verificationEmailAttemptedAt: input.attemptedAt ?? new Date(),
+    },
+  });
 }
 
 export type RedeemWarrantyOrderLookupVerificationResult =

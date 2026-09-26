@@ -2531,10 +2531,47 @@ model WarrantyOrderLookupVerification {
   /// Never cleared/reused — a consumed row stays consumed forever.
   consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
 
+  /// THE DURABLE DELIVERY RECORD for this row's own verification email —
+  /// team-lead review note: a support agent looking at THIS row must be able
+  /// to tell "sent" apart from "attempted and failed" apart from "never
+  /// attempted because unconfigured" without cross-referencing logs. Mirrors
+  /// `BankPaymentOrder.cancellationEmailStatus`'s exact shape/reasoning (a
+  /// SEPARATE enum from that one and from `AdminAlertEmailDeliveryStatus`,
+  /// even though the members are identical, because each records a
+  /// different, independent send — see that column's own doc comment for why
+  /// sharing one enum across unrelated sends would be a false relationship).
+  /// NULL means the dispatch attempt has not completed (or the process
+  /// crashed before recording it) — written from the same fire-and-forget
+  /// path the route already uses for the send itself, and always AFTER the
+  /// HTTP response has already gone out, so this write can never introduce
+  /// the timing side-channel the route's own module comment describes, and a
+  /// failure to write this column is caught and logged, never allowed to
+  /// affect the customer's lookup request.
+  verificationEmailStatus            WarrantyOrderLookupVerificationEmailStatus? @map("verification_email_status")
+  /// The provider's own message id — proof of ACCEPTANCE, not merely of an
+  /// attempt (see `EmailPort.send`'s own doc comment). Set only when
+  /// `verificationEmailStatus = sent`, enforced by
+  /// `warranty_order_lookup_verification_email_message_id_only_when_sent`.
+  verificationEmailProviderMessageId String?                                      @map("verification_email_provider_message_id")
+  /// Set together with `verificationEmailStatus`, always — enforced by
+  /// `warranty_order_lookup_verification_email_attempted_pairing`.
+  verificationEmailAttemptedAt       DateTime?                                    @map("verification_email_attempted_at") @db.Timestamptz(6)
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([expiresAt])
   @@map("warranty_order_lookup_verification")
+}
+
+/// See `WarrantyOrderLookupVerification.verificationEmailStatus`'s own doc
+/// comment for why this is a distinct type from `BankPaymentCancellationEmailStatus`
+/// and `AdminAlertEmailDeliveryStatus` despite identical members.
+enum WarrantyOrderLookupVerificationEmailStatus {
+  sent
+  skipped_unconfigured
+  failed
+
+  @@map("warranty_order_lookup_verification_email_status")
 }
 
 // =============================================================================

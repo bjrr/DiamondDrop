@@ -1,10 +1,10 @@
 import type { ActionFunctionArgs } from "react-router";
 import { z } from "zod";
 
-import { createAuditEvent } from "~/db/repositories/auditEventRepository.server";
 import {
   performDummyWarrantyOrderLookupRoundTrip,
   createWarrantyOrderLookupVerification,
+  recordWarrantyOrderLookupVerificationEmailOutcome,
 } from "~/db/repositories/warrantyOrderLookupVerificationRepository.server";
 import {
   buildWarrantyOrderVerificationEmail,
@@ -66,10 +66,10 @@ import { verifyAppProxySignature } from "~/shopify/proxy";
  * the order/email end up matching, so the biggest potential timing signal is
  * already shared. Within the match/no-match branches this route additionally:
  *   - never awaits the outbound verification email (fire-and-forget, caught,
- *     logged, and durably audited — see `dispatchVerificationEmail`) — an
- *     SMTP/API provider's latency must never leak into the HTTP response
- *     timing, and a failed send must never look different from a successful
- *     one to the caller;
+ *     logged, and its outcome durably recorded on the verification row — see
+ *     `dispatchVerificationEmail`) — an SMTP/API provider's latency must
+ *     never leak into the HTTP response timing, and a failed send must never
+ *     look different from a successful one to the caller;
  *   - has the no-match branch perform `performDummyWarrantyOrderLookupRoundTrip()`
  *     instead of finishing immediately, so it is not trivially, obviously
  *     cheaper than the match branch's one INSERT.
@@ -158,36 +158,27 @@ function buildVerificationUrl(env: ReturnType<typeof getEnv>, token: string): st
 }
 
 /**
- * Best-effort AUDIT EVENT for a verification-email dispatch outcome — never
- * thrown, same discipline as `luxuryStealOrderHandler.server.ts`'s
- * `recordLuxuryStealOrderAuditEvent`: an audit-write failure must never mask
- * or replace the real outcome, which the caller has already logged via
- * `logger` before calling this. Keyed on the verification row's own id
- * (`entityType: "warranty_order_lookup_verification"`), so
- * `listAuditEventsForEntity` is the one read that answers "did this
- * customer's verification email actually go out."
+ * Best-effort durable write of a verification-email dispatch outcome onto
+ * the `WarrantyOrderLookupVerification` row itself — never thrown. Mirrors
+ * `BankPaymentOrder`'s cancellation-email columns: a support agent looking
+ * at THIS row must see "sent" / "failed" / "skipped_unconfigured" directly,
+ * not infer it from logs. Caught here, not by the caller: a failure to
+ * RECORD the outcome must never surface as though the ORIGINAL lookup
+ * request failed — by the time this runs, that request has already
+ * succeeded and its response has already gone out (see this function's only
+ * caller, `dispatchVerificationEmail`, and that function's own comment on
+ * why the call is unawaited by the route's `action`).
  */
-async function recordVerificationEmailAuditEvent(input: {
-  verificationId: string;
-  action: string;
-  after: Record<string, unknown>;
-  reason?: string | null;
-}): Promise<void> {
+async function recordVerificationEmailOutcome(
+  input: Parameters<typeof recordWarrantyOrderLookupVerificationEmailOutcome>[0]
+): Promise<void> {
   try {
-    await createAuditEvent({
-      actorType: "system",
-      actorRef: "apps.carat.warranty-order-lookup",
-      action: input.action,
-      entityType: "warranty_order_lookup_verification",
-      entityId: input.verificationId,
-      after: input.after,
-      reason: input.reason ?? null,
-    });
-  } catch (auditError) {
-    logger.error("warranty_order_lookup.verification_email_audit_event_failed", {
+    await recordWarrantyOrderLookupVerificationEmailOutcome(input);
+  } catch (error) {
+    logger.error("warranty_order_lookup.verification_email_outcome_record_failed", {
       verificationId: input.verificationId,
-      attemptedAction: input.action,
-      error: auditError instanceof Error ? auditError.name : "UnknownError",
+      attemptedStatus: input.status,
+      error: error instanceof Error ? error.name : "UnknownError",
     });
   }
 }
@@ -201,9 +192,12 @@ async function recordVerificationEmailAuditEvent(input: {
  * send is right for keeping the HTTP response's timing independent of it —
  * but a silent failure here would otherwise leave a customer waiting on a
  * link that never arrives, with nothing to diagnose. Every outcome
- * (unconfigured, sent, failed) writes one `audit_event` row via
- * `recordVerificationEmailAuditEvent`, mirroring
- * `luxuryStealOrderHandler.server.ts`'s `notifyLuxuryStealOrderHeld`.
+ * (unconfigured, sent, failed) is written onto the verification row itself
+ * via `recordVerificationEmailOutcome`, ALWAYS AFTER the HTTP response has
+ * already been sent — this function runs entirely inside the unawaited
+ * promise the route's `action` starts with `void dispatchVerificationEmail(...)`,
+ * so neither the send nor this durable write can ever delay or otherwise
+ * affect that response's timing.
  */
 async function dispatchVerificationEmail(
   input: { verificationId: string; to: string; orderName: string; verificationUrl: string },
@@ -212,12 +206,7 @@ async function dispatchVerificationEmail(
   const resolution = resolveEmailPort();
   if (!resolution.configured) {
     logger.error("warranty_order_lookup.verification_email_unconfigured", { reason: resolution.reason });
-    await recordVerificationEmailAuditEvent({
-      verificationId: input.verificationId,
-      action: "warranty_order_lookup.verification_email_skipped_unconfigured",
-      after: { emailDeliveryStatus: "skipped_unconfigured" },
-      reason: resolution.reason,
-    });
+    await recordVerificationEmailOutcome({ verificationId: input.verificationId, status: "skipped_unconfigured" });
     return;
   }
   const { subject, text } = buildWarrantyOrderVerificationEmail({
@@ -227,22 +216,17 @@ async function dispatchVerificationEmail(
   try {
     const sent = await resolution.port.send({ from: resolution.from, to: [input.to], subject, text });
     logger.info("warranty_order_lookup.verification_email_sent", { providerMessageId: sent.providerMessageId });
-    await recordVerificationEmailAuditEvent({
+    await recordVerificationEmailOutcome({
       verificationId: input.verificationId,
-      action: "warranty_order_lookup.verification_email_sent",
-      after: { emailDeliveryStatus: "sent", providerMessageId: sent.providerMessageId },
+      status: "sent",
+      providerMessageId: sent.providerMessageId,
     });
   } catch (error) {
     // Name only, never the caught error's message — same discipline
     // `dispatchAdminAlert`/`luxuryStealOrderHandler.server.ts` follow.
     const errorName = error instanceof Error ? error.name : "UnknownError";
     logger.error("warranty_order_lookup.verification_email_failed", { error: errorName });
-    await recordVerificationEmailAuditEvent({
-      verificationId: input.verificationId,
-      action: "warranty_order_lookup.verification_email_failed",
-      after: { emailDeliveryStatus: "failed" },
-      reason: errorName,
-    });
+    await recordVerificationEmailOutcome({ verificationId: input.verificationId, status: "failed" });
   }
 }
 
