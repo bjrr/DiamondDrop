@@ -2492,6 +2492,51 @@ model WarrantyClaimLocalJewellerAuthorization {
   @@map("warranty_claim_local_jeweller_authorization")
 }
 
+/// D33 (docs/ARCHITECTURE-MVP1.md) — the guest warranty-order-lookup
+/// verification flow. A guest supplies an order number + email; if they
+/// match a real order, a short-lived, single-use token is emailed to that
+/// order's address, and ONLY successful redemption reveals the order/line
+/// data `apps.carat.warranty-claim.tsx` needs. Deliberately NOT keyed to a
+/// `WarrantyClaim` row — a lookup can happen (and expire, or be abandoned)
+/// with no claim ever filed, so this is its own append-adjacent evidence
+/// table, not a column on `WarrantyClaim`.
+///
+/// TOKEN HANDLING MIRRORS A PASSWORD: `tokenHash` is a SHA-256 digest of a
+/// random 256-bit value minted by the application; the raw token is never
+/// stored anywhere, only returned once (in the email) at creation time. A
+/// leaked database row cannot be turned back into a working link.
+/// `@@unique` on `tokenHash` is both the lookup index and (with the
+/// application's conditional `UPDATE ... WHERE consumed_at IS NULL` — see
+/// `warrantyOrderLookupVerificationRepository.server.ts`) the mechanism that
+/// makes redemption single-use under concurrent attempts: two simultaneous
+/// redemptions race on updating the SAME row, and Postgres row-level locking
+/// guarantees at most one UPDATE reports a changed row.
+///
+/// `purchaserEmail`/`orderName` are stored only so a redeemed token's
+/// original claim (which order, whose email matched) is auditable without
+/// re-deriving it — the actual line-item data returned to the customer is
+/// always re-fetched fresh from Shopify at redemption time, never served
+/// from here (see the repository's own header comment).
+model WarrantyOrderLookupVerification {
+  id String @id @default(uuid()) @db.Uuid
+
+  tokenHash String @unique @map("token_hash")
+
+  orderRef       String @map("order_ref")
+  orderName      String @map("order_name")
+  purchaserEmail String @map("purchaser_email")
+
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  /// Set exactly once, by the single conditional UPDATE described above.
+  /// Never cleared/reused — a consumed row stays consumed forever.
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([expiresAt])
+  @@map("warranty_order_lookup_verification")
+}
+
 // =============================================================================
 // Slice 11 (subset) — Shipment Evidence (docs/specs/SLICE-11-SHIPMENT-
 // EVIDENCE.md, docs/specs/SLICE-11-READINESS.md, task 5-1-equivalent scope:
