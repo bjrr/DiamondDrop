@@ -81,7 +81,8 @@ async function main() {
   const body = (await response.json()) as AccountsSettingResponse;
   if (body.errors) {
     console.error("Admin API returned errors:", JSON.stringify(body.errors));
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   const shop = body.data?.shop;
@@ -119,10 +120,26 @@ async function main() {
   }
 
   console.log(failures === 0 ? "\nLIVE GATE PASSED" : `\n${failures} ASSERTION(S) FAILED`);
-  process.exit(failures === 0 ? 0 : 1);
+  process.exitCode = failures === 0 ? 0 : 1;
 }
 
-main().catch((error) => {
-  console.error("\n", error);
-  process.exit(1);
-});
+// NO process.exit(). It reported exit code 127 ON A PASS.
+//
+// This module pulls in the Shopify session storage and therefore a Prisma
+// client, so handles are still open when main() returns. process.exit()
+// tears the process down underneath them and libuv aborts ("Assertion
+// failed: !(handle->flags & UV_HANDLE_CLOSING)") AFTER the success banner
+// has already printed — so the gate announced LIVE GATE PASSED and then
+// exited 127. Wired into CI that is a green check reported as red, and the
+// natural response would be to distrust the gate rather than the harness.
+//
+// Set exitCode, disconnect, and let the process end on its own terms.
+main()
+  .catch((error) => {
+    console.error("\n", error);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    const { prisma } = await import("~/db/client.server");
+    await prisma.$disconnect();
+  });
