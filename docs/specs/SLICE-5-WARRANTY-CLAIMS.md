@@ -277,6 +277,36 @@ as D33 — lookup by order number, with guest access gated behind an emailed
 single-use token so the endpoint cannot be used to enumerate orders or email
 addresses. Implemented and committed.
 
+**RESOLVED 2026-09-26 — the page template was missing from the LIVE theme,
+not from source.** The owner created the Shopify page and found only
+"Default page" and "contact" offered in the template dropdown.
+
+The cause was a deployment gap, not missing code. Themes on this store:
+`CaratForUs (Dawn 16 + Slice 2)` is **live**; Slice 3 was verified on a
+separate **unpublished** `CaratForUs (Slice 3 verification)` theme. So the
+live theme carried Slice 2 only — no warranty template, no warranty section,
+and none of Slice 3's luxury files either. Nine files existed in source and
+had never reached the published theme.
+
+Deployed by a TARGETED push (`--only`, 71 paths), not a full theme push,
+because a full push would have overwritten merchant state. Excluded
+deliberately: `config/settings_data.json` (holds the merchant's theme
+settings and differed substantially from source), every pre-existing
+`templates/*.json` (Shopify-normalised in-editor; our `product.json` would
+have re-applied `media_position`/`gallery_layout` and changed the live
+gallery), and `sections/header-group.json`/`footer-group.json` (local
+carried settings live did not).
+
+Verified AFTER the push by pulling back from live rather than trusting the
+CLI's success message: `page.warranty-claim.json`,
+`sections/warranty-claim-form.liquid`, `assets/warranty-claim-form.js` and
+`snippets/luxury-product-gate.liquid` are present, and
+`config/settings_data.json`, `templates/product.json` and
+`sections/header-group.json` are byte-identical to their pre-push state.
+
+Remaining owner steps: refresh the Warranty Claim page in Shopify Admin,
+set template `warranty-claim`, set Visible, save.
+
 **Only item 2 now blocks verification, and it is an owner action, not
 engineering work.** Create the Shopify Page: Online Store → Pages → Add page;
 Title `Warranty Claim`; handle `warranty-claim`; template `warranty-claim`;
