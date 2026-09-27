@@ -173,3 +173,37 @@ first contact, not as something to "helpfully" complete.
 - Fetching or validating a Shopify order's address — the `Shipment.address*`
   fields are populated by whatever later task builds the repository/route;
   this task only defines the shape and the change-audit mechanics.
+
+---
+
+## Closure status
+
+Recorded 2026-09-27. **Domain, repository and staff surface implemented.**
+
+`app.shipments._index.tsx` / `.new.tsx` / `.$id.tsx` record what staff
+actually arranged with a carrier, one row per package, and display the
+policy's computed figure alongside it. A divergence is SHOWN, never silently
+reconciled — the rule's value is recomputed for display only and never
+persisted over what staff recorded.
+
+Two owner rules are held by structure rather than by tests:
+- There is no amount-paid or tender field anywhere on the create form,
+  because `merchandiseValue.ts`'s input type has none. "Reduce the insured
+  value because they paid with store credit" is a type error.
+- `StaffSignatureOverride` has no `required` field, so waiving a required
+  signature is unrepresentable. The $100 threshold is declared once and
+  guarded by `thresholdFence.test.ts`; no surface restates it.
+
+D32's provider seam lives in `app/app/insurance/`. The shipping evidence
+domain contains ZERO references to Jewelers Mutual — verified, not assumed —
+and `InsuranceProviderId` is an opaque string, so nothing can branch on a
+provider outside that module. Adding a second provider is one file plus one
+registry line.
+
+81 shipping integration tests pass, zero skipped.
+
+### Not built, deliberately
+
+No live provider API integration. Per D32, MVP1 records and verifies
+externally purchased coverage as staff attestation. Content lines are entered
+by staff; there is no Shopify order-line fetch, per §8.
