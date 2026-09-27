@@ -90,6 +90,16 @@ const APPROVED: ReadonlyArray<readonly [string, string]> = [
     "templates.warranty_claim.form.sign_in_required_message",
     "Please sign in or create a CaratForUs account to continue.",
   ],
+  // docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4, owner-approved 2026-09-26. A
+  // third independent render of the SAME sentence, this time gating the
+  // Group Buy campaign page's order action
+  // (sections/group-buy-campaign.liquid). Pinned alongside its two twins
+  // above so all three can never quietly drift apart from each other or
+  // from the doc.
+  [
+    "templates.group_buy_campaign.sign_in_required_message",
+    "Please sign in or create a CaratForUs account to continue.",
+  ],
 ];
 
 describe("owner-approved customer-facing copy is pinned verbatim", () => {

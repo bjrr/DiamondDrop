@@ -1,0 +1,494 @@
+{%- comment -%}
+  Group Buy campaign page (README "Live Savings / Progress" +
+  "Group Buy Options / Cart" +
+  docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md §9-§12).
+
+  STATUS: all customer-facing copy this file introduces is DRAFT, pending
+  owner approval, EXCEPT `templates.group_buy_campaign.sign_in_required_message`,
+  which is the byte-for-byte owner-approved sentence from
+  docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4 and is pinned in
+  app/app/theme/ownerApprovedCopy.test.ts alongside its twins in
+  snippets/bank-payment-checkout-dialog.liquid and
+  sections/warranty-claim-form.liquid. Do not reword that one sentence
+  without owner sign-off; every other string here is a reasonable first
+  draft, shipped functional per the architect's standing instruction rather
+  than blocked on approval (same precedent as the two files above).
+
+  WHAT THIS FILE CONSUMES, AND DOES NOT DUPLICATE. Every price, tier, unit
+  count, savings figure and countdown comes from the existing read-only
+  App Proxy endpoint (`GET /apps/carat/group-buy/:code`,
+  app/app/routes/apps.carat.group-buy.$code.tsx). Nothing about tiers,
+  rounding or the Bank/Card rule is computed here — a template that did its
+  own arithmetic would be a second place a customer-facing price is decided,
+  and the two could disagree. This section calls that SAME endpoint once per
+  distinct Shopify variant it needs a price for (the endpoint's own
+  docstring names exactly this caller: "a theme knows Shopify variant ids").
+
+  ONLY ONE ACTIVE PRICE AT A TIME (owner §9/§10). The public/default price is
+  the Regular/Card Price. A required Payment Type selection (unchecked by
+  default — CLAUDE.md: a required choice is never pre-checked) switches the
+  SAME slot to the Bank Payment Price; the two are never shown side by side.
+  This reproduces the pattern already reviewed and shipped in
+  `app/extensions/group-buy-progress` (a product-page app block covering the
+  live-savings figures) — that block is out of scope for this task (nothing
+  under `app/` besides tests) and does not offer a configuration table or an
+  ordering flow, which is what this dedicated campaign PAGE adds.
+
+  THE COMPARISON TABLE IS NATIVE-SHOPIFY-FIRST, NOT JSON-FIRST. Rows come
+  straight from the bound product's own `variants`/`options_with_values` —
+  real Shopify data, so a row can never claim a configuration Shopify itself
+  does not sell. The versioned campaign-options JSON contract
+  (`app/app/domain/groupbuy/campaignOptions.ts`, deferred formal tooling
+  until Slice 6) has no variant-id field and cannot resolve a combination to
+  a specific price on its own — it describes WHAT MAY BE SOLD, not which
+  Shopify variant that is. So this file uses the JSON for exactly what it
+  can honestly provide before that tooling exists: which of the product's
+  OWN option names appear as table columns, and in what order
+  (`tableView.columns`, matched case-insensitively against
+  `product.options_with_values`). Absent JSON, or JSON that matches nothing,
+  the table simply shows every native product option — the page still works
+  for a merchant who has not yet authored the JSON. See
+  `campaign_options_json` in the schema below.
+
+  ACCOUNT REQUIRED (docs/REQUIRED-CUSTOMER-ACCOUNTS.md). Browsing signed out
+  is fine — the table, the live progress figures and the Payment Type price
+  toggle all render for every visitor. Only the ORDER ACTION itself (the
+  `{%- if customer -%}` branch below, around "Order this configuration") is
+  gated: a signed-out visitor sees the pinned sign-in sentence and a sign-in
+  link in that spot instead of a working control. This is a server-side
+  render-time branch on Liquid's own `customer` object — the same pattern
+  proven in `snippets/bank-payment-checkout-dialog.liquid` and
+  `sections/warranty-claim-form.liquid` — not a client-side hide-after-render,
+  and it is UX, not enforcement: nothing under `app/` is touched by this
+  task, and any future Group Buy order-creation route must independently
+  reject an unauthenticated request.
+
+  ORDERING ACTION — DELIBERATELY MODEST, FLAGGED FOR ARCHITECT REVIEW. There
+  is currently no Group Buy order-creation endpoint in this codebase (only
+  the read-only progress endpoint above exists; see this task's handoff).
+  So the Credit/Debit Card path uses Shopify's own native `/cart/add` —the
+  bound product/variant is an ordinary Shopify product, and native cart/
+  checkout is the correct default per CLAUDE.md's "prefer Shopify-native
+  capabilities" principle — while the Bank Payment path, which cannot change
+  the payable checkout total (the same platform limitation documented in
+  `docs/BANK-PAYMENT-CHECKOUT-FINDINGS.md` and already reflected in
+  `group-buy-progress.js`'s "Contact us to arrange payment" copy), surfaces a
+  plain contact link rather than a fabricated submission this task has no
+  backend to fulfil. Do not read this as a final design for Group Buy
+  checkout — it is the honest MVP1 shape given what exists today, and a
+  dedicated Group Buy order/Bank-Payment-request route is exactly the kind
+  of decision CLAUDE.md reserves for the architect.
+
+  THIS SECTION DOES NOT USE `<product-form>`/`assets/product-form.js`. That
+  component's second submit button switches the CART-WIDE Buy Now Bank
+  Payment Discount mode (owner §20) — a different feature with its own
+  eligibility flag, 24-hour lock and 2%-autopublish rules. Reusing it here
+  would conflate Buy Now Bank Payment pricing with Group Buy's frozen tier
+  pricing and risk exactly what CLAUDE.md rule 21 forbids: Buy Now and Group
+  Buy sharing one cart/order. This section's own tiny form only ever posts a
+  plain native `/cart/add` for the Card path.
+{%- endcomment -%}
+{{ 'component-group-buy-campaign.css' | asset_url | stylesheet_tag }}
+
+{%- style -%}
+  .section-{{ section.id }}-padding {
+    padding-top: {{ section.settings.padding_top | times: 0.75 | round: 0 }}px;
+    padding-bottom: {{ section.settings.padding_bottom | times: 0.75 | round: 0 }}px;
+  }
+
+  @media screen and (min-width: 750px) {
+    .section-{{ section.id }}-padding {
+      padding-top: {{ section.settings.padding_top }}px;
+      padding-bottom: {{ section.settings.padding_bottom }}px;
+    }
+  }
+{%- endstyle -%}
+
+{%- liquid
+  assign campaign_code = section.settings.campaign_code | strip
+  assign gb_product = section.settings.product
+  assign campaign_options_raw = section.settings.campaign_options_json | strip
+  assign bank_contact_url = section.settings.bank_payment_contact_url | default: '/pages/contact'
+-%}
+
+<div class="color-{{ section.settings.color_scheme }} gradient">
+  <div class="page-width page-width--narrow section-{{ section.id }}-padding carat-gb-campaign">
+    {%- if campaign_code == blank or gb_product == blank -%}
+      {%- comment -%}
+        Merchant-only placeholder. Never rendered to a real shopper: without
+        both settings there is no campaign to call and no product to sell,
+        so showing nothing (outside the theme editor) is safer than a
+        broken widget.
+      {%- endcomment -%}
+      {%- if request.design_mode -%}
+        <p class="carat-gb-campaign__onboarding">
+          {{- 'templates.group_buy_campaign.onboarding_missing_settings' | t -}}
+        </p>
+      {%- endif -%}
+    {%- else -%}
+      <div
+        class="carat-gb-campaign__root"
+        data-carat-gb-campaign
+        data-campaign-code="{{ campaign_code | escape }}"
+        data-money-format="{{ shop.money_format | escape }}"
+        data-cart-add-url="{{ routes.cart_add_url }}"
+        data-cart-url="{{ routes.cart_url }}"
+        data-bank-contact-url="{{ bank_contact_url | escape }}"
+        {%- if campaign_options_raw != blank -%}
+          data-campaign-options="{{ campaign_options_raw | escape }}"
+        {%- endif -%}
+      >
+        {%- comment -%}
+          `sections/main-page.liquid` (rendered first in
+          templates/page.group-buy.json) already shows the Shopify PAGE's own
+          title as an <h1> — same convention as
+          `sections/warranty-claim-form.liquid` and `contact-form.liquid`. So
+          this is always an <h2>: either the merchant's override, or the
+          bound product's own title, which is genuinely useful supplementary
+          context (a page titled "Summer Group Buy" selling a "Solitaire Ring")
+          rather than a duplicate page heading.
+        {%- endcomment -%}
+        {%- if section.settings.heading != blank -%}
+          <h2 class="title title-wrapper--no-top-margin {{ section.settings.heading_size }}">
+            {{ section.settings.heading }}
+          </h2>
+        {%- else -%}
+          <h2 class="title title-wrapper--no-top-margin {{ section.settings.heading_size }}">
+            {{ gb_product.title | escape }}
+          </h2>
+        {%- endif -%}
+
+        {%- if section.settings.subheading != blank -%}
+          <div class="carat-gb-campaign__subheading rte">{{ section.settings.subheading }}</div>
+        {%- endif -%}
+
+        {%- comment -%}
+          Lightweight Share/Copy Link (README "Group Buy Sharing"). Hand-rolled
+          rather than `{% render 'share-button' %}` because that snippet reads
+          `block.settings.share_label`/`block.shopify_attributes` from a real
+          section BLOCK, which this section does not have — the markup below
+          is otherwise identical to `snippets/share-button.liquid` so the
+          existing `<share-button>` custom element (assets/share.js) drives it
+          unchanged.
+        {%- endcomment -%}
+        <script src="{{ 'share.js' | asset_url }}" defer="defer"></script>
+        <share-button id="Share-{{ section.id }}" class="share-button carat-gb-campaign__share">
+          <button class="share-button__button hidden">
+            <span class="svg-wrapper">{{ 'icon-share.svg' | inline_asset_content }}</span>
+            {{ 'templates.group_buy_campaign.share_label' | t }}
+          </button>
+          <details id="Details-{{ section.id }}-share">
+            <summary class="share-button__button">
+              <span class="svg-wrapper">{{ 'icon-share.svg' | inline_asset_content }}</span>
+              {{ 'templates.group_buy_campaign.share_label' | t }}
+            </summary>
+            <div class="share-button__fallback motion-reduce">
+              <div class="field">
+                <span id="ShareMessage-{{ section.id }}" class="share-button__message hidden" role="status"> </span>
+                <input
+                  type="text"
+                  class="field__input"
+                  id="ShareUrl-{{ section.id }}"
+                  value="{{ canonical_url }}"
+                  placeholder="{{ 'general.share.share_url' | t }}"
+                  onclick="this.select();"
+                  readonly
+                >
+                <label class="field__label" for="ShareUrl-{{ section.id }}">{{ 'general.share.share_url' | t }}</label>
+              </div>
+              <button class="share-button__close hidden">
+                <span class="svg-wrapper">{{- 'icon-close.svg' | inline_asset_content -}}</span>
+                <span class="visually-hidden">{{ 'general.share.close' | t }}</span>
+              </button>
+              <button class="share-button__copy">
+                <span class="svg-wrapper">{{- 'icon-copy.svg' | inline_asset_content -}}</span>
+                <span class="visually-hidden">{{ 'general.share.copy_to_clipboard' | t }}</span>
+              </button>
+            </div>
+          </details>
+        </share-button>
+
+        {%- comment -%}
+          Native Shopify product/variant data, read once, server-rendered —
+          the source of truth for "what may be sold" and "is it in stock".
+          JS never re-derives this from anything else.
+        {%- endcomment -%}
+        <script type="application/json" data-carat-gb-variants>
+          {{ gb_product.variants | json }}
+        </script>
+        <script type="application/json" data-carat-gb-options>
+          {{ gb_product.options_with_values | json }}
+        </script>
+
+        {%- comment -%}
+          LOADING / UNAVAILABLE, aria-live so a screen-reader hears the
+          figures when they arrive — same treatment as
+          `group-buy-progress.js`'s own block, and for the same reason: this
+          fills in without a page load, which is otherwise silent.
+        {%- endcomment -%}
+        <p class="carat-gb-campaign__loading" data-carat-gb-campaign-loading>
+          {{ 'templates.group_buy_campaign.loading' | t }}
+        </p>
+        <noscript>
+          <p class="carat-gb-campaign__unavailable">{{ 'templates.group_buy_campaign.noscript' | t }}</p>
+        </noscript>
+
+        <div
+          class="carat-gb-campaign__body"
+          data-carat-gb-campaign-body
+          aria-live="polite"
+          aria-busy="true"
+          hidden
+        >
+          {%- comment -%}
+            README "Group Buy Options / Cart": the public comparison table.
+            Regular/Card Price ONLY (owner §10) — never a second price
+            column — with the required note directly beneath it. JS fills
+            <thead>/<tbody>; the two are empty here on purpose (§10: "renders
+            nothing until it has real data" — the same discipline as
+            group-buy-progress.js).
+          {%- endcomment -%}
+          <div class="carat-gb-campaign__table-wrap">
+            <h2 class="carat-gb-campaign__section-heading">
+              {{ 'templates.group_buy_campaign.table_heading' | t }}
+            </h2>
+            <table class="carat-gb-campaign__table" data-carat-gb-table>
+              <thead data-carat-gb-table-head></thead>
+              <tbody data-carat-gb-table-body></tbody>
+            </table>
+            <p class="carat-gb-campaign__bank-note">
+              {{ 'templates.group_buy_campaign.bank_note' | t }}
+            </p>
+          </div>
+
+          {%- comment -%}
+            Configuration + required Payment Type + the single active price
+            slot (owner §9). Native <select> per product option — real
+            semantic form controls, populated server-side, so the page works
+            before this section's own JS finishes loading; the JS only
+            attaches `change` listeners and resolves the matching variant.
+          {%- endcomment -%}
+          <div class="carat-gb-campaign__configurator" data-carat-gb-configurator>
+            <h2 class="carat-gb-campaign__section-heading">
+              {{ 'templates.group_buy_campaign.configure_heading' | t }}
+            </h2>
+            <div class="carat-gb-campaign__options" data-carat-gb-option-selects>
+              {%- for option in gb_product.options_with_values -%}
+                <div class="carat-gb-campaign__option field">
+                  <label class="field__label" for="CaratGbOption-{{ section.id }}-{{ forloop.index0 }}">
+                    {{ option.name }}
+                  </label>
+                  <div class="select">
+                    <select
+                      id="CaratGbOption-{{ section.id }}-{{ forloop.index0 }}"
+                      class="select__select"
+                      data-carat-gb-option-index="{{ forloop.index0 }}"
+                    >
+                      {%- for value in option.values -%}
+                        <option value="{{ value | escape }}">{{ value }}</option>
+                      {%- endfor -%}
+                    </select>
+                    <span class="svg-wrapper">{{- 'icon-caret.svg' | inline_asset_content -}}</span>
+                  </div>
+                </div>
+              {%- endfor -%}
+            </div>
+
+            <p class="carat-gb-campaign__variant-status" role="status" data-carat-gb-variant-status hidden></p>
+
+            {%- comment -%}
+              Required Payment Type (owner §9/§10) — NEITHER radio checked by
+              default. CLAUDE.md: a required acknowledgment/choice is never
+              pre-checked or silently inferred.
+            {%- endcomment -%}
+            <fieldset class="carat-gb-campaign__payment-type">
+              <legend class="carat-gb-campaign__payment-type-legend">
+                {{ 'templates.group_buy_campaign.payment_type_legend' | t }}
+              </legend>
+              <label class="carat-gb-campaign__payment-option">
+                <input
+                  type="radio"
+                  name="carat-gb-payment-type-{{ section.id }}"
+                  value="card"
+                  data-carat-gb-payment-type
+                >
+                {{ 'templates.group_buy_campaign.payment_type_card' | t }}
+              </label>
+              <label class="carat-gb-campaign__payment-option">
+                <input
+                  type="radio"
+                  name="carat-gb-payment-type-{{ section.id }}"
+                  value="bank"
+                  data-carat-gb-payment-type
+                >
+                {{ 'templates.group_buy_campaign.payment_type_bank' | t }}
+              </label>
+            </fieldset>
+
+            <div class="carat-gb-campaign__price-active" data-carat-gb-active-price></div>
+          </div>
+
+          {%- comment -%}
+            ORDER ACTION — gated on sign-in (docs/REQUIRED-CUSTOMER-ACCOUNTS.md
+            §4). See this file's header comment for why the two actions below
+            are shaped the way they are.
+          {%- endcomment -%}
+          {%- if customer -%}
+            <div class="carat-gb-campaign__order" data-carat-gb-order>
+              <h2 class="carat-gb-campaign__section-heading">
+                {{ 'templates.group_buy_campaign.order_heading' | t }}
+              </h2>
+              <p class="carat-gb-campaign__order-hint" data-carat-gb-order-hint>
+                {{ 'templates.group_buy_campaign.order_hint' | t }}
+              </p>
+
+              <form data-carat-gb-add-to-cart-form>
+                <input type="hidden" name="id" value="" data-carat-gb-variant-id>
+                <input type="hidden" name="quantity" value="1">
+                <button
+                  type="submit"
+                  class="button button--full-width"
+                  data-carat-gb-add-to-cart
+                  data-carat-gb-payment-type-target="card"
+                  disabled
+                >
+                  <span>{{ 'templates.group_buy_campaign.add_to_cart' | t }}</span>
+                  {%- render 'loading-spinner' -%}
+                </button>
+              </form>
+
+              <a
+                class="button button--secondary"
+                data-carat-gb-bank-contact
+                data-carat-gb-payment-type-target="bank"
+                href="{{ bank_contact_url }}"
+                hidden
+              >
+                {{ 'templates.group_buy_campaign.bank_contact_cta' | t }}
+              </a>
+            </div>
+          {%- else -%}
+            <div class="carat-gb-campaign__signin-required" data-carat-gb-signin-required>
+              <h3 class="carat-gb-campaign__signin-heading">
+                {{- 'templates.group_buy_campaign.sign_in_required_heading' | t -}}
+              </h3>
+              <p class="carat-gb-campaign__signin-message">
+                {{- 'templates.group_buy_campaign.sign_in_required_message' | t -}}
+              </p>
+              <a
+                href="{{ routes.account_login_url }}?return_url={{ request.path | url_encode }}"
+                class="button"
+                data-carat-gb-signin-link
+              >
+                {{- 'customer.log_in' | t -}}
+              </a>
+            </div>
+          {%- endif -%}
+
+          {%- comment -%}
+            README "Live Savings / Progress" — tier track, countdown, Best
+            Price Unlocked, core message. A track of THRESHOLDS, never a
+            crowdfunding-style "% funded" figure — the README forbids the
+            latter outright, and JS never builds one.
+          {%- endcomment -%}
+          <div class="carat-gb-campaign__progress" data-carat-gb-progress></div>
+        </div>
+      </div>
+    {%- endif -%}
+  </div>
+</div>
+
+<script src="{{ 'group-buy-campaign.js' | asset_url }}" defer="defer"></script>
+
+{% schema %}
+{
+  "name": "Group Buy campaign",
+  "tag": "section",
+  "class": "section",
+  "disabled_on": {
+    "groups": ["header", "footer"]
+  },
+  "settings": [
+    {
+      "type": "product",
+      "id": "product",
+      "label": "Campaign product"
+    },
+    {
+      "type": "text",
+      "id": "campaign_code",
+      "label": "Campaign code",
+      "info": "The Group Buy campaign code from the CaratForUs admin."
+    },
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading",
+      "info": "Defaults to the product title when left blank."
+    },
+    {
+      "type": "richtext",
+      "id": "subheading",
+      "label": "Subheading"
+    },
+    {
+      "type": "select",
+      "id": "heading_size",
+      "options": [
+        { "value": "h2", "label": "Small" },
+        { "value": "h1", "label": "Medium" },
+        { "value": "h0", "label": "Large" }
+      ],
+      "default": "h1",
+      "label": "Heading size"
+    },
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "Color scheme",
+      "default": "scheme-1"
+    },
+    {
+      "type": "textarea",
+      "id": "campaign_options_json",
+      "label": "Campaign options JSON (advanced)",
+      "info": "Optional. The versioned Group Buy campaign-options JSON (schemaVersion, optionDimensions, tableView, orderingFlow — see app/app/domain/groupbuy/campaignOptions.ts). Used only to choose which of the product's own options appear as table columns and in what order. Leave blank to show every product option."
+    },
+    {
+      "type": "url",
+      "id": "bank_payment_contact_url",
+      "label": "Bank Payment contact link",
+      "info": "Where the Bank Payment action sends a shopper, since checkout cannot vary the payable total by payment method. Defaults to /pages/contact."
+    },
+    {
+      "type": "header",
+      "content": "Section padding"
+    },
+    {
+      "type": "range",
+      "id": "padding_top",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "Top padding",
+      "default": 36
+    },
+    {
+      "type": "range",
+      "id": "padding_bottom",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "Bottom padding",
+      "default": 36
+    }
+  ],
+  "presets": [
+    {
+      "name": "Group Buy campaign"
+    }
+  ]
+}
+{% endschema %}

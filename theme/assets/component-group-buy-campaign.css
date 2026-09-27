@@ -1,0 +1,231 @@
+/**
+ * Component-scoped styling for the Group Buy campaign page
+ * (sections/group-buy-campaign.liquid). No global selectors; every custom
+ * property used below is an existing theme token. Mobile-first: the table
+ * and configurator are single-column by default and only widen at the
+ * theme's own tablet breakpoint (750px), matching this theme's convention
+ * elsewhere (see component-warranty-claim-form.css).
+ *
+ * CONTRAST — material terms (the Bank Payment note, the sign-in gate, the
+ * "no active price" state) stay at full foreground contrast; only genuinely
+ * routine hint text (variant status, order hint) uses the theme's existing
+ * dimmed tier, matching the architect's 2026-09-25 ruling already documented
+ * in component-warranty-claim-form.css.
+ */
+
+.carat-gb-campaign {
+  max-width: 70rem;
+}
+
+.carat-gb-campaign__onboarding {
+  border: 1px dashed rgba(var(--color-foreground), 0.3);
+  padding: 1.5rem;
+  color: rgb(var(--color-foreground));
+}
+
+.carat-gb-campaign__subheading {
+  margin: 0.5rem 0 1.5rem;
+  color: rgb(var(--color-foreground));
+}
+
+.carat-gb-campaign__share {
+  margin-bottom: 1.5rem;
+}
+
+.carat-gb-campaign__loading {
+  color: rgba(var(--color-foreground), 0.75);
+}
+
+.carat-gb-campaign__unavailable {
+  color: rgb(var(--color-foreground));
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  padding: 1rem;
+}
+
+.carat-gb-campaign__section-heading {
+  font-size: 1.4rem;
+  margin: 2rem 0 1rem;
+}
+
+.carat-gb-campaign__table-wrap {
+  margin-bottom: 2rem;
+  /* A campaign-specific table can have several option columns; scrolling
+     the table itself on a narrow screen keeps every row's cells aligned,
+     rather than each row wrapping independently. */
+  overflow-x: auto;
+}
+
+.carat-gb-campaign__table {
+  width: 100%;
+  min-width: 30rem;
+  border-collapse: collapse;
+}
+
+.carat-gb-campaign__table th,
+.carat-gb-campaign__table td {
+  text-align: left;
+  padding: 0.75rem 0.5rem;
+  border-bottom: 1px solid rgba(var(--color-foreground), 0.15);
+}
+
+.carat-gb-campaign__table tbody tr[data-carat-gb-row-unavailable] {
+  opacity: 0.6;
+}
+
+.carat-gb-campaign__table-select {
+  white-space: nowrap;
+}
+
+.carat-gb-campaign__bank-note {
+  margin: 0.75rem 0 0;
+  color: rgb(var(--color-foreground));
+  font-style: italic;
+}
+
+.carat-gb-campaign__options {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+@media screen and (min-width: 750px) {
+  .carat-gb-campaign__options {
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  }
+}
+
+.carat-gb-campaign__variant-status {
+  color: rgba(var(--color-foreground), 0.75);
+  margin: 0 0 1rem;
+}
+
+.carat-gb-campaign__variant-status[data-carat-gb-status-unavailable] {
+  color: rgb(var(--color-foreground));
+  font-weight: 600;
+}
+
+.carat-gb-campaign__payment-type {
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  border-radius: var(--badge-corner-radius, 0);
+  padding: 1rem;
+  margin: 0 0 1rem;
+}
+
+.carat-gb-campaign__payment-type-legend {
+  font-weight: 600;
+  padding: 0 0.5rem;
+}
+
+.carat-gb-campaign__payment-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.carat-gb-campaign__price-active {
+  min-height: 2.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.carat-gb-campaign__price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+
+.carat-gb-campaign__price-label {
+  font-size: 1rem;
+  font-weight: 400;
+  color: rgba(var(--color-foreground), 0.75);
+}
+
+.carat-gb-campaign__price-note {
+  margin: 0.5rem 0 0;
+  color: rgb(var(--color-foreground));
+}
+
+.carat-gb-campaign__order {
+  margin-bottom: 2rem;
+}
+
+.carat-gb-campaign__order-hint {
+  color: rgba(var(--color-foreground), 0.75);
+  margin: 0 0 1rem;
+}
+
+.carat-gb-campaign__signin-required {
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  border-radius: var(--badge-corner-radius, 0);
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.carat-gb-campaign__signin-heading {
+  margin: 0 0 0.5rem;
+}
+
+.carat-gb-campaign__signin-message {
+  color: rgb(var(--color-foreground));
+  margin: 0 0 1rem;
+}
+
+.carat-gb-campaign__progress {
+  border-top: 1px solid rgba(var(--color-foreground), 0.15);
+  padding-top: 1.5rem;
+}
+
+.carat-gb-campaign__units strong {
+  font-size: 1.2rem;
+}
+
+.carat-gb-campaign__tiers {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0;
+  margin: 1rem 0;
+}
+
+.carat-gb-campaign__tier {
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  border-radius: var(--badge-corner-radius, 0);
+  padding: 0.5rem 0.75rem;
+  min-width: 8rem;
+}
+
+.carat-gb-campaign__tier.is-current {
+  border-color: rgb(var(--color-foreground));
+  border-width: 2px;
+}
+
+.carat-gb-campaign__tier-units {
+  display: block;
+  font-weight: 600;
+}
+
+.carat-gb-campaign__tier-state {
+  display: block;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+.carat-gb-campaign__best {
+  font-weight: 700;
+  font-size: 1.2rem;
+}
+
+.carat-gb-campaign__countdown,
+.carat-gb-campaign__savings,
+.carat-gb-campaign__next {
+  margin: 0.5rem 0;
+}
+
+.carat-gb-campaign__message {
+  font-style: italic;
+  margin-top: 1rem;
+}

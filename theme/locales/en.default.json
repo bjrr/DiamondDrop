@@ -330,6 +330,24 @@
         "success_heading": "We've received your warranty claim",
         "success_body_html": "Thank you. Your warranty claim reference is <strong>{{ reference }}</strong>. Submitting this claim does not mean your item is covered under the warranty. Please don't send your item to us — we will contact you if we need more information, and before authorizing your item for inspection."
       }
+    },
+    "group_buy_campaign": {
+      "onboarding_missing_settings": "Add a campaign product and campaign code in the theme editor to show this Group Buy.",
+      "share_label": "Share this Group Buy",
+      "loading": "Loading Group Buy pricing…",
+      "noscript": "Group Buy pricing requires JavaScript to be enabled.",
+      "table_heading": "Available configurations",
+      "bank_note": "Lower pricing is available with Bank Payment.",
+      "configure_heading": "Choose your configuration",
+      "payment_type_legend": "Payment Type",
+      "payment_type_card": "Credit / Debit Card",
+      "payment_type_bank": "Bank Payment",
+      "order_heading": "Order this configuration",
+      "order_hint": "Choose your configuration and Payment Type above, then order below.",
+      "add_to_cart": "Add to Cart",
+      "bank_contact_cta": "Contact us about Bank Payment",
+      "sign_in_required_heading": "Sign in required",
+      "sign_in_required_message": "Please sign in or create a CaratForUs account to continue."
     }
   },
   "sections": {
