@@ -27,6 +27,7 @@ import {
   RmaPersonalizedNotEligibleForApprovalError,
   RmaRemedyAlreadyExistsError,
   RmaRequiresClaimWorkflowError,
+  searchRmaRequestsForStaff,
   updateRmaRemedyStatus,
 } from "~/db/repositories/rmaRepository.server";
 import { InvalidRmaRemedyTransitionError } from "~/domain/rma/remedy";
@@ -501,5 +502,65 @@ describe("Customer-safe vs staff-safe reads", () => {
     // updateRmaRemedyStatus write to rma_remedy only; neither appends an
     // RmaEvent (those are request-status events, not remedy events).
     expect(staffView!.events.length).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe("searchRmaRequestsForStaff — the staff triage list", () => {
+  it("finds an RMA by reference, order ref, and purchaser email substring", async () => {
+    const rma = await submitRma({ purchaserEmail: `triage-${uniq()}@example.com` });
+
+    const byReference = await searchRmaRequestsForStaff({ query: rma.rmaReference });
+    expect(byReference.rows.map((r) => r.id)).toContain(rma.id);
+
+    const byOrder = await searchRmaRequestsForStaff({ query: rma.orderRef });
+    expect(byOrder.rows.map((r) => r.id)).toContain(rma.id);
+
+    const byEmail = await searchRmaRequestsForStaff({ query: rma.purchaserEmail });
+    expect(byEmail.rows.map((r) => r.id)).toContain(rma.id);
+
+    const byId = await searchRmaRequestsForStaff({ query: rma.id });
+    expect(byId.rows.map((r) => r.id)).toContain(rma.id);
+  });
+
+  it("filters by status, singular and as a list", async () => {
+    const submitted = await submitRma();
+    const denied = await submitRma();
+    await denyRmaRequest(denied.id, "staff:alice", "abuse pattern");
+
+    const submittedOnly = await searchRmaRequestsForStaff({ status: "submitted", query: submitted.rmaReference });
+    expect(submittedOnly.rows.map((r) => r.id)).toContain(submitted.id);
+
+    const deniedOnly = await searchRmaRequestsForStaff({ status: "denied", query: denied.rmaReference });
+    expect(deniedOnly.rows.map((r) => r.id)).toContain(denied.id);
+
+    const either = await searchRmaRequestsForStaff({ status: ["submitted", "denied"], query: denied.rmaReference });
+    expect(either.rows.map((r) => r.id)).toContain(denied.id);
+
+    const excluded = await searchRmaRequestsForStaff({ status: "submitted", query: denied.rmaReference });
+    expect(excluded.rows.map((r) => r.id)).not.toContain(denied.id);
+  });
+
+  it("surfaces the remedy's own status alongside the request, without exposing processor references", async () => {
+    const rma = await submitRma();
+    await walkToInspectionPassed(rma.id);
+    await createRmaRemedy({ rmaId: rma.id });
+
+    const before = await searchRmaRequestsForStaff({ query: rma.rmaReference });
+    expect(before.rows[0]?.remedyStatus).toBe("pending");
+    expect(Object.keys(before.rows[0] as object)).not.toContain("processorReference");
+
+    await updateRmaRemedyStatus({ rmaId: rma.id, status: "processing" });
+    const after = await searchRmaRequestsForStaff({ query: rma.rmaReference });
+    expect(after.rows[0]?.remedyStatus).toBe("processing");
+  });
+
+  it("caps page size and paginates oldest-requested-first", async () => {
+    const overCap = await searchRmaRequestsForStaff({ pageSize: 10_000 });
+    expect(overCap.pageSize).toBe(100);
+
+    const rma = await submitRma();
+    const page1 = await searchRmaRequestsForStaff({ query: rma.rmaReference, page: 1, pageSize: 5 });
+    expect(page1.totalCount).toBe(1);
+    expect(page1.page).toBe(1);
   });
 });

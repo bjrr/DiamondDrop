@@ -112,6 +112,33 @@ const EXEMPT_UI_ACTION_ROUTES: Readonly<Record<string, string>> = {
     "is same-origin by construction, unlike an App Proxy, webhook or cron caller. " +
     "If this route ever accepts a POST from anywhere but its own rendered form, " +
     "this exemption stops being true and must be re-argued.",
+  "app.shipments.new.tsx":
+    "the staff shipment-recording admin surface (Slice 11 admin surface, docs/specs/" +
+    "SLICE-11-SHIPMENT-EVIDENCE.md). Same argument as app.warranty-claims.$id.tsx: this " +
+    "route IS a real production mutation (creates a shipment evidence row), and stands " +
+    "on the same load-bearing leg alone — Shopify Admin iframes this route at the app's " +
+    "own URL, so a form inside it posts with the app's own Origin and is same-origin by " +
+    "construction, unlike an App Proxy, webhook or cron caller. If this route ever " +
+    "accepts a POST from anywhere but its own rendered form, this exemption stops being " +
+    "true and must be re-argued.",
+  "app.shipments.$id.tsx":
+    "the staff shipment detail/workflow admin surface (Slice 11 admin surface, docs/specs/" +
+    "SLICE-11-SHIPMENT-EVIDENCE.md). Same argument as app.warranty-claims.$id.tsx: this " +
+    "route IS a real production mutation (records signature overrides/service used, " +
+    "delivery confirmation, address changes, and insurance purchase/verification), and " +
+    "stands on the same load-bearing leg alone — Shopify Admin iframes this route at the " +
+    "app's own URL, so a form inside it posts with the app's own Origin and is " +
+    "same-origin by construction, unlike an App Proxy, webhook or cron caller. If this " +
+    "route ever accepts a POST from anywhere but its own rendered form, this exemption " +
+    "stops being true and must be re-argued.",
+  "app.rma.$id.tsx":
+    "the staff Buy Now RMA review/remedy-execution surface (Slice 4 remedy-execution task). Same " +
+    "argument as app.warranty-claims.$id.tsx: this route IS a real production mutation (approves/denies, " +
+    "records receipt and condition, computes and executes the remedy against Shopify, and records manual " +
+    "remedy outcomes), and stands on the same load-bearing leg alone — Shopify Admin iframes this route " +
+    "at the app's own URL, so a form inside it posts with the app's own Origin and is same-origin by " +
+    "construction, unlike an App Proxy, webhook or cron caller. If this route ever accepts a POST from " +
+    "anywhere but its own rendered form, this exemption stops being true and must be re-argued.",
   "app.group-buy-campaigns.$id.tsx":
     "the Group Buy campaign detail/configuration/open surface (Slice 6, docs/" +
     "SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md §11-§13). Same argument as " +

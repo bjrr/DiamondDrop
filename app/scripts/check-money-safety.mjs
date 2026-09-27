@@ -179,6 +179,12 @@ const TIER2_DIR_PREFIXES = [
   // ahead-of-the-code reasoning as the three prefixes above — the guard is
   // in place before any code lands in this directory, not after.
   "app/shopify/metafields/",
+  // Added as the first commit of the Slice 4 RMA remedy-execution task
+  // (docs/specs/SLICE-4-BUY-NOW-RMA.md, D5/D7/D10): this directory
+  // orchestrates the actual refund/store-credit money movement (merchandise
+  // amount + Shopify's own tax adjustment, summed once at the Money
+  // boundary). Same ahead-of-the-code reasoning as the prefixes above.
+  "app/jobs/rma/",
 ];
 
 /** Any file anywhere in the repo whose FILENAME (not path) matches this is money-adjacent too. */

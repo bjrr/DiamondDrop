@@ -872,3 +872,120 @@ export async function getRmaRequestForStaffReview(rmaId: string): Promise<RmaSta
     },
   }) as Promise<RmaStaffView | null>;
 }
+
+// ---------------------------------------------------------------------------
+// Staff triage list — mirrors `searchWarrantyClaimsForStaff`'s shape and
+// pagination discipline exactly (same default/max page size, same
+// oldest-first FIFO triage ordering, same explicit `select` allowlist
+// dropping internal staff identity and remedy processor fields the list view
+// has no business showing before a staff member opens the record).
+// ---------------------------------------------------------------------------
+
+const RMA_STAFF_LIST_DEFAULT_PAGE_SIZE = 25;
+const RMA_STAFF_LIST_MAX_PAGE_SIZE = 100;
+
+export interface SearchRmaRequestsForStaffInput {
+  /** Omit for every status. Pass the specific non-terminal statuses for an "open queue" view — this function has no built-in opinion about which statuses count as "open". */
+  readonly status?: RmaStatus | readonly RmaStatus[];
+  /** Matched (case-insensitive, substring) against RMA reference, order ref, and purchaser email; matched exactly against `id` when it looks like a UUID. */
+  readonly query?: string;
+  /** 1-based. Defaults to 1. */
+  readonly page?: number;
+  /** Defaults to 25, capped at 100 regardless of what is requested. */
+  readonly pageSize?: number;
+}
+
+export interface RmaStaffListRow {
+  readonly id: string;
+  readonly rmaReference: string;
+  readonly status: RmaStatus;
+  readonly orderRef: string;
+  readonly purchaserEmail: string;
+  readonly requestedAt: Date;
+  readonly windowKind: PrismaRmaWindowKind;
+  readonly receiveByDeadline: Date | null;
+  readonly conditionDecision: RmaConditionDecision | null;
+  readonly remedyStatus: PrismaRmaRemedyStatus | null;
+}
+
+export interface SearchRmaRequestsForStaffResult {
+  readonly rows: readonly RmaStaffListRow[];
+  readonly totalCount: number;
+  readonly page: number;
+  readonly pageSize: number;
+}
+
+const RMA_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isRmaStatusList(status: RmaStatus | readonly RmaStatus[]): status is readonly RmaStatus[] {
+  return Array.isArray(status);
+}
+
+const RMA_STAFF_LIST_SELECT = {
+  id: true,
+  rmaReference: true,
+  status: true,
+  orderRef: true,
+  purchaserEmail: true,
+  requestedAt: true,
+  windowKind: true,
+  receiveByDeadline: true,
+  conditionDecision: true,
+  remedy: { select: { status: true } },
+} satisfies Prisma.RmaRequestSelect;
+
+type RmaStaffListRawRow = Prisma.RmaRequestGetPayload<{ select: typeof RMA_STAFF_LIST_SELECT }>;
+
+function toRmaStaffListRow(row: RmaStaffListRawRow): RmaStaffListRow {
+  return {
+    id: row.id,
+    rmaReference: row.rmaReference,
+    status: row.status,
+    orderRef: row.orderRef,
+    purchaserEmail: row.purchaserEmail,
+    requestedAt: row.requestedAt,
+    windowKind: row.windowKind,
+    receiveByDeadline: row.receiveByDeadline,
+    conditionDecision: row.conditionDecision,
+    remedyStatus: row.remedy?.status ?? null,
+  };
+}
+
+/** Ordered OLDEST-REQUESTED-FIRST, always — the same FIFO triage-queue reasoning as `searchWarrantyClaimsForStaff`. */
+export async function searchRmaRequestsForStaff(
+  input: SearchRmaRequestsForStaffInput = {}
+): Promise<SearchRmaRequestsForStaffResult> {
+  const page = Math.max(1, input.page ?? 1);
+  const pageSize = Math.min(RMA_STAFF_LIST_MAX_PAGE_SIZE, Math.max(1, input.pageSize ?? RMA_STAFF_LIST_DEFAULT_PAGE_SIZE));
+
+  const where: Prisma.RmaRequestWhereInput = {};
+  if (input.status !== undefined) {
+    where.status = isRmaStatusList(input.status) ? { in: [...input.status] } : { equals: input.status };
+  }
+
+  const trimmedQuery = input.query?.trim();
+  if (trimmedQuery) {
+    const orConditions: Prisma.RmaRequestWhereInput[] = [
+      { rmaReference: { contains: trimmedQuery, mode: "insensitive" } },
+      { orderRef: { contains: trimmedQuery, mode: "insensitive" } },
+      { purchaserEmail: { contains: trimmedQuery, mode: "insensitive" } },
+    ];
+    if (RMA_UUID_PATTERN.test(trimmedQuery)) {
+      orConditions.push({ id: trimmedQuery });
+    }
+    where.OR = orConditions;
+  }
+
+  const [rows, totalCount] = await Promise.all([
+    prisma.rmaRequest.findMany({
+      where,
+      select: RMA_STAFF_LIST_SELECT,
+      orderBy: [{ requestedAt: "asc" }, { id: "asc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.rmaRequest.count({ where }),
+  ]);
+
+  return { rows: rows.map(toRmaStaffListRow), totalCount, page, pageSize };
+}
