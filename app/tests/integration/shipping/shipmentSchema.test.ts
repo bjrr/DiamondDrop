@@ -472,3 +472,126 @@ describe("D29-D31 wiring — new columns and their CHECK constraints", () => {
     });
   });
 });
+
+describe("D32 — insurance provider identity + verification provenance (migration 20260926070000)", () => {
+  it("accepts a shipment with no provider/verification recorded at all", async () => {
+    const shipment = await createShipment();
+    expect(shipment.insuranceProviderId).toBeNull();
+    expect(shipment.insuranceCoverageVerifiedAt).toBeNull();
+    expect(shipment.insuranceCoverageVerifiedByActorRef).toBeNull();
+  });
+
+  it("accepts a provider id together with a reference", async () => {
+    const shipment = await createShipment({
+      insuranceProviderId: "jewelers_mutual",
+      insuranceReference: "JM-CERT-1",
+      insuredValueMinorUnits: 100_000_00n,
+      insuredValueCurrency: "USD",
+    });
+    expect(shipment.insuranceProviderId).toBe("jewelers_mutual");
+  });
+
+  describe("shipment_insurance_provider_requires_reference", () => {
+    it("refuses a provider id with no reference, even bypassing the application via raw SQL", async () => {
+      await expect(
+        prisma.$executeRawUnsafe(
+          `INSERT INTO "shipment" (
+             id, order_ref, carrier, tracking_number, ship_date,
+             insurance_provider_id, insurance_reference,
+             address_line1, address_city, address_postal_code, address_country,
+             entered_by_actor_ref, updated_at
+           ) VALUES (
+             gen_random_uuid(), $1, 'USPS', $2, '2026-09-25',
+             'jewelers_mutual', NULL,
+             'x', 'y', 'z', 'US', 'staff:alice', CURRENT_TIMESTAMP
+           )`,
+          `gid://shopify/Order/${uniq()}`,
+          `TRACK-${uniq()}`
+        )
+      ).rejects.toThrow();
+    });
+  });
+
+  describe("shipment_insurance_verification_provenance_coherent", () => {
+    it("accepts a complete verification (verified-at and verified-by together)", async () => {
+      const shipment = await createShipment({
+        insuranceProviderId: "jewelers_mutual",
+        insuranceReference: "JM-CERT-2",
+        insuranceCoverageVerifiedAt: new Date(),
+        insuranceCoverageVerifiedByActorRef: "staff:alice",
+      });
+      expect(shipment.insuranceCoverageVerifiedByActorRef).toBe("staff:alice");
+    });
+
+    it("refuses a verified-at timestamp with no verifying actor, even bypassing the application via raw SQL", async () => {
+      await expect(
+        prisma.$executeRawUnsafe(
+          `INSERT INTO "shipment" (
+             id, order_ref, carrier, tracking_number, ship_date,
+             insurance_provider_id, insurance_reference,
+             insurance_coverage_verified_at, insurance_coverage_verified_by_actor_ref,
+             address_line1, address_city, address_postal_code, address_country,
+             entered_by_actor_ref, updated_at
+           ) VALUES (
+             gen_random_uuid(), $1, 'USPS', $2, '2026-09-25',
+             'jewelers_mutual', 'JM-CERT-3',
+             CURRENT_TIMESTAMP, NULL,
+             'x', 'y', 'z', 'US', 'staff:alice', CURRENT_TIMESTAMP
+           )`,
+          `gid://shopify/Order/${uniq()}`,
+          `TRACK-${uniq()}`
+        )
+      ).rejects.toThrow();
+    });
+
+    it("refuses a verifying actor with no timestamp", async () => {
+      await expect(
+        createShipment({
+          insuranceProviderId: "jewelers_mutual",
+          insuranceReference: "JM-CERT-4",
+          insuranceCoverageVerifiedByActorRef: "staff:alice",
+        })
+      ).rejects.toThrow();
+    });
+  });
+
+  describe("shipment_insurance_verification_requires_provider_and_reference", () => {
+    it("refuses a verification with no provider/reference on record at all, even bypassing the application via raw SQL", async () => {
+      await expect(
+        prisma.$executeRawUnsafe(
+          `INSERT INTO "shipment" (
+             id, order_ref, carrier, tracking_number, ship_date,
+             insurance_coverage_verified_at, insurance_coverage_verified_by_actor_ref,
+             address_line1, address_city, address_postal_code, address_country,
+             entered_by_actor_ref, updated_at
+           ) VALUES (
+             gen_random_uuid(), $1, 'USPS', $2, '2026-09-25',
+             CURRENT_TIMESTAMP, 'staff:alice',
+             'x', 'y', 'z', 'US', 'staff:alice', CURRENT_TIMESTAMP
+           )`,
+          `gid://shopify/Order/${uniq()}`,
+          `TRACK-${uniq()}`
+        )
+      ).rejects.toThrow();
+    });
+
+    it("refuses a verification that names a provider but no reference, even bypassing the application via raw SQL", async () => {
+      await expect(
+        prisma.$executeRawUnsafe(
+          `INSERT INTO "shipment" (
+             id, order_ref, carrier, tracking_number, ship_date,
+             insurance_provider_id, insurance_coverage_verified_at, insurance_coverage_verified_by_actor_ref,
+             address_line1, address_city, address_postal_code, address_country,
+             entered_by_actor_ref, updated_at
+           ) VALUES (
+             gen_random_uuid(), $1, 'USPS', $2, '2026-09-25',
+             'jewelers_mutual', CURRENT_TIMESTAMP, 'staff:alice',
+             'x', 'y', 'z', 'US', 'staff:alice', CURRENT_TIMESTAMP
+           )`,
+          `gid://shopify/Order/${uniq()}`,
+          `TRACK-${uniq()}`
+        )
+      ).rejects.toThrow();
+    });
+  });
+});

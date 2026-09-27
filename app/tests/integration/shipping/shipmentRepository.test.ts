@@ -7,15 +7,22 @@ import {
   createShipment,
   getShipmentForStaff,
   InvalidShipmentAddressChangeError,
+  InvalidShipmentInsurancePurchaseError,
   InvalidShipmentInsuredValueError,
   InvalidSignatureOverrideError,
   InvalidSignatureServiceUsedError,
   recordShipmentAddressChange,
+  recordShipmentDeliveryConfirmation,
+  recordShipmentInsurancePurchase,
   recordShipmentSignatureServiceUsed,
+  searchShipmentsForStaff,
+  ShipmentInsuranceNotRecordedError,
   ShipmentNotFoundError,
+  verifyShipmentInsuranceCoverage,
 } from "~/db/repositories/shipmentRepository.server";
 import { EmptyShipmentContentsError, type ShipmentMerchandiseLine } from "~/domain/shipping/merchandiseValue";
 import type { ShipmentAddress } from "~/domain/shipping/addressChange";
+import { JEWELERS_MUTUAL_PROVIDER_ID } from "~/insurance/providers/jewelersMutual";
 import { prisma } from "~/db/client.server";
 
 /**
@@ -319,5 +326,170 @@ describe("money stays in integer minor units throughout", () => {
     );
     expect(typeof shipment.computedMerchandiseValueMinorUnits).toBe("bigint");
     expect(typeof shipment.insuredValueMinorUnits).toBe("bigint");
+  });
+});
+
+describe("recordShipmentDeliveryConfirmation — carrier-confirmed delivery evidence", () => {
+  it("records delivery confirmation and proof-of-signature references", async () => {
+    const created = await createShipment(baseInput());
+    const deliveredAt = new Date("2026-09-27T14:00:00Z");
+    const updated = await recordShipmentDeliveryConfirmation(created.id, {
+      deliveredAt,
+      deliveryConfirmationReference: "USPS-CONFIRM-999",
+      proofOfSignatureReference: "USPS-SIG-999",
+    });
+    expect(updated.deliveredAt?.toISOString()).toBe(deliveredAt.toISOString());
+    expect(updated.deliveryConfirmationReference).toBe("USPS-CONFIRM-999");
+    expect(updated.proofOfSignatureReference).toBe("USPS-SIG-999");
+  });
+
+  it("allows delivery evidence with no references at all", async () => {
+    const created = await createShipment(baseInput());
+    const updated = await recordShipmentDeliveryConfirmation(created.id, { deliveredAt: new Date() });
+    expect(updated.deliveryConfirmationReference).toBeNull();
+    expect(updated.proofOfSignatureReference).toBeNull();
+  });
+
+  it("refuses a nonexistent shipment", async () => {
+    await expect(
+      recordShipmentDeliveryConfirmation(randomUUID(), { deliveredAt: new Date() })
+    ).rejects.toBeInstanceOf(ShipmentNotFoundError);
+  });
+});
+
+describe("recordShipmentInsurancePurchase / verifyShipmentInsuranceCoverage — D32 provider-adapter seam", () => {
+  it("records a purchase from a registered provider", async () => {
+    const created = await createShipment(baseInput());
+    const updated = await recordShipmentInsurancePurchase(created.id, {
+      providerId: JEWELERS_MUTUAL_PROVIDER_ID,
+      policyOrCertificateReference: "JM-CERT-100",
+      coveredValueMinorUnits: 500_000_00n,
+      coveredValueCurrency: "USD",
+    });
+    expect(updated.insuranceProviderId).toBe(JEWELERS_MUTUAL_PROVIDER_ID);
+    expect(updated.insuranceReference).toBe("JM-CERT-100");
+    expect(updated.insuredValueMinorUnits).toBe(500_000_00n);
+  });
+
+  it("refuses an unrecognized provider, before writing anything", async () => {
+    const created = await createShipment(baseInput());
+    await expect(
+      recordShipmentInsurancePurchase(created.id, {
+        providerId: "acme_insurance",
+        policyOrCertificateReference: "ACME-1",
+        coveredValueMinorUnits: 100_00n,
+        coveredValueCurrency: "USD",
+      })
+    ).rejects.toBeInstanceOf(InvalidShipmentInsurancePurchaseError);
+  });
+
+  it("refuses a blank reference, before writing anything", async () => {
+    const created = await createShipment(baseInput());
+    await expect(
+      recordShipmentInsurancePurchase(created.id, {
+        providerId: JEWELERS_MUTUAL_PROVIDER_ID,
+        policyOrCertificateReference: "   ",
+        coveredValueMinorUnits: 100_00n,
+        coveredValueCurrency: "USD",
+      })
+    ).rejects.toBeInstanceOf(InvalidShipmentInsurancePurchaseError);
+  });
+
+  it("refuses a nonexistent shipment", async () => {
+    await expect(
+      recordShipmentInsurancePurchase(randomUUID(), {
+        providerId: JEWELERS_MUTUAL_PROVIDER_ID,
+        policyOrCertificateReference: "JM-CERT-1",
+        coveredValueMinorUnits: 100_00n,
+        coveredValueCurrency: "USD",
+      })
+    ).rejects.toBeInstanceOf(ShipmentNotFoundError);
+  });
+
+  it("verifies coverage once a provider/reference is recorded", async () => {
+    const created = await createShipment(baseInput());
+    await recordShipmentInsurancePurchase(created.id, {
+      providerId: JEWELERS_MUTUAL_PROVIDER_ID,
+      policyOrCertificateReference: "JM-CERT-200",
+      coveredValueMinorUnits: 500_000_00n,
+      coveredValueCurrency: "USD",
+    });
+    const verifiedAt = new Date("2026-09-27T15:00:00Z");
+    const verified = await verifyShipmentInsuranceCoverage(created.id, { verifiedByActorRef: "staff:alice", verifiedAt });
+    expect(verified.insuranceCoverageVerifiedAt?.toISOString()).toBe(verifiedAt.toISOString());
+    expect(verified.insuranceCoverageVerifiedByActorRef).toBe("staff:alice");
+  });
+
+  it("refuses to verify coverage that was never recorded", async () => {
+    const created = await createShipment(baseInput());
+    await expect(
+      verifyShipmentInsuranceCoverage(created.id, { verifiedByActorRef: "staff:alice", verifiedAt: new Date() })
+    ).rejects.toBeInstanceOf(ShipmentInsuranceNotRecordedError);
+  });
+
+  it("recording a NEW purchase clears any prior verification — a changed reference/value invalidates the old attestation", async () => {
+    const created = await createShipment(baseInput());
+    await recordShipmentInsurancePurchase(created.id, {
+      providerId: JEWELERS_MUTUAL_PROVIDER_ID,
+      policyOrCertificateReference: "JM-CERT-300",
+      coveredValueMinorUnits: 500_000_00n,
+      coveredValueCurrency: "USD",
+    });
+    const verified = await verifyShipmentInsuranceCoverage(created.id, { verifiedByActorRef: "staff:alice", verifiedAt: new Date() });
+    expect(verified.insuranceCoverageVerifiedAt).not.toBeNull();
+
+    const rePurchased = await recordShipmentInsurancePurchase(created.id, {
+      providerId: JEWELERS_MUTUAL_PROVIDER_ID,
+      policyOrCertificateReference: "JM-CERT-301",
+      coveredValueMinorUnits: 600_000_00n,
+      coveredValueCurrency: "USD",
+    });
+    expect(rePurchased.insuranceCoverageVerifiedAt).toBeNull();
+    expect(rePurchased.insuranceCoverageVerifiedByActorRef).toBeNull();
+  });
+});
+
+describe("searchShipmentsForStaff — the staff triage list", () => {
+  it("finds a shipment by order reference", async () => {
+    const orderRef = `gid://shopify/Order/${uniq()}`;
+    await createShipment(baseInput({ orderRef }));
+    const result = await searchShipmentsForStaff({ query: orderRef });
+    expect(result.rows.some((row) => row.orderRef === orderRef)).toBe(true);
+  });
+
+  it("finds a shipment by tracking number", async () => {
+    const trackingNumber = `TRACK-${uniq()}`;
+    await createShipment(baseInput({ trackingNumber }));
+    const result = await searchShipmentsForStaff({ query: trackingNumber });
+    expect(result.rows.some((row) => row.trackingNumber === trackingNumber)).toBe(true);
+  });
+
+  it("never selects supplier cost/margin fields — Shipment carries none, and the select is an explicit field list", async () => {
+    const orderRef = `gid://shopify/Order/${uniq()}`;
+    await createShipment(baseInput({ orderRef }));
+    const result = await searchShipmentsForStaff({ query: orderRef });
+    const row = result.rows.find((r) => r.orderRef === orderRef)!;
+    expect(Object.keys(row)).not.toContain("costMinorUnits");
+    expect(Object.keys(row)).not.toContain("marginMinorUnits");
+  });
+
+  it("respects pagination bounds", async () => {
+    const result = await searchShipmentsForStaff({ page: 1, pageSize: 1000 });
+    expect(result.pageSize).toBeLessThanOrEqual(100);
+  });
+});
+
+describe("tender is not value, at the repository boundary too — CreateShipmentInput has no field for it", () => {
+  it("two shipments with the SAME merchandise value compute the SAME signature/insurance basis regardless of how the (hypothetical) order was paid", async () => {
+    // CreateShipmentInput/ShipmentMerchandiseLine has no amount-paid, discount-
+    // for-payment-method, or tender field to pass one to (see
+    // merchandiseValue.ts's own header) — this test pins that two shipments
+    // with identical CONTENTS produce identical computed values and signature
+    // requirements, independent of anything about how they were purportedly
+    // paid for, because there is no such input to vary in the first place.
+    const shipmentA = await createShipment(baseInput({ contents: [line({ merchandiseValueMinorUnits: 250_00n })] }));
+    const shipmentB = await createShipment(baseInput({ contents: [line({ merchandiseValueMinorUnits: 250_00n })] }));
+    expect(shipmentA.computedMerchandiseValueMinorUnits).toBe(shipmentB.computedMerchandiseValueMinorUnits);
+    expect(shipmentA.signatureRequired).toBe(shipmentB.signatureRequired);
   });
 });

@@ -2611,6 +2611,22 @@ model Shipment {
   insuredValueCurrency   String? @map("insured_value_currency") @db.Char(3)
   insuranceReference     String? @map("insurance_reference")
 
+  /// D32 — the provider-adapter seam (app/app/insurance/**), not this
+  /// domain: an OPAQUE provider id string (e.g. "jewelers_mutual"), never
+  /// branched on here or anywhere outside app/app/insurance/**. Nullable —
+  /// a shipment may be insured via a bare carrier declared-value receipt
+  /// with no named external provider at all.
+  insuranceProviderId String? @map("insurance_provider_id")
+  /// D32 — MVP1 records and verifies externally purchased coverage rather
+  /// than integrating a live API: this pair is staff's attestation that
+  /// they confirmed, with the provider, that `insuranceReference` actually
+  /// covers `insuredValueMinorUnits`. Present together or absent together
+  /// (`shipment_insurance_verification_provenance_coherent`), and only
+  /// meaningful once a provider + reference are on record
+  /// (`shipment_insurance_verification_requires_provider_and_reference`).
+  insuranceCoverageVerifiedAt         DateTime? @map("insurance_coverage_verified_at") @db.Timestamptz(6)
+  insuranceCoverageVerifiedByActorRef String?   @map("insurance_coverage_verified_by_actor_ref")
+
   /// D29 — the OUTPUT of `computeShipmentMerchandiseValue` for this
   /// shipment's contents: what the D29/D31 rule actually computed, kept
   /// distinct from `insuredValueMinorUnits` (what staff arranged) per D30.

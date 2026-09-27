@@ -1,4 +1,4 @@
-import type { Shipment, ShipmentAddressChangeEvent } from "@prisma/client";
+import type { Prisma, Shipment, ShipmentAddressChangeEvent } from "@prisma/client";
 
 import {
   computeShipmentMerchandiseValue,
@@ -17,6 +17,8 @@ import {
   type ShipmentAddress,
   type ShipmentAddressChangeActorType,
 } from "~/domain/shipping/addressChange";
+import { validatePurchasedCoverage } from "~/insurance/purchasedCoverage";
+import type { InsuranceProviderId, PurchasedInsuranceCoverage } from "~/insurance/port";
 
 import { prisma } from "../client.server";
 
@@ -81,6 +83,22 @@ export class InvalidShipmentAddressChangeError extends Error {
   constructor(readonly reason: string) {
     super(`Invalid shipment address change: ${reason}`);
     this.name = "InvalidShipmentAddressChangeError";
+  }
+}
+
+/** Mirrors `validatePurchasedCoverage`'s refusal as a typed error (D32) — refused BEFORE any write is attempted. */
+export class InvalidShipmentInsurancePurchaseError extends Error {
+  constructor(readonly reason: string) {
+    super(`Invalid shipment insurance purchase: ${reason}`);
+    this.name = "InvalidShipmentInsurancePurchaseError";
+  }
+}
+
+/** D32 — staff cannot attest to coverage that was never recorded. Mirrors the database's own `shipment_insurance_verification_requires_provider_and_reference` CHECK as a typed error, checked before the write is attempted. */
+export class ShipmentInsuranceNotRecordedError extends Error {
+  constructor(readonly shipmentId: string) {
+    super(`Shipment ${shipmentId} has no recorded insurance provider/reference to verify.`);
+    this.name = "ShipmentInsuranceNotRecordedError";
   }
 }
 
@@ -330,6 +348,126 @@ export async function recordShipmentAddressChange(
 }
 
 // ---------------------------------------------------------------------------
+// Delivery evidence (criterion 171 "delivery evidence") — what the carrier
+// confirmed, recorded by staff. Mutable in place, same as every other
+// evidence field on `Shipment` itself (see this table's own doc comment in
+// schema.prisma) — the append-only guarantee applies to
+// `ShipmentAddressChangeEvent`, not to this row.
+// ---------------------------------------------------------------------------
+
+export interface RecordShipmentDeliveryConfirmationInput {
+  readonly deliveredAt: Date;
+  readonly deliveryConfirmationReference?: string;
+  /** What the carrier actually captured as proof of signature, if any — evidence, independent of `signatureRequired`/`signatureServiceUsed`. */
+  readonly proofOfSignatureReference?: string;
+}
+
+export async function recordShipmentDeliveryConfirmation(
+  shipmentId: string,
+  input: RecordShipmentDeliveryConfirmationInput
+): Promise<Shipment> {
+  const existing = await prisma.shipment.findUnique({ where: { id: shipmentId }, select: { id: true } });
+  if (!existing) throw new ShipmentNotFoundError(shipmentId);
+
+  return prisma.shipment.update({
+    where: { id: shipmentId },
+    data: {
+      deliveredAt: input.deliveredAt,
+      deliveryConfirmationReference: input.deliveryConfirmationReference ?? null,
+      proofOfSignatureReference: input.proofOfSignatureReference ?? null,
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Insurance — D32 provider-adapter seam. THIS MODULE NEVER RE-DERIVES the
+// provider/reference/money validation: every write below goes through
+// `validatePurchasedCoverage` (app/app/insurance/**), which is the only code
+// in this call path that knows what a provider or a well-formed reference
+// is. Recording a NEW purchase clears any prior verification — an
+// attestation about a reference/value that just changed is stale evidence,
+// never carried forward silently.
+// ---------------------------------------------------------------------------
+
+export interface RecordShipmentInsurancePurchaseInput {
+  readonly providerId: InsuranceProviderId;
+  readonly policyOrCertificateReference: string;
+  readonly coveredValueMinorUnits: bigint;
+  readonly coveredValueCurrency: string;
+}
+
+export async function recordShipmentInsurancePurchase(
+  shipmentId: string,
+  input: RecordShipmentInsurancePurchaseInput
+): Promise<Shipment> {
+  const existing = await prisma.shipment.findUnique({ where: { id: shipmentId }, select: { id: true } });
+  if (!existing) throw new ShipmentNotFoundError(shipmentId);
+
+  const coverage: PurchasedInsuranceCoverage = {
+    providerId: input.providerId,
+    policyOrCertificateReference: input.policyOrCertificateReference,
+    coveredValueMinorUnits: input.coveredValueMinorUnits,
+    coveredValueCurrency: input.coveredValueCurrency,
+  };
+  const validation = validatePurchasedCoverage(coverage);
+  if (!validation.ok) {
+    throw new InvalidShipmentInsurancePurchaseError(validation.reason);
+  }
+
+  return prisma.shipment.update({
+    where: { id: shipmentId },
+    data: {
+      insuranceProviderId: input.providerId,
+      insuranceReference: input.policyOrCertificateReference,
+      insuredValueMinorUnits: input.coveredValueMinorUnits,
+      insuredValueCurrency: input.coveredValueCurrency,
+      // A new purchase invalidates any earlier attestation — see header.
+      insuranceCoverageVerifiedAt: null,
+      insuranceCoverageVerifiedByActorRef: null,
+    },
+  });
+}
+
+export interface VerifyShipmentInsuranceCoverageInput {
+  readonly verifiedByActorRef: string;
+  readonly verifiedAt: Date;
+}
+
+/**
+ * Records staff's attestation that they confirmed, with the provider, that
+ * the recorded reference actually covers the recorded insured value (D32 —
+ * "MVP1 may record and verify externally purchased coverage"). Refuses
+ * BEFORE writing when no provider/reference is on record at all — mirrors
+ * `shipment_insurance_verification_requires_provider_and_reference` at the
+ * application layer, same discipline as `validateInsuredValue`'s mirroring
+ * of its own CHECK constraint.
+ */
+export async function verifyShipmentInsuranceCoverage(
+  shipmentId: string,
+  input: VerifyShipmentInsuranceCoverageInput
+): Promise<Shipment> {
+  const existing = await prisma.shipment.findUnique({
+    where: { id: shipmentId },
+    select: { id: true, insuranceProviderId: true, insuranceReference: true },
+  });
+  if (!existing) throw new ShipmentNotFoundError(shipmentId);
+  if (!existing.insuranceProviderId || !existing.insuranceReference) {
+    throw new ShipmentInsuranceNotRecordedError(shipmentId);
+  }
+  if (input.verifiedByActorRef.trim().length === 0) {
+    throw new Error("verifyShipmentInsuranceCoverage requires verifiedByActorRef — an attestation is staff's, never anonymous.");
+  }
+
+  return prisma.shipment.update({
+    where: { id: shipmentId },
+    data: {
+      insuranceCoverageVerifiedAt: input.verifiedAt,
+      insuranceCoverageVerifiedByActorRef: input.verifiedByActorRef,
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Read — one shipment, with its full address-change history, for staff
 // ---------------------------------------------------------------------------
 
@@ -343,6 +481,89 @@ export async function getShipmentForStaff(shipmentId: string): Promise<ShipmentF
     where: { id: shipmentId },
     include: { addressChanges: { orderBy: { createdAt: "asc" } } },
   }) as Promise<ShipmentForStaff | null>;
+}
+
+// ---------------------------------------------------------------------------
+// Search/list — staff triage surface. Explicit `select`, never a raw spread
+// or `include` of the full row: `Shipment` carries no cost/margin data
+// today, but a list route should not depend on that staying true forever —
+// same discipline as `warrantyClaimRepository.server.ts`'s
+// `searchWarrantyClaimsForStaff`.
+// ---------------------------------------------------------------------------
+
+const SHIPMENT_STAFF_LIST_DEFAULT_PAGE_SIZE = 25;
+const SHIPMENT_STAFF_LIST_MAX_PAGE_SIZE = 100;
+
+const SHIPMENT_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export interface SearchShipmentsForStaffInput {
+  /** Matched (case-insensitive, substring) against order ref, tracking number, and carrier; matched exactly against `id` when it looks like a UUID. */
+  readonly query?: string;
+  /** 1-based. Defaults to 1. */
+  readonly page?: number;
+  /** Defaults to 25, capped at 100 regardless of what is requested. */
+  readonly pageSize?: number;
+}
+
+const STAFF_SHIPMENT_LIST_SELECT = {
+  id: true,
+  orderRef: true,
+  carrier: true,
+  trackingNumber: true,
+  shipDate: true,
+  signatureRequired: true,
+  signatureRequiredSource: true,
+  computedMerchandiseValueMinorUnits: true,
+  computedMerchandiseValueCurrency: true,
+  insuredValueMinorUnits: true,
+  insuredValueCurrency: true,
+  insuranceProviderId: true,
+  insuranceCoverageVerifiedAt: true,
+  deliveredAt: true,
+} satisfies Prisma.ShipmentSelect;
+
+export type ShipmentStaffListRow = Prisma.ShipmentGetPayload<{ select: typeof STAFF_SHIPMENT_LIST_SELECT }>;
+
+export interface SearchShipmentsForStaffResult {
+  readonly rows: readonly ShipmentStaffListRow[];
+  readonly totalCount: number;
+  readonly page: number;
+  readonly pageSize: number;
+}
+
+/** Ordered most-recently-shipped-first — the staff triage list's natural order. */
+export async function searchShipmentsForStaff(
+  input: SearchShipmentsForStaffInput = {}
+): Promise<SearchShipmentsForStaffResult> {
+  const page = Math.max(1, input.page ?? 1);
+  const pageSize = Math.min(SHIPMENT_STAFF_LIST_MAX_PAGE_SIZE, Math.max(1, input.pageSize ?? SHIPMENT_STAFF_LIST_DEFAULT_PAGE_SIZE));
+
+  const where: Prisma.ShipmentWhereInput = {};
+  const trimmedQuery = input.query?.trim();
+  if (trimmedQuery) {
+    const orConditions: Prisma.ShipmentWhereInput[] = [
+      { orderRef: { contains: trimmedQuery, mode: "insensitive" } },
+      { trackingNumber: { contains: trimmedQuery, mode: "insensitive" } },
+      { carrier: { contains: trimmedQuery, mode: "insensitive" } },
+    ];
+    if (SHIPMENT_UUID_PATTERN.test(trimmedQuery)) {
+      orConditions.push({ id: trimmedQuery });
+    }
+    where.OR = orConditions;
+  }
+
+  const [rows, totalCount] = await Promise.all([
+    prisma.shipment.findMany({
+      where,
+      select: STAFF_SHIPMENT_LIST_SELECT,
+      orderBy: [{ shipDate: "desc" }, { id: "asc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.shipment.count({ where }),
+  ]);
+
+  return { rows, totalCount, page, pageSize };
 }
 
 // Re-exported so a caller building `contents`/`address`/`override` inputs
