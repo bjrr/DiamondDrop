@@ -192,3 +192,50 @@ form[data-carat-warranty-form] > .carat-warranty-claim__uploads-note {
 .carat-warranty-claim__status {
   margin-top: 1rem;
 }
+
+/**
+ * Order picker (fieldset wrapping the order-number search + resolved line-
+ * item choice) and the sign-in gate. Same borders/spacing vocabulary as the
+ * existing `.carat-warranty-claim__fieldset`/`__notice` rules above -- no
+ * new visual language introduced for these two additions.
+ */
+.carat-warranty-claim__fieldset--nested {
+  margin-top: 1.5rem;
+}
+
+.carat-warranty-claim__order-result {
+  margin-top: 1.5rem;
+}
+
+.carat-warranty-claim__order-result-summary {
+  color: rgb(var(--color-foreground));
+  font-weight: 600;
+  margin: 0 0 1rem;
+}
+
+.carat-warranty-claim__radio-group--stacked {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.carat-warranty-claim__order-search-again {
+  margin-top: 1.5rem;
+}
+
+.carat-warranty-claim__signin-required {
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  border-radius: var(--badge-corner-radius, 0);
+  padding: 1.5rem;
+}
+
+.carat-warranty-claim__signin-heading {
+  color: rgb(var(--color-foreground));
+  margin: 0 0 1rem;
+}
+
+.carat-warranty-claim__signin-message {
+  color: rgb(var(--color-foreground));
+  line-height: 1.5;
+  margin: 0 0 1.5rem;
+}

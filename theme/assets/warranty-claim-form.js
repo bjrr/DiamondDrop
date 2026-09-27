@@ -16,6 +16,18 @@
  * render, by construction on the server side, and this file does not
  * invent additional content around it.
  *
+ * ORDER PICKER (docs/REQUIRED-CUSTOMER-ACCOUNTS.md §5). `wireOrderLookup`
+ * below is what actually fills the form's hidden `order_id`/`line_item_id`
+ * inputs: it POSTs the order NUMBER the customer typed (e.g. "1001") to
+ * `/apps/carat/warranty-order-lookup` (an authenticated-only route -- see
+ * its own module comment), and on a resolved match, lets the customer pick
+ * one of the returned line items. THIS IS UX ONLY: the route's own 401 is
+ * what actually enforces that only a signed-in customer can look up their
+ * own orders, and the route deliberately returns the SAME `{ resolved:
+ * false }` whether an order doesn't exist or belongs to someone else --
+ * this file never tries to tell those two cases apart, and
+ * `order_lookup_not_found` is worded generically for exactly that reason.
+ *
  * `variant_id` IS A BEST-EFFORT CONVENIENCE ONLY. `shopifyVariantId`
  * resolution never gates claim creation (see the route's own module
  * comment) and most customers have no way to know a Shopify variant id at
@@ -32,6 +44,13 @@
  * sending "" would be a present-but-possibly-invalid value instead of a
  * cleanly absent one). `buildRequestBody` below only ever adds a key when
  * the corresponding field actually has a trimmed, non-empty value.
+ *
+ * `_internal` IS EXPOSED ON `window.CaratWarrantyClaimForm` PURELY FOR
+ * TESTING (`app/app/theme/warrantyClaimFormSandbox.ts` /
+ * `warrantyClaimForm.test.ts`), same technique as
+ * `window.CaratBankPaymentCheckout` in `bank-payment-checkout.js`. Only the
+ * genuinely pure order-lookup helpers are exposed -- the rest of this file
+ * still reads the DOM directly, unchanged from before this task.
  */
 (function () {
   // Guards against double-binding the document-level submit listener if
@@ -43,12 +62,24 @@
   window.caratWarrantyClaimFormLoaded = true;
 
   var PROXY_PATH = '/apps/carat/warranty-claim';
+  var ORDER_LOOKUP_PROXY_PATH = '/apps/carat/warranty-order-lookup';
   var FORM_SELECTOR = '[data-carat-warranty-form]';
   var ERROR_SUMMARY_SELECTOR = '[data-carat-warranty-error-summary]';
   var CONFIRMATION_SELECTOR = '[data-carat-warranty-confirmation]';
   var STATUS_SELECTOR = '[data-carat-warranty-status]';
   var SUBMIT_SELECTOR = '[data-carat-warranty-submit]';
   var FIELD_ERROR_TEXT_SELECTOR = '[data-carat-warranty-field-error-text]';
+
+  // Order picker selectors -- theme/sections/warranty-claim-form.liquid's
+  // `data-carat-warranty-order-picker` fieldset.
+  var ORDER_NUMBER_INPUT_SELECTOR = '[data-carat-warranty-order-number-input]';
+  var LOOKUP_BUTTON_SELECTOR = '[data-carat-warranty-lookup-submit]';
+  var ORDER_LOOKUP_STATUS_SELECTOR = '[data-carat-warranty-order-lookup-status]';
+  var ORDER_SEARCH_SELECTOR = '[data-carat-warranty-order-search]';
+  var ORDER_RESULT_SELECTOR = '[data-carat-warranty-order-result]';
+  var ORDER_RESULT_SUMMARY_SELECTOR = '[data-carat-warranty-order-result-summary]';
+  var LINE_ITEM_OPTIONS_SELECTOR = '[data-carat-warranty-line-item-options]';
+  var SEARCH_AGAIN_SELECTOR = '[data-carat-warranty-order-search-again]';
 
   // Deliberately permissive (not RFC 5322) -- a fast client-side pre-check
   // only. The server's zod `.email()` check is the actual authority; this
@@ -69,6 +100,76 @@
   function checkedRadioValue(form, name) {
     var checked = form.querySelector('[name="' + name + '"]:checked');
     return checked ? checked.value : '';
+  }
+
+  // ---------------------------------------------------------------------
+  // Order lookup -- PURE helpers only (no `document`/`window`/`fetch`),
+  // exposed via `window.CaratWarrantyClaimForm._internal` at the bottom of
+  // this file for `warrantyClaimForm.test.ts`. The DOM-wiring counterpart
+  // (`wireOrderLookup`, below the conditional-details helpers) calls these
+  // but is not itself pure.
+  // ---------------------------------------------------------------------
+
+  // Mirrors bank-payment-checkout.js's own `messageKeyForFailure` pattern:
+  // never surfaces a raw HTTP status or the route's internal error code to
+  // the customer. The route
+  // (apps.carat.warranty-order-lookup.tsx) only ever returns 400/401/405/
+  // 500/502 on a non-2xx path; a signed-in customer hitting 401 mid-session
+  // (e.g. an expired login) gets the same sign-in sentence used elsewhere,
+  // everything else gets the generic "try again" copy.
+  function orderLookupMessageKeyForFailure(status) {
+    if (status === 401) return 'sign_in_required_message';
+    return 'error_service_unavailable';
+  }
+
+  /**
+   * Normalizes the order-lookup route's JSON body into a small, defensive
+   * shape this file actually understands. The route's documented contract
+   * (apps.carat.warranty-order-lookup.tsx) is
+   * `{ resolved: true, order: { orderRef, orderName, lineItems: [{ lineRef,
+   * title, quantity }] } }` or `{ resolved: false }` -- but this function
+   * treats ANYTHING that doesn't match that shape (malformed JSON, a
+   * resolved order with no line items, a line item missing its `lineRef`)
+   * the same as "not resolved" rather than throwing or rendering a partial
+   * result the customer could submit against.
+   */
+  function normalizeOrderLookupResult(body) {
+    var notResolved = { resolved: false, order: null };
+    if (!body || typeof body !== 'object' || body.resolved !== true) return notResolved;
+
+    var order = body.order;
+    if (!order || typeof order !== 'object' || !Array.isArray(order.lineItems)) return notResolved;
+
+    var lineItems = [];
+    for (var i = 0; i < order.lineItems.length; i++) {
+      var item = order.lineItems[i];
+      if (!item || typeof item.lineRef !== 'string' || !item.lineRef) continue;
+      lineItems.push({
+        lineRef: item.lineRef,
+        title: typeof item.title === 'string' ? item.title : '',
+        quantity: typeof item.quantity === 'number' ? item.quantity : 0,
+      });
+    }
+    if (lineItems.length === 0) return notResolved;
+    if (typeof order.orderRef !== 'string' || !order.orderRef) return notResolved;
+
+    return {
+      resolved: true,
+      order: {
+        orderRef: order.orderRef,
+        orderName: typeof order.orderName === 'string' ? order.orderName : '',
+        lineItems: lineItems,
+      },
+    };
+  }
+
+  // Pure string templating, same `{{ placeholder }}` replace technique as
+  // `showConfirmation`'s `success_body_html` handling below -- not a
+  // templating library. Takes the locale TEMPLATE as a parameter (rather
+  // than reading `window.warrantyClaimStrings` itself) so it stays pure and
+  // independently testable.
+  function buildLineItemOptionLabel(template, item) {
+    return template.replace('{{ title }}', item.title).replace('{{ quantity }}', String(item.quantity));
   }
 
   // ---------------------------------------------------------------------
@@ -105,11 +206,13 @@
   }
 
   // ---------------------------------------------------------------------
-  // Deep-link pre-fill -- see this file's header comment on why these are
-  // read from the URL rather than asked of the customer as the only path.
-  // Visible fields (order/line) are pre-filled but remain editable, so a
-  // customer who followed a stale or wrong link can correct it before
-  // submitting rather than silently submitting the wrong claim.
+  // Deep-link pre-fill -- see this file's header comment ("ORDER PICKER")
+  // on why these are read from the URL rather than requiring the order
+  // picker as the only path. `order_id`/`line_item_id` are now the hidden
+  // inputs the picker also fills; a link carrying real GIDs bypasses the
+  // picker entirely and lets the customer proceed straight to the rest of
+  // the form. There is no real caller of this today -- see the header
+  // comment.
   // ---------------------------------------------------------------------
   function prefillFromQueryString(form) {
     var params = new URLSearchParams(window.location.search);
@@ -137,8 +240,14 @@
   // form's field set via a name -> error-element-id map built once.
   // ---------------------------------------------------------------------
   var FIELD_ERROR_IDS = {
-    order_id: 'WarrantyClaimOrderId-error',
-    line_item_id: 'WarrantyClaimLineItemId-error',
+    // Point at the VISIBLE order-picker elements, not the hidden
+    // `order_id`/`line_item_id` inputs themselves -- a hidden input cannot
+    // usefully carry a visible error next to it. `setFieldInvalid`/
+    // `clearFieldErrors` still look up the hidden input by `name` to set/
+    // clear `aria-invalid` (harmless on a hidden element); only the visible
+    // container these ids point to actually matters to the customer.
+    order_id: 'WarrantyClaimOrderNumber-error',
+    line_item_id: 'WarrantyClaimLineItemPicker-error',
     purchaser_name: 'WarrantyClaimPurchaserName-error',
     purchaser_email: 'WarrantyClaimPurchaserEmail-error',
     item_configuration: 'WarrantyClaimItemConfiguration-error',
@@ -410,11 +519,160 @@
       });
   }
 
+  // ---------------------------------------------------------------------
+  // Order picker -- DOM wiring around the pure helpers above. Finds the
+  // order by number, lets the customer choose a line item, and fills the
+  // form's hidden `order_id`/`line_item_id` inputs. See this file's own
+  // header comment: the route's 401 is the actual enforcement, this is UX.
+  // ---------------------------------------------------------------------
+  function wireOrderLookup(form) {
+    var numberInput = form.querySelector(ORDER_NUMBER_INPUT_SELECTOR);
+    var lookupButton = form.querySelector(LOOKUP_BUTTON_SELECTOR);
+    var searchWrapper = form.querySelector(ORDER_SEARCH_SELECTOR);
+    var resultWrapper = form.querySelector(ORDER_RESULT_SELECTOR);
+    var summaryEl = form.querySelector(ORDER_RESULT_SUMMARY_SELECTOR);
+    var optionsContainer = form.querySelector(LINE_ITEM_OPTIONS_SELECTOR);
+    var searchAgainButton = form.querySelector(SEARCH_AGAIN_SELECTOR);
+    var orderIdField = form.querySelector('[name="order_id"]');
+    var lineItemIdField = form.querySelector('[name="line_item_id"]');
+    if (!numberInput || !lookupButton || !resultWrapper || !orderIdField || !lineItemIdField) return;
+
+    function setLookupStatus(text) {
+      var status = form.querySelector(ORDER_LOOKUP_STATUS_SELECTOR);
+      if (!status) return;
+      if (!text) {
+        status.hidden = true;
+        status.textContent = '';
+        return;
+      }
+      status.hidden = false;
+      status.textContent = text;
+    }
+
+    function clearOrderLevelErrors() {
+      var orderError = document.getElementById(FIELD_ERROR_IDS.order_id);
+      if (orderError) orderError.hidden = true;
+      var lineError = document.getElementById(FIELD_ERROR_IDS.line_item_id);
+      if (lineError) lineError.hidden = true;
+      numberInput.removeAttribute('aria-invalid');
+    }
+
+    function resetToSearch() {
+      orderIdField.value = '';
+      lineItemIdField.value = '';
+      if (optionsContainer) optionsContainer.innerHTML = '';
+      resultWrapper.hidden = true;
+      if (searchWrapper) searchWrapper.hidden = false;
+      clearOrderLevelErrors();
+      numberInput.focus();
+    }
+
+    function renderLineItemOptions(order) {
+      if (!optionsContainer) return;
+      optionsContainer.innerHTML = '';
+      var template = localeString('line_item_option_label');
+      order.lineItems.forEach(function (item, index) {
+        var label = document.createElement('label');
+        label.className = 'carat-warranty-claim__radio';
+
+        var radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'order_line_selection';
+        radio.value = item.lineRef;
+        radio.id = 'WarrantyClaimLineItemOption' + index;
+        radio.addEventListener('change', function () {
+          lineItemIdField.value = radio.value;
+          clearOrderLevelErrors();
+        });
+
+        label.setAttribute('for', radio.id);
+        label.appendChild(radio);
+        label.appendChild(document.createTextNode(buildLineItemOptionLabel(template, item)));
+        optionsContainer.appendChild(label);
+      });
+    }
+
+    function handleLookupResponse(result) {
+      if (!result.response.ok) {
+        setFieldInvalid(form, 'order_id', localeString(orderLookupMessageKeyForFailure(result.response.status)));
+        numberInput.focus();
+        return;
+      }
+
+      var normalized = normalizeOrderLookupResult(result.body);
+      if (!normalized.resolved) {
+        setFieldInvalid(form, 'order_id', localeString('order_lookup_not_found'));
+        numberInput.focus();
+        return;
+      }
+
+      orderIdField.value = normalized.order.orderRef;
+      lineItemIdField.value = '';
+      if (summaryEl) {
+        summaryEl.textContent = localeString('order_result_found').replace(
+          '{{ order }}',
+          normalized.order.orderName
+        );
+      }
+      renderLineItemOptions(normalized.order);
+
+      if (searchWrapper) searchWrapper.hidden = true;
+      resultWrapper.hidden = false;
+      resultWrapper.focus();
+    }
+
+    lookupButton.addEventListener('click', function () {
+      var orderNumber = numberInput.value.trim();
+      clearOrderLevelErrors();
+      setLookupStatus(null);
+
+      if (!orderNumber) {
+        setFieldInvalid(form, 'order_id', localeString('error_order_number_required'));
+        numberInput.focus();
+        return;
+      }
+
+      lookupButton.disabled = true;
+      setLookupStatus(localeString('searching_order'));
+
+      fetch(ORDER_LOOKUP_PROXY_PATH, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ orderNumber: orderNumber }),
+      })
+        .then(function (response) {
+          return response
+            .json()
+            .catch(function () {
+              return null;
+            })
+            .then(function (body) {
+              return { response: response, body: body };
+            });
+        })
+        .then(function (result) {
+          lookupButton.disabled = false;
+          setLookupStatus(null);
+          handleLookupResponse(result);
+        })
+        .catch(function () {
+          lookupButton.disabled = false;
+          setLookupStatus(null);
+          setFieldInvalid(form, 'order_id', localeString('error_network'));
+        });
+    });
+
+    if (searchAgainButton) {
+      searchAgainButton.addEventListener('click', resetToSearch);
+    }
+  }
+
   function init() {
     var form = document.querySelector(FORM_SELECTOR);
     if (!form) return;
 
     prefillFromQueryString(form);
+    wireOrderLookup(form);
     wireConditionalDetails(
       '[data-carat-warranty-impact-radio]',
       '[data-carat-warranty-impact-details-wrapper]',
@@ -434,4 +692,20 @@
   } else {
     init();
   }
+
+  // Exposed for `app/app/theme/warrantyClaimFormSandbox.ts` /
+  // `warrantyClaimForm.test.ts` ONLY. Assigned here -- inside the
+  // double-load guard at the top of this file, after a genuine first
+  // load -- rather than by returning a value from the IIFE the way
+  // `bank-payment-checkout.js` does: that file has no double-load guard,
+  // but this one does (the theme editor allows this section to appear
+  // twice on one page), and a second, guarded load must never overwrite an
+  // already-set `window.CaratWarrantyClaimForm` with `undefined`.
+  window.CaratWarrantyClaimForm = {
+    _internal: {
+      orderLookupMessageKeyForFailure: orderLookupMessageKeyForFailure,
+      normalizeOrderLookupResult: normalizeOrderLookupResult,
+      buildLineItemOptionLabel: buildLineItemOptionLabel,
+    },
+  };
 })();

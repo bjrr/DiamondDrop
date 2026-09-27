@@ -77,6 +77,19 @@ const APPROVED: ReadonlyArray<readonly [string, string]> = [
     "sections.cart.bank_payment_checkout_form.success_check_email",
     "Your Bank Payment request was submitted. We’ve emailed you an invoice with payment instructions. Your order is not committed and your items are not reserved until your Bank Payment is received and verified.",
   ],
+  // docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4, owner-approved 2026-09-26. Two
+  // independent renders of the SAME sentence — the Bank Payment Checkout
+  // dialog's sign-in gate and the Warranty Claim Form's sign-in gate
+  // (theme/sections/warranty-claim-form.liquid). Pinned together so the two
+  // can never quietly drift apart from each other or from the doc.
+  [
+    "sections.cart.bank_payment_checkout_form.sign_in_required_message",
+    "Please sign in or create a CaratForUs account to continue.",
+  ],
+  [
+    "templates.warranty_claim.form.sign_in_required_message",
+    "Please sign in or create a CaratForUs account to continue.",
+  ],
 ];
 
 describe("owner-approved customer-facing copy is pinned verbatim", () => {

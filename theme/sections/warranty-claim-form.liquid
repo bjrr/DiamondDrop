@@ -12,25 +12,32 @@
   are all EXISTING Dawn classes reused here, not reinvented).
 
   COPY STATUS -- read before editing any string in this file or its locale
-  keys. Only TWO strings are owner-approved and evidence-pinned: the
-  acknowledgment text and its affirmative-action label
+  keys. THREE strings are owner-approved and evidence-pinned, not draft:
+  the acknowledgment text and its affirmative-action label
   (`templates.warranty_claim.form.acknowledgment_text` /
   `.acknowledgment_affirm_label`, imported byte-for-byte from
   `app/app/domain/warranty/acknowledgmentText.ts`'s
   `WARRANTY_CLAIM_ACKNOWLEDGMENT_TEXT` /
   `_AFFIRMATIVE_ACTION_LABEL`, proven identical by
-  `app/app/domain/warranty/acknowledgmentThemeLocale.test.ts`). EVERY OTHER
-  string in this file's locale keys -- the intro, the notice, every field
-  label, every error and the confirmation copy -- is DRAFT, not yet through
-  an owner-approval pass (spec §11 owner item 2 names exactly this form's
-  copy as needing approval before shipping is complete; see this task's
-  handoff for the full explanation). Drafted as closely as possible from
-  ALREADY-LOCKED language in `docs/WARRANTY-CLAIMS.md` §1/§3/§9 rather than
-  invented from scratch, and shipped functional per the architect's
-  instruction rather than blocked on that approval -- matching the SAME
-  precedent already in this theme: `snippets/bank-payment-checkout-
-  dialog.liquid`'s own header comment marks its
-  `bank_payment_checkout_form.*` keys "DRAFT pending owner approval" too.
+  `app/app/domain/warranty/acknowledgmentThemeLocale.test.ts`), and the
+  account-required gate sentence, `.sign_in_required_message`, which carries
+  the exact owner-approved sentence from
+  `docs/REQUIRED-CUSTOMER-ACCOUNTS.md` §4 ("Please sign in or create a
+  CaratForUs account to continue.") -- pinned in
+  `app/app/theme/ownerApprovedCopy.test.ts` alongside the identical sentence
+  in `snippets/bank-payment-checkout-dialog.liquid`. EVERY OTHER string in
+  this file's locale keys -- the intro, the notice, every field label
+  (including the new order-lookup/picker copy), every error and the
+  confirmation copy -- is DRAFT, not yet through an owner-approval pass
+  (spec §11 owner item 2 names exactly this form's copy as needing approval
+  before shipping is complete; see this task's handoff for the full
+  explanation). Drafted as closely as possible from ALREADY-LOCKED language
+  in `docs/WARRANTY-CLAIMS.md` §1/§3/§9 rather than invented from scratch,
+  and shipped functional per the architect's instruction rather than
+  blocked on that approval -- matching the SAME precedent already in this
+  theme: `snippets/bank-payment-checkout-dialog.liquid`'s own header
+  comment marks its `bank_payment_checkout_form.*` keys "DRAFT pending
+  owner approval" too.
 
   CRITERION 156 -- THE ONE THIS FILE IS MOST CAREFUL ABOUT. No address, no
   "send it to us", no shipping instruction anywhere in this file, its locale
@@ -66,20 +73,49 @@
   why it is a best-effort, query-string-only convenience rather than
   something asked of the customer directly.
 
-  ORDER ID / LINE ITEM ID -- A REAL, FLAGGED UX GAP, NOT SILENTLY ACCEPTED.
-  The intake route's contract (`apps.carat.warranty-claim.tsx`) resolves
-  `orderRef`/`lineRef` against Shopify's numeric Order/LineItem ids -- NOT
-  the customer-facing order number ("#1001") -- and this task's scope is
-  theme-only, so that contract cannot change here. A typical customer does
-  not know these numeric ids offhand. This form supports pre-filling them
-  from `?order_id=`/`?line_item_id=`/`?variant_id=` query-string parameters
-  (for a future deep link from an order-confirmation email or account page,
-  which does not exist yet and is out of this task's scope to build) and
-  falls back to plain, honest, VISIBLE required fields with help text
-  pointing the customer to contact support if unsure -- never a claim that
-  the ids are somewhere they might not actually be. Flagged explicitly in
-  the task handoff as worth a product/architecture look, not fixed
-  unilaterally here.
+  ORDER ID / LINE ITEM ID -- NOW RESOLVED VIA AN ORDER PICKER, NOT A RAW
+  GID FIELD. The intake route's contract (`apps.carat.warranty-claim.tsx`)
+  still resolves `orderRef`/`lineRef` against Shopify's numeric Order/
+  LineItem GIDs, and that contract is unchanged. What changed is where
+  those GIDs come from: the customer now types the order number they
+  actually know (e.g. "1001") into a picker driven by
+  `POST /apps/carat/warranty-order-lookup`
+  (`apps.carat.warranty-order-lookup.tsx`, an AUTHENTICATED-ONLY route --
+  see its own module comment) and chooses a line item from the resulting
+  list; `assets/warranty-claim-form.js` fills the still-present
+  `#WarrantyClaimOrderId`/`#WarrantyClaimLineItemId` inputs (now `hidden`,
+  not visible text fields) from that response. The customer never sees or
+  types a GID. `?order_id=`/`?line_item_id=`/`?variant_id=` query-string
+  pre-fill (`prefillFromQueryString` in the JS file) is UNCHANGED and still
+  targets those same hidden inputs by `name` -- it still has no real caller
+  today, and remains a possible future deep-link seam (e.g. from an order-
+  confirmation email), not something this task builds.
+
+  THE LOOKUP ROUTE COLLAPSES "DOESN'T EXIST" AND "ISN'T YOURS" INTO ONE
+  GENERIC OUTCOME (its own module comment explains why -- anti-enumeration
+  by construction). This form and its JS never try to infer or display the
+  distinction even though the route's `{ resolved: false }` is
+  indistinguishable either way; `templates.warranty_claim.form
+  .order_lookup_not_found` is worded generically for exactly that reason,
+  and directs an unresolved search to Customer Care
+  (`docs/REQUIRED-CUSTOMER-ACCOUNTS.md` §5) rather than inventing a guest
+  fallback.
+
+  CLIENT-SIDE GATING IS UX, NOT ENFORCEMENT. Both the sign-in gate below
+  and the order picker only avoid walking a signed-out or GID-less customer
+  into a submission that cannot succeed. The actual authorization is the
+  401 in `apps.carat.warranty-order-lookup.tsx`/`apps.carat.warranty-
+  claim.tsx`, exactly the same division of labour as `snippets/bank-
+  payment-checkout-dialog.liquid`'s own header comment describes for Bank
+  Payment Checkout.
+
+  ACCOUNT REQUIRED (`docs/REQUIRED-CUSTOMER-ACCOUNTS.md` §5, a locked owner
+  decision). A signed-out shopper (`customer` is `nil`) never sees the
+  order picker or the rest of the form -- only a sign-in requirement (see
+  the `customer` conditional around the `<form>` below), matching the
+  pattern already proven in `snippets/bank-payment-checkout-dialog.liquid`.
+  This is a server-side render-time branch on Liquid's own `customer`
+  object, not a client-side hide-after-render.
 
   Accepts (schema settings): heading (optional override).
 {% endcomment %}
@@ -151,61 +187,106 @@
       data-carat-warranty-confirmation
     ></div>
 
+    {%- if customer -%}
     <form id="WarrantyClaimForm" novalidate data-carat-warranty-form>
-      <div class="carat-warranty-claim__field-row">
-        <div class="field field--with-error">
-          <input
-            type="text"
-            id="WarrantyClaimOrderId"
-            name="order_id"
-            class="field__input"
-            required
-            aria-describedby="WarrantyClaimOrderId-help WarrantyClaimOrderId-error"
-          >
-          <label class="field__label" for="WarrantyClaimOrderId">
-            {{- 'templates.warranty_claim.form.order_id_label' | t }}
-            <span aria-hidden="true">*</span></label
-          >
-          <small id="WarrantyClaimOrderId-help" class="carat-warranty-claim__field-help">
-            {{- 'templates.warranty_claim.form.order_id_help' | t -}}
-          </small>
-          <small
-            id="WarrantyClaimOrderId-error"
-            class="carat-warranty-claim__field-error form__message"
-            hidden
-            data-carat-warranty-field-error
-          >
-            <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
-            <span data-carat-warranty-field-error-text></span>
-          </small>
+      <fieldset class="carat-warranty-claim__fieldset" data-carat-warranty-order-picker>
+        <legend class="carat-warranty-claim__legend">
+          {{- 'templates.warranty_claim.form.order_lookup_legend' | t }}
+          <span aria-hidden="true">*</span>
+        </legend>
+
+        <div class="carat-warranty-claim__field-row" data-carat-warranty-order-search>
+          <div class="field field--with-error">
+            <input
+              type="text"
+              id="WarrantyClaimOrderNumber"
+              class="field__input"
+              inputmode="numeric"
+              autocomplete="off"
+              placeholder="{{ 'templates.warranty_claim.form.order_number_placeholder' | t }}"
+              aria-describedby="WarrantyClaimOrderNumber-help WarrantyClaimOrderNumber-error"
+              data-carat-warranty-order-number-input
+            >
+            <label class="field__label" for="WarrantyClaimOrderNumber">
+              {{- 'templates.warranty_claim.form.order_number_label' | t -}}
+            </label>
+            <small id="WarrantyClaimOrderNumber-help" class="carat-warranty-claim__field-help">
+              {{- 'templates.warranty_claim.form.order_number_help' | t -}}
+            </small>
+            <small
+              id="WarrantyClaimOrderNumber-error"
+              class="carat-warranty-claim__field-error form__message"
+              hidden
+              data-carat-warranty-field-error
+            >
+              <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+              <span data-carat-warranty-field-error-text></span>
+            </small>
+          </div>
+          <button type="button" class="button button--secondary" data-carat-warranty-lookup-submit>
+            {{- 'templates.warranty_claim.form.find_order_button' | t -}}
+          </button>
         </div>
-        <div class="field field--with-error">
-          <input
-            type="text"
-            id="WarrantyClaimLineItemId"
-            name="line_item_id"
-            class="field__input"
-            required
-            aria-describedby="WarrantyClaimLineItemId-help WarrantyClaimLineItemId-error"
-          >
-          <label class="field__label" for="WarrantyClaimLineItemId">
-            {{- 'templates.warranty_claim.form.line_item_id_label' | t }}
-            <span aria-hidden="true">*</span></label
-          >
-          <small id="WarrantyClaimLineItemId-help" class="carat-warranty-claim__field-help">
-            {{- 'templates.warranty_claim.form.line_item_id_help' | t -}}
-          </small>
-          <small
-            id="WarrantyClaimLineItemId-error"
-            class="carat-warranty-claim__field-error form__message"
-            hidden
-            data-carat-warranty-field-error
-          >
-            <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
-            <span data-carat-warranty-field-error-text></span>
-          </small>
+
+        <p
+          id="WarrantyClaimOrderLookupStatus"
+          class="carat-warranty-claim__status form-status"
+          role="status"
+          aria-live="polite"
+          hidden
+          data-carat-warranty-order-lookup-status
+        ></p>
+
+        {%- comment -%}
+          Populated by JS only after a successful lookup -- see the JS
+          file's `wireOrderLookup`. `tabindex="-1"` + a `.focus()` call on
+          reveal moves focus here so a screen reader user is told a result
+          appeared, matching the pattern this theme already uses for the
+          error summary and confirmation regions above.
+        {%- endcomment -%}
+        <div class="carat-warranty-claim__order-result" hidden tabindex="-1" data-carat-warranty-order-result>
+          <p class="carat-warranty-claim__order-result-summary" data-carat-warranty-order-result-summary></p>
+
+          <fieldset class="carat-warranty-claim__fieldset carat-warranty-claim__fieldset--nested">
+            <legend class="carat-warranty-claim__legend">
+              {{- 'templates.warranty_claim.form.select_item_legend' | t }}
+              <span aria-hidden="true">*</span>
+            </legend>
+            <div
+              class="carat-warranty-claim__radio-group carat-warranty-claim__radio-group--stacked"
+              data-carat-warranty-line-item-options
+            ></div>
+            <small
+              id="WarrantyClaimLineItemPicker-error"
+              class="carat-warranty-claim__field-error form__message"
+              hidden
+              data-carat-warranty-field-error
+            >
+              <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+              <span data-carat-warranty-field-error-text></span>
+            </small>
+          </fieldset>
+
+          <button type="button" class="link" data-carat-warranty-order-search-again>
+            {{- 'templates.warranty_claim.form.search_different_order' | t -}}
+          </button>
         </div>
-      </div>
+
+        <p class="carat-warranty-claim__field-help">
+          {{- 'templates.warranty_claim.form.cant_find_order_help' | t -}}
+        </p>
+      </fieldset>
+
+      {%- comment -%}
+        Filled by JS from the resolved order-lookup response, never typed by
+        the customer directly -- see this section's own header comment
+        ("ORDER ID / LINE ITEM ID") and `warranty-claim-form.js`'s
+        `wireOrderLookup`. No `required` attribute: hidden inputs are not
+        subject to native constraint validation, and `validate()` below
+        already enforces both are non-empty before submission.
+      {%- endcomment -%}
+      <input type="hidden" id="WarrantyClaimOrderId" name="order_id" value="">
+      <input type="hidden" id="WarrantyClaimLineItemId" name="line_item_id" value="">
 
       {%- comment -%}
         Best-effort convenience only, never asked of the customer directly --
@@ -482,6 +563,34 @@
         data-carat-warranty-status
       ></p>
     </form>
+    {%- else -%}
+    {%- comment -%}
+      ACCOUNT REQUIRED (`docs/REQUIRED-CUSTOMER-ACCOUNTS.md` §5) -- see this
+      section's own header comment. Real `<h3>` (nested under the section's
+      own `<h1>`/`<h2>`/visually-hidden heading above), a plain-text
+      owner-approved sentence, and a genuine keyboard-operable sign-in link
+      that returns the shopper to this exact page -- same pattern as
+      `snippets/bank-payment-checkout-dialog.liquid`'s own signed-out
+      branch.
+    {%- endcomment -%}
+    <div class="carat-warranty-claim__signin-required" data-carat-warranty-signin-required>
+      <h3 class="carat-warranty-claim__signin-heading">
+        {{- 'templates.warranty_claim.form.sign_in_required_heading' | t -}}
+      </h3>
+      <p class="carat-warranty-claim__signin-message">
+        {{- 'templates.warranty_claim.form.sign_in_required_message' | t -}}
+      </p>
+      <div class="carat-warranty-claim__actions">
+        <a
+          href="{{ routes.account_login_url }}?return_url={{ request.path | url_encode }}"
+          class="button"
+          data-carat-warranty-signin-link
+        >
+          {{- 'customer.log_in' | t -}}
+        </a>
+      </div>
+    </div>
+    {%- endif -%}
   </div>
 </div>
 
