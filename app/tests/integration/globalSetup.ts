@@ -2,7 +2,10 @@ import "dotenv/config";
 
 import { execSync } from "node:child_process";
 
-import { assertSafeIntegrationDatabase } from "~/testing/integrationDatabaseSafety";
+import {
+  assertSafeIntegrationDatabase,
+  assertSafeIntegrationSchema,
+} from "~/testing/integrationDatabaseSafety";
 
 /**
  * Integration setup: a DISPOSABLE database, then the server bundle.
@@ -77,6 +80,8 @@ export default async function setup() {
   // GIVEN rather than deriving a per-run name from it. LOCAL MODE keeps the
   // disposable-database behaviour, which is better when it is available.
   const runName = `carat_it_${process.pid}_${Date.now().toString(36)}`;
+  /** Remote mode only: the per-run schema inside the shared test database. */
+  let runSchema: string | null = null;
   const testUrl = new URL(process.env.INTEGRATION_DATABASE_URL ?? base);
   if (!REMOTE_MODE) {
     testUrl.pathname = `/${runName}`;
@@ -138,50 +143,29 @@ export default async function setup() {
   const safeTarget = assertSafeIntegrationDatabase(testUrl.toString());
 
   if (REMOTE_MODE) {
-    // A SHARED REMOTE CLUSTER IS NOT A PLACE TO CHURN DATABASES.
+    // A SCHEMA PER RUN, NOT A SHARED DATABASE RESET.
     //
-    // Locally we create a disposable database per run, which is ideal: perfect
-    // isolation and nothing to clean up. On the managed cluster that would
-    // mean CREATE/DROP DATABASE against the same server production runs on,
-    // and would require granting the test role CREATEDB there — a privilege
-    // worth not having. So the fixed `carat_test` database is reset instead:
-    // same end state, no database-level privileges, no churn next to
-    // production.
+    // My first version of remote mode reset the whole `carat_test` database
+    // in place. That works for exactly one run at a time, and this project
+    // routinely has several agents running the suite concurrently — the
+    // second run's reset drops the first run's tables mid-test, which
+    // surfaces as P1014 "_prisma_migrations does not exist" and reads like a
+    // broken migration rather than a collision. It cost an agent two runs
+    // before it reported the symptom.
     //
-    // DROP SCHEMA is destructive by design and is exactly why the assertion
-    // above runs first and has no override flag.
-    console.log(`Resetting remote test database ${safeTarget.databaseName} on ${safeTarget.host}...`);
-    // DROP THE OBJECTS, NOT THE SCHEMA. `DROP SCHEMA public CASCADE` is the
-    // obvious reset and it fails here with "must be owner of schema public":
-    // on Fly Managed Postgres the application role owns the TABLES it creates
-    // but not the schema itself. So this drops every table and enum type in
-    // `public` instead, which reaches the same end state with the privileges
-    // we actually have.
-    //
-    // Enum types need their own pass — Prisma creates a type per enum, and a
-    // leftover type collides on the next `migrate deploy` with "type already
-    // exists" even after every table is gone.
-    //
-    // One DO block per call, because Prisma sends raw SQL as a prepared
-    // statement and Postgres rejects multiple commands in one.
-    await runOnMaintenanceDb(
-      testUrl.toString(),
-      `DO $$ DECLARE r RECORD; BEGIN
-         FOR r IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP
-           EXECUTE 'DROP TABLE IF EXISTS public.' || quote_ident(r.tablename) || ' CASCADE';
-         END LOOP;
-       END $$`
-    );
-    await runOnMaintenanceDb(
-      testUrl.toString(),
-      `DO $$ DECLARE r RECORD; BEGIN
-         FOR r IN SELECT t.typname FROM pg_type t
-                  JOIN pg_namespace n ON n.oid = t.typnamespace
-                  WHERE n.nspname = 'public' AND t.typtype = 'e' LOOP
-           EXECUTE 'DROP TYPE IF EXISTS public.' || quote_ident(r.typname) || ' CASCADE';
-         END LOOP;
-       END $$`
-    );
+    // Locally each run gets a disposable DATABASE, which is the property
+    // worth preserving. We cannot create databases on the managed cluster
+    // (that needs CREATEDB next to production), but we CAN create a schema:
+    // verified against the live cluster before writing this. So each run gets
+    // its own schema inside carat_test, migrates into it, and drops it at the
+    // end. Concurrent runs no longer see each other at all.
+    runSchema = `carat_it_${process.pid}_${Date.now().toString(36)}`;
+    assertSafeIntegrationSchema(runSchema);
+    console.log(`Creating run schema ${runSchema} in ${safeTarget.databaseName} on ${safeTarget.host}...`);
+    await runOnMaintenanceDb(testUrl.toString(), `CREATE SCHEMA "${runSchema}"`);
+    // Prisma routes every statement — migrations, seed and the app's own
+    // client — through this schema via the connection string.
+    testUrl.searchParams.set("schema", runSchema);
   } else {
     const { admin } = adminUrl(base);
 
@@ -216,11 +200,45 @@ export default async function setup() {
   process.env.DIRECT_URL = testUrl.toString();
 
   console.log("Applying migrations and seed to the disposable database...");
-  execSync("npx prisma migrate deploy", {
-    stdio: "pipe",
-    cwd: process.cwd(),
-    env: { ...process.env, DATABASE_URL: testUrl.toString(), DIRECT_URL: testUrl.toString() },
-  });
+
+  // RETRY, BECAUSE `migrate deploy` TAKES A DATABASE-WIDE ADVISORY LOCK.
+  //
+  // Per-run schemas fixed data isolation, but Prisma still serialises
+  // migration application across the whole database via
+  // `pg_advisory_lock(72707369)`, and its own wait is 10 seconds. Applying 57
+  // migrations over a proxied connection takes longer than that, so a second
+  // concurrent run failed with P1002 "timed out trying to acquire a postgres
+  // advisory lock" — which reads like the database is unreachable rather than
+  // like a queue.
+  //
+  // Serialising is CORRECT; failing after 10s is not. So we wait our turn.
+  // Nothing is weakened: each run still applies every migration to its own
+  // schema, just not simultaneously.
+  const MIGRATE_ATTEMPTS = 8;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      execSync("npx prisma migrate deploy", {
+        stdio: "pipe",
+        cwd: process.cwd(),
+        env: { ...process.env, DATABASE_URL: testUrl.toString(), DIRECT_URL: testUrl.toString() },
+      });
+      break;
+    } catch (error) {
+      const text = error instanceof Error ? `${error.message}` : String(error);
+      const isLockContention = text.includes("advisory lock") || text.includes("P1002");
+      if (!isLockContention || attempt >= MIGRATE_ATTEMPTS) {
+        // Re-throw anything that is NOT lock contention immediately — a real
+        // migration failure must not be retried into looking like a timeout.
+        throw error;
+      }
+      const waitMs = attempt * 15_000;
+      console.log(
+        `Another integration run holds the migration advisory lock; waiting ${waitMs / 1000}s ` +
+          `(attempt ${attempt}/${MIGRATE_ATTEMPTS - 1}).`
+      );
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  }
   execSync("npx tsx prisma/seed.ts", {
     stdio: "pipe",
     cwd: process.cwd(),
@@ -260,10 +278,15 @@ export default async function setup() {
     }
     try {
       if (REMOTE_MODE) {
-        // Nothing to drop: the remote test database is long-lived and is
-        // reset at the START of each run instead. Dropping it would need
-        // database-level privileges on a cluster that also hosts production,
-        // which is precisely what remote mode avoids.
+        // Drop only THIS run's schema. Never `public`, never another run's —
+        // assertSafeIntegrationSchema refuses anything not shaped
+        // `carat_it_*`, so a bug here cannot take out the shared database or
+        // a concurrent run.
+        if (runSchema) {
+          assertSafeIntegrationSchema(runSchema);
+          await runOnMaintenanceDb(testUrl.toString(), `DROP SCHEMA IF EXISTS "${runSchema}" CASCADE`);
+          console.log(`Dropped run schema ${runSchema}.`);
+        }
         return;
       }
       await runOnMaintenanceDb(adminUrl(base).admin, `DROP DATABASE IF EXISTS "${runName}" WITH (FORCE)`);

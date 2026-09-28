@@ -5,6 +5,7 @@ import {
   describeTarget,
   PRODUCTION_DATABASE_NAMES,
   UnsafeIntegrationDatabaseError,
+  assertSafeIntegrationSchema,
 } from "./integrationDatabaseSafety";
 
 /**
@@ -105,5 +106,29 @@ describe("GUARDS THE GUARD", () => {
     // `fly mpg databases list` on 2026-09-27. If the cluster is ever renamed,
     // this test is the reminder to update PRODUCTION_DATABASE_NAMES.
     expect(PRODUCTION_DATABASE_NAMES).toContain("fly-db");
+  });
+});
+
+describe("assertSafeIntegrationSchema", () => {
+  it("REFUSES public — the shared schema a bug would otherwise drop", () => {
+    // This is the whole reason the function exists. Dropping `public` would
+    // destroy every concurrent run's tables at once.
+    expect(() => assertSafeIntegrationSchema("public")).toThrow(UnsafeIntegrationDatabaseError);
+  });
+
+  it("refuses an unfamiliar schema name rather than assuming it is ours", () => {
+    expect(() => assertSafeIntegrationSchema("reporting")).toThrow(UnsafeIntegrationDatabaseError);
+  });
+
+  it("refuses an empty name", () => {
+    expect(() => assertSafeIntegrationSchema("")).toThrow(UnsafeIntegrationDatabaseError);
+  });
+
+  it("allows a per-run schema", () => {
+    expect(() => assertSafeIntegrationSchema("carat_it_1234_abcdef")).not.toThrow();
+  });
+
+  it("GUARDS THE GUARD — returns the name it approved", () => {
+    expect(assertSafeIntegrationSchema("carat_it_9_z")).toBe("carat_it_9_z");
   });
 });

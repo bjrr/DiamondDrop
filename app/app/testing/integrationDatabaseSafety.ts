@@ -91,3 +91,28 @@ export function assertSafeIntegrationDatabase(databaseUrl: string): DatabaseTarg
 
   return target;
 }
+
+/**
+ * A run schema is acceptable only if it is unmistakably one of ours and
+ * disposable. `public` must never match — dropping it would take out the
+ * shared test database for every concurrent run, and on the managed cluster
+ * the role does not even own it.
+ */
+const ALLOWED_SCHEMA_NAME = /^carat_it_[a-z0-9_]+$/i;
+
+/**
+ * Throws unless `schemaName` is a per-run schema this suite created and may
+ * drop. Call before CREATE SCHEMA and again before DROP SCHEMA — the second
+ * call is the one that matters, and it costs nothing.
+ */
+export function assertSafeIntegrationSchema(schemaName: string): string {
+  if (!ALLOWED_SCHEMA_NAME.test(schemaName)) {
+    throw new UnsafeIntegrationDatabaseError(
+      `Refusing to touch schema "${schemaName}". The integration suite may only create and drop ` +
+        `per-run schemas named "carat_it_*". Notably this refuses "public", which is shared by every ` +
+        `concurrent run and is not owned by the test role. If a new schema shape is genuinely needed, ` +
+        `name it to match rather than widening this check.`
+    );
+  }
+  return schemaName;
+}
