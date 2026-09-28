@@ -332,6 +332,39 @@ Shopify's `refundCreate` has no generic idempotency token, so idempotency is our
 
 ## 7. Deployment & Local Development
 
+### DO NOT OPEN A GROUP BUY CAMPAIGN IN PRODUCTION YET — 2026-09-28
+
+**Blocking condition, owner action.** No Group Buy campaign may be OPENED in
+production until order-time acknowledgment verification is live and
+live-proven. The campaign admin surface already works, so this is reachable
+today without touching the theme.
+
+WHY, precisely. Production runs this branch (`fly deploy` ships the working
+tree, not a GitHub branch), and the deployed `orders/create` handler counts
+campaign participation units with NO acknowledgment check. A direct cart POST
+to an ordinary Shopify product page — reachable whether or not our campaign
+page is deployed — would therefore count toward public progress and could
+unlock a lower tier for everyone.
+
+Public progress is MONOTONIC and NON-DECREMENTABLE by design. An inflated
+count cannot be corrected: not by deleting the order, not by cancelling it,
+not by staff action. The tier stays unlocked and the lower price is owed to
+every legitimate participant.
+
+**Current exposure is ZERO, verified read-only against production
+2026-09-28:** `group_buy_campaign` has no rows in any status, no variants are
+attached to an open campaign, and `group_buy_unit_event` is empty. There is
+nothing to inflate. That is timing, not design — opening the first campaign
+is what arms it.
+
+I had originally framed this as "do not deploy the campaign page". That was
+too narrow: the theme is irrelevant to the exploit. Opening a campaign is the
+trigger.
+
+Cleared when the owner-approved three-layer enforcement is implemented and
+its seven live proof cases pass (see `docs/specs/STOREFRONT-COPY-PROPOSAL.md`
+§1.6 for the acknowledgment and the task record for the proof list).
+
 ### Production deployment record — 2026-09-28
 
 Deployed the Slice 4 RMA, Slice 11 shipping, required-customer-accounts and
