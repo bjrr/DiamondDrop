@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 
 import type { WarrantyClaimUploadKind } from "@prisma/client";
 
+import { getEnv, type Env } from "~/lib/env.server";
+import { R2ObjectStorageClient } from "~/lib/storage/r2Client.server";
+import { resolveR2Config } from "~/lib/storage/r2Config.server";
+
 import { validateWarrantyUploadMetadata } from "./uploadValidation";
 
 /**
@@ -10,18 +14,19 @@ import { validateWarrantyUploadMetadata } from "./uploadValidation";
  * Mirrors `app/jobs/pricing/ports.ts` and `app/jobs/luxurysteals/ports.ts`'s
  * pattern deliberately: an interface the domain/route layer depends on, a
  * production adapter that talks to the real external system, and a
- * recording/in-memory implementation for tests. THIS module differs from
- * those two in one respect — there is no production adapter here, and that
- * is intentional, not an oversight:
+ * recording/in-memory implementation for tests.
  *
  * `STORAGE_ENDPOINT`, `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY_ID` and
- * `STORAGE_SECRET_ACCESS_KEY` (`app/lib/env.server.ts`) are empty in every
- * environment today — the Cloudflare R2 bucket D4 chose does not exist yet
- * (spec §5, owner item 1). Writing a production adapter against credentials
- * that do not exist would be untestable dead code at best and a false sense
- * of "uploads work" at worst. When the bucket exists, its adapter lands
- * here as an additional class implementing `WarrantyUploadPort` — the seam
- * below is exactly what it needs and nothing else changes.
+ * `STORAGE_SECRET_ACCESS_KEY` (`app/lib/env.server.ts`) are STILL empty in
+ * every environment as of this writing — the Cloudflare R2 bucket D4 chose
+ * (`docs/specs/R2-BUCKET-SETUP.md`) does not exist yet (spec §5, owner item
+ * 1). `R2WarrantyUploadPort` below IS the production adapter, but it is
+ * unreachable dead code until `resolveWarrantyUploadPort` finds all four
+ * variables set — see that function. UPLOADS STAY FAIL-CLOSED until the
+ * owner provisions the bucket AND the live gate under `tests/live/` proves it
+ * is actually private. Never substitute Shopify Files, a public bucket, local
+ * disk, or any other store when credentials are absent — see
+ * `docs/specs/R2-BUCKET-SETUP.md`'s header.
  *
  * WHAT THIS PORT DOES NOT DO: it never receives or returns file bytes. Its
  * only two jobs are (1) deciding WHERE an upload should go — a storage key —
@@ -86,32 +91,43 @@ function buildStorageKey(claimId: string, kind: WarrantyClaimUploadKind, content
 }
 
 /**
- * Records calls instead of performing them. Tests only — and, until a
- * production adapter exists, the only implementation of this port
- * available to wire anywhere. `uploadUrl`/`expiresAt` are always `null`,
- * matching the honest "no bucket" answer a production adapter would also
- * have to give today if one existed.
+ * Shared by every `WarrantyUploadPort` implementation — throws
+ * `InvalidWarrantyUploadMetadataError` on a request that fails
+ * `validateWarrantyUploadMetadata`, refusing it BEFORE any destination
+ * (recorded call, presigned URL, whatever the adapter produces) is even
+ * considered. One place so the recording port and the real R2 adapter cannot
+ * quietly drift apart on what counts as valid.
+ */
+function assertValidDestinationRequest(request: WarrantyUploadDestinationRequest): void {
+  const validation = validateWarrantyUploadMetadata({
+    kind: request.kind,
+    contentType: request.contentType,
+    sizeBytes: request.sizeBytes,
+    // The port only knows the metadata offered BEFORE upload; a checksum is
+    // only knowable once bytes exist, so it is not part of this request.
+    // `recordWarrantyClaimUpload` performs the full (content type + size +
+    // checksum) validation once the real object has landed and a checksum is
+    // known — this earlier check exists so a caller cannot even be offered a
+    // destination for a request that is already invalid on size/content-type
+    // grounds alone.
+    checksum: "pending",
+  });
+  if (!validation.ok) {
+    throw new InvalidWarrantyUploadMetadataError(validation.reason);
+  }
+}
+
+/**
+ * Records calls instead of performing them. Tests only — this is NOT the
+ * "unconfigured" production answer (see `resolveWarrantyUploadPort` for
+ * that); it exists purely so domain/route tests can assert what was
+ * requested without a real port. `uploadUrl`/`expiresAt` are always `null`.
  */
 export class RecordingWarrantyUploadPort implements WarrantyUploadPort {
   readonly requests: WarrantyUploadDestinationRequest[] = [];
 
   async createUploadDestination(request: WarrantyUploadDestinationRequest): Promise<WarrantyUploadDestination> {
-    const validation = validateWarrantyUploadMetadata({
-      kind: request.kind,
-      contentType: request.contentType,
-      sizeBytes: request.sizeBytes,
-      // The port only knows the metadata offered BEFORE upload; a checksum
-      // is only knowable once bytes exist, so it is not part of this
-      // request. `recordWarrantyClaimUpload` performs the full
-      // (content type + size + checksum) validation once the real object
-      // has landed and a checksum is known — this earlier check exists so a
-      // caller cannot even be offered a destination for a request that is
-      // already invalid on size/content-type grounds alone.
-      checksum: "pending",
-    });
-    if (!validation.ok) {
-      throw new InvalidWarrantyUploadMetadataError(validation.reason);
-    }
+    assertValidDestinationRequest(request);
 
     this.requests.push(request);
     return {
@@ -120,4 +136,79 @@ export class RecordingWarrantyUploadPort implements WarrantyUploadPort {
       expiresAt: null,
     };
   }
+}
+
+/**
+ * THE PRODUCTION ADAPTER — Cloudflare R2 (D4), speaking the S3 API via
+ * `R2ObjectStorageClient`. Only ever constructed by `resolveWarrantyUploadPort`
+ * below, which is the sole gate on whether this class is reachable at all.
+ *
+ * Does not implement `WarrantyUploadPort` any differently from
+ * `RecordingWarrantyUploadPort` in shape — same interface, same upfront
+ * validation — the only difference is `uploadUrl`/`expiresAt` are real,
+ * short-lived, single-object presigned values instead of `null`.
+ */
+export class R2WarrantyUploadPort implements WarrantyUploadPort {
+  constructor(private readonly client: R2ObjectStorageClient) {}
+
+  async createUploadDestination(request: WarrantyUploadDestinationRequest): Promise<WarrantyUploadDestination> {
+    assertValidDestinationRequest(request);
+
+    // The key is derived from `claimId` + a fresh `randomUUID()` (128 bits of
+    // entropy) — knowing a claim/order reference does not let anyone
+    // construct another customer's key by guessing it. The route that calls
+    // this port (`apps.carat.warranty-claim-upload-destination.tsx`) is what
+    // enforces that `claimId` itself belongs to the authenticated caller
+    // BEFORE this is ever reached; this port has no notion of "customer".
+    const storageKey = buildStorageKey(request.claimId, request.kind, request.contentType);
+    const presigned = await this.client.createPresignedPutUrl({
+      key: storageKey,
+      contentType: request.contentType,
+    });
+    return { storageKey, uploadUrl: presigned.url, expiresAt: presigned.expiresAt };
+  }
+}
+
+export type WarrantyUploadPortResolution =
+  | { readonly configured: true; readonly port: WarrantyUploadPort }
+  | { readonly configured: false; readonly reason: string };
+
+/**
+ * THE HONESTY BOUNDARY for warranty uploads — mirrors
+ * `~/lib/email/configuredPort.server.ts`'s `resolveEmailPort` exactly. Every
+ * caller (today: only the destination-issuing route) MUST treat
+ * `configured: false` as "no upload is offered" and must never fall back to
+ * `RecordingWarrantyUploadPort` or any other substitute in a request path —
+ * that class exists for tests, not as a production "pretend it worked"
+ * fallback. `env` is an explicit parameter purely for testability, mirroring
+ * `loadEnv(source = process.env)`.
+ */
+export function resolveWarrantyUploadPort(env: Env = getEnv()): WarrantyUploadPortResolution {
+  const configResolution = resolveR2Config(env);
+  if (!configResolution.configured) {
+    return { configured: false, reason: configResolution.reason };
+  }
+  return { configured: true, port: new R2WarrantyUploadPort(new R2ObjectStorageClient(configResolution.config)) };
+}
+
+/**
+ * A short-lived presigned GET for an already-recorded `storageKey` — the
+ * ONLY way this application ever reads an evidence object back (spec §5;
+ * `docs/specs/R2-BUCKET-SETUP.md` §2: the bucket is private and stays
+ * private). Returns `null` when storage is unconfigured, matching this
+ * module's fail-closed posture rather than throwing.
+ *
+ * Not part of `WarrantyUploadPort` — that interface's job is destinations for
+ * NEW uploads, keyed by a not-yet-existing object. Reads are keyed by an
+ * ALREADY-RECORDED `WarrantyClaimUpload.storageKey`, which only makes sense
+ * once that row exists, so this is a plain function rather than a port
+ * method. Not yet wired into any staff-facing route (task 5-4's territory);
+ * this is the capability, ready for that surface to call.
+ */
+export async function createWarrantyEvidenceReadUrl(storageKey: string, env: Env = getEnv()): Promise<{ readonly url: string; readonly expiresAt: Date } | null> {
+  const configResolution = resolveR2Config(env);
+  if (!configResolution.configured) return null;
+
+  const client = new R2ObjectStorageClient(configResolution.config);
+  return client.createPresignedGetUrl({ key: storageKey });
 }

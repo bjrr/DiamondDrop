@@ -114,6 +114,36 @@ bucket name appended. The bucket is supplied separately via `STORAGE_BUCKET`.
 Appending it produces signature failures that read like credential errors and
 waste an afternoon.
 
+## 5a. Two things that must close BEFORE uploads go live
+
+Uploads are fail-closed today, so neither is currently exposed. Both become
+real the moment the credentials are set, so they gate go-live rather than
+sitting on a backlog.
+
+**1. The intake route trusts a client-supplied `storageKey`.**
+`apps.carat.warranty-claim.tsx` accepts `storageKey` as an opaque string
+(`z.string().min(1).max(500)`) and never checks that a destination was
+actually issued for it — verified, zero references to any destination
+verification. Now that a real destination-issuing endpoint exists, a customer
+could submit a claim naming a key they never uploaded to, producing an
+evidence record that points at nothing, or at an object they did not create.
+
+That matters because these rows ARE the dispute evidence. A claim that appears
+to carry photographs and does not is worse than one with none: it looks
+substantiated. The fix is to bind the issued destination to the claim — a
+signature or a persisted issued-destination row the intake route verifies
+before recording the upload. Practical risk today is low (claim ids and the
+key nonce are both UUIDs, and a claim's uploads are scoped to its own
+`customerRef`), which is why this is a go-live condition rather than an
+emergency.
+
+**2. R2 addressing style is unverified.** The client uses virtual-hosted
+addressing (`<bucket>.<accountid>.r2.cloudflarestorage.com`) with no
+`forcePathStyle`, matching R2's own quickstart. If the live gate fails with a
+hostname or DNS error rather than an auth error, try `forcePathStyle: true`
+first — the fallback is already documented in `r2Client.server.ts`'s header.
+This is exactly the kind of thing the gate exists to settle.
+
 ## 6. What I do once they are set
 
 1. Implement the R2 adapter behind the existing port
