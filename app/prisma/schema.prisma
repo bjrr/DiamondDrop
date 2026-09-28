@@ -710,6 +710,7 @@ model MasterVariant {
   priceSyncFailures        PriceSyncFailure[]
   priceCalculationFailures PriceCalculationFailure[]
   bankPaymentOrderLines    BankPaymentOrderLine[]
+  groupBuyBankPaymentOrderLines GroupBuyBankPaymentOrderLine[]
   adminAlertNotifications  AdminAlertNotification[]
   luxuryStealSyncFailures  LuxuryStealSyncFailure[]
   warrantyClaims           WarrantyClaim[]
@@ -1795,6 +1796,7 @@ model GroupBuyCampaign {
   variants   GroupBuyCampaignVariant[]
   unitEvents GroupBuyUnitEvent[]
   refunds    GroupBuyRefund[]
+  bankPaymentOrders GroupBuyBankPaymentOrder[]
 
   @@index([status])
   @@map("group_buy_campaign")
@@ -2027,6 +2029,153 @@ model GroupBuyRefundEvent {
 
   @@index([refundId, createdAt])
   @@map("group_buy_refund_event")
+}
+
+// =============================================================================
+// Group Buy Bank Payment checkout (docs/SLICE-2-AND-GROUP-BUY-OWNER-
+// DECISIONS.md §14, §24; README "Group Buy — Locked MVP1 Direction").
+//
+// WHY THIS IS A SEPARATE MODEL FROM `BankPaymentOrder`, NOT A REUSE OF IT.
+// `BankPaymentOrder` is Buy Now's: one 24-hour price guarantee, completion
+// gated on manual admin verification, and cancellation triggered by the
+// PUBLISHED price moving since the quote (D22) — none of which describes a
+// Group Buy order. A Group Buy order's price is LOCKED FOREVER at placement
+// (§6.1: "customers pay the price shown when they join") and never
+// cancelled for a price change; instead it has a 48h+48h PAYMENT window
+// after which it goes `inactive` (never `cancelled` — the Shopify order and
+// campaign participation stand regardless), and it is completed into a real
+// Shopify order IMMEDIATELY at placement rather than after verification,
+// because a placed Group Buy order must count toward campaign units before
+// funds clear (§24). Sharing one table for two genuinely different state
+// machines would mean every column meant something different depending on
+// which flow wrote the row — exactly the ambiguity `BankPaymentOrderStatus`'s
+// own three-state enum does not have room for.
+//
+// HOW A SETTLEMENT BUILDER TELLS BANK FROM CARD (`GroupBuyRefund.paymentBasis`,
+// which this table does not itself populate). Every Group Buy order — Bank or
+// Card — ends up as a real Shopify order recorded by
+// `groupBuyOrderHandler.server.ts` in `GroupBuyUnitEvent.orderRef`. A Bank
+// order additionally has a row here with the SAME `shopifyOrderGid`;
+// anything not found here for a given `orderRef` was Card, paid at the tier
+// price Shopify itself charged.
+// =============================================================================
+
+enum GroupBuyBankPaymentOrderStatus {
+  /// Awaiting payment, within (or restored into, via reactivation) an active
+  /// payment window. The order's normal resting state — unpaid with an
+  /// unchanged price is not an error, exactly as `BankPaymentOrderStatus.open`
+  /// is not for Buy Now.
+  active
+  /// The two sequential 48-hour windows (96 hours total from `quotedAt`)
+  /// elapsed with no verified payment (owner §24). Internal bookkeeping ONLY:
+  /// the Shopify order already exists and this order's units already counted
+  /// toward the campaign — see the module comment — and NEITHER is undone by
+  /// this status. Eligible for staff reactivation by email while the
+  /// campaign remains open (§24); after close, reactivation is a manual,
+  /// case-by-case staff decision made elsewhere, not through this status.
+  inactive
+
+  @@map("group_buy_bank_payment_order_status")
+}
+
+/// The header/order-level record: one Shopify draft order immediately
+/// completed into one real (unpaid) Shopify order, at one locked tier price.
+/// Per-line quotes live on `GroupBuyBankPaymentOrderLine`.
+model GroupBuyBankPaymentOrder {
+  id String @id @default(uuid()) @db.Uuid
+
+  campaignId String           @map("campaign_id") @db.Uuid
+  campaign   GroupBuyCampaign @relation(fields: [campaignId], references: [id])
+
+  shopifyDraftOrderGid String @unique @map("shopify_draft_order_gid")
+  /// Set in the SAME request that creates the draft order — see the module
+  /// comment on why this route completes immediately rather than waiting for
+  /// admin verification the way Buy Now's `BankPaymentOrder` does. NOT NULL:
+  /// this route never returns success without having completed the order.
+  shopifyOrderGid      String @unique @map("shopify_order_gid")
+
+  /// docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4 — the shipping/contact address is
+  /// sent to Shopify at draft-order creation and deliberately NOT persisted
+  /// here (same convention as `BankPaymentOrder.customerEmail`'s own doc
+  /// comment); read it back from Shopify when something needs it.
+  customerEmail String @map("customer_email")
+  /// THE AUTHORIZATION BASIS — the AUTHENTICATED Shopify customer identity
+  /// resolved from the signed App Proxy `logged_in_customer_id`, never from
+  /// a client-supplied field. NOT NULL at the database level, identical
+  /// reasoning to `BankPaymentOrder.customerGid`'s own doc comment.
+  customerGid   String @map("customer_gid")
+
+  status GroupBuyBankPaymentOrderStatus @default(active)
+
+  /// The tier this order locked in AT PLACEMENT (owner §21/§24: "customers
+  /// pay the price shown when they join"). This order's price never moves
+  /// regardless of what tier the campaign later reaches — passing a LATER,
+  /// BETTER tier's benefit back to an already-placed order is exactly what
+  /// campaign-close settlement (`GroupBuyRefund`) does, not a rewrite of this
+  /// row. Recorded so reactivation can restate the SAME price without
+  /// recomputing it (§24: "reactivation preserves the original locked order
+  /// price").
+  tierNumberAtQuote Int @map("tier_number_at_quote")
+
+  /// The instant the 48h+48h payment window (owner §24) starts counting from.
+  quotedAt DateTime @map("quoted_at") @db.Timestamptz(6)
+
+  /// Set once, by the sweep, when 96 hours have elapsed since `quotedAt` with
+  /// no reactivation resetting the clock (owner §24). Nullable while `active`.
+  inactivatedAt DateTime? @map("inactivated_at") @db.Timestamptz(6)
+
+  /// Staff-attributed reactivation (owner §24: "customer requests
+  /// reactivation by email; do not create a replacement order"). These three
+  /// columns describe the MOST RECENT reactivation only; `reactivationCount`
+  /// records that more than one may have happened, and `AuditEvent` (action
+  /// `groupbuy_bank_payment.reactivated`, entityType
+  /// `group_buy_bank_payment_order`) carries the full per-event history.
+  reactivatedAt     DateTime? @map("reactivated_at") @db.Timestamptz(6)
+  reactivatedBy     String?   @map("reactivated_by")
+  reactivationCount Int       @default(0) @map("reactivation_count")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  lines GroupBuyBankPaymentOrderLine[]
+
+  @@index([status])
+  @@index([customerGid])
+  @@index([campaignId])
+  @@map("group_buy_bank_payment_order")
+}
+
+/// The frozen per-line quote — the exact price this order charged, locked at
+/// placement (owner §21/§24) and never recomputed. Historically immutable in
+/// the same sense as `BankPaymentOrderLine`: a corrected quote is a new line
+/// on a new order, never an edit of this one.
+model GroupBuyBankPaymentOrderLine {
+  id                         String                   @id @default(uuid()) @db.Uuid
+  groupBuyBankPaymentOrderId String                   @map("group_buy_bank_payment_order_id") @db.Uuid
+  groupBuyBankPaymentOrder   GroupBuyBankPaymentOrder @relation(fields: [groupBuyBankPaymentOrderId], references: [id], onDelete: Cascade)
+
+  masterVariantId String        @map("master_variant_id") @db.Uuid
+  masterVariant   MasterVariant @relation(fields: [masterVariantId], references: [id])
+
+  quantity Int
+
+  /// The per-unit price actually charged: the campaign's current tier Bank
+  /// Payment Price, computed from the FROZEN base at quote time (never
+  /// `getPublishedVariantPrice` — an open campaign's variant is excluded from
+  /// that entirely; see `~/jobs/pricing/ports.ts`'s `OpenCampaignExclusionSource`).
+  quotedBankPaymentPriceMinorUnits BigInt @map("quoted_bank_payment_price_minor_units")
+  /// HISTORICAL FACT, same convention as `BankPaymentOrderLine`'s identical
+  /// column: what the Regular/Card Price would have been for this tier, at
+  /// quote time. Never charged on this route — recorded for audit/comparison
+  /// only, and NOT re-derived live because a later card-uplift-rate change
+  /// must not rewrite what this line actually showed at quote time.
+  quotedRegularCardPriceMinorUnits BigInt @map("quoted_regular_card_price_minor_units")
+  currency                         String @db.Char(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([groupBuyBankPaymentOrderId])
+  @@map("group_buy_bank_payment_order_line")
 }
 
 // =============================================================================

@@ -139,6 +139,16 @@ const EXEMPT_UI_ACTION_ROUTES: Readonly<Record<string, string>> = {
     "at the app's own URL, so a form inside it posts with the app's own Origin and is same-origin by " +
     "construction, unlike an App Proxy, webhook or cron caller. If this route ever accepts a POST from " +
     "anywhere but its own rendered form, this exemption stops being true and must be re-argued.",
+  "app.group-buy-bank-payments.$id.tsx":
+    "the Group Buy Bank Payment order detail/reactivation admin surface (owner " +
+    "§24). Same argument as app.bank-payments.$id.tsx: this route IS a real " +
+    "production mutation (reactivates an inactive order while its campaign " +
+    "remains open), and stands on the same load-bearing leg alone — Shopify " +
+    "Admin iframes this route at the app's own URL, so a form inside it posts " +
+    "with the app's own Origin and is same-origin by construction, unlike an " +
+    "App Proxy, webhook or cron caller. If this route ever accepts a POST from " +
+    "anywhere but its own rendered form, this exemption stops being true and " +
+    "must be re-argued.",
   "app.group-buy-campaigns.$id.tsx":
     "the Group Buy campaign detail/configuration/open surface (Slice 6, docs/" +
     "SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md §11-§13). Same argument as " +
