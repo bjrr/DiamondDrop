@@ -3271,6 +3271,14 @@ model RmaRequest {
   inspectionNotes     String?   @map("inspection_notes")
   inspectedByActorRef String?   @map("inspected_by_actor_ref")
 
+  /// OWNER DECISION (RMA dispute-evidence integrity, 2026-09-28) — an
+  /// inspection OUTCOME, not an editable field. Immutable once set
+  /// (`rma_request_guard`, migration 20260928060000, same discipline as
+  /// `receivedAt` above): legal exactly once, from NULL to a value; illegal
+  /// thereafter in every direction, including back to NULL. See that
+  /// migration for why `rma_request_condition_decision_status_coherent`
+  /// deliberately still permits either value at `resolved`/`closed` (two
+  /// distinct legitimate paths reach those statuses, one per decision).
   conditionDecision          RmaConditionDecision? @map("condition_decision")
   conditionDecisionReason    String?               @map("condition_decision_reason")
   conditionDecidedAt         DateTime?             @map("condition_decided_at") @db.Timestamptz(6)
@@ -3319,7 +3327,13 @@ model RmaEvent {
   @@map("rma_event")
 }
 
-/// Criteria 189-197, 204. The remedy execution record. `@@unique([rmaId])` —
+/// Criteria 189-197, 204. The remedy execution record. OWNER DECISION
+/// (discretionary RMA authorization chain, 2026-09-28) — `INSERT` is refused
+/// at the database unless the parent `RmaRequest.conditionDecision =
+/// 'accepted'` (`rma_remedy_requires_accepted_inspection` trigger, migration
+/// 20260928040000): a remedy cannot exist for an RMA that was never
+/// inspected, or was inspected and rejected, no matter what inserts it.
+/// `@@unique([rmaId])` —
 /// at most one remedy row per RMA, the same one-row-per-case idempotency
 /// design as `WarrantyClaimRemedy`/`GroupBuyRefund`: a retried "issue this
 /// remedy" call (in whatever job a later task builds) reads back this row

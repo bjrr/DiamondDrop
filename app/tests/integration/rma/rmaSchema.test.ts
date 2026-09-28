@@ -78,6 +78,34 @@ async function approve(rmaId: string, overrides: Partial<Prisma.RmaRequestUnchec
   });
 }
 
+/**
+ * Walks a fresh fixture RMA all the way through submitted -> approved ->
+ * received_inspection_pending -> inspection_passed (condition_decision =
+ * 'accepted'). Every fixture that creates an `rma_remedy` row must build its
+ * parent this way now that `rma_remedy_requires_accepted_inspection`
+ * (migration 20260928040000) refuses the INSERT otherwise — mirrors this
+ * file's own `receivedRma()` helper, promoted to top level because remedy
+ * fixtures across multiple `describe` blocks need it, not just the
+ * condition-decision block that originally defined the shorter version.
+ */
+async function acceptedRma(overrides: Partial<Prisma.RmaRequestUncheckedCreateInput> = {}) {
+  const rma = await createRma(overrides);
+  await approve(rma.id);
+  await prisma.rmaRequest.update({
+    where: { id: rma.id },
+    data: { status: "received_inspection_pending", receivedAt: new Date() },
+  });
+  return prisma.rmaRequest.update({
+    where: { id: rma.id },
+    data: {
+      status: "inspection_passed",
+      conditionDecision: "accepted",
+      conditionDecidedAt: new Date(),
+      conditionDecidedByActorRef: "staff:alice",
+    },
+  });
+}
+
 describe("rma_request — required evidence and defaults", () => {
   it("defaults to status submitted with no approval/denial recorded", async () => {
     const rma = await createRma();
@@ -339,6 +367,94 @@ describe("rma_request_condition_decision_status_coherent / decision_requires_rec
   });
 });
 
+describe("rma_request_guard — condition_decision is immutable once recorded (OWNER DECISION, RMA dispute-evidence integrity, migration 20260928050000)", () => {
+  /** Walks a fresh RMA to `resolved` via the ACCEPTED path: submitted -> approved -> received_inspection_pending -> inspection_passed (accepted) -> remedy_in_progress -> resolved. */
+  async function resolvedViaAccepted() {
+    const rma = await acceptedRma();
+    await prisma.rmaRequest.update({ where: { id: rma.id }, data: { status: "remedy_in_progress" } });
+    return prisma.rmaRequest.update({ where: { id: rma.id }, data: { status: "resolved", resolvedAt: new Date() } });
+  }
+
+  /** Walks a fresh RMA to `resolved` via the REJECTED path: submitted -> approved -> received_inspection_pending -> inspection_failed (rejected) -> resolved. */
+  async function resolvedViaRejected() {
+    const rma = await createRma();
+    await approve(rma.id);
+    await prisma.rmaRequest.update({
+      where: { id: rma.id },
+      data: { status: "received_inspection_pending", receivedAt: new Date() },
+    });
+    await prisma.rmaRequest.update({
+      where: { id: rma.id },
+      data: {
+        status: "inspection_failed",
+        conditionDecision: "rejected",
+        conditionDecisionReason: "worn beyond inspection",
+        conditionDecidedAt: new Date(),
+        conditionDecidedByActorRef: "staff:alice",
+      },
+    });
+    return prisma.rmaRequest.update({ where: { id: rma.id }, data: { status: "resolved", resolvedAt: new Date() } });
+  }
+
+  it("refuses accepted -> rejected, even at a status ('resolved') the CHECK constraint alone would permit for either decision", async () => {
+    const rma = await resolvedViaAccepted();
+    expect(rma.conditionDecision).toBe("accepted");
+
+    await expect(
+      prisma.$executeRawUnsafe(
+        `UPDATE "rma_request" SET condition_decision = 'rejected', condition_decision_reason = 'rewritten after the fact' WHERE id = $1::uuid`,
+        rma.id
+      )
+    ).rejects.toThrow(/historical fact|inspection outcome/i);
+
+    const unchanged = await prisma.rmaRequest.findUniqueOrThrow({ where: { id: rma.id } });
+    expect(unchanged.conditionDecision).toBe("accepted");
+  });
+
+  it("refuses rejected -> accepted, symmetrically", async () => {
+    const rma = await resolvedViaRejected();
+    expect(rma.conditionDecision).toBe("rejected");
+
+    await expect(
+      prisma.$executeRawUnsafe(`UPDATE "rma_request" SET condition_decision = 'accepted' WHERE id = $1::uuid`, rma.id)
+    ).rejects.toThrow(/historical fact|inspection outcome/i);
+
+    const unchanged = await prisma.rmaRequest.findUniqueOrThrow({ where: { id: rma.id } });
+    expect(unchanged.conditionDecision).toBe("rejected");
+  });
+
+  it("refuses clearing a recorded decision back to NULL", async () => {
+    const rma = await acceptedRma();
+
+    await expect(
+      prisma.$executeRawUnsafe(`UPDATE "rma_request" SET condition_decision = NULL WHERE id = $1::uuid`, rma.id)
+    ).rejects.toThrow(/historical fact|inspection outcome/i);
+
+    const unchanged = await prisma.rmaRequest.findUniqueOrThrow({ where: { id: rma.id } });
+    expect(unchanged.conditionDecision).toBe("accepted");
+  });
+
+  it("still permits setting the decision from NULL exactly once (the normal decide_condition transition)", async () => {
+    const rma = await createRma();
+    await approve(rma.id);
+    await prisma.rmaRequest.update({
+      where: { id: rma.id },
+      data: { status: "received_inspection_pending", receivedAt: new Date() },
+    });
+
+    const decided = await prisma.rmaRequest.update({
+      where: { id: rma.id },
+      data: {
+        status: "inspection_passed",
+        conditionDecision: "accepted",
+        conditionDecidedAt: new Date(),
+        conditionDecidedByActorRef: "staff:alice",
+      },
+    });
+    expect(decided.conditionDecision).toBe("accepted");
+  });
+});
+
 describe("rma_request_return_insured_value_coherent", () => {
   it("refuses an insured value with no currency", async () => {
     const rma = await createRma();
@@ -393,7 +509,7 @@ async function approveAndBeginProcessing(remedyId: string) {
 
 describe("rma_remedy — money coherence, idempotency, and the issued-is-terminal guarantee", () => {
   it("rma_remedy_amount_matches_inputs refuses a mismatched sum, even via raw insert", async () => {
-    const rma = await createRma();
+    const rma = await acceptedRma();
     await expect(
       prisma.$executeRawUnsafe(
         `INSERT INTO "rma_remedy" (
@@ -406,7 +522,7 @@ describe("rma_remedy — money coherence, idempotency, and the issued-is-termina
   });
 
   it("rma_remedy_restocking_fee_only_for_refund_kind refuses a fee on a merchandise_credit remedy", async () => {
-    const rma = await createRma();
+    const rma = await acceptedRma();
     await expect(
       prisma.$executeRawUnsafe(
         `INSERT INTO "rma_remedy" (
@@ -419,7 +535,7 @@ describe("rma_remedy — money coherence, idempotency, and the issued-is-termina
   });
 
   it("accepts a well-formed pending remedy", async () => {
-    const rma = await createRma();
+    const rma = await acceptedRma();
     const remedy = await prisma.rmaRemedy.create({
       data: {
         rmaId: rma.id,
@@ -434,7 +550,7 @@ describe("rma_remedy — money coherence, idempotency, and the issued-is-termina
   });
 
   it("criterion 196/204 — a duplicated remedy insert for the same RMA is refused by the unique constraint, not a read-then-write check", async () => {
-    const rma = await createRma();
+    const rma = await acceptedRma();
     await prisma.rmaRemedy.create({
       data: {
         rmaId: rma.id,
@@ -464,7 +580,7 @@ describe("rma_remedy — money coherence, idempotency, and the issued-is-termina
   });
 
   it("rma_remedy_issued_has_reference refuses issued with no processor reference", async () => {
-    const rma = await createRma();
+    const rma = await acceptedRma();
     const remedy = await prisma.rmaRemedy.create({
       data: {
         rmaId: rma.id,
@@ -482,7 +598,7 @@ describe("rma_remedy — money coherence, idempotency, and the issued-is-termina
   });
 
   it("rma_remedy_failed_has_reason refuses failed with no reason", async () => {
-    const rma = await createRma();
+    const rma = await acceptedRma();
     const remedy = await prisma.rmaRemedy.create({
       data: {
         rmaId: rma.id,
@@ -498,7 +614,7 @@ describe("rma_remedy — money coherence, idempotency, and the issued-is-termina
   });
 
   it("rma_remedy_staff_review_has_reason refuses staff_review_required with no reason (D7's fail-closed instruction)", async () => {
-    const rma = await createRma();
+    const rma = await acceptedRma();
     const remedy = await prisma.rmaRemedy.create({
       data: {
         rmaId: rma.id,
@@ -523,7 +639,7 @@ describe("rma_remedy — money coherence, idempotency, and the issued-is-termina
   });
 
   it("issued is terminal — cannot be moved to any other status once issued, even a settled one", async () => {
-    const rma = await createRma();
+    const rma = await acceptedRma();
     const remedy = await prisma.rmaRemedy.create({
       data: {
         rmaId: rma.id,
@@ -563,7 +679,7 @@ describe("rma_remedy — money coherence, idempotency, and the issued-is-termina
 
 describe("OWNER DECISION: late-window RMA approval gating — structural enforcement (money-critical)", () => {
   it("rma_remedy_requires_approval_once_left_pending refuses a raw INSERT that starts anywhere past pending with no approval recorded", async () => {
-    const rma = await createRma();
+    const rma = await acceptedRma();
     await expect(
       prisma.$executeRawUnsafe(
         `INSERT INTO "rma_remedy" (
@@ -576,7 +692,7 @@ describe("OWNER DECISION: late-window RMA approval gating — structural enforce
   });
 
   it("rma_remedy_requires_approval_once_left_pending refuses an UPDATE into approved with no reviewer recorded, even via raw SQL", async () => {
-    const rma = await createRma();
+    const rma = await acceptedRma();
     const remedy = await prisma.rmaRemedy.create({
       data: {
         rmaId: rma.id,
@@ -593,7 +709,7 @@ describe("OWNER DECISION: late-window RMA approval gating — structural enforce
   });
 
   it("rma_remedy_guard refuses pending -> processing directly, even via raw SQL that also supplies approved_at (skipping the approved state itself is still illegal)", async () => {
-    const rma = await createRma();
+    const rma = await acceptedRma();
     const remedy = await prisma.rmaRemedy.create({
       data: {
         rmaId: rma.id,
@@ -613,7 +729,7 @@ describe("OWNER DECISION: late-window RMA approval gating — structural enforce
   });
 
   it("rma_remedy_guard refuses pending -> issued directly, even with every issued-fields CHECK satisfied", async () => {
-    const rma = await createRma();
+    const rma = await acceptedRma();
     const remedy = await prisma.rmaRemedy.create({
       data: {
         rmaId: rma.id,
@@ -640,7 +756,7 @@ describe("OWNER DECISION: late-window RMA approval gating — structural enforce
   });
 
   it("pending -> approved -> processing succeeds once a reviewer and timestamp are recorded", async () => {
-    const rma = await createRma();
+    const rma = await acceptedRma();
     const remedy = await prisma.rmaRemedy.create({
       data: {
         rmaId: rma.id,
@@ -662,7 +778,7 @@ describe("OWNER DECISION: late-window RMA approval gating — structural enforce
   });
 
   it("approved_at and approved_by_actor_ref are set once and cannot change once recorded", async () => {
-    const rma = await createRma();
+    const rma = await acceptedRma();
     const remedy = await prisma.rmaRemedy.create({
       data: {
         rmaId: rma.id,
@@ -694,9 +810,78 @@ describe("OWNER DECISION: late-window RMA approval gating — structural enforce
   });
 });
 
+describe("rma_remedy_requires_accepted_inspection — the missing link between inspection and remedy, at the database (money-critical)", () => {
+  it("refuses a raw INSERT for an RMA that has never been inspected (condition_decision NULL)", async () => {
+    const rma = await createRma();
+    expect(rma.conditionDecision).toBeNull();
+
+    await expect(
+      prisma.$executeRawUnsafe(
+        `INSERT INTO "rma_remedy" (
+           id, rma_id, kind, eligible_merchandise_amount_minor_units,
+           merchandise_amount_minor_units, restocking_fee_minor_units, currency, updated_at
+         ) VALUES (gen_random_uuid(), $1::uuid, 'merchandise_credit', 25000, 25000, 0, 'USD', CURRENT_TIMESTAMP)`,
+        rma.id
+      )
+    ).rejects.toThrow(/accepted/i);
+
+    const rowCount = await prisma.rmaRemedy.count({ where: { rmaId: rma.id } });
+    expect(rowCount).toBe(0);
+  });
+
+  it("refuses a raw INSERT for an RMA whose inspection was REJECTED", async () => {
+    const rma = await createRma();
+    await approve(rma.id);
+    await prisma.rmaRequest.update({
+      where: { id: rma.id },
+      data: { status: "received_inspection_pending", receivedAt: new Date() },
+    });
+    const rejected = await prisma.rmaRequest.update({
+      where: { id: rma.id },
+      data: {
+        status: "inspection_failed",
+        conditionDecision: "rejected",
+        conditionDecisionReason: "worn beyond inspection",
+        conditionDecidedAt: new Date(),
+        conditionDecidedByActorRef: "staff:alice",
+      },
+    });
+    expect(rejected.conditionDecision).toBe("rejected");
+
+    await expect(
+      prisma.$executeRawUnsafe(
+        `INSERT INTO "rma_remedy" (
+           id, rma_id, kind, eligible_merchandise_amount_minor_units,
+           merchandise_amount_minor_units, restocking_fee_minor_units, currency, updated_at
+         ) VALUES (gen_random_uuid(), $1::uuid, 'merchandise_credit', 25000, 25000, 0, 'USD', CURRENT_TIMESTAMP)`,
+        rma.id
+      )
+    ).rejects.toThrow(/accepted/i);
+
+    const rowCount = await prisma.rmaRemedy.count({ where: { rmaId: rma.id } });
+    expect(rowCount).toBe(0);
+  });
+
+  it("allows a raw INSERT for an RMA whose inspection was ACCEPTED", async () => {
+    const rma = await acceptedRma();
+
+    const remedy = await prisma.rmaRemedy.create({
+      data: {
+        rmaId: rma.id,
+        kind: "merchandise_credit",
+        eligibleMerchandiseAmountMinorUnits: 250_00n,
+        merchandiseAmountMinorUnits: 250_00n,
+        restockingFeeMinorUnits: 0n,
+        currency: "USD",
+      },
+    });
+    expect(remedy.status).toBe("pending");
+  });
+});
+
 describe("criterion 203 — the complete RMA record is retrievable in one query", () => {
   it("fetches the request + every event + its remedy together", async () => {
-    const rma = await createRma();
+    const rma = await acceptedRma();
     await prisma.rmaEvent.create({ data: { rmaId: rma.id, fromStatus: null, toStatus: "submitted", actorType: "customer" } });
     await prisma.rmaEvent.create({ data: { rmaId: rma.id, fromStatus: "submitted", toStatus: "approved", actorType: "staff", actorRef: "staff:alice" } });
     await prisma.rmaRemedy.create({
