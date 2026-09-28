@@ -85,19 +85,17 @@ this.
 > **When the campaign closes**
 > Everyone pays the final unlocked price. If you paid more than the final
 > price because you ordered before a tier unlocked, we refund you the
-> difference to your original payment method. Refunds are processed after
-> your piece ships.
+> difference to your original payment method.
 
 **Sources:** README and `docs/ARCHITECTURE-MVP1.md` §6.1 — settlement at the
 final unlocked tier, refunds held through production/QC and processed at
 shipping, refund basis follows the original payment method.
 
-**Judgement call — please confirm.** "Refunds are processed after your piece
-ships" is accurate but is a commitment about timing. The policy says refunds
-are held through production/QC and released at shipping; I have stated the
-customer-visible consequence rather than the internal mechanism. If you would
-rather promise nothing about timing, cut the last sentence — but I would
-expect "when do I get my refund?" to become the top support question if we do.
+**No refund timing is promised.** An earlier draft said refunds are processed
+after the piece ships; the owner removed it 2026-09-28 as an unsupported
+commitment, and it is NOT replaced with a different promise. The refund itself
+is stated because settlement at the final unlocked tier IS locked policy —
+only the timing was invented.
 
 ## 1.5 Bank Payment timing
 
@@ -123,30 +121,52 @@ Internally it is a status; to a customer, wording it as a deactivation reads
 as punishment for a slow bank transfer, when the policy explicitly allows
 reactivation at the same price.
 
-## 1.6 Cancellation and Final Sale acknowledgment
+## 1.6 Cancellation and Final Sale acknowledgment — OWNER-APPROVED 2026-09-28
 
-♻ **Reuse the approved Final Sale acknowledgment verbatim** where a Group Buy
-item is also a Luxury Steal:
+I raised pre-close cancellation as an open question. It was not open: the
+policy was already locked and I had not found it. Corrected here.
+
+**Approved disclosure copy, pinned character-for-character:**
+
+> Before the campaign closes, you may request a cancellation, but cancellation
+> is not automatic and requires CaratForUs approval. Once the campaign closes,
+> your Group Buy order is committed and cannot be canceled or returned because
+> you change your mind. This does not affect claims for defects, incorrect
+> items or specifications, shipping damage, warranty issues, fulfillment
+> problems, or other rights required by law.
+
+**Required UNCHECKED acknowledgment, pinned:**
+
+> I understand that cancellation requests before the campaign closes require
+> CaratForUs approval, and that once the campaign closes my Group Buy order is
+> committed and is not eligible for discretionary cancellation or return.
+
+**Affirmative-action label:** `I Understand & Agree`
+
+Note the label differs from the warranty and RMA acknowledgments'
+`I Certify & Agree`, deliberately: here the customer accepts terms rather
+than attesting to facts. It matches the Final Sale family. Do not unify them.
+
+The final sentence — that this does not affect defect, wrong-item, shipping
+damage, warranty, fulfillment or legally required claims — is the one doing
+protective work. Every other clause narrows what the customer gets. Without
+it, a commitment acknowledgment reads as signing away a defect claim, which
+is exactly what the locked policy says it must not do. It mirrors the Luxury
+Steals principle that Final Sale must never auto-deny a legitimate covered
+claim.
+
+♻ Where a Group Buy item is ALSO a Luxury Steal, reuse the already-approved
+Final Sale acknowledgment verbatim in addition:
 
 > Final Sale — this item cannot be returned or exchanged. Please review our
 > return policy
 
-For ordinary Group Buy items, **I have drafted nothing**, and that is
-deliberate. `README.md` says a placed Group Buy order is committed at close
-with no discretionary cancellation, but I could not find an approved
-customer-facing statement of what happens to a cancellation request *before*
-close. Inventing one would be inventing policy. **This needs your decision
-before the Group Buy flow can ship** — see Open Questions.
+## 1.7 "Bring It Back" — DEFERRED TO SLICE 13
 
-## 1.7 "Bring It Back" / completed campaigns
-
-**Not drafted — out of scope.** I checked: there is no Bring It Back surface
-in the codebase, no route, no domain model, and no locked policy describing
-its behaviour. Drafting copy for it would be designing the feature by writing
-its marketing first. Flag it if you want it specified; it is not blocking
-Slice 6.
-
----
+In locked MVP1 scope, but it belongs to Slice 13 and must not block Slice 6.
+No copy drafted, and deliberately no route, model or UI built early merely
+because copy was requested — building a feature because someone asked for its
+marketing is how scope creeps.
 
 # Part 2 — Warranty
 
@@ -174,15 +194,11 @@ Slice 6.
 > - Resizing, alteration or repair not carried out or authorised by us
 > - Loss or theft
 >
-> If your piece isn't covered, we'll tell you what a repair would cost before
-> doing anything.
 
-**Judgement call — the last line.** `docs/WARRANTY-CLAIMS.md` does not
-promise a repair quote for uncovered items. I have included it because
-"not covered" as a dead end is the worst customer moment in this flow, and
-a quote costs us nothing to offer. **If you'd rather not commit to it, cut
-that sentence** — it is the only line in this section that is not directly
-traceable to the policy.
+**Nothing here promises a repair, a quote, a turnaround time, or prepaid
+inbound shipping.** An earlier draft offered to quote a repair for uncovered
+items; the owner removed it 2026-09-28 as an unsupported commitment, and it
+is NOT replaced with a different promise.
 
 ## 2.4 Do not ship until authorised
 
@@ -251,34 +267,38 @@ the warranty.
 
 > **Claim received — reference {claimReference}**
 > We've got it. We'll review what you've sent and email you at
-> {purchaserEmail}, usually within a few business days.
+> {purchaserEmail}.
 >
 > Please don't send your item yet — we'll tell you if and when an inspection
 > is needed, and how to ship it.
 
-**Judgement call — "usually within a few business days."** The policy sets no
-response-time commitment. I included a soft expectation because a
-confirmation with no timeframe generates a follow-up email within a day. It
-is deliberately hedged and easy to meet. **Cut it if you'd rather promise
-nothing** — that is a reasonable position and I'd rather you choose than have
-me assume.
+**No turnaround time is stated.** An earlier draft carried a soft "few
+business days"; the owner removed it 2026-09-28. The policy sets no response
+commitment, and a hedged guess is still a promise a customer will hold us to.
 
 ---
 
-# Open questions — I need answers before these ship
+# Resolved 2026-09-28 by the owner
 
-1. **Group Buy cancellation before close (§1.6).** No approved language
-   exists for a customer asking to cancel while a campaign is open. README
-   establishes commitment at close; it does not describe pre-close
-   cancellation to a customer. **Blocking** the Group Buy order flow.
-2. **Group Buy refund timing (§1.4)** — state "after your piece ships", or
-   promise nothing?
-3. **Warranty repair quote for uncovered items (§2.3)** — offer it, or stay
-   silent?
-4. **Warranty response time (§2.8)** — keep the soft "few business days", or
-   remove?
-5. **Bring It Back (§1.7)** — is this in MVP1 at all? Nothing exists in the
-   codebase and nothing is specified.
+1. **Group Buy pre-close cancellation** — was never open. Policy already
+   locked; approved copy and acknowledgment now in §1.6.
+2. **Group Buy refund timing** — removed. No timing promise.
+3. **Warranty repair quote for uncovered items** — removed, not replaced.
+4. **Warranty response time** — removed, not replaced.
+5. **Bring It Back** — Slice 13. Deferred, not drafted, not built.
 
-Items 2, 3 and 4 are each one sentence and block nothing; the pages read
-fine without them. Item 1 is a genuine gap. Item 5 is a scope question.
+Explicitly NOT promised anywhere in this document, per the owner: guaranteed
+turnaround, guaranteed repair, prepaid inbound shipping, or paid
+post-warranty repair.
+
+# Still needing approval
+
+Everything in Part 1 except §1.6, and Part 2 §§2.1-2.5 and 2.8, remains
+DRAFT. §1.6 and the reused ♻ items are approved and may be pinned.
+
+One sentence I want to draw attention to rather than let pass as routine —
+Part 2 §2.5's risk-of-loss line states plainly that a package is covered by
+the customer's carrier and insurance until it reaches us, omitting the
+policy's "subject to applicable law" qualifier, which belongs on the linked
+policy page. Removing a legal hedge is properly the owner's call and arguably
+their counsel's, so it is flagged rather than assumed.

@@ -332,6 +332,31 @@ Shopify's `refundCreate` has no generic idempotency token, so idempotency is our
 
 ## 7. Deployment & Local Development
 
+### Production deployment record — 2026-09-28
+
+Deployed the Slice 4 RMA, Slice 11 shipping, required-customer-accounts and
+Slice 6 Group Buy work. **EIGHT migrations were applied, not twelve** — the
+count was corrected during the pre-flight check and is recorded here because
+the wrong number appeared in the deployment request. The repository held 57
+migrations against production's 49.
+
+Verified after: `/health` 200, database ok, 57 applied, **0 pending**,
+`requiredPolicyVersions.missing = []` (the new RMA acknowledgment policy is
+provisioned in production — the exact check that caught the Luxury Steals
+outage), all five App Proxy routes returning 401 to unsigned requests,
+storefront surfaces loading, and no `carat_test` or test-database reference
+in production logs.
+
+Only one migration touched existing data: `bank_payment_order`'s
+`customer_gid` backfill before `SET NOT NULL`. Production was inspected
+READ-ONLY beforehand rather than trusting the migration's own comment — it
+held exactly one row, `orders@caratforus.com`, a seeded placeholder with no
+recoverable customer identity, so the sentinel backfill was truthful rather
+than a fabricated identity. `20260926020000` creates a table that
+`20260926060000` drops in the same deploy; production never had it, so it
+nets to nothing.
+
+
 **Repository layout** (proposed, on approval):
 ```
 /app       Node + TypeScript + React Router 7 service (admin, proxy, webhooks, jobs, engines)
