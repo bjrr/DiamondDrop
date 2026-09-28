@@ -10,6 +10,7 @@ import type { BuyNowPriceResult, BuyNowPricingInputs } from "~/domain/pricing/ty
 import { ensureGroupBuyCampaignSyncedToCurrentTier } from "~/jobs/groupbuy/tierPriceSync.server";
 import type { ShopifyPriceSyncPort } from "~/jobs/pricing/ports";
 import { resolveInputsForVariant } from "~/jobs/pricing/resolveInputs.server";
+import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
 import { createProductionPriceSyncPort } from "~/shopify/admin/productionPriceSyncPort.server";
 
@@ -181,9 +182,38 @@ export interface OpenCampaignResult {
   tierOnePublish: { tierNumber: number; syncedVariantCount: number; skipped: boolean; unresolvedVariantCount: number };
 }
 
+/**
+ * TEMPORARY PRODUCTION LOCK (owner-directed 2026-09-28). Remove together with
+ * `GROUP_BUY_CAMPAIGN_OPEN_ENABLED` once the seven-case acknowledgment live
+ * gate has passed in production — see that variable's comment in
+ * `~/lib/env.server.ts`.
+ *
+ * FIRST STATEMENT IN THE FUNCTION, deliberately. Opening a campaign freezes
+ * pricing, publishes tier-1 prices to Shopify and makes the campaign
+ * customer-facing; a guard placed after any of that would be refusing a
+ * decision already partly taken.
+ */
+export class GroupBuyCampaignOpenLockedError extends Error {
+  constructor() {
+    super(
+      "Opening a Group Buy campaign is locked in production until the " +
+        "acknowledgment-before-counting path is deployed and live-proven. Public progress is " +
+        "monotonic, so a unit counted for an unverified order can never be taken back. " +
+        "Set GROUP_BUY_CAMPAIGN_OPEN_ENABLED=true only after the seven-case live gate passes."
+    );
+    this.name = "GroupBuyCampaignOpenLockedError";
+  }
+}
+
 export async function openGroupBuyCampaign(
   options: OpenCampaignOptions
 ): Promise<OpenCampaignResult> {
+  const env = getEnv();
+  if (env.APP_ENV === "production" && env.GROUP_BUY_CAMPAIGN_OPEN_ENABLED !== "true") {
+    logger.error("groupbuy.campaign_open_refused_production_lock", { campaignId: options.campaignId });
+    throw new GroupBuyCampaignOpenLockedError();
+  }
+
   const asOf = options.asOf ?? new Date();
 
   const campaign = await prisma.groupBuyCampaign.findUniqueOrThrow({
