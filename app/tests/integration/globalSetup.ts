@@ -2,6 +2,8 @@ import "dotenv/config";
 
 import { execSync } from "node:child_process";
 
+import { assertSafeIntegrationDatabase } from "~/testing/integrationDatabaseSafety";
+
 /**
  * Integration setup: a DISPOSABLE database, then the server bundle.
  *
@@ -51,6 +53,14 @@ async function runOnMaintenanceDb(connection: string, sql: string): Promise<void
   }
 }
 
+/**
+ * Remote mode: an explicit INTEGRATION_DATABASE_URL means a real, named test
+ * database (today `carat_test` on the shared Fly cluster) rather than a
+ * disposable one we create. The distinction changes how the database is
+ * prepared and torn down, so it is computed once.
+ */
+const REMOTE_MODE = Boolean(process.env.INTEGRATION_DATABASE_URL);
+
 export default async function setup() {
   const base = process.env.DATABASE_URL;
   if (!base) {
@@ -62,9 +72,15 @@ export default async function setup() {
 
   // A per-run name. Deliberately not random-free: two runs must never share a
   // database, or one run's append-only rows become the other's surprise.
+  // REMOTE MODE when INTEGRATION_DATABASE_URL is set: that URL already names
+  // the database to use (`carat_test` on the Fly cluster) and we use it AS
+  // GIVEN rather than deriving a per-run name from it. LOCAL MODE keeps the
+  // disposable-database behaviour, which is better when it is available.
   const runName = `carat_it_${process.pid}_${Date.now().toString(36)}`;
   const testUrl = new URL(process.env.INTEGRATION_DATABASE_URL ?? base);
-  testUrl.pathname = `/${runName}`;
+  if (!REMOTE_MODE) {
+    testUrl.pathname = `/${runName}`;
+  }
 
   // EXPLICIT CONNECTION PARAMETERS, because the defaults made one test
   // measure the machine instead of the code.
@@ -112,17 +128,73 @@ export default async function setup() {
     testUrl.searchParams.set("pool_timeout", "30");
   }
 
-  const { admin } = adminUrl(base);
+  // THE SAFETY CHECK, BEFORE ANY DESTRUCTIVE STATEMENT.
+  //
+  // Production and test share one Fly Managed Postgres cluster — production
+  // in `fly-db`, tests in `carat_test` — so host, port, user and password are
+  // identical between them and the database NAME is the only separation. This
+  // suite migrates, resets and drops, so it must prove its target is a test
+  // database before it does anything at all. See databaseSafety.ts.
+  const safeTarget = assertSafeIntegrationDatabase(testUrl.toString());
 
-  console.log(`Creating disposable integration database ${runName}...`);
-  try {
-    await runOnMaintenanceDb(admin, `CREATE DATABASE "${runName}"`);
-  } catch (error) {
-    throw new Error(
-      `Could not create the integration database. The DATABASE_URL role must be ` +
-        `allowed to CREATE DATABASE. ` +
-        `(${error instanceof Error ? error.message : String(error)})`
+  if (REMOTE_MODE) {
+    // A SHARED REMOTE CLUSTER IS NOT A PLACE TO CHURN DATABASES.
+    //
+    // Locally we create a disposable database per run, which is ideal: perfect
+    // isolation and nothing to clean up. On the managed cluster that would
+    // mean CREATE/DROP DATABASE against the same server production runs on,
+    // and would require granting the test role CREATEDB there — a privilege
+    // worth not having. So the fixed `carat_test` database is reset instead:
+    // same end state, no database-level privileges, no churn next to
+    // production.
+    //
+    // DROP SCHEMA is destructive by design and is exactly why the assertion
+    // above runs first and has no override flag.
+    console.log(`Resetting remote test database ${safeTarget.databaseName} on ${safeTarget.host}...`);
+    // DROP THE OBJECTS, NOT THE SCHEMA. `DROP SCHEMA public CASCADE` is the
+    // obvious reset and it fails here with "must be owner of schema public":
+    // on Fly Managed Postgres the application role owns the TABLES it creates
+    // but not the schema itself. So this drops every table and enum type in
+    // `public` instead, which reaches the same end state with the privileges
+    // we actually have.
+    //
+    // Enum types need their own pass — Prisma creates a type per enum, and a
+    // leftover type collides on the next `migrate deploy` with "type already
+    // exists" even after every table is gone.
+    //
+    // One DO block per call, because Prisma sends raw SQL as a prepared
+    // statement and Postgres rejects multiple commands in one.
+    await runOnMaintenanceDb(
+      testUrl.toString(),
+      `DO $$ DECLARE r RECORD; BEGIN
+         FOR r IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP
+           EXECUTE 'DROP TABLE IF EXISTS public.' || quote_ident(r.tablename) || ' CASCADE';
+         END LOOP;
+       END $$`
     );
+    await runOnMaintenanceDb(
+      testUrl.toString(),
+      `DO $$ DECLARE r RECORD; BEGIN
+         FOR r IN SELECT t.typname FROM pg_type t
+                  JOIN pg_namespace n ON n.oid = t.typnamespace
+                  WHERE n.nspname = 'public' AND t.typtype = 'e' LOOP
+           EXECUTE 'DROP TYPE IF EXISTS public.' || quote_ident(r.typname) || ' CASCADE';
+         END LOOP;
+       END $$`
+    );
+  } else {
+    const { admin } = adminUrl(base);
+
+    console.log(`Creating disposable integration database ${runName}...`);
+    try {
+      await runOnMaintenanceDb(admin, `CREATE DATABASE "${runName}"`);
+    } catch (error) {
+      throw new Error(
+        `Could not create the integration database. The DATABASE_URL role must be ` +
+          `allowed to CREATE DATABASE. ` +
+          `(${error instanceof Error ? error.message : String(error)})`
+      );
+    }
   }
 
   // Point every worker at the disposable database. setupEnv.ts loads .env into
@@ -187,7 +259,14 @@ export default async function setup() {
       return;
     }
     try {
-      await runOnMaintenanceDb(admin, `DROP DATABASE IF EXISTS "${runName}" WITH (FORCE)`);
+      if (REMOTE_MODE) {
+        // Nothing to drop: the remote test database is long-lived and is
+        // reset at the START of each run instead. Dropping it would need
+        // database-level privileges on a cluster that also hosts production,
+        // which is precisely what remote mode avoids.
+        return;
+      }
+      await runOnMaintenanceDb(adminUrl(base).admin, `DROP DATABASE IF EXISTS "${runName}" WITH (FORCE)`);
       console.log(`Dropped disposable integration database ${runName}.`);
     } catch (error) {
       // Never fail a green run on cleanup; report so it can be swept manually.
