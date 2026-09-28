@@ -2005,6 +2005,21 @@ model GroupBuyRefund {
   overrideReason String?   @map("override_reason")
   overrideAt     DateTime? @map("override_at") @db.Timestamptz(6)
 
+  /// OWNER DECISION (Group Buy settlement approval gating, mirrors the RMA
+  /// remedy approval gate at `RmaRemedy.approvedAt`/`approvedByActorRef`):
+  /// "the system calculates refunds, admin explicitly approves/processes
+  /// them." Set exactly once, by `approveGroupBuyRefund`
+  /// (`app/jobs/groupbuy/refundLedger.server.ts`) — never inferred from
+  /// `computeRefundsAtClose` or `releaseRefundForShipping`, which is why
+  /// those remain silent about it. The
+  /// `group_buy_refund_requires_approval_before_processing` CHECK constraint
+  /// (migration `20260928020000_group_buy_refund_approval_gate`) makes
+  /// "issued without an explicit staff approval" impossible even via a route
+  /// bypass or raw SQL, and `group_buy_refund_approval_immutable` makes these
+  /// two columns write-once.
+  approvedAt         DateTime? @map("approved_at") @db.Timestamptz(6)
+  approvedByActorRef String?   @map("approved_by_actor_ref")
+
   computedAt DateTime  @default(now()) @map("computed_at") @db.Timestamptz(6)
   /// When shipping released the hold. Null while held through production/QC.
   releasedAt DateTime? @map("released_at") @db.Timestamptz(6)

@@ -133,11 +133,42 @@ interface ActionFixture {
         problems: readonly { masterVariantId: string; priorTierNumber: number; tierNumber: number; detail: string }[];
       };
   tierResyncResult?: { tierNumber: number; skipped: boolean; syncedVariantCount: number; unresolvedVariantCount: number };
+  settlementComputeResult?: { created: number; skipped: number; owedCount: number; unresolvedLineRefs: readonly string[] };
+}
+
+interface RefundFixture {
+  id: string;
+  lineRef: string;
+  orderRef: string;
+  paymentBasis: string;
+  paidPerUnit: string;
+  finalPerUnit: string;
+  qualifyingUnits: number;
+  refundAmount: string;
+  status: string;
+  approvedAt: string | null;
+  approvedByActorRef: string | null;
+  processorReference: string | null;
+  failureReason: string | null;
+}
+
+interface UnresolvedRefundLineFixture {
+  masterVariantId: string;
+  orderRef: string;
+  lineRef: string;
+  qualifyingUnits: number;
+  reason: string;
 }
 
 function renderPage(
   campaign: CampaignFixture | null,
-  options?: { candidateVariants?: { masterVariantId: string; label: string }[]; optionsUpload?: unknown; actionData?: ActionFixture }
+  options?: {
+    candidateVariants?: { masterVariantId: string; label: string }[];
+    optionsUpload?: unknown;
+    actionData?: ActionFixture;
+    refunds?: RefundFixture[];
+    unresolvedRefundLines?: UnresolvedRefundLineFixture[];
+  }
 ): string {
   const loaderData = {
     apiKey: "test-public-client-id",
@@ -145,6 +176,8 @@ function renderPage(
     campaign,
     candidateVariants: options?.candidateVariants ?? [],
     optionsUpload: options?.optionsUpload ?? null,
+    refunds: options?.refunds ?? [],
+    unresolvedRefundLines: options?.unresolvedRefundLines ?? [],
   };
   const router = createMemoryRouter(
     [
@@ -306,6 +339,31 @@ describe("a closed campaign", () => {
     expect(textOf(html)).toMatch(/Final tier: 2/);
     expect(textOf(html)).toMatch(/Final qualifying units: 14/);
     expect(html).not.toMatch(/Open campaign and freeze pricing/);
+  });
+
+  it("does not render the unresolved-lines section at all when there is nothing unresolved", () => {
+    const html = renderPage(CLOSED_CAMPAIGN);
+    expect(html).not.toMatch(/could not be priced automatically/);
+  });
+
+  it("surfaces an unresolved line with a form to record its paid price, never a refund-amount field", () => {
+    const html = renderPage(CLOSED_CAMPAIGN, {
+      unresolvedRefundLines: [
+        {
+          masterVariantId: VARIANT_ID,
+          orderRef: "gid://shopify/Order/1",
+          lineRef: "gid://shopify/LineItem/1",
+          qualifyingUnits: 3,
+          reason: "card-basis line; no order-lookup port was supplied",
+        },
+      ],
+    });
+    const text = textOf(html);
+    expect(text).toMatch(/1 line\(s\) could not be priced automatically/);
+    expect(html).toMatch(/name="intent" value="record_unresolved_refund_line"/);
+    expect(html).toMatch(/name="paymentBasis"/);
+    expect(html).toMatch(/name="paidAmount"/);
+    expect(html).not.toMatch(/name="refundAmount"/);
   });
 });
 

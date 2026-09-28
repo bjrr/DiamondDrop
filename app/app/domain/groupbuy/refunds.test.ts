@@ -139,9 +139,17 @@ describe("issued is terminal — no duplicate customer value", () => {
     expect(isTerminal("issued")).toBe(true);
   });
 
-  it("treats not_owed as terminal too", () => {
-    expect(isTerminal("not_owed")).toBe(true);
-    expect(() => assertRefundTransition("not_owed", "releasable")).toThrow();
+  it("not_owed is terminal for every path except the one named reopening edge", () => {
+    // Architect decision (Group Buy settlement override follow-up,
+    // 2026-09-28): corrected facts can reveal a `not_owed` line is actually
+    // owed after all. `not_owed -> pending` is the ONLY escape — reachable
+    // only via `recordGroupBuyRefundOverride`, never a general reopening.
+    expect(isTerminal("not_owed")).toBe(false);
+    expect(() => assertRefundTransition("not_owed", "pending")).not.toThrow();
+    expect(() => assertRefundTransition("not_owed", "releasable")).toThrow(InvalidRefundTransitionError);
+    expect(() => assertRefundTransition("not_owed", "processing")).toThrow(InvalidRefundTransitionError);
+    expect(() => assertRefundTransition("not_owed", "issued")).toThrow(InvalidRefundTransitionError);
+    expect(() => assertRefundTransition("not_owed", "failed")).toThrow(InvalidRefundTransitionError);
   });
 
   it("names what WAS allowed when it refuses", () => {

@@ -121,7 +121,11 @@ export type RefundStatus =
   | "issued"
   /** The processor rejected it. Retryable — NOT terminal. */
   | "failed"
-  /** Nothing was owed, or the line was cancelled outright. Terminal. */
+  /**
+   * Nothing was owed, or the line was cancelled outright. Terminal for every
+   * ordinary path — see `ALLOWED["not_owed"]`'s own comment for the ONE named
+   * exception.
+   */
   | "not_owed";
 
 const ALLOWED: Readonly<Record<RefundStatus, readonly RefundStatus[]>> = {
@@ -135,7 +139,27 @@ const ALLOWED: Readonly<Record<RefundStatus, readonly RefundStatus[]>> = {
   // Terminal. `issued` especially: README §371 — "Duplicate/retried refund ...
   // must not create duplicate customer value."
   issued: [],
-  not_owed: [],
+  // NOT TERMINAL AFTER ALL, in exactly this one direction (architect
+  // decision, Group Buy settlement override follow-up, 2026-09-28).
+  // Corrected facts (`recordGroupBuyRefundOverride`,
+  // `app/jobs/groupbuy/refundLedger.server.ts`) can reveal that a line
+  // recorded as owing nothing is actually owed money after all — a wrong
+  // paid/final figure at close, corrected later from Shopify Admin. Without
+  // this edge that money is owed and structurally unpayable forever: a real
+  // financial loss to a real customer, sitting unnoticed in a status this
+  // table itself calls terminal.
+  //
+  // NARROW ON PURPOSE. This is the ONLY edge out of `not_owed`, reachable
+  // ONLY through that one caller (which gates it further: only when the
+  // RECOMPUTED amount is greater than zero, never unconditionally — see its
+  // own header) — there is no general "reopen a settled refund" capability
+  // here. The database's own `group_buy_refund_not_owed_has_zero_amount`
+  // CHECK constraint (migration `20260928050000_group_buy_refund_not_owed_reopen_edge`)
+  // makes the alternative — a `not_owed` row carrying a nonzero amount —
+  // structurally impossible regardless of what this table says, the same
+  // "domain function first, database the belt-and-braces backstop"
+  // discipline as every other rule in this file.
+  not_owed: ["pending"],
 };
 
 export class InvalidRefundTransitionError extends Error {
