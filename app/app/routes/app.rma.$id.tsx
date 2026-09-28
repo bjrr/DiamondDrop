@@ -5,6 +5,7 @@ import { Form, Link, useActionData, useLoaderData, useNavigation, useRouteError 
 import type { CSSProperties, ReactNode } from "react";
 
 import {
+  approveRmaRemedy,
   approveRmaRequest,
   beginRmaRemedy,
   closeRmaRequest,
@@ -23,6 +24,7 @@ import {
   RmaNotApprovedForShippingError,
   RmaNotEligibleForRemedyError,
   RmaPersonalizedNotEligibleForApprovalError,
+  RmaRemedyActorRequiredError,
   RmaRemedyAlreadyExistsError,
   RmaRemedyNotFoundError,
   RmaRequestNotFoundError,
@@ -100,6 +102,9 @@ interface RmaRemedyView {
   readonly merchandiseAmountMinorUnits: string;
   readonly restockingFeeMinorUnits: string;
   readonly currency: string;
+  /** OWNER DECISION (late-window RMA approval gating) — WHO approved this remedy and WHEN, staff-only. */
+  readonly approvedAt: string | null;
+  readonly approvedByActorRef: string | null;
   readonly shopifyTaxAdjustmentMinorUnits: string | null;
   readonly actualRefundOrCreditMinorUnits: string | null;
   readonly processorReference: string | null;
@@ -216,6 +221,8 @@ function buildRmaView(rma: RmaStaffView): RmaView {
           merchandiseAmountMinorUnits: rma.remedy.merchandiseAmountMinorUnits.toString(),
           restockingFeeMinorUnits: rma.remedy.restockingFeeMinorUnits.toString(),
           currency: rma.remedy.currency,
+          approvedAt: iso(rma.remedy.approvedAt),
+          approvedByActorRef: rma.remedy.approvedByActorRef,
           shopifyTaxAdjustmentMinorUnits: money(rma.remedy.shopifyTaxAdjustmentMinorUnits),
           actualRefundOrCreditMinorUnits: money(rma.remedy.actualRefundOrCreditMinorUnits),
           processorReference: rma.remedy.processorReference,
@@ -254,11 +261,23 @@ function canDecideCondition(status: string): boolean {
 function canCreateRemedy(view: RmaView): boolean {
   return view.status === "inspection_passed" && view.remedy === null;
 }
+/**
+ * OWNER DECISION (late-window RMA approval gating) — a computed-but-not-yet-
+ * approved remedy offers ONLY this control, never execute/manual-update.
+ */
+function canApproveRemedy(view: RmaView): boolean {
+  return view.remedy !== null && view.remedy.status === "pending";
+}
 function canExecuteRemedy(view: RmaView): boolean {
-  return view.status === "remedy_in_progress" && view.remedy !== null && view.remedy.status !== "issued";
+  return (
+    view.status === "remedy_in_progress" &&
+    view.remedy !== null &&
+    view.remedy.status !== "issued" &&
+    view.remedy.status !== "pending"
+  );
 }
 function canManuallyUpdateRemedyStatus(view: RmaView): boolean {
-  return view.remedy !== null && view.remedy.status !== "issued";
+  return view.remedy !== null && view.remedy.status !== "issued" && view.remedy.status !== "pending";
 }
 function canResolve(status: string): boolean {
   return status === "remedy_in_progress" || status === "inspection_failed";
@@ -453,6 +472,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
         return Response.json(ok());
       }
 
+      case "approve_remedy": {
+        // OWNER DECISION (late-window RMA approval gating) — its own action,
+        // distinct from create_remedy/execute_remedy, so approval is a
+        // deliberate, separately-recorded staff decision rather than an
+        // implicit side effect of computing or executing the remedy.
+        await approveRmaRemedy(id, staffActorRef, { reason: optionalStringField(formData, "reason") });
+        return Response.json(ok());
+      }
+
       case "execute_remedy": {
         const port = rmaRemedyPortOverrideForTests ?? new ShopifyRmaRemedyExecutionAdapter(admin);
         await executeRmaRemedy(id, { port });
@@ -526,7 +554,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
     if (error instanceof RmaPersonalizedNotEligibleForApprovalError || error instanceof RmaNotEligibleForRemedyError) {
       return Response.json(fail(error.message), { status: 409 });
     }
-    if (error instanceof RmaActorRequiredError || error instanceof InvalidRmaRemedyStatusUpdateError) {
+    if (
+      error instanceof RmaActorRequiredError ||
+      error instanceof RmaRemedyActorRequiredError ||
+      error instanceof InvalidRmaRemedyStatusUpdateError
+    ) {
       return Response.json(fail(error.message), { status: 400 });
     }
     logger.error("rma.action_failed", { rmaId: id, intent, message: error instanceof Error ? error.message : String(error) });
@@ -682,12 +714,28 @@ export default function RmaDetailPage() {
                   <Row label="Status">{rma.remedy.status}</Row>
                   <Row label="Merchandise amount">{formatMoney(rma.remedy.merchandiseAmountMinorUnits, rma.remedy.currency)}</Row>
                   <Row label="Restocking fee">{formatMoney(rma.remedy.restockingFeeMinorUnits, rma.remedy.currency)}</Row>
+                  <Row label="Approved">
+                    {rma.remedy.approvedAt ? `${formatTimestamp(rma.remedy.approvedAt)} by ${rma.remedy.approvedByActorRef ?? "(unknown)"}` : "(not yet approved)"}
+                  </Row>
                   <Row label="Shopify tax adjustment">{formatMoney(rma.remedy.shopifyTaxAdjustmentMinorUnits, rma.remedy.currency)}</Row>
                   <Row label="Actual refund/credit">{formatMoney(rma.remedy.actualRefundOrCreditMinorUnits, rma.remedy.currency)}</Row>
                   {rma.remedy.processorReference ? <Row label="Processor reference">{rma.remedy.processorReference}</Row> : null}
                   {rma.remedy.failureReason ? <Row label="Failure reason">{rma.remedy.failureReason}</Row> : null}
                   {rma.remedy.staffReviewReason ? <Row label="Staff review reason">{rma.remedy.staffReviewReason}</Row> : null}
                 </dl>
+
+                {canApproveRemedy(rma) ? (
+                  <Form method="post" style={{ marginTop: "0.75rem" }}>
+                    <input type="hidden" name="intent" value="approve_remedy" />
+                    <p style={{ margin: "0 0 0.5rem", fontSize: "0.8rem", color: "#555" }}>
+                      Explicit staff approval, recorded with your identity and the current time. Required before this
+                      remedy can be executed — computing the remedy or receiving/inspecting the item does not, by
+                      itself, authorize issuing money or store credit.
+                    </p>
+                    <Field id="approveRemedyReason" name="reason" label="Note (optional)" />
+                    <button type="submit" disabled={busy}>Approve remedy for execution</button>
+                  </Form>
+                ) : null}
 
                 {canExecuteRemedy(rma) ? (
                   <Form method="post" style={{ marginTop: "0.75rem" }}>
@@ -818,6 +866,7 @@ export default function RmaDetailPage() {
               !canExpire(rma.status) &&
               !canDecideCondition(rma.status) &&
               !canCreateRemedy(rma) &&
+              !canApproveRemedy(rma) &&
               !canExecuteRemedy(rma) &&
               !canManuallyUpdateRemedyStatus(rma) &&
               !canResolve(rma.status) &&

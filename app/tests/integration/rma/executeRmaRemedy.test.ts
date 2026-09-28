@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { prisma } from "~/db/client.server";
 import { idempotencyKeyRepository } from "~/db/repositories/idempotencyKeyRepository.server";
 import {
+  approveRmaRemedy,
   approveRmaRequest,
   beginRmaRemedy,
   createRmaRemedy,
@@ -78,7 +79,14 @@ async function submitRma(overrides: Record<string, unknown> = {}) {
   } as Parameters<typeof createRmaRequest>[0]);
 }
 
-/** Walks a fresh, approved RMA all the way through to `remedy_in_progress` with a computed remedy row. */
+/**
+ * Walks a fresh RMA all the way through to `remedy_in_progress` with a
+ * computed, but NOT YET APPROVED, remedy row (status `pending`). Callers
+ * that need to reach an executable remedy must call `approveRmaRemedy`
+ * themselves — OWNER DECISION (late-window RMA approval gating) makes
+ * `pending -> processing` illegal, so this helper deliberately stops one
+ * step short of what `walkToApprovedRemedy` below does.
+ */
 async function walkToRemedyInProgress(rmaId: string) {
   await approveRmaRequest(rmaId, "staff:alice");
   await markRmaReturnShipped(rmaId, { actorType: "customer", actorRef: null });
@@ -88,12 +96,18 @@ async function walkToRemedyInProgress(rmaId: string) {
   return beginRmaRemedy(rmaId, { actorType: "staff", actorRef: "staff:alice" });
 }
 
+/** `walkToRemedyInProgress` plus the OWNER-DECISION-required explicit staff approval, reaching an executable (`approved`) remedy. */
+async function walkToApprovedRemedy(rmaId: string, staffActorRef = "staff:reviewer") {
+  await walkToRemedyInProgress(rmaId);
+  return approveRmaRemedy(rmaId, staffActorRef);
+}
+
 const SUGGESTED_FULL_REFUND = { merchandiseAmountMinorUnits: 250_00n, taxAmountMinorUnits: 18_75n, currency: "USD" };
 
 describe("executeRmaRemedy — standard-window 100% refund", () => {
   it("issues via Shopify's own suggested refund, summing merchandise + tax exactly (never rederiving one from the other)", async () => {
     const rma = await submitRma();
-    await walkToRemedyInProgress(rma.id);
+    await walkToApprovedRemedy(rma.id);
     const port = new RecordingRmaRemedyExecutionPort();
     port.suggestedRefundResult = SUGGESTED_FULL_REFUND;
 
@@ -110,7 +124,7 @@ describe("executeRmaRemedy — standard-window 100% refund", () => {
 
   it("routes to staff_review_required — never guessing — when Shopify's suggested subtotal disagrees with the recorded remedy", async () => {
     const rma = await submitRma();
-    await walkToRemedyInProgress(rma.id);
+    await walkToApprovedRemedy(rma.id);
     const port = new RecordingRmaRemedyExecutionPort();
     port.suggestedRefundResult = { merchandiseAmountMinorUnits: 999_00n, taxAmountMinorUnits: 18_75n, currency: "USD" };
 
@@ -123,7 +137,7 @@ describe("executeRmaRemedy — standard-window 100% refund", () => {
 
   it("routes to staff_review_required when Shopify cannot represent the line at all (null suggested refund)", async () => {
     const rma = await submitRma();
-    await walkToRemedyInProgress(rma.id);
+    await walkToApprovedRemedy(rma.id);
     const port = new RecordingRmaRemedyExecutionPort();
     port.suggestedRefundResult = null;
 
@@ -141,7 +155,7 @@ describe("executeRmaRemedy — late-window merchandise credit (D5)", () => {
       requestedRemedyKind: "merchandise_credit",
       customerRef: "gid://shopify/Customer/42",
     });
-    await walkToRemedyInProgress(rma.id);
+    await walkToApprovedRemedy(rma.id);
     const port = new RecordingRmaRemedyExecutionPort();
     port.suggestedRefundResult = SUGGESTED_FULL_REFUND;
 
@@ -160,7 +174,7 @@ describe("executeRmaRemedy — late-window merchandise credit (D5)", () => {
       requestedRemedyKind: "merchandise_credit",
       customerRef: null,
     });
-    await walkToRemedyInProgress(rma.id);
+    await walkToApprovedRemedy(rma.id);
     const port = new RecordingRmaRemedyExecutionPort();
     port.suggestedRefundResult = SUGGESTED_FULL_REFUND;
 
@@ -177,7 +191,7 @@ describe("executeRmaRemedy — late-window merchandise credit (D5)", () => {
       requestedRemedyKind: "merchandise_credit",
       customerRef: "gid://shopify/Customer/42",
     });
-    await walkToRemedyInProgress(rma.id);
+    await walkToApprovedRemedy(rma.id);
     const port = new RecordingRmaRemedyExecutionPort();
     port.suggestedRefundResult = SUGGESTED_FULL_REFUND;
     port.storeCreditResult = null;
@@ -192,7 +206,7 @@ describe("executeRmaRemedy — late-window merchandise credit (D5)", () => {
 describe("executeRmaRemedy — the 50% restocking-fee refund always routes to staff review (D7)", () => {
   it("never calls Shopify at all — the tax-on-a-partial-value case this codebase refuses to invent", async () => {
     const rma = await submitRma({ requestedAt: LATE_REQUESTED_AT, requestedRemedyKind: "refund_original_payment" });
-    await walkToRemedyInProgress(rma.id);
+    await walkToApprovedRemedy(rma.id);
     const port = new RecordingRmaRemedyExecutionPort();
 
     const remedy = await executeRmaRemedy(rma.id, { port });
@@ -221,7 +235,7 @@ describe("executeRmaRemedy — preconditions refused before any Shopify call", (
 
   it("an already-issued remedy is a read-only no-op, not a re-execution", async () => {
     const rma = await submitRma();
-    await walkToRemedyInProgress(rma.id);
+    await walkToApprovedRemedy(rma.id);
     const port = new RecordingRmaRemedyExecutionPort();
     port.suggestedRefundResult = SUGGESTED_FULL_REFUND;
     await executeRmaRemedy(rma.id, { port });
@@ -233,10 +247,98 @@ describe("executeRmaRemedy — preconditions refused before any Shopify call", (
   });
 });
 
+describe("executeRmaRemedy — OWNER DECISION: late-window RMA approval gating (money-critical)", () => {
+  it("refuses to execute a computed-but-not-yet-approved remedy — no Shopify call is ever attempted", async () => {
+    const rma = await submitRma();
+    await walkToRemedyInProgress(rma.id); // stops at 'pending' — deliberately NOT approved
+    const port = new RecordingRmaRemedyExecutionPort();
+    port.suggestedRefundResult = SUGGESTED_FULL_REFUND;
+
+    await expect(executeRmaRemedy(rma.id, { port })).rejects.toThrow(RmaRemedyIllegalStateError);
+    expect(port.suggestedRefundCalls).toHaveLength(0);
+    expect(port.refundCalls).toHaveLength(0);
+    expect(port.storeCreditCalls).toHaveLength(0);
+
+    const afterRefusal = await getRmaRequestForStaffReview(rma.id);
+    expect(afterRefusal!.remedy!.status).toBe("pending");
+  });
+
+  it("refuses to execute a merchandise-credit remedy before approval either — the gate applies to BOTH remedy kinds", async () => {
+    const rma = await submitRma({
+      requestedAt: LATE_REQUESTED_AT,
+      requestedRemedyKind: "merchandise_credit",
+      customerRef: "gid://shopify/Customer/42",
+    });
+    await walkToRemedyInProgress(rma.id);
+    const port = new RecordingRmaRemedyExecutionPort();
+    port.suggestedRefundResult = SUGGESTED_FULL_REFUND;
+
+    await expect(executeRmaRemedy(rma.id, { port })).rejects.toThrow(RmaRemedyIllegalStateError);
+    expect(port.storeCreditCalls).toHaveLength(0);
+  });
+
+  it("refuses to execute the 50% restocking-fee remedy before approval — even though it never calls Shopify once running", async () => {
+    const rma = await submitRma({ requestedAt: LATE_REQUESTED_AT, requestedRemedyKind: "refund_original_payment" });
+    await walkToRemedyInProgress(rma.id);
+    const port = new RecordingRmaRemedyExecutionPort();
+
+    await expect(executeRmaRemedy(rma.id, { port })).rejects.toThrow(RmaRemedyIllegalStateError);
+  });
+
+  it("records the approving reviewer and timestamp, queryable afterward", async () => {
+    const rma = await submitRma();
+    await walkToRemedyInProgress(rma.id);
+    const before = new Date();
+
+    const approved = await approveRmaRemedy(rma.id, "staff:reviewer-jane");
+
+    expect(approved.status).toBe("approved");
+    expect(approved.approvedByActorRef).toBe("staff:reviewer-jane");
+    expect(approved.approvedAt).not.toBeNull();
+    expect(approved.approvedAt!.getTime()).toBeGreaterThanOrEqual(before.getTime());
+
+    const staffView = await getRmaRequestForStaffReview(rma.id);
+    expect(staffView!.remedy!.approvedByActorRef).toBe("staff:reviewer-jane");
+    expect(staffView!.remedy!.approvedAt).not.toBeNull();
+  });
+
+  it("approving twice issues at most once — the second approval is a no-op that does not re-stamp reviewer/timestamp", async () => {
+    const rma = await submitRma();
+    await walkToRemedyInProgress(rma.id);
+
+    const firstApproval = await approveRmaRemedy(rma.id, "staff:first-reviewer");
+    const secondApproval = await approveRmaRemedy(rma.id, "staff:second-reviewer");
+
+    // The second call is an idempotent no-op: it does not overwrite who
+    // approved it or when, and does not attempt a second transition.
+    expect(secondApproval.approvedByActorRef).toBe("staff:first-reviewer");
+    expect(secondApproval.approvedAt?.toISOString()).toBe(firstApproval.approvedAt?.toISOString());
+
+    const port = new RecordingRmaRemedyExecutionPort();
+    port.suggestedRefundResult = SUGGESTED_FULL_REFUND;
+    await executeRmaRemedy(rma.id, { port });
+    await executeRmaRemedy(rma.id, { port }); // already issued — read-only no-op
+
+    expect(port.refundCalls).toHaveLength(1); // issued exactly once
+  });
+
+  it("approving a remedy that is already past pending (e.g. issued) is a no-op, not an error", async () => {
+    const rma = await submitRma();
+    await walkToApprovedRemedy(rma.id, "staff:original-reviewer");
+    const port = new RecordingRmaRemedyExecutionPort();
+    port.suggestedRefundResult = SUGGESTED_FULL_REFUND;
+    await executeRmaRemedy(rma.id, { port });
+
+    const reapproved = await approveRmaRemedy(rma.id, "staff:someone-else");
+    expect(reapproved.status).toBe("issued");
+    expect(reapproved.approvedByActorRef).toBe("staff:original-reviewer");
+  });
+});
+
 describe("executeRmaRemedy — idempotent retry never calls Shopify twice", () => {
   it("a crash-recovery retry (remedy still 'processing') reuses the cached result with ZERO further Shopify calls", async () => {
     const rma = await submitRma();
-    await walkToRemedyInProgress(rma.id);
+    await walkToApprovedRemedy(rma.id);
 
     // Simulate a PRIOR attempt that got as far as "processing" and reached
     // Shopify (recorded a succeeded idempotency key) but crashed before
@@ -267,7 +369,7 @@ describe("executeRmaRemedy — idempotent retry never calls Shopify twice", () =
 
   it("a genuine Shopify rejection marks the remedy failed, and a later retry mints a FRESH key that calls Shopify again", async () => {
     const rma = await submitRma();
-    await walkToRemedyInProgress(rma.id);
+    await walkToApprovedRemedy(rma.id);
     const port = new RecordingRmaRemedyExecutionPort();
     port.suggestedRefundResult = SUGGESTED_FULL_REFUND;
     port.refundError = new AdminApiError("refundCreate", ["insufficient funds on gateway"]);
@@ -287,7 +389,7 @@ describe("executeRmaRemedy — idempotent retry never calls Shopify twice", () =
 
   it("an ambiguous (non-AdminApiError) failure leaves the remedy at 'processing', never 'failed' — it might have already succeeded", async () => {
     const rma = await submitRma();
-    await walkToRemedyInProgress(rma.id);
+    await walkToApprovedRemedy(rma.id);
     const port = new RecordingRmaRemedyExecutionPort();
     port.suggestedRefundResult = SUGGESTED_FULL_REFUND;
     port.refundError = new Error("socket hang up"); // NOT an AdminApiError — classified in_doubt

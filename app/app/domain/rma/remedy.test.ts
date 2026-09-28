@@ -133,9 +133,25 @@ describe("computeRmaRemedy — late window (criteria 187, 189-191)", () => {
   });
 });
 
-describe("RmaRemedy status lifecycle — criteria 194, 196, 204", () => {
-  it("pending -> processing is legal", () => {
-    expect(() => assertRmaRemedyTransition("pending", "processing")).not.toThrow();
+describe("RmaRemedy status lifecycle — criteria 194, 196, 204, and the owner's late-window approval gate", () => {
+  it("pending -> approved is legal — the ONLY way out of pending", () => {
+    expect(() => assertRmaRemedyTransition("pending", "approved")).not.toThrow();
+  });
+
+  it("pending -> processing is illegal — a remedy cannot enter execution without an explicit staff approval", () => {
+    expect(() => assertRmaRemedyTransition("pending", "processing")).toThrow(InvalidRmaRemedyTransitionError);
+  });
+
+  it("approved -> processing is legal — the ONLY way into processing", () => {
+    expect(() => assertRmaRemedyTransition("approved", "processing")).not.toThrow();
+  });
+
+  it("approved cannot jump straight to issued, failed, or staff_review_required, bypassing processing", () => {
+    expect(() => assertRmaRemedyTransition("approved", "issued")).toThrow(InvalidRmaRemedyTransitionError);
+    expect(() => assertRmaRemedyTransition("approved", "failed")).toThrow(InvalidRmaRemedyTransitionError);
+    expect(() => assertRmaRemedyTransition("approved", "staff_review_required")).toThrow(
+      InvalidRmaRemedyTransitionError
+    );
   });
 
   it.each<RmaRemedyStatus>(["issued", "failed", "staff_review_required"])(
@@ -145,11 +161,11 @@ describe("RmaRemedy status lifecycle — criteria 194, 196, 204", () => {
     }
   );
 
-  it("failed -> processing is legal (a retry follows the same path as the first attempt)", () => {
+  it("failed -> processing is legal (a retry follows the same path as the first attempt, without re-approval)", () => {
     expect(() => assertRmaRemedyTransition("failed", "processing")).not.toThrow();
   });
 
-  it("staff_review_required -> processing is legal (D7: a human resolves it, then the same path retries)", () => {
+  it("staff_review_required -> processing is legal (D7: a human resolves it, then the same path retries, without re-approval)", () => {
     expect(() => assertRmaRemedyTransition("staff_review_required", "processing")).not.toThrow();
   });
 
@@ -171,6 +187,7 @@ describe("RmaRemedy status lifecycle — criteria 194, 196, 204", () => {
 
   it("no other status is terminal", () => {
     expect(isRmaRemedyTerminal("pending")).toBe(false);
+    expect(isRmaRemedyTerminal("approved")).toBe(false);
     expect(isRmaRemedyTerminal("processing")).toBe(false);
     expect(isRmaRemedyTerminal("failed")).toBe(false);
     expect(isRmaRemedyTerminal("staff_review_required")).toBe(false);

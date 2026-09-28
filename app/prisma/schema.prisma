@@ -2963,8 +2963,16 @@ enum RmaStatus {
 /// operation would hit the same tax/representability problem, so neither
 /// this enum's ordering nor the transition table treats it as a plain retry
 /// case. See `app/app/domain/rma/remedy.ts`.
+///
+/// `approved` — OWNER DECISION (late-window RMA approval gating,
+/// 2026-09-27): the structural gate between "remedy computed" and "remedy
+/// may be executed." `processing` is reachable ONLY from `approved`, never
+/// from `pending` — see `app/app/domain/rma/remedy.ts`'s
+/// `ALLOWED_REMEDY_TRANSITIONS` and this slice's `rma_remedy_guard` trigger
+/// (migration `20260927030000_rma_remedy_approval_gate`).
 enum RmaRemedyStatus {
   pending
+  approved
   processing
   issued
   failed
@@ -3163,6 +3171,19 @@ model RmaRemedy {
 
   kind   RmaRemedyKind
   status RmaRemedyStatus @default(pending)
+
+  /// OWNER DECISION (late-window RMA approval gating, 2026-09-27) — a NAMED
+  /// reviewer and a timestamp, recorded ONLY by `approveRmaRemedy` (never
+  /// inferred from `record_receipt`, `decide_condition`, or any other
+  /// transition that happened for a different reason). Present if and only
+  /// if `status <> 'pending'` (`rma_remedy_requires_approval_once_left_pending`,
+  /// this slice's migration) — the CHECK constraint that makes "issued
+  /// without approval" impossible at the database, not merely at a route.
+  /// Set once; never cleared or backdated once recorded
+  /// (`rma_remedy_guard` trigger, same discipline as
+  /// `rma_request.received_at`).
+  approvedAt         DateTime? @map("approved_at") @db.Timestamptz(6)
+  approvedByActorRef String?   @map("approved_by_actor_ref")
 
   /// Criterion 191 — duplicated from `RmaRequest.eligibleMerchandiseAmountMinorUnits`
   /// at remedy-creation time so `rma_remedy_amount_matches_inputs` (this

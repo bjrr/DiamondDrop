@@ -375,6 +375,22 @@ describe("rma_event — append-only", () => {
   });
 });
 
+/**
+ * OWNER DECISION (late-window RMA approval gating, 2026-09-27) — walks a
+ * fixture remedy row through `approved` (with a reviewer/timestamp already
+ * recorded, satisfying `rma_remedy_requires_approval_once_left_pending`) and
+ * into `processing`, using raw `prisma.rmaRemedy.update` calls the same way
+ * the rest of this schema-level test file builds fixtures — never via the
+ * repository, so these tests keep proving the DATABASE's own guarantees.
+ */
+async function approveAndBeginProcessing(remedyId: string) {
+  await prisma.rmaRemedy.update({
+    where: { id: remedyId },
+    data: { status: "approved", approvedAt: new Date(), approvedByActorRef: "staff:alice" },
+  });
+  return prisma.rmaRemedy.update({ where: { id: remedyId }, data: { status: "processing" } });
+}
+
 describe("rma_remedy — money coherence, idempotency, and the issued-is-terminal guarantee", () => {
   it("rma_remedy_amount_matches_inputs refuses a mismatched sum, even via raw insert", async () => {
     const rma = await createRma();
@@ -459,6 +475,7 @@ describe("rma_remedy — money coherence, idempotency, and the issued-is-termina
         currency: "USD",
       },
     });
+    await approveAndBeginProcessing(remedy.id);
     await expect(
       prisma.rmaRemedy.update({ where: { id: remedy.id }, data: { status: "issued" } })
     ).rejects.toThrow();
@@ -476,6 +493,7 @@ describe("rma_remedy — money coherence, idempotency, and the issued-is-termina
         currency: "USD",
       },
     });
+    await approveAndBeginProcessing(remedy.id);
     await expect(prisma.rmaRemedy.update({ where: { id: remedy.id }, data: { status: "failed" } })).rejects.toThrow();
   });
 
@@ -491,6 +509,8 @@ describe("rma_remedy — money coherence, idempotency, and the issued-is-termina
         currency: "USD",
       },
     });
+    await approveAndBeginProcessing(remedy.id);
+
     await expect(
       prisma.rmaRemedy.update({ where: { id: remedy.id }, data: { status: "staff_review_required" } })
     ).rejects.toThrow();
@@ -514,6 +534,7 @@ describe("rma_remedy — money coherence, idempotency, and the issued-is-termina
         currency: "USD",
       },
     });
+    await approveAndBeginProcessing(remedy.id);
     const issued = await prisma.rmaRemedy.update({
       where: { id: remedy.id },
       data: {
@@ -534,6 +555,139 @@ describe("rma_remedy — money coherence, idempotency, and the issued-is-termina
     await expect(
       prisma.$executeRawUnsafe(
         `UPDATE "rma_remedy" SET actual_refund_or_credit_minor_units = 999900 WHERE id = $1::uuid`,
+        remedy.id
+      )
+    ).rejects.toThrow();
+  });
+});
+
+describe("OWNER DECISION: late-window RMA approval gating — structural enforcement (money-critical)", () => {
+  it("rma_remedy_requires_approval_once_left_pending refuses a raw INSERT that starts anywhere past pending with no approval recorded", async () => {
+    const rma = await createRma();
+    await expect(
+      prisma.$executeRawUnsafe(
+        `INSERT INTO "rma_remedy" (
+           id, rma_id, kind, status, eligible_merchandise_amount_minor_units,
+           merchandise_amount_minor_units, restocking_fee_minor_units, currency, updated_at
+         ) VALUES (gen_random_uuid(), $1::uuid, 'merchandise_credit', 'approved', 25000, 25000, 0, 'USD', CURRENT_TIMESTAMP)`,
+        rma.id
+      )
+    ).rejects.toThrow();
+  });
+
+  it("rma_remedy_requires_approval_once_left_pending refuses an UPDATE into approved with no reviewer recorded, even via raw SQL", async () => {
+    const rma = await createRma();
+    const remedy = await prisma.rmaRemedy.create({
+      data: {
+        rmaId: rma.id,
+        kind: "merchandise_credit",
+        eligibleMerchandiseAmountMinorUnits: 250_00n,
+        merchandiseAmountMinorUnits: 250_00n,
+        restockingFeeMinorUnits: 0n,
+        currency: "USD",
+      },
+    });
+    await expect(
+      prisma.$executeRawUnsafe(`UPDATE "rma_remedy" SET status = 'approved' WHERE id = $1::uuid`, remedy.id)
+    ).rejects.toThrow();
+  });
+
+  it("rma_remedy_guard refuses pending -> processing directly, even via raw SQL that also supplies approved_at (skipping the approved state itself is still illegal)", async () => {
+    const rma = await createRma();
+    const remedy = await prisma.rmaRemedy.create({
+      data: {
+        rmaId: rma.id,
+        kind: "merchandise_credit",
+        eligibleMerchandiseAmountMinorUnits: 250_00n,
+        merchandiseAmountMinorUnits: 250_00n,
+        restockingFeeMinorUnits: 0n,
+        currency: "USD",
+      },
+    });
+    await expect(
+      prisma.$executeRawUnsafe(
+        `UPDATE "rma_remedy" SET status = 'processing', approved_at = CURRENT_TIMESTAMP, approved_by_actor_ref = 'staff:alice' WHERE id = $1::uuid`,
+        remedy.id
+      )
+    ).rejects.toThrow();
+  });
+
+  it("rma_remedy_guard refuses pending -> issued directly, even with every issued-fields CHECK satisfied", async () => {
+    const rma = await createRma();
+    const remedy = await prisma.rmaRemedy.create({
+      data: {
+        rmaId: rma.id,
+        kind: "merchandise_credit",
+        eligibleMerchandiseAmountMinorUnits: 250_00n,
+        merchandiseAmountMinorUnits: 250_00n,
+        restockingFeeMinorUnits: 0n,
+        currency: "USD",
+      },
+    });
+    await expect(
+      prisma.rmaRemedy.update({
+        where: { id: remedy.id },
+        data: {
+          status: "issued",
+          approvedAt: new Date(),
+          approvedByActorRef: "staff:alice",
+          processorReference: "shopify-refund-txn-skip-approval",
+          actualRefundOrCreditMinorUnits: 250_00n,
+          issuedAt: new Date(),
+        },
+      })
+    ).rejects.toThrow();
+  });
+
+  it("pending -> approved -> processing succeeds once a reviewer and timestamp are recorded", async () => {
+    const rma = await createRma();
+    const remedy = await prisma.rmaRemedy.create({
+      data: {
+        rmaId: rma.id,
+        kind: "merchandise_credit",
+        eligibleMerchandiseAmountMinorUnits: 250_00n,
+        merchandiseAmountMinorUnits: 250_00n,
+        restockingFeeMinorUnits: 0n,
+        currency: "USD",
+      },
+    });
+    const approved = await prisma.rmaRemedy.update({
+      where: { id: remedy.id },
+      data: { status: "approved", approvedAt: new Date(), approvedByActorRef: "staff:alice" },
+    });
+    expect(approved.status).toBe("approved");
+
+    const processing = await prisma.rmaRemedy.update({ where: { id: remedy.id }, data: { status: "processing" } });
+    expect(processing.status).toBe("processing");
+  });
+
+  it("approved_at and approved_by_actor_ref are set once and cannot change once recorded", async () => {
+    const rma = await createRma();
+    const remedy = await prisma.rmaRemedy.create({
+      data: {
+        rmaId: rma.id,
+        kind: "merchandise_credit",
+        eligibleMerchandiseAmountMinorUnits: 250_00n,
+        merchandiseAmountMinorUnits: 250_00n,
+        restockingFeeMinorUnits: 0n,
+        currency: "USD",
+      },
+    });
+    await prisma.rmaRemedy.update({
+      where: { id: remedy.id },
+      data: { status: "approved", approvedAt: new Date("2026-01-05T00:00:00.000Z"), approvedByActorRef: "staff:alice" },
+    });
+
+    await expect(
+      prisma.$executeRawUnsafe(
+        `UPDATE "rma_remedy" SET approved_at = CURRENT_TIMESTAMP WHERE id = $1::uuid`,
+        remedy.id
+      )
+    ).rejects.toThrow();
+
+    await expect(
+      prisma.$executeRawUnsafe(
+        `UPDATE "rma_remedy" SET approved_by_actor_ref = 'staff:someone-else' WHERE id = $1::uuid`,
         remedy.id
       )
     ).rejects.toThrow();

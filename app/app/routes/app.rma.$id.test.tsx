@@ -25,6 +25,8 @@ interface RmaRemedyViewFixture {
   merchandiseAmountMinorUnits: string;
   restockingFeeMinorUnits: string;
   currency: string;
+  approvedAt: string | null;
+  approvedByActorRef: string | null;
   shopifyTaxAdjustmentMinorUnits: string | null;
   actualRefundOrCreditMinorUnits: string | null;
   processorReference: string | null;
@@ -136,6 +138,8 @@ function remedyFixture(overrides: Partial<RmaRemedyViewFixture>): RmaRemedyViewF
     merchandiseAmountMinorUnits: "25000",
     restockingFeeMinorUnits: "0",
     currency: "USD",
+    approvedAt: null,
+    approvedByActorRef: null,
     shopifyTaxAdjustmentMinorUnits: null,
     actualRefundOrCreditMinorUnits: null,
     processorReference: null,
@@ -152,15 +156,33 @@ const REMEDY_IN_PROGRESS_RMA: RmaViewFixture = {
   remedy: remedyFixture({}),
 };
 
-const REMEDY_STAFF_REVIEW_RMA: RmaViewFixture = {
+// OWNER DECISION (late-window RMA approval gating) — approved is a distinct
+// state from pending, reached only via the dedicated approve_remedy action.
+const REMEDY_APPROVED_RMA: RmaViewFixture = {
   ...REMEDY_IN_PROGRESS_RMA,
-  remedy: remedyFixture({ status: "staff_review_required", staffReviewReason: "restocking-fee case" }),
+  remedy: remedyFixture({
+    status: "approved",
+    approvedAt: "2026-01-09T00:00:00.000Z",
+    approvedByActorRef: "staff:alice",
+  }),
+};
+
+const REMEDY_STAFF_REVIEW_RMA: RmaViewFixture = {
+  ...REMEDY_APPROVED_RMA,
+  remedy: remedyFixture({
+    status: "staff_review_required",
+    staffReviewReason: "restocking-fee case",
+    approvedAt: "2026-01-09T00:00:00.000Z",
+    approvedByActorRef: "staff:alice",
+  }),
 };
 
 const REMEDY_ISSUED_RMA: RmaViewFixture = {
-  ...REMEDY_IN_PROGRESS_RMA,
+  ...REMEDY_APPROVED_RMA,
   remedy: remedyFixture({
     status: "issued",
+    approvedAt: "2026-01-09T00:00:00.000Z",
+    approvedByActorRef: "staff:alice",
     processorReference: "shopify-refund-1",
     actualRefundOrCreditMinorUnits: "26875",
     shopifyTaxAdjustmentMinorUnits: "1875",
@@ -214,33 +236,56 @@ describe("inspection_passed with no remedy yet", () => {
   });
 });
 
-describe("remedy_in_progress with a pending remedy", () => {
-  it("offers BOTH the automated execute_remedy control and the manual update_remedy_status control", () => {
+describe("remedy_in_progress with a pending (not-yet-approved) remedy — OWNER DECISION: late-window RMA approval gating", () => {
+  it("offers ONLY 'Approve remedy for execution' — neither execute_remedy nor the manual update control is reachable before approval", () => {
     const html = renderPage(REMEDY_IN_PROGRESS_RMA);
-    expect(html).toMatch(/Execute remedy via Shopify/);
-    expect(html).toMatch(/Update remedy status/);
+    expect(html).toMatch(/Approve remedy for execution/);
+    expect(html).not.toMatch(/Execute remedy via Shopify/);
+    expect(html).not.toMatch(/Update remedy status/);
   });
 
   it("does not offer Compute remedy again once a remedy already exists", () => {
     const html = renderPage(REMEDY_IN_PROGRESS_RMA);
     expect(html).not.toMatch(/Compute remedy/);
   });
+
+  it("shows the remedy as not yet approved", () => {
+    const text = textOf(renderPage(REMEDY_IN_PROGRESS_RMA));
+    expect(text).toMatch(/not yet approved/);
+  });
+});
+
+describe("remedy_in_progress with an approved remedy", () => {
+  it("offers BOTH the automated execute_remedy control and the manual update_remedy_status control, and NOT the approve control again", () => {
+    const html = renderPage(REMEDY_APPROVED_RMA);
+    expect(html).toMatch(/Execute remedy via Shopify/);
+    expect(html).toMatch(/Update remedy status/);
+    expect(html).not.toMatch(/Approve remedy for execution/);
+  });
+
+  it("shows who approved it and when", () => {
+    const text = textOf(renderPage(REMEDY_APPROVED_RMA));
+    expect(text).toMatch(/staff:alice/);
+    expect(text).toMatch(/2026-01-09/);
+  });
 });
 
 describe("remedy staff_review_required (D7's fail-closed state)", () => {
-  it("still offers execute_remedy (retry) and the manual path, and shows the reason", () => {
+  it("still offers execute_remedy (retry) and the manual path, and shows the reason — and never re-offers approval (already approved, never re-solicited)", () => {
     const html = renderPage(REMEDY_STAFF_REVIEW_RMA);
     expect(textOf(html)).toMatch(/restocking-fee case/);
     expect(html).toMatch(/Execute remedy via Shopify/);
     expect(html).toMatch(/Update remedy status/);
+    expect(html).not.toMatch(/Approve remedy for execution/);
   });
 });
 
 describe("remedy issued — terminal", () => {
-  it("offers NEITHER execute_remedy NOR the manual update control once issued (criterion 196/204's UI-level mirror)", () => {
+  it("offers NEITHER execute_remedy NOR the manual update control NOR the approval control once issued (criterion 196/204's UI-level mirror)", () => {
     const html = renderPage(REMEDY_ISSUED_RMA);
     expect(html).not.toMatch(/Execute remedy via Shopify/);
     expect(html).not.toMatch(/Update remedy status/);
+    expect(html).not.toMatch(/Approve remedy for execution/);
   });
 
   it("shows the settled processor reference and both money figures separately (D7)", () => {
@@ -248,6 +293,11 @@ describe("remedy issued — terminal", () => {
     expect(text).toMatch(/shopify-refund-1/);
     expect(text).toMatch(/268\.75/); // actual refund/credit
     expect(text).toMatch(/18\.75/); // Shopify's own tax figure, shown separately
+  });
+
+  it("still shows who approved it, even after settlement", () => {
+    const text = textOf(renderPage(REMEDY_ISSUED_RMA));
+    expect(text).toMatch(/staff:alice/);
   });
 
   it("offers Mark resolved", () => {

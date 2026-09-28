@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { prisma } from "~/db/client.server";
 import {
+  approveRmaRemedy,
   approveRmaRequest,
   beginRmaRemedy,
   closeRmaRequest,
@@ -25,6 +26,7 @@ import {
   RmaNotEligibleForRemedyError,
   RmaPastReturnWindowError,
   RmaPersonalizedNotEligibleForApprovalError,
+  RmaRemedyActorRequiredError,
   RmaRemedyAlreadyExistsError,
   RmaRequiresClaimWorkflowError,
   searchRmaRequestsForStaff,
@@ -374,6 +376,7 @@ describe("updateRmaRemedyStatus — the retry path, and the remedy status transi
     const rma = await submitRma();
     await walkToInspectionPassed(rma.id);
     await createRmaRemedy({ rmaId: rma.id });
+    await approveRmaRemedy(rma.id, "staff:reviewer");
 
     await updateRmaRemedyStatus({ rmaId: rma.id, status: "processing" });
     await updateRmaRemedyStatus({ rmaId: rma.id, status: "processing" }); // simulated retry
@@ -398,6 +401,7 @@ describe("updateRmaRemedyStatus — the retry path, and the remedy status transi
     const rma = await submitRma();
     await walkToInspectionPassed(rma.id);
     await createRmaRemedy({ rmaId: rma.id });
+    await approveRmaRemedy(rma.id, "staff:reviewer");
     await updateRmaRemedyStatus({ rmaId: rma.id, status: "processing" });
     await updateRmaRemedyStatus({
       rmaId: rma.id,
@@ -415,6 +419,7 @@ describe("updateRmaRemedyStatus — the retry path, and the remedy status transi
     const rma = await submitRma();
     await walkToInspectionPassed(rma.id);
     await createRmaRemedy({ rmaId: rma.id });
+    await approveRmaRemedy(rma.id, "staff:reviewer");
     await updateRmaRemedyStatus({ rmaId: rma.id, status: "processing" });
 
     await expect(updateRmaRemedyStatus({ rmaId: rma.id, status: "failed" })).rejects.toThrow(
@@ -433,6 +438,81 @@ describe("updateRmaRemedyStatus — the retry path, and the remedy status transi
       staffReviewReason: "Shopify cannot represent a partial store-credit + tax adjustment here",
     });
     expect(staffReview.status).toBe("staff_review_required");
+  });
+});
+
+describe("approveRmaRemedy — OWNER DECISION: late-window RMA approval gating (money-critical)", () => {
+  it("refuses (nothing written) with an empty staff actor reference", async () => {
+    const rma = await submitRma();
+    await walkToInspectionPassed(rma.id);
+    await createRmaRemedy({ rmaId: rma.id });
+    await expect(approveRmaRemedy(rma.id, "")).rejects.toThrow(RmaRemedyActorRequiredError);
+
+    const remedy = await prisma.rmaRemedy.findUniqueOrThrow({ where: { rmaId: rma.id } });
+    expect(remedy.status).toBe("pending");
+    expect(remedy.approvedAt).toBeNull();
+  });
+
+  it("moves a pending remedy to approved, recording the reviewer and a timestamp", async () => {
+    const rma = await submitRma();
+    await walkToInspectionPassed(rma.id);
+    await createRmaRemedy({ rmaId: rma.id });
+
+    const approved = await approveRmaRemedy(rma.id, "staff:reviewer-jane");
+
+    expect(approved.status).toBe("approved");
+    expect(approved.approvedByActorRef).toBe("staff:reviewer-jane");
+    expect(approved.approvedAt).not.toBeNull();
+  });
+
+  it("directly moving pending -> processing (skipping approval) is refused by the pure transition table", async () => {
+    const rma = await submitRma();
+    await walkToInspectionPassed(rma.id);
+    await createRmaRemedy({ rmaId: rma.id });
+
+    await expect(updateRmaRemedyStatus({ rmaId: rma.id, status: "processing" })).rejects.toThrow(
+      InvalidRmaRemedyTransitionError
+    );
+  });
+
+  it('"approved" cannot be set via updateRmaRemedyStatus — only approveRmaRemedy records a reviewer identity', async () => {
+    const rma = await submitRma();
+    await walkToInspectionPassed(rma.id);
+    await createRmaRemedy({ rmaId: rma.id });
+
+    await expect(
+      updateRmaRemedyStatus({ rmaId: rma.id, status: "approved" } as Parameters<typeof updateRmaRemedyStatus>[0])
+    ).rejects.toThrow(InvalidRmaRemedyStatusUpdateError);
+  });
+
+  it("approving twice is an idempotent no-op — the second call does not re-stamp reviewer or timestamp", async () => {
+    const rma = await submitRma();
+    await walkToInspectionPassed(rma.id);
+    await createRmaRemedy({ rmaId: rma.id });
+
+    const first = await approveRmaRemedy(rma.id, "staff:first-reviewer");
+    const second = await approveRmaRemedy(rma.id, "staff:second-reviewer");
+
+    expect(second.approvedByActorRef).toBe("staff:first-reviewer");
+    expect(second.approvedAt?.toISOString()).toBe(first.approvedAt?.toISOString());
+
+    // Exactly one approval event was appended, not two.
+    const approvalEvents = await prisma.rmaEvent.findMany({
+      where: { rmaId: rma.id, reason: "remedy approved for execution" },
+    });
+    expect(approvalEvents).toHaveLength(1);
+  });
+
+  it("approval is queryable afterward via the staff view, alongside the rest of the remedy record", async () => {
+    const rma = await submitRma();
+    await walkToInspectionPassed(rma.id);
+    await createRmaRemedy({ rmaId: rma.id });
+    await approveRmaRemedy(rma.id, "staff:reviewer-jane");
+
+    const staffView = await getRmaRequestForStaffReview(rma.id);
+    expect(staffView!.remedy!.status).toBe("approved");
+    expect(staffView!.remedy!.approvedByActorRef).toBe("staff:reviewer-jane");
+    expect(staffView!.remedy!.approvedAt).not.toBeNull();
   });
 });
 
@@ -467,6 +547,7 @@ describe("Customer-safe vs staff-safe reads", () => {
     const rma = await submitRma();
     await walkToInspectionPassed(rma.id);
     await createRmaRemedy({ rmaId: rma.id });
+    await approveRmaRemedy(rma.id, "staff:reviewer");
     await updateRmaRemedyStatus({
       rmaId: rma.id,
       status: "processing",
@@ -498,10 +579,12 @@ describe("Customer-safe vs staff-safe reads", () => {
     const staffView = await getRmaRequestForStaffReview(rma.id);
     expect(staffView!.remedy!.processorReference).toBe("shopify-refund-txn-3");
     // submitted, approved, return_shipped, received_inspection_pending,
-    // inspection_passed — 5 status-transition events. createRmaRemedy and
-    // updateRmaRemedyStatus write to rma_remedy only; neither appends an
-    // RmaEvent (those are request-status events, not remedy events).
-    expect(staffView!.events.length).toBeGreaterThanOrEqual(5);
+    // inspection_passed — 5 status-transition events, plus one
+    // fromStatus===toStatus evidence event from approveRmaRemedy (mirroring
+    // recordRmaReturnShippingEvidence's own convention). createRmaRemedy and
+    // updateRmaRemedyStatus write to rma_remedy only and append no RmaEvent
+    // of their own.
+    expect(staffView!.events.length).toBeGreaterThanOrEqual(6);
   });
 });
 
@@ -549,6 +632,7 @@ describe("searchRmaRequestsForStaff — the staff triage list", () => {
     expect(before.rows[0]?.remedyStatus).toBe("pending");
     expect(Object.keys(before.rows[0] as object)).not.toContain("processorReference");
 
+    await approveRmaRemedy(rma.id, "staff:reviewer");
     await updateRmaRemedyStatus({ rmaId: rma.id, status: "processing" });
     const after = await searchRmaRequestsForStaff({ query: rma.rmaReference });
     expect(after.rows[0]?.remedyStatus).toBe("processing");

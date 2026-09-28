@@ -129,16 +129,45 @@ export function computeRmaRemedy(input: RmaRemedyComputationInput): RmaRemedyCom
  * `app/domain/groupbuy/refunds.ts`'s `RefundStatus`/`assertRefundTransition`
  * shape closely — same discipline, same reasoning, adapted for this case.
  *
+ * OWNER DECISION (late-window RMA approval gating, 2026-09-27): "Do not
+ * automatically issue money or store credit merely because the RMA was
+ * submitted or the package was received." `approved` is the STRUCTURAL edge
+ * that makes this true for every remedy kind and every window, not just a
+ * route-level check a future caller could bypass: `processing` (the only
+ * status a real Shopify call can be attempted from) is reachable ONLY from
+ * `approved` — never directly from `pending` — so "issued without an
+ * explicit staff approval" is unrepresentable by this table, independent of
+ * which route or job calls it. Approval is granted by a dedicated repository
+ * function (`approveRmaRemedy`) that records a reviewer identity and
+ * timestamp as its OWN fact (`RmaRemedy.approvedAt`/`approvedByActorRef`),
+ * never inferred from `record_receipt` or `decide_condition` (those remain
+ * `RmaRequest`-level facts, checked before a remedy can even be COMPUTED —
+ * see `createRmaRemedy`'s `conditionDecision === "accepted"` guard — and are
+ * a separate concern from the money-movement approval this status adds).
+ * `prisma/migrations/20260927030000_rma_remedy_approval_gate`'s
+ * `rma_remedy_guard` trigger mirrors this exact table at the database layer,
+ * plus a same-row CHECK that no status other than `pending` may exist
+ * without `approved_at`/`approved_by_actor_ref` recorded — the "impossible
+ * even via a route-level bypass or raw SQL" guarantee the owner asked for.
+ *
  * `staff_review_required` (D7's fail-closed state) returns only to
  * `processing`, never straight to `issued` — a human resolves the
  * representability question, and the reattempt still goes through the same
  * validated path every other attempt does, rather than acquiring a shortcut
- * into the issued-fields CHECK constraints.
+ * into the issued-fields CHECK constraints. Retries from `failed` and
+ * `staff_review_required` go straight back to `processing`, not back through
+ * `approved` again — the remedy was already approved once, and approval, once
+ * granted, is never re-solicited or revoked by a later status.
  */
-export type RmaRemedyStatus = "pending" | "processing" | "issued" | "failed" | "staff_review_required";
+export type RmaRemedyStatus = "pending" | "approved" | "processing" | "issued" | "failed" | "staff_review_required";
 
 const ALLOWED_REMEDY_TRANSITIONS: Readonly<Record<RmaRemedyStatus, readonly RmaRemedyStatus[]>> = {
-  pending: ["processing"],
+  // The ONLY way out of `pending`. No edge from `pending` to `processing`
+  // exists — that absence is the whole point of this table.
+  pending: ["approved"],
+  // The ONLY way into `processing`. A staff reviewer has explicitly approved
+  // this remedy; nothing about receipt or inspection implies this transition.
+  approved: ["processing"],
   processing: ["issued", "failed", "staff_review_required"],
   // A failure returns to processing so a retry follows the same path as the first attempt.
   failed: ["processing"],

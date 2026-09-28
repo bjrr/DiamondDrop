@@ -190,6 +190,14 @@ export class RmaNotEligibleForRemedyError extends Error {
   }
 }
 
+/** OWNER DECISION (late-window RMA approval gating) — `approveRmaRemedy` requires a non-empty staff actor, exactly like every other staff-attributed action in this module. */
+export class RmaRemedyActorRequiredError extends Error {
+  constructor() {
+    super('"approve_remedy" requires a non-empty staff actor reference.');
+    this.name = "RmaRemedyActorRequiredError";
+  }
+}
+
 /** Criterion 194/D7 — the fields the database's own CHECK constraints require for each remedy status, checked here first so a refusal is a typed error, not a raw Postgres exception. */
 export class InvalidRmaRemedyStatusUpdateError extends Error {
   constructor(readonly reason: string) {
@@ -666,6 +674,93 @@ export async function createRmaRemedy(input: CreateRmaRemedyInput): Promise<RmaR
   }
 }
 
+// ---------------------------------------------------------------------------
+// Remedy approval — OWNER DECISION (late-window RMA approval gating,
+// 2026-09-27, docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md §4). "Do not
+// automatically issue money or store credit merely because the RMA was
+// submitted or the package was received." THE ONLY FUNCTION that may set
+// `RmaRemedy.approvedAt`/`approvedByActorRef` — never inferred from
+// `recordRmaReceipt` or `decideRmaCondition` (those are `RmaRequest`-level
+// facts, already required before a remedy can even be COMPUTED via
+// `createRmaRemedy`'s `conditionDecision === "accepted"` guard, and are a
+// distinct concern from "a reviewer explicitly authorized moving money").
+// ---------------------------------------------------------------------------
+
+/**
+ * Moves a `pending` remedy to `approved` — the structural gate
+ * `~/domain/rma/remedy.ts`'s transition table now requires before
+ * `processing` (and therefore any real Shopify call) becomes reachable.
+ * Also appends an `RmaEvent` as queryable evidence of WHO approved WHAT
+ * amount and WHEN, using the same "not a request-status transition"
+ * convention as `recordRmaReturnShippingEvidence` (`fromStatus === toStatus`,
+ * substantive facts carried in `metadata`) — `RmaEvent.toStatus` is typed as
+ * `RmaStatus` (the REQUEST's enum), not `RmaRemedyStatus`, so a remedy-level
+ * transition is recorded this way rather than by (mis)coercing it into the
+ * request's own status column.
+ *
+ * IDEMPOTENT, DELIBERATELY, ON REPEAT APPROVAL: a remedy already at
+ * `approved` or later (`processing`/`issued`/`failed`/`staff_review_required`)
+ * is returned UNCHANGED rather than re-validated against
+ * `assertRmaRemedyTransition` — approval, once granted, is never revoked or
+ * re-solicited by a later status (mirrors this file's own reasoning for
+ * `beginRmaRemedy`/`updateRmaRemedyStatus` same-status calls). This is what
+ * makes "approving twice" issue money at most once: the SECOND call is a
+ * read-only no-op that neither re-writes `approvedAt`/`approvedByActorRef`
+ * nor appends a second approval event, so exactly one approval fact exists
+ * for this remedy no matter how many times a staff member clicks the
+ * control (e.g. a double-submit before the UI disables the button).
+ */
+export async function approveRmaRemedy(
+  rmaId: string,
+  staffActorRef: string,
+  options: { readonly reason?: string; readonly at?: Date } = {}
+): Promise<RmaRemedy> {
+  if (!staffActorRef.trim()) throw new RmaRemedyActorRequiredError();
+
+  const [rma, existing] = await Promise.all([
+    prisma.rmaRequest.findUnique({ where: { id: rmaId }, select: { status: true } }),
+    prisma.rmaRemedy.findUnique({ where: { rmaId } }),
+  ]);
+  if (!rma) throw new RmaRequestNotFoundError(rmaId);
+  if (!existing) throw new RmaRemedyNotFoundError(rmaId);
+
+  if (existing.status !== "pending") {
+    // Already approved (or further along) — nothing to do, nothing to
+    // record a second time.
+    return existing;
+  }
+
+  assertRmaRemedyTransition(existing.status as RmaRemedyStatus, "approved");
+
+  const approvedAt = options.at ?? new Date();
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.rmaRemedy.update({
+      where: { rmaId },
+      data: { status: "approved", approvedAt, approvedByActorRef: staffActorRef },
+    });
+    await tx.rmaEvent.create({
+      data: {
+        rmaId,
+        fromStatus: rma.status,
+        toStatus: rma.status,
+        actorType: "staff",
+        actorRef: staffActorRef,
+        reason: options.reason ?? "remedy approved for execution",
+        metadata: {
+          remedyId: existing.id,
+          kind: existing.kind,
+          merchandiseAmountMinorUnits: existing.merchandiseAmountMinorUnits.toString(),
+          restockingFeeMinorUnits: existing.restockingFeeMinorUnits.toString(),
+          currency: existing.currency,
+          approvedAt: approvedAt.toISOString(),
+        },
+      },
+    });
+    return updated;
+  });
+}
+
 export interface UpdateRmaRemedyStatusInput {
   readonly rmaId: string;
   readonly status: RmaRemedyStatus;
@@ -704,8 +799,22 @@ export interface UpdateRmaRemedyStatusInput {
  * same-status call still re-applies any other supplied fields (e.g. a
  * refreshed `processorReference`) but never re-validates a transition that
  * was never being requested.
+ *
+ * `"approved"` IS NOT A VALID `input.status` HERE. OWNER DECISION
+ * (late-window RMA approval gating) requires approval to carry a named
+ * reviewer and timestamp, recorded as its own fact by `approveRmaRemedy` —
+ * this generic status setter has no reviewer-identity parameter at all, so
+ * letting it write `"approved"` would create a second, weaker path into that
+ * status with no attribution. Refused before `assertRmaRemedyTransition` is
+ * even consulted, so the caller gets a clear typed error instead of either a
+ * silently-unattributed approval or a raw CHECK-constraint failure from
+ * `rma_remedy_requires_approval_once_left_pending`.
  */
 export async function updateRmaRemedyStatus(input: UpdateRmaRemedyStatusInput): Promise<RmaRemedy> {
+  if (input.status === "approved") {
+    throw new InvalidRmaRemedyStatusUpdateError('"approved" must be granted via approveRmaRemedy(), which records a reviewer identity and timestamp; it cannot be set here.');
+  }
+
   const existing = await prisma.rmaRemedy.findUnique({ where: { rmaId: input.rmaId } });
   if (!existing) throw new RmaRemedyNotFoundError(input.rmaId);
 

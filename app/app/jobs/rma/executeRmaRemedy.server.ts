@@ -59,6 +59,27 @@ import type { RmaRemedyExecutionPort } from "~/shopify/admin/rmaRemedyExecutionA
  * from the other).
  *
  * ============================================================================
+ * APPROVAL GATE — OWNER DECISION (late-window RMA approval gating,
+ * 2026-09-27, docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md §4)
+ * ============================================================================
+ * "Do not automatically issue money or store credit merely because the RMA
+ * was submitted or the package was received." This job now REFUSES to run
+ * `performRemedyOperation` — for EITHER remedy kind, in EITHER window —
+ * unless the remedy has already been moved to `approved` by a named staff
+ * reviewer via `~/db/repositories/rmaRepository.server`'s `approveRmaRemedy`.
+ * That is enforced structurally, not merely by this file's own precondition
+ * check: `~/domain/rma/remedy.ts`'s transition table has NO edge from
+ * `pending` to `processing`, so even a caller that skipped this file's own
+ * `if` below would still be refused by `updateRmaRemedyStatus`'s
+ * `assertRmaRemedyTransition` call, and even a caller that bypassed the
+ * repository entirely would still be refused by this slice's
+ * `rma_remedy_requires_approval_once_left_pending` CHECK constraint and
+ * `rma_remedy_guard` trigger at the database layer. This file's own check
+ * exists only to fail fast with a clear, typed error before any write is
+ * attempted — the same "refused, not recorded" discipline as every other
+ * precondition in this job.
+ *
+ * ============================================================================
  * IDEMPOTENCY — docs/ARCHITECTURE-MVP1.md §6.7
  * ============================================================================
  * `RmaRemedy.@@unique([rmaId])` already makes ISSUING TWICE for one RMA
@@ -223,11 +244,22 @@ export async function executeRmaRemedy(rmaId: string, deps: ExecuteRmaRemedyDeps
   if (view.remedy.status === "issued") {
     return view.remedy; // already settled — nothing to do, nothing to call.
   }
+  if (view.remedy.status === "pending") {
+    // OWNER DECISION (late-window RMA approval gating) — see module header.
+    // A remedy computed but never explicitly approved by staff must not be
+    // executed, automatically or otherwise.
+    throw new RmaRemedyIllegalStateError(
+      rmaId,
+      `remedy must be approved before it can be executed (status is "pending"); a staff reviewer must approve it first`
+    );
+  }
 
   // Transition into `processing` ONLY when not already there — re-writing an
   // already-`processing` row would bump `updatedAt` and mint a DIFFERENT
   // idempotency key than whatever attempt is (or was) actually in flight,
-  // defeating crash-recovery. See module header.
+  // defeating crash-recovery. See module header. Legal from `approved`
+  // (first attempt), `failed`, or `staff_review_required` (a retry — already
+  // approved, never re-solicited).
   const remedy =
     view.remedy.status === "processing" ? view.remedy : await updateRmaRemedyStatus({ rmaId, status: "processing" });
 
