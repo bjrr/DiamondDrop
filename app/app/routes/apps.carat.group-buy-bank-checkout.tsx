@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
+
 import type { ActionFunctionArgs } from "react-router";
 import { z } from "zod";
 
 import { prisma } from "~/db/client.server";
+import { getLatestPolicyVersion } from "~/db/repositories/policyVersionRepository.server";
 import { idempotencyKeyRepository } from "~/db/repositories/idempotencyKeyRepository.server";
 import { coalesceCheckoutLines, type RawCheckoutLine } from "~/domain/bankpayment/coalesceLines";
 import {
@@ -12,6 +15,12 @@ import {
 import { computeGroupBuyBankCheckoutIdempotencyKey } from "~/domain/bankpayment/groupBuyCheckoutIdempotencyKey";
 import { computeGroupBuyTierLinePrice, type GroupBuyTierPricingProfile } from "~/domain/bankpayment/groupBuyTierPrice";
 import { normalizeShopifyVariantGid } from "~/domain/cart/shopifyVariantId";
+import { buildAcknowledgmentRecord } from "~/domain/evidence/acknowledgment";
+import {
+  GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_AFFIRMATIVE_ACTION_LABEL,
+  GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_LINE_ITEM_PROPERTY_NAME,
+  GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_POLICY_SLUG,
+} from "~/domain/groupbuy/cancellationAcknowledgmentText";
 import {
   executeIdempotent,
   IdempotentOperationFailedError,
@@ -110,6 +119,30 @@ import { verifyAppProxySignature } from "~/shopify/proxy";
  * (`~/jobs/bankpayment/groupBuyBankPaymentInactivationSweep.server.ts`) are
  * separate modules — this route's job is placing the order correctly, not
  * its lifecycle afterward.
+ *
+ * ============================================================================
+ * CANCELLATION ACKNOWLEDGMENT — OWNER-APPROVED 2026-09-27, WIRED IN
+ * ============================================================================
+ * `~/domain/groupbuy/cancellationAcknowledgmentText.ts` pins the owner's own
+ * approved copy (README/owner-decisions cancellation and close rules). Same
+ * evidence-not-checkbox discipline as `apps.carat.rma-intake.tsx`'s return
+ * -policy acknowledgment: `cancellationAcknowledgmentAccepted` must be the
+ * LITERAL boolean `true` (never a default, never inferred from absence), and
+ * this route REFUSES the request server-side, fail closed, when it is
+ * missing or false — the zod schema's `z.literal(true)` makes an absent/false
+ * value a generic 400, exactly like RMA's `returnPolicyAcknowledgmentAccepted`.
+ * The recorded `Acknowledgment` row (exact text, policy version, label,
+ * timestamp, and the AUTHENTICATED `customerGid` — never a client-supplied
+ * identity field) is created inside `performGroupBuyBankCheckout`'s own
+ * transaction, in the SAME atomic write as the order/lines, and
+ * `GroupBuyBankPaymentOrder.cancellationAcknowledgmentId` is a REQUIRED
+ * (NOT NULL) FK to it — an order row cannot exist in Postgres without one,
+ * matching `RmaRequest.returnPolicyAcknowledgmentId`'s own discipline. The
+ * `503 acknowledgment_copy_pending_approval` branch below is a fail-closed
+ * guard for a misprovisioned environment where the policy_version migration
+ * has not run — kept, never deleted, same as RMA's identical guard — and is
+ * checked BEFORE any Shopify Admin API call so a missing policy never results
+ * in a live draft/real order with no acknowledgment behind it.
  */
 
 const MAX_REQUEST_LINES = 100;
@@ -150,6 +183,11 @@ const groupBuyBankCheckoutRequestSchema = z.object({
   email: z.string().trim().email().max(320),
   shippingAddress: shippingAddressRequestSchema,
   lines: z.array(checkoutLineRequestSchema).min(1).max(MAX_REQUEST_LINES),
+  // THE ONE required affirmative action (owner approval 2026-09-27). Must be
+  // the LITERAL boolean `true` — never a default, never inferred from
+  // absence, mirroring `returnPolicyAcknowledgmentAccepted` in the RMA
+  // intake route. See this file's CANCELLATION ACKNOWLEDGMENT module comment.
+  cancellationAcknowledgmentAccepted: z.literal(true),
 });
 
 function badRequest(reason: string) {
@@ -222,11 +260,54 @@ async function performGroupBuyBankCheckout(input: {
   tierNumber: number;
   quotedLines: readonly QuotedGroupBuyCheckoutLine[];
   idempotencyKey: string;
+  /**
+   * The RESOLVED cancellation-policy `policy_version` row's own `id`/`text` —
+   * resolved once in `action()`, before any Shopify call, so a missing
+   * provisioning fails closed before a real order is ever created. See this
+   * file's CANCELLATION ACKNOWLEDGMENT module comment.
+   */
+  cancellationPolicyVersion: { id: string; text: string };
 }): Promise<GroupBuyBankCheckoutResultDto> {
+  // THE ACKNOWLEDGMENT ID IS MINTED BEFORE SHOPIFY IS CALLED, not after.
+  //
+  // The `orders/create` handler resolves a Group Buy line's acknowledgment
+  // candidate from the `_carat_gb_cancel_ack` line-item property and from
+  // NOTHING else — no database fallback keyed on the order, deliberately, so
+  // that a reference is never mistaken for proof. The property therefore has
+  // to be on the line at `draftOrderCreate` time, which is before the
+  // transaction below (where the row used to be created, and where its id used
+  // to first exist). Minting the id here and passing it explicitly to
+  // `tx.acknowledgment.create` is what closes that ordering gap.
+  //
+  // WITHOUT THIS, every Bank Payment Group Buy order reached the webhook with
+  // no property, verified as `no_candidate` -> `unmatched`, was HELD, and
+  // recorded ZERO qualifying units — silently breaking the locked rule that a
+  // placed Group Buy order counts toward public progress immediately,
+  // INCLUDING pending Bank Payment orders.
+  //
+  // SERVER-GENERATED, and that distinction matters: unlike
+  // `apps.carat.warranty-claim.tsx`'s claim id (supplied by the client, safe
+  // only because primary-key uniqueness forces it to be a brand-new row),
+  // nothing outside this function ever proposes this value, so there is no
+  // caller-controlled identifier to reason about at all.
+  //
+  // FAILS CLOSED. If the transaction below never commits, the completed
+  // Shopify order carries a property pointing at an acknowledgment row that
+  // does not exist; `getAcknowledgmentById` returns null, the line verifies as
+  // `unmatched`, and it is held at zero units — the safe direction, and the
+  // same outcome as the bug this replaces, but only in the failure case.
+  const cancellationAcknowledgmentId = randomUUID();
+
   const lineItems: DraftOrderLineItemInput[] = input.quotedLines.map((line) => ({
     shopifyVariantGid: line.shopifyVariantGid,
     quantity: line.quantity,
     unitPrice: Money.fromMinorUnits(line.quotedBankPaymentPriceMinorUnits, line.currency),
+    customAttributes: [
+      {
+        key: GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_LINE_ITEM_PROPERTY_NAME,
+        value: cancellationAcknowledgmentId,
+      },
+    ],
   }));
 
   const created = await input.draftOrderPort.createDraftOrder({
@@ -253,11 +334,33 @@ async function performGroupBuyBankCheckout(input: {
 
   const quotedAt = new Date();
 
-  // ATOMIC: either both the header and every line are written, or neither
-  // is — a real, already-completed Shopify order with no matching local
-  // record (or a partial one) is not a state anything downstream could
-  // reason about.
+  // ATOMIC: the acknowledgment, the header and every line are written
+  // together, or none is — a real, already-completed Shopify order with no
+  // matching local record (or one with no recorded acknowledgment behind
+  // it) is not a state anything downstream could reason about. This is the
+  // ONLY place this route ever calls `tx.acknowledgment.create` — exactly
+  // once per idempotency key, since `executeIdempotent` never re-invokes
+  // this function for a retried request (see its own doc comment).
   const groupBuyBankPaymentOrder = await prisma.$transaction(async (tx) => {
+    const cancellationAcknowledgment = await tx.acknowledgment.create({
+      data: {
+        // The id already sent to Shopify on every line above. Passed
+        // explicitly rather than defaulted so the property the webhook reads
+        // and the row it looks up cannot drift apart.
+        id: cancellationAcknowledgmentId,
+        ...buildAcknowledgmentRecord({
+        exactText: input.cancellationPolicyVersion.text,
+        policyVersionId: input.cancellationPolicyVersion.id,
+        acknowledgedAt: quotedAt,
+        affirmativeActionLabel: GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_AFFIRMATIVE_ACTION_LABEL,
+        // THE AUTHENTICATED identity (docs/REQUIRED-CUSTOMER-ACCOUNTS.md) —
+        // never a client-supplied field.
+          customerRef: input.customerGid,
+          campaignRef: input.campaignCode,
+        }),
+      },
+    });
+
     const order = await tx.groupBuyBankPaymentOrder.create({
       data: {
         campaignId: input.campaignId,
@@ -267,6 +370,7 @@ async function performGroupBuyBankCheckout(input: {
         customerGid: input.customerGid,
         tierNumberAtQuote: input.tierNumber,
         quotedAt,
+        cancellationAcknowledgmentId: cancellationAcknowledgment.id,
       },
     });
 
@@ -367,6 +471,19 @@ export async function action({ request }: ActionFunctionArgs) {
   }
   const { campaignCode, lines: requestLines, shippingAddress } = parsed.data;
   const resolvedEmail = parsed.data.email.toLowerCase();
+
+  // --- CANCELLATION ACKNOWLEDGMENT — resolved BEFORE any campaign/Shopify
+  // work, same "fail closed before touching Shopify" ordering as RMA's own
+  // acknowledgment gate. `cancellationAcknowledgmentAccepted` was already
+  // required to be the literal `true` by the schema above; this is the
+  // separate, independent check that the POLICY ITSELF is actually
+  // provisioned in this environment. See this file's CANCELLATION
+  // ACKNOWLEDGMENT module comment. ---
+  const cancellationPolicyVersion = await getLatestPolicyVersion(GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_POLICY_SLUG);
+  if (!cancellationPolicyVersion) {
+    logger.error("group_buy_bank_checkout.acknowledgment_copy_pending_approval", {});
+    return Response.json({ error: "acknowledgment_copy_pending_approval" }, { status: 503 });
+  }
 
   // --- Resolve the campaign FIRST: every downstream check (eligibility,
   // pricing) is scoped to it, and a request naming an unknown/non-open
@@ -512,6 +629,7 @@ export async function action({ request }: ActionFunctionArgs) {
           tierNumber: tier.tierNumber,
           quotedLines,
           idempotencyKey,
+          cancellationPolicyVersion: { id: cancellationPolicyVersion.id, text: cancellationPolicyVersion.text },
         })
     );
     return Response.json(result, { status: 200 });

@@ -1,13 +1,20 @@
 import { createHmac, randomUUID } from "node:crypto";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { prisma } from "~/db/client.server";
 import { computeGroupBuyTierLinePrice, type GroupBuyTierPricingProfile } from "~/domain/bankpayment/groupBuyTierPrice";
+import {
+  GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_AFFIRMATIVE_ACTION_LABEL,
+  GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_LINE_ITEM_PROPERTY_NAME,
+  GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_POLICY_SLUG,
+  GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_TEXT,
+} from "~/domain/groupbuy/cancellationAcknowledgmentText";
 import type { RoundingRuleId } from "~/domain/money/rounding";
 import type { PriceEndingRuleId, RegularCardPriceRuleId } from "~/domain/pricing/types";
 import { getQualifyingUnits } from "~/jobs/groupbuy/unitLedger.server";
 import { openGroupBuyCampaign } from "~/jobs/groupbuy/openCampaign.server";
+import type { LuxuryStealOrderReviewPort } from "~/shopify/admin/luxuryStealOrderReviewAdapter.server";
 import { handleGroupBuyOrderCreateWebhook } from "~/shopify/webhooks/groupBuyOrderHandler.server";
 import type { ReceivedWebhookEvent } from "~/shopify/webhooks/receive.server";
 import type {
@@ -19,6 +26,26 @@ import type {
   DraftOrderPort,
   SendDraftOrderInvoiceInput,
 } from "~/shopify/admin/draftOrderAdapter.server";
+
+// Lets one test force the route's 503 branch WITHOUT touching the database.
+// policy_version is append-only at the DB level, so deleting the real,
+// migration-provisioned Group Buy cancellation row to simulate a
+// misprovisioned environment is not possible — and should not be. vi.hoisted,
+// NOT a plain `let`: vi.mock factories are hoisted above module scope, so a
+// factory closing over an ordinary top-level variable cannot see later
+// assignments to it. Mirrors `rmaIntakeRoute.test.ts`'s identical fixture,
+// adapted: unlike that route, `apps.carat.group-buy-bank-checkout.tsx`
+// IMPORTS `getLatestPolicyVersion` directly (rather than redefining a local
+// wrapper around it), so mocking this module intercepts the real call site.
+const mockState = vi.hoisted(() => ({ cancellationAcknowledgmentUnavailable: false }));
+vi.mock("~/db/repositories/policyVersionRepository.server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("~/db/repositories/policyVersionRepository.server")>();
+  return {
+    ...actual,
+    getLatestPolicyVersion: async (...args: Parameters<typeof actual.getLatestPolicyVersion>) =>
+      mockState.cancellationAcknowledgmentUnavailable ? null : actual.getLatestPolicyVersion(...args),
+  };
+});
 import { action, __setDraftOrderPortForTests } from "~/routes/apps.carat.group-buy-bank-checkout";
 import {
   action as bankCheckoutAction,
@@ -115,6 +142,7 @@ const createdMasterProductIds: string[] = [];
 afterEach(async () => {
   __setDraftOrderPortForTests(null);
   __setBankCheckoutDraftOrderPortForTests(null);
+  mockState.cancellationAcknowledgmentUnavailable = false;
   if (createdMasterProductIds.length === 0) return;
   await prisma.masterVariant.updateMany({
     where: { masterProductId: { in: createdMasterProductIds } },
@@ -243,14 +271,84 @@ function receivedOrderEvent(rawBody: string): ReceivedWebhookEvent {
   };
 }
 
-function buildOrderRawBody(orderGid: string, lines: { lineId: string; variantGid: string; quantity: number }[]): string {
+/**
+ * A Group Buy line verifies ONLY if it carries the acknowledgment property
+ * AND the order names the customer that acknowledgment was recorded for.
+ * BOTH are required: the handler builds its expected context from the ORDER'S
+ * OWN customer and checks the candidate against that, so a correct property on
+ * an order with no customer still fails. A line missing either is held and
+ * counts ZERO units — the locked rule working, not a bug.
+ */
+function buildOrderRawBody(
+  orderGid: string,
+  lines: { lineId: string; variantGid: string; quantity: number; ackId?: string }[],
+  extra: { customerId?: string } = {}
+): string {
   const lineItemsJson = lines
-    .map(
-      (l) =>
-        `{"id":${l.lineId},"admin_graphql_api_id":"gid://shopify/LineItem/${l.lineId}","variant_id":"${l.variantGid}","quantity":${l.quantity}}`
-    )
+    .map((l) => {
+      const propertiesJson = l.ackId
+        ? `[{"name":${JSON.stringify(GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_LINE_ITEM_PROPERTY_NAME)},"value":${JSON.stringify(l.ackId)}}]`
+        : `[]`;
+      return `{"id":${l.lineId},"admin_graphql_api_id":"gid://shopify/LineItem/${l.lineId}","variant_id":"${l.variantGid}","quantity":${l.quantity},"properties":${propertiesJson}}`;
+    })
     .join(",");
-  return `{"admin_graphql_api_id":"${orderGid}","created_at":"2026-09-27T00:00:00Z","line_items":[${lineItemsJson}]}`;
+  const customerJson = extra.customerId
+    ? `,"customer":{"id":${extra.customerId},"admin_graphql_api_id":"gid://shopify/Customer/${extra.customerId}"}`
+    : "";
+  return `{"admin_graphql_api_id":"${orderGid}","created_at":"2026-09-27T00:00:00Z"${customerJson},"line_items":[${lineItemsJson}]}`;
+}
+
+/** A genuine, verifiable acknowledgment for a campaign — the same shape the checkout route writes. */
+async function seedCancellationAcknowledgment(campaignCode: string, customerGid: string = DEFAULT_CUSTOMER_GID) {
+  const pv = await prisma.policyVersion.findFirstOrThrow({
+    where: { slug: GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_POLICY_SLUG },
+    orderBy: { version: "desc" },
+  });
+  return prisma.acknowledgment.create({
+    data: {
+      exactText: pv.text,
+      policyVersionId: pv.id,
+      acknowledgedAt: new Date(),
+      affirmativeActionLabel: GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_AFFIRMATIVE_ACTION_LABEL,
+      customerRef: customerGid,
+      campaignRef: campaignCode,
+    },
+  });
+}
+
+
+/**
+ * The order-create handler reconciles Shopify review state (tag, and a hold
+ * on any acknowledgment-failed line) AFTER counting units, resolving its port
+ * through `unauthenticated.admin()` by default. There is no Shopify session
+ * in an integration run, so that default throws
+ * "Could not find a session for shop ..." and takes the whole webhook with
+ * it. These tests drive the REAL handler to advance REAL campaign progress;
+ * the Shopify-side tagging is a consequence of verification, not the thing
+ * under test here, so the port is injected as a recording fake.
+ *
+ * `listFulfillmentOrders` returns [] deliberately: nothing is held in these
+ * tests, so `holdFulfillmentOrder` must never be reached, and the recorded
+ * arrays below let a test assert that. Mirrors
+ * `tests/integration/groupbuy/orderCreateWebhook.test.ts`s `fakeReviewPort`,
+ * kept local because that one is not exported.
+ */
+function fakeReviewPortDeps() {
+  const tagCalls: { orderGid: string; tags: string[] }[] = [];
+  const holdCalls: { fulfillmentOrderGid: string }[] = [];
+  const port: LuxuryStealOrderReviewPort = {
+    async addOrderTags({ orderGid, tags }) {
+      tagCalls.push({ orderGid, tags: [...tags] });
+    },
+    async listFulfillmentOrders() {
+      return [];
+    },
+    async holdFulfillmentOrder({ fulfillmentOrderGid }) {
+      holdCalls.push({ fulfillmentOrderGid });
+      return { status: "ON_HOLD", recognizedVia: "applied" as const, userErrorCodes: [] };
+    },
+  };
+  return { deps: { resolveReviewPort: async () => port }, tagCalls, holdCalls };
 }
 
 describe("docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4 — no anonymous Group Buy Bank Payment checkout", () => {
@@ -265,6 +363,7 @@ describe("docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4 — no anonymous Group Buy Bank
         query: { shop: SHOP },
         body: {
           mode: "bank",
+          cancellationAcknowledgmentAccepted: true,
           campaignCode: campaign.code,
           email: `Buyer-${uniq()}@Example.com`,
           shippingAddress: SHIPPING_ADDRESS,
@@ -303,6 +402,7 @@ describe("campaign eligibility", () => {
       request: checkoutRequest({
         body: {
           mode: "bank",
+          cancellationAcknowledgmentAccepted: true,
           campaignCode: `does-not-exist-${uniq()}`,
           email: `Buyer-${uniq()}@Example.com`,
           shippingAddress: SHIPPING_ADDRESS,
@@ -328,6 +428,7 @@ describe("campaign eligibility", () => {
       request: checkoutRequest({
         body: {
           mode: "bank",
+          cancellationAcknowledgmentAccepted: true,
           campaignCode: campaign.code,
           email: `Buyer-${uniq()}@Example.com`,
           shippingAddress: SHIPPING_ADDRESS,
@@ -354,6 +455,7 @@ describe("campaign eligibility", () => {
       request: checkoutRequest({
         body: {
           mode: "bank",
+          cancellationAcknowledgmentAccepted: true,
           campaignCode: campaign.code,
           email: `Buyer-${uniq()}@Example.com`,
           shippingAddress: SHIPPING_ADDRESS,
@@ -383,6 +485,7 @@ describe("campaign eligibility", () => {
       request: checkoutRequest({
         body: {
           mode: "bank",
+          cancellationAcknowledgmentAccepted: true,
           campaignCode: campaignB.code,
           email: `Buyer-${uniq()}@Example.com`,
           shippingAddress: SHIPPING_ADDRESS,
@@ -438,6 +541,7 @@ describe("pricing — from the frozen snapshot at the CURRENT tier, never getPub
       request: checkoutRequest({
         body: {
           mode: "bank",
+          cancellationAcknowledgmentAccepted: true,
           campaignCode: campaign.code,
           email: `Buyer-${uniq()}@Example.com`,
           shippingAddress: SHIPPING_ADDRESS,
@@ -492,6 +596,7 @@ describe("pricing — from the frozen snapshot at the CURRENT tier, never getPub
       request: checkoutRequest({
         body: {
           mode: "bank",
+          cancellationAcknowledgmentAccepted: true,
           campaignCode: campaign.code,
           email: `Buyer-${uniq()}@Example.com`,
           shippingAddress: SHIPPING_ADDRESS,
@@ -510,10 +615,23 @@ describe("pricing — from the frozen snapshot at the CURRENT tier, never getPub
     // feeds in production — to reach tier 2 (threshold: 5 units).
     await handleGroupBuyOrderCreateWebhook(
       receivedOrderEvent(
-        buildOrderRawBody(`gid://shopify/Order/${nextNumericId()}`, [
-          { lineId: nextNumericId(), variantGid: variant.shopifyVariantGid!, quantity: 5 },
-        ])
-      )
+        // Synthetic order, but a GENUINE acknowledgment: this event only
+        // exists to advance real campaign progress to tier 2, and an
+        // unacknowledged line counts zero units, so it would advance nothing.
+        buildOrderRawBody(
+          `gid://shopify/Order/${nextNumericId()}`,
+          [
+            {
+              lineId: nextNumericId(),
+              variantGid: variant.shopifyVariantGid!,
+              quantity: 5,
+              ackId: (await seedCancellationAcknowledgment(campaign.code)).id,
+            },
+          ],
+          { customerId: DEFAULT_CUSTOMER_ID }
+        )
+      ),
+      fakeReviewPortDeps().deps
     );
     // The FIRST order's own webhook delivery was never simulated (a separate
     // test proves that wiring) — only this deliberate 5-unit event feeds the
@@ -527,6 +645,7 @@ describe("pricing — from the frozen snapshot at the CURRENT tier, never getPub
         query: { shop: SHOP, logged_in_customer_id: "333333" },
         body: {
           mode: "bank",
+          cancellationAcknowledgmentAccepted: true,
           campaignCode: campaign.code,
           email: `Buyer-${uniq()}@Example.com`,
           shippingAddress: SHIPPING_ADDRESS,
@@ -561,6 +680,7 @@ describe("a pending Group Buy Bank Payment order counts toward campaign progress
       request: checkoutRequest({
         body: {
           mode: "bank",
+          cancellationAcknowledgmentAccepted: true,
           campaignCode: campaign.code,
           email: `Buyer-${uniq()}@Example.com`,
           shippingAddress: SHIPPING_ADDRESS,
@@ -583,10 +703,28 @@ describe("a pending Group Buy Bank Payment order counts toward campaign progress
     // with the REAL handler against the REAL order gid this route produced.
     await handleGroupBuyOrderCreateWebhook(
       receivedOrderEvent(
-        buildOrderRawBody(body.shopifyOrderGid, [
-          { lineId: nextNumericId(), variantGid: variant.shopifyVariantGid!, quantity: 3 },
-        ])
-      )
+        // THE END-TO-END PROOF, and the reason this test is worth its runtime.
+        // The property carries the id the ROUTE itself persisted, read back
+        // from the row above — not a value this test invented. That is what
+        // makes this exercise the real production path: route mints the id and
+        // sends it to Shopify on every line, Shopify returns it as a line
+        // property, the webhook resolves it and counts the units. Before the
+        // draft-order lines carried this attribute at all, this arrived as
+        // `no_candidate` -> `unmatched` -> HELD at ZERO units.
+        buildOrderRawBody(
+          body.shopifyOrderGid,
+          [
+            {
+              lineId: nextNumericId(),
+              variantGid: variant.shopifyVariantGid!,
+              quantity: 3,
+              ackId: stored.cancellationAcknowledgmentId,
+            },
+          ],
+          { customerId: DEFAULT_CUSTOMER_ID }
+        )
+      ),
+      fakeReviewPortDeps().deps
     );
 
     expect((await getQualifyingUnits(campaign.id)).total).toBe(3);
@@ -603,6 +741,7 @@ describe("idempotent replay", () => {
     const email = `Buyer-${uniq()}@Example.com`;
     const body = {
       mode: "bank",
+      cancellationAcknowledgmentAccepted: true,
       campaignCode: campaign.code,
       email,
       shippingAddress: SHIPPING_ADDRESS,
@@ -635,6 +774,7 @@ describe("unpurchasable and malformed requests", () => {
       request: checkoutRequest({
         body: {
           mode: "bank",
+          cancellationAcknowledgmentAccepted: true,
           campaignCode: campaign.code,
           email: `Buyer-${uniq()}@Example.com`,
           shippingAddress: SHIPPING_ADDRESS,
@@ -683,6 +823,7 @@ describe("unpurchasable and malformed requests", () => {
       request: checkoutRequest({
         body: {
           mode: "bank",
+          cancellationAcknowledgmentAccepted: true,
           campaignCode: `whatever-${uniq()}`,
           email: `Buyer-${uniq()}@Example.com`,
           shippingAddress: SHIPPING_ADDRESS,
@@ -694,5 +835,267 @@ describe("unpurchasable and malformed requests", () => {
     } as never);
 
     expect(response.status).toBe(400);
+  });
+});
+
+describe("Group Buy cancellation acknowledgment — required, server-side, fail closed", () => {
+  it("rejects cancellationAcknowledgmentAccepted: false (not literal true) with 400 and creates no draft order", async () => {
+    const { variant } = await createGroupBuyVariant();
+    const campaign = await openCampaignFixture(variant.id);
+    const port = fakeDraftOrderPort();
+    __setDraftOrderPortForTests(port);
+
+    const response = await action({
+      request: checkoutRequest({
+        body: {
+          mode: "bank",
+          cancellationAcknowledgmentAccepted: false,
+          campaignCode: campaign.code,
+          email: `Buyer-${uniq()}@Example.com`,
+          shippingAddress: SHIPPING_ADDRESS,
+          lines: [{ shopifyVariantId: variant.shopifyVariantGid, quantity: 1 }],
+        },
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.status).toBe(400);
+    expect(port.createCalls).toHaveLength(0);
+    const orders = await prisma.groupBuyBankPaymentOrder.count({ where: { campaignId: campaign.id } });
+    expect(orders).toBe(0);
+  });
+
+  it("rejects cancellationAcknowledgmentAccepted missing entirely with 400 — never inferred from absence, and creates no draft order", async () => {
+    const { variant } = await createGroupBuyVariant();
+    const campaign = await openCampaignFixture(variant.id);
+    const port = fakeDraftOrderPort();
+    __setDraftOrderPortForTests(port);
+
+    const response = await action({
+      request: checkoutRequest({
+        body: {
+          mode: "bank",
+          // cancellationAcknowledgmentAccepted deliberately omitted.
+          campaignCode: campaign.code,
+          email: `Buyer-${uniq()}@Example.com`,
+          shippingAddress: SHIPPING_ADDRESS,
+          lines: [{ shopifyVariantId: variant.shopifyVariantGid, quantity: 1 }],
+        },
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.status).toBe(400);
+    expect(port.createCalls).toHaveLength(0);
+  });
+
+  it("the checkbox statement, label and policy version recorded are byte-identical to the pinned owner-approved copy, and the timestamp/identity come from the request, not the client", async () => {
+    const { variant } = await createGroupBuyVariant();
+    const campaign = await openCampaignFixture(variant.id);
+    const port = fakeDraftOrderPort();
+    __setDraftOrderPortForTests(port);
+
+    const before = new Date();
+    const response = await action({
+      request: checkoutRequest({
+        body: {
+          mode: "bank",
+          cancellationAcknowledgmentAccepted: true,
+          campaignCode: campaign.code,
+          email: `Buyer-${uniq()}@Example.com`,
+          shippingAddress: SHIPPING_ADDRESS,
+          lines: [{ shopifyVariantId: variant.shopifyVariantGid, quantity: 1 }],
+        },
+      }),
+      params: {},
+      context: {},
+    } as never);
+    const after = new Date();
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { groupBuyBankPaymentOrderId: string };
+
+    const stored = await prisma.groupBuyBankPaymentOrder.findUniqueOrThrow({
+      where: { id: body.groupBuyBankPaymentOrderId },
+    });
+    expect(stored.cancellationAcknowledgmentId).toBeTruthy();
+
+    const acknowledgment = await prisma.acknowledgment.findUniqueOrThrow({
+      where: { id: stored.cancellationAcknowledgmentId },
+      include: { policyVersion: true },
+    });
+
+    // BYTE-IDENTICAL to the pinned constant — compared programmatically, not
+    // eyeballed (the assigning instruction's own explicit requirement).
+    expect(acknowledgment.exactText).toBe(GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_TEXT);
+    expect(acknowledgment.affirmativeActionLabel).toBe(GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_AFFIRMATIVE_ACTION_LABEL);
+    expect(acknowledgment.affirmativeActionLabel).toBe("I Understand & Agree");
+    expect(acknowledgment.policyVersion.text).toBe(GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_TEXT);
+
+    // Reviewer-independent identity — the AUTHENTICATED customer from the
+    // signed App Proxy `logged_in_customer_id`, never a client-supplied field
+    // (there is none in the request body at all).
+    expect(acknowledgment.customerRef).toBe(DEFAULT_CUSTOMER_GID);
+    expect(acknowledgment.campaignRef).toBe(campaign.code);
+
+    // A real timestamp taken at request time, bounded by the test's own
+    // before/after window — not a client-supplied value.
+    expect(acknowledgment.acknowledgedAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
+    expect(acknowledgment.acknowledgedAt.getTime()).toBeLessThanOrEqual(after.getTime());
+  });
+
+  it("an idempotent replay records exactly one acknowledgment, not one per request", async () => {
+    const { variant } = await createGroupBuyVariant();
+    const campaign = await openCampaignFixture(variant.id);
+    const port = fakeDraftOrderPort();
+    __setDraftOrderPortForTests(port);
+
+    const body = {
+      mode: "bank",
+      cancellationAcknowledgmentAccepted: true,
+      campaignCode: campaign.code,
+      email: `Buyer-${uniq()}@Example.com`,
+      shippingAddress: SHIPPING_ADDRESS,
+      lines: [{ shopifyVariantId: variant.shopifyVariantGid, quantity: 1 }],
+    };
+
+    const first = await action({ request: checkoutRequest({ body }), params: {}, context: {} } as never);
+    const second = await action({ request: checkoutRequest({ body }), params: {}, context: {} } as never);
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+
+    const orderCount = await prisma.groupBuyBankPaymentOrder.count({
+      where: { campaignId: campaign.id, customerGid: DEFAULT_CUSTOMER_GID },
+    });
+    expect(orderCount).toBe(1);
+
+    const acknowledgmentCount = await prisma.acknowledgment.count({ where: { campaignRef: campaign.code } });
+    expect(acknowledgmentCount).toBe(1);
+  });
+});
+
+describe("Group Buy cancellation acknowledgment gate — the fail-closed guard for a MISPROVISIONED environment", () => {
+  it("returns 503 acknowledgment_copy_pending_approval and creates no order or draft order when the policy cannot be resolved", async () => {
+    const { variant } = await createGroupBuyVariant();
+    const campaign = await openCampaignFixture(variant.id);
+    const port = fakeDraftOrderPort();
+    __setDraftOrderPortForTests(port);
+
+    mockState.cancellationAcknowledgmentUnavailable = true;
+    try {
+      const response = await action({
+        request: checkoutRequest({
+          body: {
+            mode: "bank",
+            cancellationAcknowledgmentAccepted: true,
+            campaignCode: campaign.code,
+            email: `Buyer-${uniq()}@Example.com`,
+            shippingAddress: SHIPPING_ADDRESS,
+            lines: [{ shopifyVariantId: variant.shopifyVariantGid, quantity: 1 }],
+          },
+        }),
+        params: {},
+        context: {},
+      } as never);
+
+      expect(response.status).toBe(503);
+      const body = (await response.json()) as { error: string };
+      expect(body.error).toBe("acknowledgment_copy_pending_approval");
+      expect(port.createCalls).toHaveLength(0);
+      const orders = await prisma.groupBuyBankPaymentOrder.count({ where: { campaignId: campaign.id } });
+      expect(orders).toBe(0);
+    } finally {
+      mockState.cancellationAcknowledgmentUnavailable = false;
+    }
+  });
+
+  it("GUARDS THE GUARD — the same request succeeds once the policy is available again", async () => {
+    const { variant } = await createGroupBuyVariant();
+    const campaign = await openCampaignFixture(variant.id);
+    const port = fakeDraftOrderPort();
+    __setDraftOrderPortForTests(port);
+
+    const response = await action({
+      request: checkoutRequest({
+        body: {
+          mode: "bank",
+          cancellationAcknowledgmentAccepted: true,
+          campaignCode: campaign.code,
+          email: `Buyer-${uniq()}@Example.com`,
+          shippingAddress: SHIPPING_ADDRESS,
+          lines: [{ shopifyVariantId: variant.shopifyVariantGid, quantity: 1 }],
+        },
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.status).toBe(200);
+  });
+});
+
+describe("the acknowledgment id reaches Shopify on every line — without it, ZERO units are ever counted", () => {
+  // REGRESSION, and the most consequential one in this file. The
+  // `orders/create` handler resolves a Group Buy line's acknowledgment candidate
+  // from the `_carat_gb_cancel_ack` line-item property and from NOTHING else.
+  // This route creates a DRAFT order, and `DraftOrderLineItemInput` carried no
+  // attribute field at all, so every Bank Payment order historically reached
+  // the webhook with no property -> `no_candidate` -> `unmatched` -> HELD at
+  // ZERO qualifying units, silently breaking the locked rule that a placed
+  // Group Buy order counts toward public progress immediately INCLUDING
+  // pending Bank Payment orders.
+  //
+  // Asserting the property is PRESENT is not enough: a property carrying the
+  // wrong id fails verification exactly like a missing one. So this asserts the
+  // value EQUALS the acknowledgment row actually persisted for the order.
+  it("attaches _carat_gb_cancel_ack to every line, valued as the acknowledgment row actually persisted", async () => {
+    const { variant } = await createGroupBuyVariant();
+    const campaign = await openCampaignFixture(variant.id);
+    const port = fakeDraftOrderPort();
+    __setDraftOrderPortForTests(port);
+
+    const response = await action({
+      request: checkoutRequest({
+        query: { shop: SHOP, logged_in_customer_id: DEFAULT_CUSTOMER_ID },
+        body: {
+          mode: "bank",
+          cancellationAcknowledgmentAccepted: true,
+          campaignCode: campaign.code,
+          email: `Buyer-${uniq()}@Example.com`,
+          shippingAddress: SHIPPING_ADDRESS,
+          lines: [{ shopifyVariantId: variant.shopifyVariantGid, quantity: 2 }],
+        },
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { shopifyOrderGid: string };
+
+    const stored = await prisma.groupBuyBankPaymentOrder.findUniqueOrThrow({
+      where: { shopifyOrderGid: body.shopifyOrderGid },
+    });
+    expect(stored.cancellationAcknowledgmentId).toBeTruthy();
+
+    expect(port.createCalls).toHaveLength(1);
+    const sentLines = port.createCalls[0]!.lineItems;
+    expect(sentLines.length).toBeGreaterThan(0);
+    for (const line of sentLines) {
+      const attr = line.customAttributes?.find(
+        (a) => a.key === GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_LINE_ITEM_PROPERTY_NAME
+      );
+      expect(attr, `line ${line.shopifyVariantGid} carries no acknowledgment property`).toBeDefined();
+      // THE ID THE WEBHOOK WILL LOOK UP === THE ID WE ACTUALLY STORED.
+      expect(attr!.value).toBe(stored.cancellationAcknowledgmentId);
+    }
+
+    // And the row is genuinely resolvable by that id — the webhook's own read.
+    const ack = await prisma.acknowledgment.findUnique({ where: { id: stored.cancellationAcknowledgmentId } });
+    expect(ack).not.toBeNull();
+    expect(ack!.customerRef).toBe(DEFAULT_CUSTOMER_GID);
+    expect(ack!.campaignRef).toBe(campaign.code);
   });
 });

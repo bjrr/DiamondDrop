@@ -151,10 +151,40 @@ const MAX_VERIFIABLE_LINE_ITEMS = 50;
  */
 const DUE_ON_RECEIPT_TEMPLATE_GID = "gid://shopify/PaymentTermsTemplate/1";
 
+/**
+ * One line-item custom attribute. Shopify surfaces a draft order line's
+ * `customAttributes` as the resulting ORDER line item's `properties` — which
+ * is the shape `orders/create` webhook consumers read — so this is how a
+ * draft-order path carries evidence that a cart-based path attaches at
+ * add-to-cart time.
+ *
+ * `key`/`value` here, `name`/`value` in the webhook payload: the rename is
+ * Shopify's, not ours. Do not "fix" it.
+ */
+export interface DraftOrderLineItemAttributeInput {
+  key: string;
+  value: string;
+}
+
 export interface DraftOrderLineItemInput {
   /** The Shopify product variant this line charges for. */
   shopifyVariantGid: string;
   quantity: number;
+  /**
+   * Attributes to attach to this line, transported verbatim. Omit (or pass
+   * empty) to send none — the field is then absent from the mutation input
+   * entirely rather than sent as `[]`, so a caller that does not use
+   * attributes cannot accidentally clear anything.
+   *
+   * REQUIRED, IN PRACTICE, FOR GROUP BUY. A Group Buy line must carry
+   * `GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_LINE_ITEM_PROPERTY_NAME`; without
+   * it the `orders/create` handler verifies the line as `unmatched`, holds it,
+   * and records ZERO qualifying units. This adapter cannot enforce that —
+   * it serves Buy Now verification screens too, which have no such property —
+   * so the obligation sits with the caller and is pinned by that caller's own
+   * tests.
+   */
+  customAttributes?: readonly DraftOrderLineItemAttributeInput[];
   /**
    * The price for ONE unit of this line, already resolved by the caller
    * (criterion 72: recomputed server-side from the published calculation at
@@ -367,6 +397,11 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
       return {
         variantId: line.shopifyVariantGid,
         quantity: line.quantity,
+        // Spread-conditional so an absent/empty list sends NO field at all
+        // rather than `customAttributes: []` — see the input type's comment.
+        ...(line.customAttributes && line.customAttributes.length > 0
+          ? { customAttributes: line.customAttributes.map((a) => ({ key: a.key, value: a.value })) }
+          : {}),
         // `priceOverride`, NOT `originalUnitPrice`, AND THE DIFFERENCE IS THE
         // WHOLE PRICE. This adapter originally sent `originalUnitPrice`, which
         // does not exist on `DraftOrderLineItemInput` in 2026-07 — Shopify
