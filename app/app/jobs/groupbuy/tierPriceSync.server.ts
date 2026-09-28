@@ -79,8 +79,16 @@ import { getCurrentTier } from "./unitLedger.server";
  * harmless no-op (it is not additive the way a unit count is).
  */
 
-const TIER_SYNCED_ACTION = "groupbuy.tier_price_synced";
-const TIER_SYNC_ENTITY_TYPE = "group_buy_campaign";
+/**
+ * EXPORTED because the campaign admin route needs to read this marker to show
+ * staff whether the current tier reached Shopify. It was briefly duplicated
+ * as string literals in the repository — which meant renaming it here would
+ * silently make that read stop matching, and the admin would report a tier as
+ * PUBLISHED when it was not. A false reassurance on a safety indicator is
+ * worse than no indicator, so there is exactly one definition.
+ */
+export const TIER_SYNCED_ACTION = "groupbuy.tier_price_synced";
+export const TIER_SYNC_ENTITY_TYPE = "group_buy_campaign";
 const TIER_VARIANT_SYNCED_ACTION = "groupbuy.tier_variant_price_synced";
 const TIER_VARIANT_SYNC_ENTITY_TYPE = "group_buy_campaign_variant";
 

@@ -3,7 +3,12 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { Link, useLoaderData, useRouteError } from "react-router";
 
-import { listGroupBuyCampaignsForStaff, type GroupBuyCampaignListRow } from "~/db/repositories/groupBuyRepository.server";
+import {
+  getGroupBuyCampaignTierPublishStatus,
+  listGroupBuyCampaignsForStaff,
+  type GroupBuyCampaignListRow,
+  type GroupBuyCampaignTierPublishStatus,
+} from "~/db/repositories/groupBuyRepository.server";
 import { getEnv } from "~/lib/env.server";
 import { authenticate } from "~/shopify.server";
 
@@ -21,7 +26,27 @@ import { authenticate } from "~/shopify.server";
  * identification/status/counts — never a frozen price, a frozen landed cost,
  * a pricing-profile reference, or an unsafe-override reason (CLAUDE.md rule
  * 10). This page is a directory, not a pricing report.
+ *
+ * "Shopify tier price" COLUMN — the list-view half of the tier-price-sync
+ * recovery gap `app.group-buy-campaigns.$id.tsx`'s header comment describes
+ * in full. Only an open campaign can have a publish gap at all (a draft has
+ * nothing frozen yet, a closed campaign's frozen pricing stays as it was), so
+ * `getGroupBuyCampaignTierPublishStatus` is only called for `status ===
+ * "open"` rows — every other row shows "—" without the extra query. Still
+ * only a tier number and a boolean; the resync action itself lives on the
+ * detail page, not here.
  */
+
+/**
+ * Whether the campaign's CURRENT tier price has ever fully reached Shopify —
+ * `null` (not applicable) for a draft or closed campaign. See
+ * `app.group-buy-campaigns.$id.tsx`'s header comment on the recovery gap this
+ * surfaces, and `getGroupBuyCampaignTierPublishStatus`'s own doc comment.
+ */
+interface TierPublishRowView {
+  readonly tierNumber: number;
+  readonly published: boolean;
+}
 
 interface SerializedCampaignRow {
   readonly id: string;
@@ -35,6 +60,7 @@ interface SerializedCampaignRow {
   readonly createdAt: string;
   readonly tierCount: number;
   readonly variantCount: number;
+  readonly tierPublish: TierPublishRowView | null;
 }
 
 interface LoaderData {
@@ -44,7 +70,7 @@ interface LoaderData {
   loadError: string | null;
 }
 
-function serialize(row: GroupBuyCampaignListRow): SerializedCampaignRow {
+function serialize(row: GroupBuyCampaignListRow, tierPublish: GroupBuyCampaignTierPublishStatus | null): SerializedCampaignRow {
   return {
     id: row.id,
     code: row.code,
@@ -57,6 +83,7 @@ function serialize(row: GroupBuyCampaignListRow): SerializedCampaignRow {
     createdAt: row.createdAt.toISOString(),
     tierCount: row.tierCount,
     variantCount: row.variantCount,
+    tierPublish: tierPublish ? { tierNumber: tierPublish.tierNumber, published: tierPublish.published } : null,
   };
 }
 
@@ -67,7 +94,19 @@ export async function loader({ request }: LoaderFunctionArgs) {
   let loadError: string | null = null;
   try {
     const rows = await listGroupBuyCampaignsForStaff();
-    campaigns = rows.map(serialize);
+    // Only OPEN campaigns can have a publish gap at all (see
+    // getGroupBuyCampaignTierPublishStatus) — draft/closed rows skip the
+    // extra query entirely rather than asking a question this list has no
+    // action for.
+    const tierPublishById = new Map<string, GroupBuyCampaignTierPublishStatus | null>();
+    await Promise.all(
+      rows
+        .filter((row) => row.status === "open")
+        .map(async (row) => {
+          tierPublishById.set(row.id, await getGroupBuyCampaignTierPublishStatus(row.id));
+        })
+    );
+    campaigns = rows.map((row) => serialize(row, tierPublishById.get(row.id) ?? null));
   } catch (error) {
     loadError = error instanceof Error ? error.message : "Failed to load Group Buy campaigns.";
   }
@@ -135,6 +174,9 @@ export default function GroupBuyCampaignsListPage() {
                 <th scope="col" style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: "0.5rem" }}>
                   Opened
                 </th>
+                <th scope="col" style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: "0.5rem" }}>
+                  Shopify tier price
+                </th>
                 <th scope="col" style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: "0.5rem" }}></th>
               </tr>
             </thead>
@@ -150,6 +192,17 @@ export default function GroupBuyCampaignsListPage() {
                     {formatTimestamp(campaign.scheduledCloseAt)}
                   </td>
                   <td style={{ borderBottom: "1px solid #eee", padding: "0.5rem" }}>{formatTimestamp(campaign.openedAt)}</td>
+                  <td style={{ borderBottom: "1px solid #eee", padding: "0.5rem" }}>
+                    {campaign.tierPublish === null ? (
+                      "—"
+                    ) : campaign.tierPublish.published ? (
+                      <span style={{ color: "#2a7a2a" }}>Tier {campaign.tierPublish.tierNumber} live</span>
+                    ) : (
+                      <span role="alert" style={{ color: "#b00", fontWeight: 600 }}>
+                        Tier {campaign.tierPublish.tierNumber} NOT on Shopify
+                      </span>
+                    )}
+                  </td>
                   <td style={{ borderBottom: "1px solid #eee", padding: "0.5rem" }}>
                     <Link to={`/app/group-buy-campaigns/${campaign.id}`}>Open</Link>
                   </td>

@@ -10,6 +10,7 @@ import {
   addGroupBuyCampaignEligibleVariant,
   getFrozenGroupBuyCampaignOptions,
   getGroupBuyCampaignForStaff,
+  getGroupBuyCampaignTierPublishStatus,
   getGroupBuyVariantIdentities,
   getLatestGroupBuyCampaignOptionsUpload,
   listMasterVariantsForGroupBuySelection,
@@ -17,6 +18,7 @@ import {
   replaceGroupBuyCampaignTiers,
   saveGroupBuyCampaignOptionsUpload,
   type GroupBuyCampaignForStaff,
+  type GroupBuyCampaignTierPublishStatus,
   type GroupBuyCandidateProductRow,
   type GroupBuyCampaignOptionsUpload,
   type GroupBuyVariantIdentity,
@@ -31,9 +33,14 @@ import {
   UnsafeTiersError,
   openGroupBuyCampaign,
 } from "~/jobs/groupbuy/openCampaign.server";
+import {
+  GroupBuyTierPriceSyncError,
+  ensureGroupBuyCampaignSyncedToCurrentTier,
+} from "~/jobs/groupbuy/tierPriceSync.server";
 import { MoneyDecimal } from "~/domain/money/decimal";
 import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
+import { createProductionPriceSyncPort } from "~/shopify/admin/productionPriceSyncPort.server";
 import { authenticate } from "~/shopify.server";
 
 /**
@@ -79,6 +86,22 @@ import { authenticate } from "~/shopify.server";
  * floor failed (`evaluation.failing`, e.g. "min_gross_margin") but never the
  * margin rate or dollar contribution that `evaluateTierSafety` computed
  * along the way.
+ *
+ * TIER-PRICE-SYNC RECOVERY (architect assignment, 2026-09-27, closing the gap
+ * `CampaignOpenTierPublishError`'s own doc comment names). `openGroupBuyCampaign`
+ * fails LOUDLY when tier 1's publish to Shopify fails, but deliberately does
+ * NOT roll back the freeze — leaving the campaign open with no way for staff to
+ * retry the publish except waiting for the next order (which pays at whatever
+ * price is currently live, possibly wrong — see that error's own comment for
+ * why a stale pre-campaign price is not guaranteed to be higher than tier 1).
+ * `campaign.tierPublish` (from `getGroupBuyCampaignTierPublishStatus`, a
+ * read-only check against the same completion marker the sync job itself
+ * writes) makes that gap VISIBLE without anyone needing to already know the
+ * failure mode exists, and the `resync_tier_price` action calls the exact
+ * same idempotent recovery path the error message names
+ * (`ensureGroupBuyCampaignSyncedToCurrentTier`) — safe to press at any time,
+ * including when nothing is wrong, because that function's own completion
+ * marker already makes an up-to-date resync a no-op.
  */
 
 // ---------------------------------------------------------------------------
@@ -120,6 +143,20 @@ interface CampaignView {
   readonly unsafeOverrideAt: string | null;
   readonly tiers: readonly TierView[];
   readonly variants: readonly EligibleVariantView[];
+  readonly tierPublish: TierPublishView | null;
+}
+
+/**
+ * Whether the campaign's CURRENT tier price has ever fully reached Shopify —
+ * `null` (not applicable) for a draft or closed campaign; see
+ * `getGroupBuyCampaignTierPublishStatus`'s own doc comment. No cost, margin,
+ * or Shopify processor detail here — only the tier number, the live
+ * qualifying-unit count, and a boolean.
+ */
+interface TierPublishView {
+  readonly tierNumber: number;
+  readonly qualifyingUnits: number;
+  readonly published: boolean;
 }
 
 interface CandidateVariantOption {
@@ -157,7 +194,8 @@ function formatMoney(minorUnits: string, currency: string): string {
 
 function buildCampaignView(
   campaign: GroupBuyCampaignForStaff,
-  identities: readonly GroupBuyVariantIdentity[]
+  identities: readonly GroupBuyVariantIdentity[],
+  tierPublish: GroupBuyCampaignTierPublishStatus | null
 ): CampaignView {
   const identityById = new Map(identities.map((i) => [i.masterVariantId, i] as const));
   const isDraft = campaign.status === "draft";
@@ -206,6 +244,9 @@ function buildCampaignView(
         frozenBaseBankPaymentPrice: isDraft ? null : variant.frozenBaseBankPaymentPriceMinorUnits.toString(),
       };
     }),
+    tierPublish: tierPublish
+      ? { tierNumber: tierPublish.tierNumber, qualifyingUnits: tierPublish.qualifyingUnits, published: tierPublish.published }
+      : null,
   };
 }
 
@@ -219,6 +260,10 @@ function canConfigureDraft(status: string): boolean {
 }
 function canOpen(status: string): boolean {
   return status === "draft";
+}
+/** Resync is only meaningful once a tier price could exist to publish — i.e. only while open. Safe to press at any time within that window, per this route's header comment: an up-to-date resync is a no-op. */
+function canResyncTierPrice(status: string): boolean {
+  return status === "open";
 }
 
 // ---------------------------------------------------------------------------
@@ -334,10 +379,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   // the freeze (`getFrozenGroupBuyCampaignOptions`) — never a live
   // "latest" re-query against a table whose selection rule could, in
   // principle, change later for reasons unrelated to this campaign.
-  const [candidateProducts, identities, optionsUpload] = await Promise.all([
+  const [candidateProducts, identities, optionsUpload, tierPublish] = await Promise.all([
     isDraft ? listMasterVariantsForGroupBuySelection() : Promise.resolve([]),
     getGroupBuyVariantIdentities(campaign.variants.map((v) => v.masterVariantId)),
     isDraft ? getLatestGroupBuyCampaignOptionsUpload(id) : getFrozenGroupBuyCampaignOptions(campaign.snapshotId),
+    // `null` for a draft/closed campaign — see getGroupBuyCampaignTierPublishStatus's own doc comment.
+    getGroupBuyCampaignTierPublishStatus(id),
   ]);
 
   const alreadyEligible = new Set(campaign.variants.map((v) => v.masterVariantId));
@@ -346,7 +393,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   return {
     apiKey: getEnv().SHOPIFY_API_KEY ?? "",
     shop: session.shop,
-    campaign: buildCampaignView(campaign, identities),
+    campaign: buildCampaignView(campaign, identities, tierPublish),
     candidateVariants,
     optionsUpload: serializeOptionsUpload(optionsUpload, !isDraft),
   } satisfies LoaderData;
@@ -377,11 +424,20 @@ interface OpenBlockedLadder {
   readonly problems: readonly { masterVariantId: string; priorTierNumber: number; tierNumber: number; detail: string }[];
 }
 
+interface TierResyncResult {
+  readonly tierNumber: number;
+  /** True when a prior completed sync already covered this tier — no Shopify call was made. */
+  readonly skipped: boolean;
+  readonly syncedVariantCount: number;
+  readonly unresolvedVariantCount: number;
+}
+
 interface ActionData {
   ok: boolean;
   formError: string | null;
   problems: readonly string[];
   openBlocked?: OpenBlockedUnsafe | OpenBlockedLadder;
+  tierResyncResult?: TierResyncResult;
 }
 
 function ok(): ActionData {
@@ -481,6 +537,33 @@ export async function action({ request, params }: ActionFunctionArgs) {
         return Response.json(ok());
       }
 
+      case "resync_tier_price": {
+        // THE SAME IDEMPOTENT RECOVERY PATH `CampaignOpenTierPublishError`
+        // NAMES — see this route's header comment. Safe to press whether or
+        // not anything is actually wrong: an up-to-date campaign's resync is
+        // a no-op (`result.skipped`), not a second Shopify call.
+        const result = await ensureGroupBuyCampaignSyncedToCurrentTier(id, {
+          resolveSyncPort: createProductionPriceSyncPort,
+        });
+        logger.info("group_buy_campaigns.tier_price_resync_via_admin", {
+          campaignId: id,
+          triggeredBy: staffActorRef,
+          tierNumber: result.tierNumber,
+          skipped: result.skipped,
+          syncedVariantCount: result.syncedVariantCount,
+          unresolvedVariantCount: result.unresolvedVariantCount,
+        });
+        return Response.json({
+          ...ok(),
+          tierResyncResult: {
+            tierNumber: result.tierNumber,
+            skipped: result.skipped,
+            syncedVariantCount: result.syncedVariantCount,
+            unresolvedVariantCount: result.unresolvedVariantCount,
+          },
+        } satisfies ActionData);
+      }
+
       default:
         return Response.json(fail(`Unrecognized action: ${intent}`), { status: 400 });
     }
@@ -499,6 +582,27 @@ export async function action({ request, params }: ActionFunctionArgs) {
     }
     if (error instanceof CampaignIncompleteError) {
       return Response.json(fail(error.message), { status: 400 });
+    }
+    if (error instanceof GroupBuyTierPriceSyncError) {
+      // NEVER the raw Shopify processor/API error text — `error.failures`
+      // entries are `variant <id>: <Error.name>` (a class name, e.g.
+      // "AdminApiError"), never a raw API error message, but this UI
+      // surfaces only the count and tier, staying well inside that existing
+      // ceiling rather than testing it.
+      logger.error("group_buy_campaigns.tier_price_resync_failed", {
+        campaignId: id,
+        triggeredBy: staffActorRef,
+        tierNumber: error.tierNumber,
+        failureCount: error.failures.length,
+      });
+      return Response.json(
+        fail(
+          `Resync could not publish tier ${error.tierNumber} to Shopify for ${error.failures.length} variant(s). ` +
+            "The frozen campaign pricing in our system is unaffected. Try again, or wait — the next order for this " +
+            "campaign retries the same publish automatically."
+        ),
+        { status: 502 }
+      );
     }
     if (error instanceof BrokenPriceLadderError) {
       // NEVER OVERRIDABLE — no override fields are read for this branch, and
@@ -652,6 +756,54 @@ export default function GroupBuyCampaignDetailPage() {
                 ) : null}
               </dl>
             </section>
+
+            {campaign.tierPublish ? (
+              <section
+                style={{
+                  ...sectionStyle,
+                  border: campaign.tierPublish.published ? sectionStyle.border : "2px solid #b00",
+                }}
+              >
+                <h2
+                  style={{
+                    fontSize: "1rem",
+                    margin: "0 0 0.5rem",
+                    color: campaign.tierPublish.published ? undefined : "#b00",
+                  }}
+                >
+                  Shopify tier-price sync
+                </h2>
+                {campaign.tierPublish.published ? (
+                  <p style={{ margin: "0 0 0.75rem", fontSize: "0.875rem", color: "#2a7a2a" }}>
+                    Tier {campaign.tierPublish.tierNumber} ({campaign.tierPublish.qualifyingUnits} qualifying units)
+                    is published and live on Shopify.
+                  </p>
+                ) : (
+                  <p role="alert" style={{ margin: "0 0 0.75rem", fontSize: "0.875rem", fontWeight: 600, color: "#b00" }}>
+                    Tier {campaign.tierPublish.tierNumber} ({campaign.tierPublish.qualifyingUnits} qualifying units)
+                    has NOT reached Shopify. The storefront may still be showing a stale price. Resync now, or wait
+                    for the next order to retry automatically.
+                  </p>
+                )}
+                {actionData?.tierResyncResult ? (
+                  <p style={{ margin: "0 0 0.75rem", fontSize: "0.85rem", color: "#555" }}>
+                    {actionData.tierResyncResult.skipped
+                      ? `Already up to date — tier ${actionData.tierResyncResult.tierNumber} was already published; no Shopify call was made.`
+                      : actionData.tierResyncResult.unresolvedVariantCount > 0
+                        ? `Published tier ${actionData.tierResyncResult.tierNumber} to ${actionData.tierResyncResult.syncedVariantCount} variant(s); ${actionData.tierResyncResult.unresolvedVariantCount} variant(s) have no Shopify product yet and were skipped.`
+                        : `Published tier ${actionData.tierResyncResult.tierNumber} to ${actionData.tierResyncResult.syncedVariantCount} variant(s).`}
+                  </p>
+                ) : null}
+                {canResyncTierPrice(campaign.status) ? (
+                  <Form method="post">
+                    <input type="hidden" name="intent" value="resync_tier_price" />
+                    <button type="submit" disabled={busy}>
+                      Resync tier price to Shopify
+                    </button>
+                  </Form>
+                ) : null}
+              </section>
+            ) : null}
 
             <section style={sectionStyle}>
               <h2 style={{ fontSize: "1rem", margin: "0 0 0.5rem" }}>Tiers</h2>

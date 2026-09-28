@@ -27,6 +27,7 @@ interface CampaignRowFixture {
   createdAt: string;
   tierCount: number;
   variantCount: number;
+  tierPublish: { tierNumber: number; published: boolean } | null;
 }
 
 const ROW: CampaignRowFixture = {
@@ -41,6 +42,7 @@ const ROW: CampaignRowFixture = {
   createdAt: "2026-09-20T10:00:00.000Z",
   tierCount: 3,
   variantCount: 2,
+  tierPublish: null,
 };
 
 function renderPage(campaigns: readonly CampaignRowFixture[], loadError: string | null = null): string {
@@ -87,5 +89,18 @@ describe("Group Buy campaigns list", () => {
     // Checked on the tag-stripped text, not the raw markup — a CSS
     // `margin:0` style property would otherwise false-positive this check.
     expect(textOf(renderPage([ROW]))).not.toMatch(/margin|landedcost|wholesale|\$\d/i);
+  });
+
+  it("shows no publish claim at all for a campaign with no publish status (draft/closed) — not applicable, not a false negative", () => {
+    const text = textOf(renderPage([ROW]));
+    expect(text).not.toMatch(/live|NOT on Shopify/);
+  });
+
+  it("flags an open campaign whose tier price never reached Shopify, distinctly from a healthy one", () => {
+    const gap = { ...ROW, id: "22222222-2222-2222-2222-222222222222", status: "open", tierPublish: { tierNumber: 1, published: false } };
+    const healthy = { ...ROW, id: "33333333-3333-3333-3333-333333333333", status: "open", tierPublish: { tierNumber: 2, published: true } };
+    const text = textOf(renderPage([gap, healthy]));
+    expect(text).toMatch(/Tier 1 NOT on Shopify/);
+    expect(text).toMatch(/Tier 2 live/);
   });
 });

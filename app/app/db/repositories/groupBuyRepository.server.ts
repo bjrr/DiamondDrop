@@ -12,7 +12,9 @@ import type {
 import { validateTierSet, tierBankPaymentPriceExact, type TierDefinition } from "~/domain/groupbuy/tiers";
 import { computeTierRefund, assertRefundTransition, type RefundStatus } from "~/domain/groupbuy/refunds";
 import type { GroupBuyCampaignOptions } from "~/domain/groupbuy/campaignOptions";
-import { getQualifyingUnits } from "~/jobs/groupbuy/unitLedger.server";
+import { getCurrentTier, getQualifyingUnits } from "~/jobs/groupbuy/unitLedger.server";
+import { TIER_SYNCED_ACTION, TIER_SYNC_ENTITY_TYPE } from "~/jobs/groupbuy/tierPriceSync.server";
+import { listAuditEventsForEntity } from "~/db/repositories/auditEventRepository.server";
 import { MoneyDecimal } from "~/domain/money/decimal";
 import { Money } from "~/domain/money/money";
 import { applyPriceEnding } from "~/domain/pricing/priceEnding";
@@ -567,6 +569,61 @@ export async function listGroupBuyCampaignsForStaff(): Promise<readonly GroupBuy
     tierCount: row._count.tiers,
     variantCount: row._count.variants,
   }));
+}
+
+export interface GroupBuyCampaignTierPublishStatus {
+  readonly tierNumber: number;
+  readonly qualifyingUnits: number;
+  /** True once the campaign's CURRENT tier price has fully reached Shopify. */
+  readonly published: boolean;
+}
+
+/**
+ * MIRRORS the private completion-marker check
+ * `ensureGroupBuyCampaignSyncedToCurrentTier` (`~/jobs/groupbuy/
+ * tierPriceSync.server.ts`) makes before publishing — same action/entity-type
+ * strings, same "highest tierNumber recorded >= the live tier" test. Not
+ * imported from that file because these two constants are not exported there,
+ * and this task is explicitly scoped to `app/db/repositories` and
+ * `app/routes` only (another agent owns `app/jobs/groupbuy/**`). If those
+ * strings ever change, this drifts silently — `tests/integration/groupbuy/
+ * openCampaignTierPublish.test.ts` already asserts the same literals, so a
+ * rename there is likely to be caught by that file failing too.
+ */
+// Imported, NOT re-declared — see TIER_SYNCED_ACTION's own comment. A
+// mirrored literal here would drift silently and report an unpublished tier
+// as published.
+const TIER_PRICE_SYNCED_ACTION = TIER_SYNCED_ACTION;
+const TIER_PRICE_SYNCED_ENTITY_TYPE = TIER_SYNC_ENTITY_TYPE;
+
+/**
+ * Whether an OPEN campaign's current tier price has ever been fully
+ * published to Shopify — the gap `openGroupBuyCampaign`'s
+ * `CampaignOpenTierPublishError` warns about when campaign-open's own publish
+ * attempt fails. Read-only: makes no Shopify call and writes nothing.
+ *
+ * `null` for a draft (nothing frozen yet to publish) or a closed campaign
+ * (frozen pricing "stays exactly as it was" regardless of Shopify's
+ * last-known price — see `ensureGroupBuyCampaignSyncedToCurrentTier`'s own
+ * early return for the same rule) — there is no admin action for either
+ * status, so this deliberately reports "not applicable" rather than a status
+ * this route cannot do anything about.
+ */
+export async function getGroupBuyCampaignTierPublishStatus(
+  campaignId: string
+): Promise<GroupBuyCampaignTierPublishStatus | null> {
+  const campaign = await prisma.groupBuyCampaign.findUnique({ where: { id: campaignId }, select: { status: true } });
+  if (!campaign || campaign.status !== "open") return null;
+
+  const { tier, qualifyingUnits } = await getCurrentTier(campaignId);
+  const events = await listAuditEventsForEntity(TIER_PRICE_SYNCED_ENTITY_TYPE, campaignId);
+  const published = events.some((event) => {
+    if (event.action !== TIER_PRICE_SYNCED_ACTION) return false;
+    const after = event.after as { tierNumber?: unknown } | null;
+    return typeof after?.tierNumber === "number" && after.tierNumber >= tier.tierNumber;
+  });
+
+  return { tierNumber: tier.tierNumber, qualifyingUnits, published };
 }
 
 export interface GroupBuyCandidateVariantRow {

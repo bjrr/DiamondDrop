@@ -57,6 +57,7 @@ interface CampaignFixture {
   unsafeOverrideAt: string | null;
   tiers: TierFixture[];
   variants: VariantFixture[];
+  tierPublish: { tierNumber: number; qualifyingUnits: number; published: boolean } | null;
 }
 
 const VARIANT_ID = "22222222-2222-2222-2222-222222222222";
@@ -90,6 +91,7 @@ const DRAFT_CAMPAIGN: CampaignFixture = {
       frozenBaseBankPaymentPrice: null,
     },
   ],
+  tierPublish: null,
 };
 
 const OPEN_CAMPAIGN: CampaignFixture = {
@@ -97,6 +99,16 @@ const OPEN_CAMPAIGN: CampaignFixture = {
   status: "open",
   openedAt: "2026-09-22T12:00:00.000Z",
   variants: [{ ...DRAFT_CAMPAIGN.variants[0]!, frozenBaseBankPaymentPrice: "120000" }],
+  tierPublish: { tierNumber: 1, qualifyingUnits: 3, published: true },
+};
+
+// THE GAP `app.group-buy-campaigns.$id.tsx`'s "TIER-PRICE-SYNC RECOVERY"
+// header comment describes: an open campaign whose current tier price never
+// reached Shopify (e.g. `openGroupBuyCampaign`'s tier-1 publish failed, or a
+// later tier's publish failed).
+const OPEN_CAMPAIGN_UNPUBLISHED: CampaignFixture = {
+  ...OPEN_CAMPAIGN,
+  tierPublish: { tierNumber: 1, qualifyingUnits: 0, published: false },
 };
 
 const CLOSED_CAMPAIGN: CampaignFixture = {
@@ -105,6 +117,9 @@ const CLOSED_CAMPAIGN: CampaignFixture = {
   closedAt: "2026-09-25T12:00:00.000Z",
   finalTierNumber: 2,
   finalQualifyingUnits: 14,
+  // Not applicable once closed — frozen pricing stays exactly as it was,
+  // regardless of Shopify's last-known price. See getGroupBuyCampaignTierPublishStatus.
+  tierPublish: null,
 };
 
 interface ActionFixture {
@@ -117,6 +132,7 @@ interface ActionFixture {
         kind: "ladder";
         problems: readonly { masterVariantId: string; priorTierNumber: number; tierNumber: number; detail: string }[];
       };
+  tierResyncResult?: { tierNumber: number; skipped: boolean; syncedVariantCount: number; unresolvedVariantCount: number };
 }
 
 function renderPage(
@@ -216,6 +232,71 @@ describe("an open campaign", () => {
     const message = new GroupBuyCampaignNotDraftForConfigurationError(OPEN_CAMPAIGN.id, "open").message;
     const html = renderPage(OPEN_CAMPAIGN, { actionData: { ok: false, formError: message, problems: [] } });
     expect(textOf(html)).toContain(message);
+  });
+});
+
+describe("Shopify tier-price sync — the resync recovery surface", () => {
+  it("does not render the sync section at all for a draft campaign (nothing frozen yet to publish)", () => {
+    expect(textOf(renderPage(DRAFT_CAMPAIGN))).not.toMatch(/Shopify tier-price sync/i);
+  });
+
+  it("does not render the sync section for a closed campaign (frozen pricing stays exactly as it was)", () => {
+    expect(textOf(renderPage(CLOSED_CAMPAIGN))).not.toMatch(/Shopify tier-price sync/i);
+  });
+
+  it("a healthy open campaign (tier published) shows a calm, non-alarming status and still offers the resync control", () => {
+    const html = renderPage(OPEN_CAMPAIGN);
+    const text = textOf(html);
+    expect(text).toMatch(/Tier 1.*is published and live on Shopify/);
+    expect(text).not.toMatch(/NOT reached Shopify/);
+    expect(html).toMatch(/name="intent" value="resync_tier_price"/);
+  });
+
+  it("THE GAP — an open campaign whose tier price never reached Shopify is visibly and distinctly flagged, asserted on the field rather than styling", () => {
+    // The assertion is on rendered TEXT driven by `campaign.tierPublish.published`
+    // (the loader's view-model field), not on any style/color attribute —
+    // proving the state is visible to someone who never opens devtools.
+    const html = renderPage(OPEN_CAMPAIGN_UNPUBLISHED);
+    const text = textOf(html);
+    expect(text).toMatch(/Tier 1.*has NOT reached Shopify/);
+    expect(text).not.toMatch(/is published and live on Shopify/);
+  });
+
+  it("offers the resync action only while the campaign is open, and never leaks cost/margin data from it", () => {
+    const html = renderPage(OPEN_CAMPAIGN_UNPUBLISHED);
+    expect(html).toMatch(/name="intent" value="resync_tier_price"/);
+    expect(html).toMatch(/Resync tier price to Shopify/);
+    expect(html).not.toMatch(NO_COST_MARGIN_LEAK);
+  });
+
+  it("attribution is server-derived from the authenticated session only — the resync form carries no staff-identity field a client could tamper with (D23)", () => {
+    const html = renderPage(OPEN_CAMPAIGN_UNPUBLISHED);
+    expect(html).not.toMatch(/name="staffActorRef"|name="authorizedBy"|name="openedBy"|name="triggeredBy"/);
+  });
+
+  it("a no-op resync result (already up to date) is reported plainly, distinct from a resync that actually published something", () => {
+    const html = renderPage(OPEN_CAMPAIGN, {
+      actionData: { ok: true, formError: null, problems: [], tierResyncResult: { tierNumber: 1, skipped: true, syncedVariantCount: 0, unresolvedVariantCount: 0 } },
+    });
+    expect(textOf(html)).toMatch(/Already up to date/);
+  });
+
+  it("a resync that actually published reports the tier and the number of variants published", () => {
+    const html = renderPage(OPEN_CAMPAIGN_UNPUBLISHED, {
+      actionData: { ok: true, formError: null, problems: [], tierResyncResult: { tierNumber: 1, skipped: false, syncedVariantCount: 1, unresolvedVariantCount: 0 } },
+    });
+    expect(textOf(html)).toMatch(/Published tier 1 to 1 variant\(s\)/);
+  });
+
+  it("a resync failure (GroupBuyTierPriceSyncError) is shown without leaking raw Shopify processor/API error text", () => {
+    const message =
+      "Resync could not publish tier 1 to Shopify for 1 variant(s). The frozen campaign pricing in our system is unaffected. Try again, or wait — the next order for this campaign retries the same publish automatically.";
+    const html = renderPage(OPEN_CAMPAIGN_UNPUBLISHED, { actionData: { ok: false, formError: message, problems: [] } });
+    const text = textOf(html);
+    expect(text).toContain(message);
+    // No raw Admin API error text or Shopify processor reference — only the
+    // count and tier number, exactly what the route's error handling emits.
+    expect(text).not.toMatch(/GraphQL|gid:\/\/shopify|AdminApiError/i);
   });
 });
 
