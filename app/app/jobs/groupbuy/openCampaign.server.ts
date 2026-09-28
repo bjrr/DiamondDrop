@@ -7,8 +7,11 @@ import { evaluateTierSafety, type TierSafetyReport } from "~/domain/groupbuy/tie
 import { validateTierSet, type TierDefinition } from "~/domain/groupbuy/tiers";
 import { computeBuyNowPrice } from "~/domain/pricing/engine";
 import type { BuyNowPriceResult, BuyNowPricingInputs } from "~/domain/pricing/types";
+import { ensureGroupBuyCampaignSyncedToCurrentTier } from "~/jobs/groupbuy/tierPriceSync.server";
+import type { ShopifyPriceSyncPort } from "~/jobs/pricing/ports";
 import { resolveInputsForVariant } from "~/jobs/pricing/resolveInputs.server";
 import { logger } from "~/lib/logger.server";
+import { createProductionPriceSyncPort } from "~/shopify/admin/productionPriceSyncPort.server";
 
 /**
  * Opening a Group Buy campaign — the FREEZE.
@@ -92,6 +95,60 @@ export class BrokenPriceLadderError extends Error {
   }
 }
 
+/**
+ * The campaign froze and committed as `open` in Postgres, but its tier 1
+ * price never reached Shopify.
+ *
+ * WHY THIS FAILS LOUDLY INSTEAD OF SWALLOWING THE PUBLISH ERROR (architect's
+ * instruction, 2026-09-27, following from the gap found in
+ * `docs/ARCHITECTURE-MVP1.md` §6.1). §6.1's whole safety argument — "a stale
+ * cart can only hold a HIGHER price, which the ledger refunds" — depends on
+ * the published Shopify price starting at tier 1 and only ever descending
+ * from there. If the freeze committed but the publish failed, the variant is
+ * still showing whatever it showed BEFORE the campaign opened (ordinarily its
+ * last Buy Now price). That prior price is not guaranteed to be higher than
+ * the newly frozen tier 1 price — costs can have moved between the last Buy
+ * Now sync and this freeze's `asOf` — so leaving it live and silent risks the
+ * exact underpayment §6.1 calls "impossible for a monotonic descent": a
+ * customer paying less than tier 1, which floors the refund ledger at zero
+ * and quietly stops the system's own safety argument from being true.
+ *
+ * THE OPEN ITSELF IS NOT ROLLED BACK. The freeze in Postgres is correct and
+ * final regardless of whether Shopify was reachable a moment later — undoing
+ * it would either need a status this schema does not have (there is no
+ * "opened, awaiting publish" state) or would discard a legitimate,
+ * safety-checked freeze over a transient network failure. So the campaign
+ * IS open; `openGroupBuyCampaign` cannot be called again for it
+ * (`CampaignNotDraftError` — it is no longer a draft), which is why this
+ * error's message says so explicitly rather than reading like an ordinary
+ * "open failed, try again" error.
+ *
+ * RECOVERY IS THE SAME IDEMPOTENT PATH THIS FILE ALREADY CALLS.
+ * `ensureGroupBuyCampaignSyncedToCurrentTier` (tierPriceSync.server.ts) is
+ * safe to call again for this campaign at any time — its own completion
+ * marker means a retry that finds tier 1 already published is a no-op. Two
+ * things will retry it without anyone doing anything: the incidental
+ * self-heal (the next order placed against this campaign, however soon,
+ * triggers the same call from the `orders/create` handler), or an operator
+ * re-invoking the publish directly. Neither requires re-opening the
+ * campaign.
+ */
+export class CampaignOpenTierPublishError extends Error {
+  constructor(
+    readonly campaignId: string,
+    readonly cause: unknown
+  ) {
+    super(
+      `Campaign ${campaignId} opened successfully (frozen and committed) but its tier 1 price ` +
+        `failed to reach Shopify: ${cause instanceof Error ? cause.message : String(cause)}. ` +
+        `The campaign IS open — do not attempt to open it again, it is no longer a draft. ` +
+        `The publish will retry automatically the moment the next order for this campaign arrives, ` +
+        `or it can be retried immediately by calling ensureGroupBuyCampaignSyncedToCurrentTier for this campaign.`
+    );
+    this.name = "CampaignOpenTierPublishError";
+  }
+}
+
 export interface OpenCampaignOptions {
   campaignId: string;
   openedBy: string;
@@ -102,6 +159,8 @@ export interface OpenCampaignOptions {
    * present together; the database refuses a half-recorded override.
    */
   unsafeOverride?: { by: string; reason: string };
+  /** Injected in tests. Production default lazily creates the real Admin API-backed port. */
+  resolveSyncPort?: () => Promise<ShopifyPriceSyncPort>;
 }
 
 export interface OpenCampaignResult {
@@ -112,6 +171,14 @@ export interface OpenCampaignResult {
   tierCount: number;
   safety: TierSafetyReport;
   openedWithOverride: boolean;
+  /**
+   * Tier 1's publish outcome — see `CampaignOpenTierPublishError` for what
+   * happens when this step fails instead of returning. `unresolvedVariantCount`
+   * is NOT a failure — it counts eligible variants with no Shopify
+   * product/variant id yet (see `tierPriceSync.server.ts`); campaign open
+   * proceeds and returns normally even when it is greater than zero.
+   */
+  tierOnePublish: { tierNumber: number; syncedVariantCount: number; skipped: boolean; unresolvedVariantCount: number };
 }
 
 export async function openGroupBuyCampaign(
@@ -346,12 +413,60 @@ export async function openGroupBuyCampaign(
     // No prices, costs or margins in logs (criterion 30).
   });
 
+  // TIER 1 GOES TO SHOPIFY NOW, DELIBERATELY OUTSIDE THE TRANSACTION ABOVE.
+  // A network call inside a database transaction would hold that transaction
+  // (and its row locks) open for the duration of an Admin API round trip —
+  // exactly the kind of coupling `syncApprovedIntent.server.ts` and this
+  // file's own freeze both avoid elsewhere. The freeze is already committed
+  // by this point; what happens next only decides whether Shopify agrees
+  // with it yet.
+  //
+  // See `CampaignOpenTierPublishError`'s own doc comment for why a publish
+  // failure here PROPAGATES rather than being logged and swallowed: the
+  // freeze already committed, so there is no way to "fail the open" any
+  // more — the only choice left is whether the caller finds out now (throw)
+  // or discovers a silently stale, possibly-underpriced Shopify listing
+  // later (swallow). This function chooses to throw.
+  //
+  // REUSES THE SAME IDEMPOTENT PATH THE ORDER WEBHOOK USES — not a second
+  // publish route. `ensureGroupBuyCampaignSyncedToCurrentTier` reads the
+  // live tier (tier 1, since nothing has purchased yet) and is a no-op if
+  // this exact campaign/tier was already published, which is what makes it
+  // safe to call again from here after a prior failed open attempt, or from
+  // the very first order if this call never runs at all in an older code
+  // path.
+  const resolveSyncPort = options.resolveSyncPort ?? createProductionPriceSyncPort;
+  let tierOnePublish: { tierNumber: number; syncedVariantCount: number; skipped: boolean; unresolvedVariantCount: number };
+  try {
+    const result = await ensureGroupBuyCampaignSyncedToCurrentTier(campaign.id, { resolveSyncPort });
+    tierOnePublish = {
+      tierNumber: result.tierNumber,
+      syncedVariantCount: result.syncedVariantCount,
+      skipped: result.skipped,
+      unresolvedVariantCount: result.unresolvedVariantCount,
+    };
+    logger.info("groupbuy.campaign_open_tier1_published", {
+      campaignId: campaign.id,
+      tierNumber: result.tierNumber,
+      syncedVariantCount: result.syncedVariantCount,
+      skipped: result.skipped,
+      unresolvedVariantCount: result.unresolvedVariantCount,
+    });
+  } catch (publishError) {
+    logger.error("groupbuy.campaign_open_tier1_publish_failed", {
+      campaignId: campaign.id,
+      error: publishError instanceof Error ? publishError.message : String(publishError),
+    });
+    throw new CampaignOpenTierPublishError(campaign.id, publishError);
+  }
+
   return {
     campaignId: campaign.id,
     openedAt,
     frozenAsOf: asOf,
     variantCount: priced.length,
     tierCount: tiers.length,
+    tierOnePublish,
     safety,
     openedWithOverride: Boolean(options.unsafeOverride),
   };
