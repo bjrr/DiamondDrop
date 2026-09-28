@@ -1,9 +1,28 @@
 # Cloudflare R2 — exact setup steps (owner action)
 
-**Status: awaiting owner.** Warranty and RMA uploads stay FAIL-CLOSED until
-this bucket exists and has been live-proven. No Shopify Files fallback, no
-public bucket, no "temporary" substitute — a private evidence store that is
-quietly public is worse than no uploads at all.
+**Status: LIVE AND PROVEN — 2026-09-28.** Bucket `caratforus-evidence-prod`,
+four Fly secrets deployed on `caratforus`, live gate
+(`tests/live/slice5.r2EvidenceStorage.ts`) exit 0 with all four required
+assertions executed and passing: `put`, `unsigned-private`, `signed-get`,
+`expiry`. Both go-live conditions in §5a are closed.
+
+TWO THINGS THE GREEN DOES NOT ESTABLISH, recorded so nobody reads it wider
+than it is:
+
+1. **`unsigned-private` proves the S3 API endpoint requires auth — not that
+   the bucket has no public URL.** A bucket with Public Development URL
+   enabled is served from a DIFFERENT hostname (`pub-<hash>.r2.dev`) that the
+   gate never requests. §2 below (Public Development URL disabled, no custom
+   domain) is what actually keeps this bucket private; the gate cannot
+   substitute for it. If anyone ever enables that URL, every assertion in the
+   gate still passes.
+2. **Uploads are enabled by credential PRESENCE alone.**
+   `resolveWarrantyUploadPort` returns `configured: true` as soon as the four
+   variables are non-empty — there is no separate flag. So uploads went live
+   in production when the Fly secrets deployed, BEFORE the gate was run. The
+   sequence was enabled-then-proven. If that ordering matters for a future
+   store, add an explicit flag that uploads require IN ADDITION to
+   credentials; credentials alone should not be able to turn them on.
 
 Nothing here asks you to paste a secret into chat. Keys go straight from the
 Cloudflare dashboard into `fly secrets set` on your machine.
@@ -13,7 +32,7 @@ Cloudflare dashboard into `fly secrets set` on your machine.
 ## 1. Create the bucket
 
 1. Cloudflare dashboard → **R2 Object Storage** → **Create bucket**
-2. **Bucket name:** `caratforus-evidence`
+2. **Bucket name:** `caratforus-evidence-prod`
    Lowercase, hyphens only — R2 rejects underscores and uppercase.
 3. **Location:** choose **Automatic**, or **North America (ENAM)** if offered
    a specific hint. The app runs in Fly's `iad` region, so ENAM is closest.
@@ -47,7 +66,7 @@ R2 → **Manage R2 API Tokens** → **Create API token**
   NOT "Admin Read & Write". The app uploads and reads objects; it never needs
   to create, configure or delete buckets. If the key leaks, the difference
   is between someone reading objects and someone deleting the bucket.
-- **Specify bucket:** **Apply to specific buckets only** → `caratforus-evidence`
+- **Specify bucket:** **Apply to specific buckets only** → `caratforus-evidence-prod`
   A token scoped to one bucket cannot reach anything you add later.
 - **TTL:** leave as no expiry for now. A rotating token needs a rotation
   procedure, and a procedure nobody follows is worse than a stable key.
@@ -100,7 +119,7 @@ nowhere else.
 ```
 fly secrets set -a caratforus \
   STORAGE_ENDPOINT="https://<accountid>.r2.cloudflarestorage.com" \
-  STORAGE_BUCKET="caratforus-evidence" \
+  STORAGE_BUCKET="caratforus-evidence-prod" \
   STORAGE_ACCESS_KEY_ID="<access key id>" \
   STORAGE_SECRET_ACCESS_KEY="<secret access key>"
 ```
@@ -114,35 +133,46 @@ bucket name appended. The bucket is supplied separately via `STORAGE_BUCKET`.
 Appending it produces signature failures that read like credential errors and
 waste an afternoon.
 
-## 5a. Two things that must close BEFORE uploads go live
+## 5a. Two go-live conditions — BOTH CLOSED 2026-09-28
 
-Uploads are fail-closed today, so neither is currently exposed. Both become
-real the moment the credentials are set, so they gate go-live rather than
-sitting on a backlog.
+These gated go-live rather than sitting on a backlog, because both became
+real the moment the credentials were set. Kept here rather than deleted: what
+a condition was, and how it was actually closed, is the record that explains
+why the current design looks the way it does.
 
-**1. The intake route trusts a client-supplied `storageKey`.**
-`apps.carat.warranty-claim.tsx` accepts `storageKey` as an opaque string
-(`z.string().min(1).max(500)`) and never checks that a destination was
-actually issued for it — verified, zero references to any destination
-verification. Now that a real destination-issuing endpoint exists, a customer
-could submit a claim naming a key they never uploaded to, producing an
-evidence record that points at nothing, or at an object they did not create.
+**1. The intake route trusted a client-supplied `storageKey` — CLOSED
+2026-09-28.** `apps.carat.warranty-claim.tsx` used to accept `storageKey` as
+an opaque string and never check that a destination had actually been issued
+for it, so a customer could submit a claim naming a key they never uploaded
+to — an evidence record pointing at nothing, or at an object they did not
+create. These rows ARE the dispute evidence, and a claim that appears to
+carry photographs but does not is worse than one with none: it looks
+substantiated.
 
-That matters because these rows ARE the dispute evidence. A claim that appears
-to carry photographs and does not is worse than one with none: it looks
-substantiated. The fix is to bind the issued destination to the claim — a
-signature or a persisted issued-destination row the intake route verifies
-before recording the upload. Practical risk today is low (claim ids and the
-key nonce are both UUIDs, and a claim's uploads are scoped to its own
-`customerRef`), which is why this is a go-live condition rather than an
-emergency.
+Closed with a PERSISTED issued-destination record
+(`WarrantyClaimUploadDestination`, migration
+`20260928030000_warranty_claim_upload_destination`), not a signature. Every
+issuance stores the authenticated `customerRef`; the intake route verifies
+AND consumes each destination in one atomic conditional UPDATE
+(`consumeWarrantyClaimUploadDestination`) inside a single transaction, before
+the acknowledgment write or the order lookup. Any unverifiable key refuses
+the WHOLE submission with 422 and creates no claim. Never-issued,
+wrong-claim, wrong-customer and expired all collapse to the identical
+response, so it is not an enumeration oracle.
 
-**2. R2 addressing style is unverified.** The client uses virtual-hosted
-addressing (`<bucket>.<accountid>.r2.cloudflarestorage.com`) with no
-`forcePathStyle`, matching R2's own quickstart. If the live gate fails with a
-hostname or DNS error rather than an auth error, try `forcePathStyle: true`
-first — the fallback is already documented in `r2Client.server.ts`'s header.
-This is exactly the kind of thing the gate exists to settle.
+Because evidence is uploaded before the claim exists, the client generates
+the claim's id up front and submits it — safe because a caller-supplied id
+can only ever create a BRAND NEW claim (primary-key uniqueness refuses
+reuse), and the persisted destination's `customerRef` still gates
+consumption. The id is honoured ONLY when the submission carries uploads;
+with none there is nothing to bind, so the column default generates it and
+claim creation cannot be used to probe whether a guessed id exists.
+
+**2. R2 addressing style — SETTLED 2026-09-28, no change needed.** The client's
+virtual-hosted addressing (`<bucket>.<accountid>.r2.cloudflarestorage.com`,
+no `forcePathStyle`) round-tripped against the real bucket on the first
+attempt. The `forcePathStyle: true` fallback documented in
+`r2Client.server.ts`'s header was NOT required and was not applied.
 
 ## 6. What I do once they are set
 

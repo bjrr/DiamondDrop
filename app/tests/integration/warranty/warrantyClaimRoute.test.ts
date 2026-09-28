@@ -170,6 +170,29 @@ async function createVariant(overrides: { shopifyVariantGid?: string } = {}) {
   });
 }
 
+/**
+ * Seeds a `WarrantyClaimUploadDestination` row directly — this file's tests
+ * for the storageKey-verification gate need full control over claimId/
+ * customerRef/expiresAt/consumedAt (including states the real destination-
+ * issuing route cannot itself produce, like "already expired" or "already
+ * consumed"), so they seed the row rather than calling that route.
+ */
+async function seedDestination(
+  overrides: Partial<{ claimId: string; customerRef: string; storageKey: string; expiresAt: Date; consumedAt: Date | null }> = {}
+) {
+  return prisma.warrantyClaimUploadDestination.create({
+    data: {
+      claimId: overrides.claimId ?? randomUUID(),
+      customerRef: overrides.customerRef ?? DEFAULT_CUSTOMER_GID,
+      kind: "photo",
+      contentType: "image/jpeg",
+      storageKey: overrides.storageKey ?? `warranty/${randomUUID()}/photo/${randomUUID()}.jpg`,
+      expiresAt: overrides.expiresAt ?? new Date(Date.now() + 15 * 60 * 1000),
+      consumedAt: overrides.consumedAt ?? null,
+    },
+  });
+}
+
 afterEach(() => {
   __setWarrantyClaimOrderLookupPortForTests(null);
 });
@@ -499,18 +522,195 @@ describe("uploads — attacker-supplied metadata, validated before anything is w
     expect(response.status).toBe(422);
   });
 
-  it("records a well-formed upload against the created claim", async () => {
+  it("requires claimId when uploads are provided, with 400 before anything is touched", async () => {
+    // baseClaimBody() does not set claimId by default -- exactly the "uploads
+    // provided, claimId omitted" shape this check exists to catch.
     const claimBody = baseClaimBody({
       uploads: [{ kind: "photo", storageKey: "warranty/x/1.jpg", contentType: "image/jpeg", sizeBytes: 500_000, checksum: "sha256:abc123" }],
     });
     useResolvableOrderLookup(claimBody.orderRef, claimBody.lineRef);
 
+    const before = await prisma.warrantyClaim.count();
+    const response = await callAction(claimRequest({ body: claimBody }));
+    expect(response.status).toBe(400);
+    await expect(prisma.warrantyClaim.count()).resolves.toBe(before);
+  });
+});
+
+/**
+ * THE STORAGE-KEY TRUST GAP, CLOSED — a claim used to be able to name a key
+ * nobody ever uploaded to. Every case below is refused with the SAME
+ * response shape (422 `invalid_upload_reference`) regardless of WHICH
+ * condition actually failed — see `apps.carat.warranty-claim.tsx`'s "UPLOAD
+ * DESTINATIONS ARE VERIFIED, NOT TRUSTED" module comment on why the reason is
+ * never distinguishable in the response (enumeration-oracle constraint).
+ */
+describe("upload destination verification — the storageKey trust gap, closed", () => {
+  function invalidReferenceBody(claimId: string, storageKey: string) {
+    return baseClaimBody({
+      claimId,
+      uploads: [{ kind: "photo" as const, storageKey, contentType: "image/jpeg", sizeBytes: 500_000, checksum: "sha256:abc123" }],
+    });
+  }
+
+  it("a key that was never issued is refused, and creates no claim", async () => {
+    const claimId = randomUUID();
+    const claimBody = invalidReferenceBody(claimId, `warranty/${claimId}/photo/never-issued.jpg`);
+    useResolvableOrderLookup(claimBody.orderRef, claimBody.lineRef);
+
+    const before = await prisma.warrantyClaim.count();
+    const response = await callAction(claimRequest({ body: claimBody }));
+
+    expect(response.status).toBe(422);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toBe("invalid_upload_reference");
+    await expect(prisma.warrantyClaim.count()).resolves.toBe(before);
+  });
+
+  it("a key issued for a DIFFERENT claim is refused, and creates no claim", async () => {
+    const claimId = randomUUID();
+    const destination = await seedDestination({ claimId: randomUUID() /* NOT claimId */, customerRef: DEFAULT_CUSTOMER_GID });
+    const claimBody = invalidReferenceBody(claimId, destination.storageKey);
+    useResolvableOrderLookup(claimBody.orderRef, claimBody.lineRef);
+
+    const before = await prisma.warrantyClaim.count();
+    const response = await callAction(claimRequest({ body: claimBody }));
+
+    expect(response.status).toBe(422);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toBe("invalid_upload_reference");
+    await expect(prisma.warrantyClaim.count()).resolves.toBe(before);
+  });
+
+  it("a key issued to a DIFFERENT customer is refused, with the SAME response as a key that was never issued", async () => {
+    const claimId = randomUUID();
+    const destination = await seedDestination({ claimId, customerRef: "gid://shopify/Customer/999999" /* NOT the caller */ });
+    const claimBody = invalidReferenceBody(claimId, destination.storageKey);
+    useResolvableOrderLookup(claimBody.orderRef, claimBody.lineRef);
+
+    const response = await callAction(claimRequest({ body: claimBody }));
+
+    expect(response.status).toBe(422);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toBe("invalid_upload_reference");
+  });
+
+  it("an expired key is refused, and creates no claim", async () => {
+    const claimId = randomUUID();
+    const destination = await seedDestination({ claimId, customerRef: DEFAULT_CUSTOMER_GID, expiresAt: new Date(Date.now() - 1000) });
+    const claimBody = invalidReferenceBody(claimId, destination.storageKey);
+    useResolvableOrderLookup(claimBody.orderRef, claimBody.lineRef);
+
+    const before = await prisma.warrantyClaim.count();
+    const response = await callAction(claimRequest({ body: claimBody }));
+
+    expect(response.status).toBe(422);
+    await expect(prisma.warrantyClaim.count()).resolves.toBe(before);
+  });
+
+  it("a key that has already been consumed cannot be attached again, and creates no claim", async () => {
+    const claimId = randomUUID();
+    const destination = await seedDestination({ claimId, customerRef: DEFAULT_CUSTOMER_GID, consumedAt: new Date() });
+    const claimBody = invalidReferenceBody(claimId, destination.storageKey);
+    useResolvableOrderLookup(claimBody.orderRef, claimBody.lineRef);
+
+    const before = await prisma.warrantyClaim.count();
+    const response = await callAction(claimRequest({ body: claimBody }));
+
+    expect(response.status).toBe(422);
+    await expect(prisma.warrantyClaim.count()).resolves.toBe(before);
+  });
+
+  it("the SAME key referenced TWICE in one submission is refused entirely — the first consumption does not let the second slip through", async () => {
+    const claimId = randomUUID();
+    const destination = await seedDestination({ claimId, customerRef: DEFAULT_CUSTOMER_GID });
+    const claimBody = baseClaimBody({
+      claimId,
+      uploads: [
+        { kind: "photo" as const, storageKey: destination.storageKey, contentType: "image/jpeg", sizeBytes: 500_000, checksum: "sha256:abc123" },
+        { kind: "photo" as const, storageKey: destination.storageKey, contentType: "image/jpeg", sizeBytes: 500_000, checksum: "sha256:abc123" },
+      ],
+    });
+    useResolvableOrderLookup(claimBody.orderRef, claimBody.lineRef);
+
+    const before = await prisma.warrantyClaim.count();
+    const response = await callAction(claimRequest({ body: claimBody }));
+
+    expect(response.status).toBe(422);
+    await expect(prisma.warrantyClaim.count()).resolves.toBe(before);
+    // The transaction rolled back — the destination's single legitimate
+    // consumption was not left "spent" by a submission that overall failed.
+    const row = await prisma.warrantyClaimUploadDestination.findUnique({ where: { storageKey: destination.storageKey } });
+    expect(row?.consumedAt).toBeNull();
+  });
+
+  it("HAPPY PATH: a real, unconsumed, unexpired destination for the caller's own claim is verified, consumed, and its upload recorded as METADATA ONLY", async () => {
+    const claimId = randomUUID();
+    const destination = await seedDestination({ claimId, customerRef: DEFAULT_CUSTOMER_GID });
+    const claimBody = baseClaimBody({
+      claimId,
+      uploads: [{ kind: "photo" as const, storageKey: destination.storageKey, contentType: "image/jpeg", sizeBytes: 500_000, checksum: "sha256:abc123" }],
+    });
+    useResolvableOrderLookup(claimBody.orderRef, claimBody.lineRef);
+
     const response = await callAction(claimRequest({ body: claimBody }));
     expect(response.status).toBe(201);
-    const { claimId } = (await response.json()) as { claimId: string };
+    const body = (await response.json()) as { claimId: string };
+    expect(body.claimId).toBe(claimId); // the claim was created under the CLIENT-supplied id
 
     const uploads = await prisma.warrantyClaimUpload.findMany({ where: { claimId } });
     expect(uploads).toHaveLength(1);
     expect(uploads[0]!.contentType).toBe("image/jpeg");
+    expect(uploads[0]!.storageKey).toBe(destination.storageKey);
+    // METADATA ONLY — the columns below are every column this table has
+    // (schema.prisma), and none of them is a byte payload.
+    expect(Object.keys(uploads[0]!).sort()).toEqual(
+      ["checksum", "claimId", "contentType", "id", "kind", "sizeBytes", "storageKey", "uploadedAt", "uploadedByActorRef", "uploadedByActorType"].sort()
+    );
+
+    const consumedDestination = await prisma.warrantyClaimUploadDestination.findUnique({ where: { storageKey: destination.storageKey } });
+    expect(consumedDestination?.consumedAt).not.toBeNull();
+  });
+
+  // A client-chosen primary key is accepted for ONE reason: binding evidence
+  // uploaded before the claim existed. With no uploads there is nothing to
+  // bind, so the id must be ignored entirely. Written because the route
+  // originally read `body.claimId ?? undefined`, whose own comment claimed it
+  // was `undefined` when no uploads were provided — true only if the client
+  // chose to omit the field, which is not something a route may assume.
+  it("IGNORES a client-supplied claimId when the submission carries NO uploads", async () => {
+    const attemptedId = randomUUID();
+    const claimBody = baseClaimBody({ claimId: attemptedId });
+    useResolvableOrderLookup(claimBody.orderRef, claimBody.lineRef);
+
+    const response = await callAction(claimRequest({ body: claimBody }));
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as { claimId: string };
+    expect(body.claimId).not.toBe(attemptedId);
+    // and the id the caller asked for was never created at all
+    expect(await prisma.warrantyClaim.findUnique({ where: { id: attemptedId } })).toBeNull();
+  });
+
+  // The reason the case above matters: without it, submitting a guessed id
+  // with no uploads distinguishes "this claim exists" (PK collision, a
+  // distinctive failure) from "it does not" (201). Unguessable in practice —
+  // v4 UUIDs — but an oracle that costs one expression to close.
+  it("does NOT turn claim creation into an existence oracle: reusing an EXISTING claim's id with no uploads still succeeds under a fresh id", async () => {
+    const first = baseClaimBody({});
+    useResolvableOrderLookup(first.orderRef, first.lineRef);
+    const firstResponse = await callAction(claimRequest({ body: first }));
+    expect(firstResponse.status).toBe(201);
+    const existingId = ((await firstResponse.json()) as { claimId: string }).claimId;
+
+    const second = baseClaimBody({ claimId: existingId });
+    useResolvableOrderLookup(second.orderRef, second.lineRef);
+    const secondResponse = await callAction(claimRequest({ body: second }));
+
+    // Identical outcome to the free-id case — no collision, no 500, no
+    // distinguishable signal that `existingId` was already taken.
+    expect(secondResponse.status).toBe(201);
+    const secondId = ((await secondResponse.json()) as { claimId: string }).claimId;
+    expect(secondId).not.toBe(existingId);
+    expect(await prisma.warrantyClaim.count({ where: { id: { in: [existingId, secondId] } } })).toBe(2);
   });
 });

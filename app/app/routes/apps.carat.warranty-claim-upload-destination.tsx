@@ -2,6 +2,7 @@ import type { ActionFunctionArgs } from "react-router";
 import { z } from "zod";
 
 import { getWarrantyClaimForCustomer } from "~/db/repositories/warrantyClaimRepository.server";
+import { recordIssuedWarrantyClaimUploadDestination } from "~/db/repositories/warrantyClaimUploadDestinationRepository.server";
 import type { WarrantyUploadPortResolution } from "~/jobs/warranty/ports";
 import { InvalidWarrantyUploadMetadataError, resolveWarrantyUploadPort } from "~/jobs/warranty/ports";
 import { getEnv } from "~/lib/env.server";
@@ -38,15 +39,35 @@ import { verifyAppProxySignature } from "~/shopify/proxy";
  *     exactly like `apps.carat.warranty-claim.tsx` and `apps.carat.
  *     rma-intake.tsx` (docs/REQUIRED-CUSTOMER-ACCOUNTS.md).
  *   - Resolves `claimId` via `getWarrantyClaimForCustomer` (the customer-safe
- *     projection — never the staff view) and requires `claim.customerRef` to
- *     equal the authenticated identity EXACTLY. A claim that does not exist
- *     and a claim that exists but belongs to someone else get the SAME
- *     generic response, collapsing "doesn't exist" and "isn't yours" into one
- *     outcome so this endpoint cannot be used to enumerate claim ids.
- *   - Only after both checks pass does it ever reach
- *     `resolveWarrantyUploadPort`/`createUploadDestination` — a request for a
- *     claim id that is real but not the caller's own never reaches the port,
- *     let alone R2.
+ *     projection — never the staff view). A REAL claim belonging to someone
+ *     ELSE is refused. A `claimId` that does not resolve to any claim yet is
+ *     ALLOWED THROUGH — see "WHY A NOT-YET-EXISTING CLAIM ID IS ALLOWED"
+ *     below. Both a real "not yours" claim and a genuinely-nonexistent one
+ *     that turns out to belong to someone else by the time it is consumed
+ *     are refused with the SAME generic response elsewhere in the pipeline
+ *     (`apps.carat.warranty-claim.tsx`'s consumption step), so this endpoint
+ *     cannot be used to enumerate claim ids.
+ *   - Every issuance is PERSISTED (`WarrantyClaimUploadDestination`) with the
+ *     authenticated `customerRef` on the row — that persisted identity, not
+ *     this route's one-time check, is what the intake route verifies again
+ *     at consumption time.
+ *
+ * ============================================================================
+ * WHY A NOT-YET-EXISTING CLAIM ID IS ALLOWED
+ * ============================================================================
+ * A claim's evidence is gathered WHILE the form is filled out, before the
+ * claim itself is submitted — so by the time a destination is requested, the
+ * claim this evidence belongs to usually does not exist in Postgres yet. The
+ * client generates the claim's id (`crypto.randomUUID()`) up front, uses that
+ * same id both to request every destination it needs AND, later, as the
+ * claim's actual `id` when it submits the full form
+ * (`apps.carat.warranty-claim.tsx`'s module comment, `CreateWarrantyClaimInput.
+ * id`'s comment). This is safe because a caller-supplied id can only ever
+ * create a BRAND NEW claim — Postgres's primary-key uniqueness on
+ * `warranty_claim` refuses an attempt to reuse an existing one — so nobody
+ * can use this to attach evidence to a claim they did not just create, and
+ * the persisted destination row's `customerRef` still gates consumption to
+ * the exact identity that requested it.
  *
  * ============================================================================
  * FAIL-CLOSED WHEN STORAGE IS UNCONFIGURED
@@ -154,11 +175,12 @@ export async function action({ request }: ActionFunctionArgs) {
   }
   const body = parsed.data;
 
-  // OWNERSHIP — the claim must exist AND belong to the authenticated caller.
-  // See this file's module comment on why both failure modes share one
-  // response.
-  const claim = await getWarrantyClaimForCustomer(body.claimId);
-  if (!claim || claim.customerRef !== customerRef) {
+  // OWNERSHIP — IF a claim with this id already exists, it MUST belong to
+  // the authenticated caller. If none exists yet, that is fine — see this
+  // file's "WHY A NOT-YET-EXISTING CLAIM ID IS ALLOWED" module comment. Only
+  // a REAL claim belonging to someone else is refused.
+  const existingClaim = await getWarrantyClaimForCustomer(body.claimId);
+  if (existingClaim && existingClaim.customerRef !== customerRef) {
     logger.warn("warranty_claim_upload_destination.claim_unresolved", {});
     return claimUnresolved();
   }
@@ -187,6 +209,26 @@ export async function action({ request }: ActionFunctionArgs) {
     });
     return Response.json({ error: "destination_unavailable" }, { status: 502 });
   }
+
+  // PERSIST THE ISSUED DESTINATION — the record `apps.carat.warranty-claim.
+  // tsx` verifies+consumes before ever recording a `WarrantyClaimUpload`.
+  // `destination.expiresAt` comes from the port itself (the real presigned
+  // URL's own expiry, `R2_PUT_URL_EXPIRY_SECONDS`) rather than being computed
+  // separately here, so the persisted record and the actual signed URL can
+  // never disagree about when this destination stops being usable.
+  await recordIssuedWarrantyClaimUploadDestination({
+    claimId: body.claimId,
+    customerRef,
+    kind: body.kind,
+    contentType: body.contentType,
+    storageKey: destination.storageKey,
+    // `expiresAt` is `null` only for a port that cannot produce a real
+    // expiry (`RecordingWarrantyUploadPort`, never reachable here since
+    // `resolveWarrantyUploadPort`'s unconfigured branch already returned 503
+    // above) — the non-null assertion documents that, it does not paper over
+    // a real possibility on this code path.
+    expiresAt: destination.expiresAt!,
+  });
 
   // Never logs `destination.uploadUrl` — see this file's module comment.
   logger.info("warranty_claim_upload_destination.issued", {

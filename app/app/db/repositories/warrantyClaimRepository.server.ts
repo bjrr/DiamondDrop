@@ -187,6 +187,18 @@ export interface WarrantyClaimEventActor {
 }
 
 export interface CreateWarrantyClaimInput {
+  /**
+   * Caller-supplied id, or omitted to let the database default
+   * (`@default(uuid())`) generate one. Only ever supplied by
+   * `apps.carat.warranty-claim.tsx` when the submission carries `uploads` —
+   * the client must know the claim's id BEFORE it exists, to request upload
+   * destinations for it and have `WarrantyClaimUploadDestination` rows bound
+   * to the same id this call will use (see that route's module comment and
+   * `WarrantyClaimUploadDestination`'s schema.prisma comment). A caller-
+   * supplied id can only ever create a brand-new row — Postgres's primary
+   * key uniqueness on this table refuses an attempt to reuse an existing id.
+   */
+  readonly id?: string;
   readonly orderRef: string;
   readonly lineRef: string;
   readonly customerRef?: string | null;
@@ -226,6 +238,10 @@ export async function createWarrantyClaim(input: CreateWarrantyClaimInput): Prom
       return await prisma.$transaction(async (tx) => {
         const claim = await tx.warrantyClaim.create({
           data: {
+            // `undefined` (never `null`) when omitted, so Prisma applies the
+            // column's own `@default(uuid())` exactly as before this field
+            // existed — see `CreateWarrantyClaimInput.id`'s comment.
+            id: input.id ?? undefined,
             claimReference,
             orderRef: input.orderRef,
             lineRef: input.lineRef,
@@ -263,13 +279,23 @@ export async function createWarrantyClaim(input: CreateWarrantyClaimInput): Prom
         return claim;
       });
     } catch (error) {
-      // The ONLY unique constraint this INSERT can hit is claim_reference
-      // (id is a random uuid() default, and every acknowledgment/master
-      // variant reference is a foreign key, not a unique constraint on this
-      // table) — so any P2002 here means a claim_reference collision, and
-      // the right response is a fresh candidate, never a re-read (see this
-      // module's header comment for why that differs from
-      // `recordLuxuryStealOrderCheck`'s idempotent-retry idiom).
+      // The unique constraints this INSERT can hit are claim_reference (the
+      // common case — every acknowledgment/master variant reference is a
+      // foreign key, not a unique constraint on this table) and, since
+      // `CreateWarrantyClaimInput.id` was added, the primary key itself when
+      // a caller supplies one. A claim_reference collision is retried with a
+      // fresh candidate, never a re-read (see this module's header comment
+      // for why that differs from `recordLuxuryStealOrderCheck`'s
+      // idempotent-retry idiom). An id collision retried the same way is
+      // functionally harmless but mislabelled — it exhausts the retry budget
+      // and surfaces as `WarrantyClaimReferenceGenerationExhaustedError`
+      // rather than a dedicated "id already in use" error. Left as-is
+      // deliberately: a caller-supplied id is a random UUID
+      // (`crypto.randomUUID()` client-side), so an actual collision is
+      // vanishingly unlikely, and distinguishing the two cases would mean
+      // depending on Prisma's exact `meta.target` shape for a primary-key
+      // violation, which was not worth verifying against a live database for
+      // a path this improbable.
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
         continue;
       }

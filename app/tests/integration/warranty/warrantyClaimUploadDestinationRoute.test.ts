@@ -2,6 +2,7 @@ import { createHmac, randomUUID } from "node:crypto";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { prisma } from "~/db/client.server";
 import { createAcknowledgment } from "~/db/repositories/acknowledgmentRepository.server";
 import { getLatestPolicyVersion } from "~/db/repositories/policyVersionRepository.server";
 import { createWarrantyClaim } from "~/db/repositories/warrantyClaimRepository.server";
@@ -152,17 +153,22 @@ describe("docs/REQUIRED-CUSTOMER-ACCOUNTS.md — no guest path", () => {
 });
 
 describe("ownership — the gate this route exists for", () => {
-  it("refuses a request for a claim id that does not exist, without ever reaching the upload port", async () => {
+  it("ISSUES a destination for a claim id that does not exist YET — the client-generated-id-before-creation flow (apps.carat.warranty-claim.tsx's module comment)", async () => {
     useConfiguredR2PortForTests();
+    const pendingClaimId = randomUUID();
     const response = await callAction(
-      destinationRequest({ body: { claimId: randomUUID(), kind: "photo", contentType: "image/jpeg", sizeBytes: 1000 } })
+      destinationRequest({ body: { claimId: pendingClaimId, kind: "photo", contentType: "image/jpeg", sizeBytes: 1000 } })
     );
-    expect(response.status).toBe(422);
-    const body = (await response.json()) as { error: string };
-    expect(body.error).toBe("claim_unresolved");
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as { storageKey: string };
+
+    const persisted = await prisma.warrantyClaimUploadDestination.findUnique({ where: { storageKey: body.storageKey } });
+    expect(persisted?.claimId).toBe(pendingClaimId);
+    expect(persisted?.customerRef).toBe(DEFAULT_CUSTOMER_GID);
+    expect(persisted?.consumedAt).toBeNull();
   });
 
-  it("refuses a request for a REAL claim that belongs to a DIFFERENT customer, with the SAME response as a nonexistent claim", async () => {
+  it("refuses a request for a REAL claim that belongs to a DIFFERENT customer — unlike a not-yet-existing id, a real claim's ownership is enforced", async () => {
     useConfiguredR2PortForTests();
     const otherCustomerClaim = await seedClaim({ customerRef: "gid://shopify/Customer/999999" });
 
@@ -172,6 +178,9 @@ describe("ownership — the gate this route exists for", () => {
     expect(response.status).toBe(422);
     const body = (await response.json()) as { error: string };
     expect(body.error).toBe("claim_unresolved");
+
+    const persisted = await prisma.warrantyClaimUploadDestination.findFirst({ where: { claimId: otherCustomerClaim.id } });
+    expect(persisted).toBeNull();
   });
 
   it("refuses a request for a real claim with NO customer on file (no self-service bypass)", async () => {
@@ -212,11 +221,15 @@ describe("fail-closed when storage is unconfigured", () => {
     expect(body.error).toBe("uploads_unavailable");
   });
 
-  it("checks ownership BEFORE checking configuration — a claim that isn't the caller's own never learns whether storage is configured", async () => {
+  it("checks ownership BEFORE checking configuration — a REAL claim that isn't the caller's own never learns whether storage is configured", async () => {
     useUnconfiguredPortForTests();
+    const otherCustomerClaim = await seedClaim({ customerRef: "gid://shopify/Customer/999999" });
+
     const response = await callAction(
-      destinationRequest({ body: { claimId: randomUUID(), kind: "photo", contentType: "image/jpeg", sizeBytes: 1000 } })
+      destinationRequest({ body: { claimId: otherCustomerClaim.id, kind: "photo", contentType: "image/jpeg", sizeBytes: 1000 } })
     );
+    // 422 claim_unresolved, NOT 503 uploads_unavailable — ownership is
+    // checked first regardless of storage configuration.
     expect(response.status).toBe(422);
   });
 });

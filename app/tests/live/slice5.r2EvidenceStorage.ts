@@ -34,7 +34,7 @@
  * object it created in a `finally` block, best-effort, and reports success
  * or failure of that cleanup explicitly. If the script is killed before that
  * runs (Ctrl+C, crash), the objects are still there — remove them by hand via
- * Cloudflare dashboard -> R2 -> `caratforus-evidence` -> filter by
+ * Cloudflare dashboard -> R2 -> `caratforus-evidence-prod` -> filter by
  * `warranty/_live-gate/` prefix -> delete. Nothing this gate writes is
  * customer data.
  *
@@ -51,9 +51,39 @@ import { randomUUID } from "node:crypto";
 const ALLOWED_ORIGIN = "https://caratforus-dev.myshopify.com";
 
 let failures = 0;
-function check(condition: unknown, message: string): void {
+
+/**
+ * THE ASSERTIONS THAT MUST ACTUALLY RUN — owner condition, 2026-09-28:
+ * "do not enable uploads unless every assertion executes and passes,
+ * including unsigned-read denial. A setup refusal or skipped post-guard
+ * assertion is not a pass."
+ *
+ * `failures === 0` alone cannot express that: it is equally true when every
+ * assertion passed and when none of them ran. Today an exception mid-run
+ * lands in `main().catch` and sets exit 1, so a partial run does fail — but
+ * that is a property of the current control flow, not a guarantee. One
+ * future early `return` on an unexpected-but-not-thrown condition (an
+ * empty response, a short-circuit on a non-ok status) would skip the
+ * remaining checks, leave `failures` at 0, and print LIVE GATE PASSED.
+ *
+ * So the gate now proves WHICH assertions executed. Omitted deliberately:
+ * `cors-origin` (only runs when the backend returns the header on the real
+ * PUT, which R2 may legitimately not) and `bytes-match` (only meaningful if
+ * the signed GET succeeded, whose own failure is already required below).
+ */
+const REQUIRED_ASSERTIONS = ["put", "unsigned-private", "signed-get", "expiry"] as const;
+type AssertionId = (typeof REQUIRED_ASSERTIONS)[number] | "cors-origin" | "bytes-match";
+
+const executed = new Set<AssertionId>();
+function check(id: AssertionId, condition: unknown, message: string): void {
+  executed.add(id);
   console.log(`  ${condition ? "PASS" : "FAIL"}  ${message}`);
   if (!condition) failures += 1;
+}
+
+/** Returns the required assertions that never ran — empty means full coverage. */
+function missingAssertions(): AssertionId[] {
+  return REQUIRED_ASSERTIONS.filter((id) => !executed.has(id));
 }
 
 async function main() {
@@ -103,11 +133,11 @@ async function main() {
       headers: { "content-type": "text/plain", origin: ALLOWED_ORIGIN },
       body: testBody,
     });
-    check(putResponse.ok, `PUT succeeded (status ${putResponse.status})`);
+    check("put", putResponse.ok, `PUT succeeded (status ${putResponse.status})`);
     const allowOrigin = putResponse.headers.get("access-control-allow-origin");
     console.log(`         access-control-allow-origin on the PUT response: ${allowOrigin}`);
     if (allowOrigin !== null) {
-      check(allowOrigin === ALLOWED_ORIGIN, `CORS reflects the allowed origin (got ${allowOrigin})`);
+      check("cors-origin", allowOrigin === ALLOWED_ORIGIN, `CORS reflects the allowed origin (got ${allowOrigin})`);
     } else {
       console.log("         NOTE: no CORS header on the actual PUT response — some S3-compatible " + "backends only return one on the OPTIONS preflight, not the real request. Not " + "treated as a failure on its own; the browser-side preflight is what actually " + "gates a real storefront upload and is not reproducible from this Node script.");
     }
@@ -128,6 +158,7 @@ async function main() {
     unsignedUrl.search = "";
     const unsignedResponse = await fetch(unsignedUrl.toString());
     check(
+      "unsigned-private",
       unsignedResponse.status !== 200,
       `unsigned GET does NOT return 200 (got ${unsignedResponse.status}) — if this is 200, THE BUCKET IS PUBLIC. ` +
         "Stop immediately and fix docs/specs/R2-BUCKET-SETUP.md §2 (Public Development URL / Custom Domains) " +
@@ -140,21 +171,34 @@ async function main() {
     console.log("\n3. Signed GET works; an expired one does not");
     const getUrl = (await client.createPresignedGetUrl({ key: objectKey })).url;
     const getResponse = await fetch(getUrl);
-    check(getResponse.ok, `signed GET succeeded (status ${getResponse.status})`);
+    check("signed-get", getResponse.ok, `signed GET succeeded (status ${getResponse.status})`);
     if (getResponse.ok) {
       const returnedBody = await getResponse.text();
-      check(returnedBody === testBody, "signed GET returns the exact bytes that were uploaded");
+      check("bytes-match", returnedBody === testBody, "signed GET returns the exact bytes that were uploaded");
     }
     console.log(`         default GET expiry is ${R2_GET_URL_EXPIRY_SECONDS}s (short-lived, per spec §5)`);
 
     const shortLivedGetUrl = (await client.createPresignedGetUrl({ key: objectKey, expiresInSeconds: 1 })).url;
     await new Promise((resolve) => setTimeout(resolve, 2_500));
     const expiredResponse = await fetch(shortLivedGetUrl);
-    check(expiredResponse.status !== 200, `expired signed GET does NOT return 200 (got ${expiredResponse.status})`);
+    check("expiry", expiredResponse.status !== 200, `expired signed GET does NOT return 200 (got ${expiredResponse.status})`);
+
+    // COVERAGE BEFORE VERDICT. A clean `failures` count is only meaningful
+    // once every required assertion has actually executed — see
+    // `REQUIRED_ASSERTIONS`. Reported as its own line so a partial run can
+    // never be read as a pass at a glance.
+    const missing = missingAssertions();
+    if (missing.length > 0) {
+      console.log(
+        `\nINCOMPLETE — ${missing.length} required assertion(s) NEVER RAN: ${missing.join(", ")}. ` +
+          "This is NOT a pass, regardless of how many checks above say PASS. Uploads stay disabled."
+      );
+    }
 
     console.log(
-      failures === 0
-        ? "\nLIVE GATE PASSED — the bucket is private, presigned PUT/GET round-trip against it, and expiry is enforced."
+      failures === 0 && missing.length === 0
+        ? "\nLIVE GATE PASSED — the bucket is private, presigned PUT/GET round-trip against it, and expiry is enforced.\n" +
+            `All ${REQUIRED_ASSERTIONS.length} required assertions executed: ${REQUIRED_ASSERTIONS.join(", ")}.`
         : `\n${failures} ASSERTION(S) FAILED — see above. Uploads must stay disabled until every check here passes.`
     );
   } finally {
@@ -179,5 +223,10 @@ main()
     process.exitCode = 1;
   })
   .finally(() => {
-    process.exitCode = process.exitCode ?? (failures === 0 ? 0 : 1);
+    // Exit non-zero if anything failed OR if any required assertion never
+    // ran. The second clause is what makes a partially-completed run
+    // indistinguishable from an outright failure to any caller reading only
+    // the exit code — including a human skimming the last line of output.
+    const incomplete = missingAssertions().length > 0;
+    process.exitCode = process.exitCode ?? (failures === 0 && !incomplete ? 0 : 1);
   });

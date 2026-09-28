@@ -5,6 +5,7 @@ import { prisma } from "~/db/client.server";
 import { createAcknowledgment } from "~/db/repositories/acknowledgmentRepository.server";
 import { getLatestPolicyVersion } from "~/db/repositories/policyVersionRepository.server";
 import { createWarrantyClaim, recordWarrantyClaimUpload } from "~/db/repositories/warrantyClaimRepository.server";
+import { consumeWarrantyClaimUploadDestination } from "~/db/repositories/warrantyClaimUploadDestinationRepository.server";
 import {
   WARRANTY_CLAIM_ACKNOWLEDGMENT_AFFIRMATIVE_ACTION_LABEL,
   WARRANTY_CLAIM_ACKNOWLEDGMENT_POLICY_SLUG,
@@ -39,6 +40,41 @@ import { verifyAppProxySignature } from "~/shopify/proxy";
  * fields — `claimId` / `claimReference` / `status` only — specifically so
  * that no future field addition here can smuggle shipping content in by
  * accident. See `warrantyClaim.test.ts`'s fence test for the literal check.
+ *
+ * ============================================================================
+ * UPLOAD DESTINATIONS ARE VERIFIED, NOT TRUSTED — closes the storageKey trust
+ * gap flagged in the R2 adapter handoff
+ * ============================================================================
+ * `uploads[].storageKey` used to be accepted as an opaque client-supplied
+ * string with nothing checking that a destination was ever actually issued
+ * for it — "a claim can name a key nobody ever uploaded to. It matters
+ * because those rows ARE the dispute evidence" (assigning message). Every
+ * upload is now verified AND CONSUMED (`consumeWarrantyClaimUploadDestination`,
+ * one atomic conditional UPDATE per key, never a read-then-write) before this
+ * route creates anything. An unverifiable key — never issued, issued for a
+ * DIFFERENT claim, issued to a DIFFERENT customer, expired, or already
+ * consumed — REFUSES THE ENTIRE SUBMISSION with 422 `invalid_upload_reference`
+ * and creates NO claim at all. This is a deliberate reversal of this route's
+ * earlier behaviour (uploads used to be recorded best-effort, outside the
+ * claim-creation path, so a bad one would silently leave "a real, valid claim"
+ * minus that evidence) — the assigning message is explicit that succeeding
+ * minus evidence is the worse outcome, not the safer one, because the
+ * resulting claim reads as substantiated when it is not.
+ *
+ * `claimId` in the body is the mechanism that makes this possible before the
+ * claim exists: the client generates it (`crypto.randomUUID()`), uses it to
+ * request every destination it needs from `apps.carat.warranty-claim-upload-
+ * destination.tsx` WHILE the form is being filled out, and submits that same
+ * id here so `createWarrantyClaim` creates the row with that EXACT id — see
+ * `CreateWarrantyClaimInput.id`'s comment and that route's "WHY A
+ * NOT-YET-EXISTING CLAIM ID IS ALLOWED" module comment. Required whenever
+ * `uploads` is non-empty; a submission with uploads but no `claimId` is
+ * refused with 400 before anything is touched.
+ *
+ * Verification never distinguishes WHY a key failed in its response — a key
+ * issued for someone else's claim and a key that never existed are
+ * indistinguishable, by design (assigning message's enumeration-oracle
+ * constraint). The specific reason is logged server-side only.
  *
  * ============================================================================
  * ACKNOWLEDGMENT COPY — APPROVED 2026-09-25, ONE MERGED ACKNOWLEDGMENT
@@ -168,6 +204,14 @@ const uploadSchema = z.object({
 
 const bodySchema = z
   .object({
+    /**
+     * Client-generated (`crypto.randomUUID()`), REQUIRED whenever `uploads`
+     * is non-empty — see this file's "UPLOAD DESTINATIONS ARE VERIFIED, NOT
+     * TRUSTED" module comment. Becomes the created claim's actual `id`.
+     * Optional here (rather than always-required) so a submission with no
+     * uploads is unaffected by this change.
+     */
+    claimId: z.string().uuid().optional(),
     orderRef: z.string().min(1).max(200),
     lineRef: z.string().min(1).max(200),
     /** Optional — see this file's module comment on why variant resolution never gates claim creation. */
@@ -220,6 +264,15 @@ const bodySchema = z
 function badRequest(reason: string) {
   return Response.json({ error: "invalid_request", reason }, { status: 400 });
 }
+
+/**
+ * Thrown INSIDE the upload-destination-consumption transaction to force an
+ * actual rollback — see that transaction's own comment on why returning a
+ * sentinel value instead does not roll anything back. Caught immediately
+ * outside the transaction and turned into the generic 422 response; never
+ * escapes this file.
+ */
+class UnverifiableUploadReferenceError extends Error {}
 
 function authenticationRequired() {
   return Response.json(
@@ -352,6 +405,54 @@ export async function action({ request }: ActionFunctionArgs) {
     }
   }
 
+  const uploads = body.uploads ?? [];
+  if (uploads.length > 0 && !body.claimId) {
+    return badRequest("claimId is required when uploads are provided");
+  }
+
+  // VERIFY + CONSUME every upload destination BEFORE anything else is
+  // written — see this file's "UPLOAD DESTINATIONS ARE VERIFIED, NOT
+  // TRUSTED" module comment. Cheap and entirely local (no Shopify Admin API
+  // call), so it runs before the acknowledgment write and the order lookup:
+  // a submission with a bad key is refused before either of those happen.
+  // One transaction across every upload in this submission — if ANY key
+  // fails verification, destinations already consumed earlier in this same
+  // loop are rolled back too, so a partially-bad submission never leaves
+  // some of its evidence silently consumed and orphaned.
+  if (uploads.length > 0) {
+    try {
+      await prisma.$transaction(async (tx) => {
+        for (const upload of uploads) {
+          const consumed = await consumeWarrantyClaimUploadDestination(
+            { storageKey: upload.storageKey, claimId: body.claimId!, customerRef },
+            tx
+          );
+          // THROW, do not merely return/break. Returning a sentinel value
+          // from a Prisma `$transaction` callback does NOT roll it back —
+          // only a thrown error does. A first draft of this route returned
+          // `false` here, which meant destinations consumed EARLIER in this
+          // same loop stayed consumed even though the overall submission was
+          // about to be refused — exactly the "spent but attached to
+          // nothing" state this whole fix exists to prevent. Caught by
+          // `warrantyClaimRoute.test.ts`'s "the SAME key referenced TWICE in
+          // one submission" test before this ever shipped.
+          if (!consumed) throw new UnverifiableUploadReferenceError();
+        }
+      });
+    } catch (error) {
+      if (error instanceof UnverifiableUploadReferenceError) {
+        // Deliberately generic — see this file's module comment on why a key
+        // issued for someone else's claim and a key that never existed must
+        // be indistinguishable. The actual reason is never recoverable from
+        // this check anyway (`consumeWarrantyClaimUploadDestination`
+        // collapses every failure mode into `false` by construction).
+        logger.warn("warranty_claim.invalid_upload_reference", {});
+        return Response.json({ error: "invalid_upload_reference" }, { status: 422 });
+      }
+      throw error;
+    }
+  }
+
   // ACKNOWLEDGMENT GATE (criterion 154) — cheap, local, and avoids ever
   // calling the Shopify Admin API for a submission this route cannot
   // complete anyway if the environment is misprovisioned. `customerRef` was
@@ -416,6 +517,25 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   const claim = await createWarrantyClaim({
+    // Keyed on `uploads.length`, NOT on whether `body.claimId` happens to be
+    // present. A client-chosen primary key is accepted for exactly one
+    // reason — to bind evidence that was uploaded before the claim existed —
+    // so with no uploads there is nothing to bind and the column default
+    // (`@default(uuid())`) generates the id, exactly as before this field
+    // existed. Writing this as `body.claimId ?? undefined` would also honour
+    // a `claimId` sent alongside an EMPTY `uploads` array, which nothing
+    // refuses: that turns claim creation into a weak existence oracle for a
+    // guessed id (collision fails distinctively, a free id succeeds) and
+    // hands a caller control of a primary key they never supplied evidence
+    // for. Unguessable in practice — these are v4 UUIDs — but it costs one
+    // expression to not offer it at all.
+    //
+    // When uploads WERE provided, `body.claimId` is guaranteed non-null here
+    // (the check above already refused the request otherwise) and is the SAME
+    // id every destination was just verified+consumed against, so this INSERT
+    // lands under the id the client and the now-consumed destination rows
+    // already agreed on.
+    id: uploads.length > 0 ? body.claimId : undefined,
     orderRef: orderGid,
     lineRef: lineGid,
     customerRef,
@@ -439,11 +559,14 @@ export async function action({ request }: ActionFunctionArgs) {
     actor: { actorType: "customer", actorRef: customerRef, reason: "claim submitted via warranty claim form" },
   });
 
-  // Uploads — already validated above; recorded per-item. A failure here
-  // still leaves the customer with a real, valid claim (see this route's
-  // handoff notes on why this is not wrapped in the same transaction as
-  // claim creation).
-  for (const upload of body.uploads ?? []) {
+  // Uploads — metadata already validated AND the destination already
+  // verified+consumed above, so every item here is known-good; recorded
+  // per-item, not wrapped in the same transaction as claim creation. A
+  // failure in THIS specific write (an unexpected DB error, not a bad key —
+  // that case is already refused earlier) still leaves the customer with a
+  // real, valid claim rather than none at all, which is the deliberately
+  // accepted residual risk of this ordering.
+  for (const upload of uploads) {
     try {
       await recordWarrantyClaimUpload({
         claimId: claim.id,

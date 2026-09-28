@@ -2564,6 +2564,64 @@ model WarrantyClaimUpload {
   @@map("warranty_claim_upload")
 }
 
+/// Closes the storageKey trust gap flagged in the R2 adapter handoff:
+/// `apps.carat.warranty-claim.tsx` used to accept `storageKey` as an opaque
+/// client-supplied string with nothing to verify a destination was ever
+/// actually issued for it. A claim naming a key nobody uploaded to is worse
+/// than one with no evidence at all, because it reads as substantiated.
+///
+/// One row per presigned destination the upload-destination endpoint issues
+/// (`apps.carat.warranty-claim-upload-destination.tsx`). The intake route
+/// consumes it atomically before ever recording a `WarrantyClaimUpload` row,
+/// requiring an exact match on claim, customer, an unexpired window, and
+/// "not already consumed" — all in one conditional UPDATE, never a
+/// read-then-write.
+///
+/// `claimId` IS DELIBERATELY NOT A FOREIGN KEY. A destination must be
+/// issuable before the claim it belongs to exists: the client generates the
+/// claim's id and presents that same id both when requesting a destination
+/// and when submitting the claim that creates the row with that exact id
+/// (`apps.carat.warranty-claim.tsx`'s module comment). A hard FK cannot
+/// reference a row that does not exist yet at INSERT time here. Consumption
+/// still requires `claimId` to equal the real claim's id, so this is a value
+/// match, not a referential shortcut — and a client-supplied id can only
+/// ever create a BRAND NEW claim row (Postgres's primary-key uniqueness on
+/// `warranty_claim` refuses an attempt to reuse an existing one), so this
+/// never lets anyone attach evidence to a claim they did not just create.
+///
+/// DELIBERATELY NOT APPEND-ONLY, unlike every other table in this file. This
+/// is a single-use reservation ticket, not evidence of the claim's content —
+/// the same distinction migration `20260913000100_append_only_evidence_
+/// triggers` already draws for `webhook_event`/`idempotency_key` ("both are
+/// documented as mutable"). The one legal mutation is `consumedAt` moving
+/// from NULL to a timestamp, exactly once, via an atomic conditional UPDATE.
+model WarrantyClaimUploadDestination {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// See the model comment — a value to match against, not a foreign key.
+  claimId String @map("claim_id") @db.Uuid
+  /// The authenticated identity this was issued to
+  /// (`logged_in_customer_id`), NEVER a client-supplied field. Re-checked at
+  /// consumption time, not merely at issuance.
+  customerRef String @map("customer_ref")
+
+  kind        WarrantyClaimUploadKind @map("kind")
+  contentType String                  @map("content_type")
+  /// Globally unique — this IS the object key the presigned PUT was scoped
+  /// to (`~/jobs/warranty/ports.ts`'s `buildStorageKey`, a fresh UUID per
+  /// destination), so two destinations can never collide on this column.
+  storageKey String @unique @map("storage_key")
+
+  issuedAt  DateTime @default(now()) @map("issued_at") @db.Timestamptz(6)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  /// NULL until consumed. See the model comment for why this column is
+  /// mutable despite every sibling table in this file being append-only.
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
+
+  @@index([claimId])
+  @@map("warranty_claim_upload_destination")
+}
+
 /// M16. The remedy CaratForUs selected (§6) and its external references.
 /// Never customer-selected (criterion 162) — nothing here is written from a
 /// customer-facing input; task 5-2's repository only exposes a staff/admin
