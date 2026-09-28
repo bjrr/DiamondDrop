@@ -31,9 +31,30 @@ const ALLOWED_WRITE_TABLES = new Set([
   "audit_event",
 ]);
 
-/** INSERT INTO "t" / UPDATE "t" / DELETE FROM "t", quoted or bare. */
+/**
+ * INSERT INTO "t" / UPDATE "t" / DELETE FROM "t", quoted or bare, with or
+ * without a schema qualifier.
+ *
+ * THE SCHEMA QUALIFIER IS MATCHED GENERICALLY, and that is not cosmetic. This
+ * pattern previously allowed only a literal `"public".` prefix. The integration
+ * harness now gives every run its own schema (`carat_it_<pid>_<stamp>`, see
+ * `tests/integration/globalSetup.ts`), so the real SQL reads
+ * `INSERT INTO "carat_it_12345_abc"."price_calculation"` — which that pattern
+ * did not recognise as qualified, capturing the SCHEMA name as the table.
+ *
+ * The consequence was severe and silent: this fence is what proves the Buy Now
+ * recalculation job never writes Group Buy frozen prices (D15). With every
+ * write attributed to one schema-named pseudo-table, it was checking a name
+ * that can never appear in the allowlist and never checking a real table
+ * again. It was the guard-the-guard assertion below — `toContain
+ * ("price_calculation")` — that caught this rather than the allowlist, which
+ * is the entire reason that assertion exists.
+ *
+ * Anchored on the LAST identifier so any schema works, including `public`,
+ * a per-run test schema, or none at all.
+ */
 const WRITE_SQL =
-  /\b(?:insert\s+into|update|delete\s+from)\s+(?:"?public"?\.)?"?([a-z_][a-z0-9_]*)"?/gi;
+  /\b(?:insert\s+into|update|delete\s+from)\s+(?:"?[a-z_][a-z0-9_]*"?\s*\.\s*)?"?([a-z_][a-z0-9_]*)"?/gi;
 
 function tablesWrittenBy(sql: string): string[] {
   const found: string[] = [];

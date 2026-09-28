@@ -263,10 +263,40 @@ export default async function setup() {
   // its own attribution rather than as "integration setup failed".
   console.log("Building server bundle for integration tests...");
   try {
-    execSync("npm run build", { stdio: "inherit", cwd: process.cwd() });
+    // RETRY, BECAUSE CONCURRENT RUNS SHARE ONE `build/` DIRECTORY.
+    //
+    // Per-run schemas isolated the database and the advisory-lock retry
+    // serialised migrations, but the bundle build was still shared: two
+    // concurrent runs both invoke `npm run build` into the same output
+    // directory and clobber each other mid-write. The symptom is this very
+    // error — "Failed to build the server bundle" — which reads like the
+    // application is broken. It is not: running `npm run build` alone
+    // immediately succeeds, which is how the collision was identified.
+    //
+    // Serialising would be tidier but needs a lock primitive we do not have
+    // here; retrying is enough because the loser of a race only has to wait
+    // for the winner to finish. A genuine build failure still fails, just
+    // after a couple of attempts.
+    const BUILD_ATTEMPTS = 3;
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        execSync("npm run build", { stdio: "inherit", cwd: process.cwd() });
+        break;
+      } catch (error) {
+        if (attempt >= BUILD_ATTEMPTS) throw error;
+        const waitMs = attempt * 20_000;
+        console.log(
+          `Server bundle build failed (attempt ${attempt}/${BUILD_ATTEMPTS}); another integration ` +
+            `run may be building into the same directory. Retrying in ${waitMs / 1000}s.`
+        );
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+    }
   } catch (error) {
     throw new Error(
-      `Failed to build the server bundle. Run \`npm run build\` manually to see the error. ` +
+      `Failed to build the server bundle. Run \`npm run build\` manually to see the error — if it ` +
+        `succeeds alone, this was a concurrent-run collision on the shared build/ directory rather ` +
+        `than a real failure. ` +
         `(Original error: ${error instanceof Error ? error.message : String(error)})`
     );
   }
