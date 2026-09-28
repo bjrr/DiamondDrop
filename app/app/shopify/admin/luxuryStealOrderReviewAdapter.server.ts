@@ -170,8 +170,16 @@ const LUXURY_STEAL_HOLD_HANDLE_NAMESPACE = "carat:ls-unverified";
  * prefix is 31 characters of constant overhead. Dropping it costs nothing:
  * the id is still unique, still derived from the payload alone, so a
  * redelivery still recomputes the same handle.
+ *
+ * NAMED FOR THE SHOPIFY FIELD, NOT FOR LUXURY STEALS — deliberately renamed
+ * from `LUXURY_STEAL_HOLD_HANDLE_MAX_LENGTH` once `holdFulfillmentOrder`
+ * became a caller-supplied-`handle` method reused by more than one consumer
+ * (Group Buy's own cancellation-acknowledgment hold). This is a Shopify
+ * PLATFORM limit on `FulfillmentOrderHoldInput.handle`, not something
+ * specific to the program that happened to discover it first; a reader from
+ * either consumer should be able to tell that at a glance.
  */
-export const LUXURY_STEAL_HOLD_HANDLE_MAX_LENGTH = 64;
+export const FULFILLMENT_ORDER_HOLD_HANDLE_MAX_LENGTH = 64;
 
 /**
  * PURE. Deterministic per fulfilment order — the SAME handle every time,
@@ -239,18 +247,34 @@ export interface LuxuryStealOrderReviewPort {
   listFulfillmentOrders(orderGid: string): Promise<FulfillmentOrderSummary[]>;
 
   /**
-   * Places a hold with reason `OTHER`, `reasonNotes`, and this app's own
-   * deterministic `handle` (`buildLuxuryStealHoldHandle`) — `reasonNotes` is
-   * this app's ONLY way to explain a hold to staff, since D28 explicitly
-   * forbids writing to `Order.note` (a shared field that could clobber a
-   * pre-existing customer/merchant note across a webhook retry). Never
-   * throws for "already held by us" — see `HoldFulfillmentOrderResult` and
-   * this module's own doc comment for the recognition order (duplicate
-   * -handle code first, status re-check second).
+   * Places a hold with reason `OTHER`, `reasonNotes`, and a CALLER-SUPPLIED
+   * deterministic `handle` — `reasonNotes` is this app's ONLY way to explain
+   * a hold to staff, since D28 explicitly forbids writing to `Order.note` (a
+   * shared field that could clobber a pre-existing customer/merchant note
+   * across a webhook retry). Never throws for "already held by us" — see
+   * `HoldFulfillmentOrderResult` and this module's own doc comment for the
+   * recognition order (duplicate-handle code first, status re-check second).
+   *
+   * `handle` IS A CALLER-SUPPLIED PARAMETER, NOT COMPUTED HERE, because this
+   * port/adapter is reused verbatim by more than one consumer as of the
+   * Group Buy cancellation-acknowledgment order-time check (owner spec
+   * 2026-09-27/28: "reuse the proven D28 machinery rather than building a
+   * second hold/idempotency system") — each caller supplies its OWN
+   * namespaced handle (`buildLuxuryStealHoldHandle` for Luxury Steals,
+   * `buildGroupBuyCancellationHoldHandle` for Group Buy) so a hold placed for
+   * one reason is never mistaken, in the Shopify admin UI or in this app's
+   * own audit trail, for the other. `FULFILLMENT_ORDER_HOLD_HANDLE_MAX_LENGTH`
+   * (below) is still the SHOPIFY PLATFORM limit every caller's own handle
+   * builder must respect, not something specific to Luxury Steals — kept
+   * under this name only because renaming a shipped, tested constant is out
+   * of this task's scope; a future consumer should import and reuse it
+   * rather than re-deriving "64" as an unexplained magic number a second
+   * time.
    */
   holdFulfillmentOrder(input: {
     fulfillmentOrderGid: string;
     reasonNotes: string;
+    handle: string;
   }): Promise<HoldFulfillmentOrderResult>;
 }
 
@@ -309,8 +333,31 @@ export class ShopifyLuxuryStealOrderReviewAdapter implements LuxuryStealOrderRev
   async holdFulfillmentOrder(input: {
     fulfillmentOrderGid: string;
     reasonNotes: string;
+    handle: string;
   }): Promise<HoldFulfillmentOrderResult> {
-    const handle = buildLuxuryStealHoldHandle(input.fulfillmentOrderGid);
+    // THE GUARD THIS FILE'S OWN HISTORY SAYS MUST EXIST. `handle` became a
+    // caller-supplied parameter (see this method's own interface doc
+    // comment) rather than always being computed internally by
+    // `buildLuxuryStealHoldHandle`, which removed the STRUCTURAL guarantee
+    // that made an oversized handle impossible. Without this check, the
+    // exact failure this module's header comment already describes recurs
+    // silently: Shopify rejects an oversized handle with a userError this
+    // adapter's OWN status-fallback path would then interpret as "some other
+    // reason, but the fulfilment order is still protected" — the fallback
+    // query could easily find it NOT held, correctly throwing, but a subtly
+    // different oversized value could just as easily coincide with an
+    // already-held fulfilment order from a merchant's own action and be
+    // silently swallowed as `status_fallback`. Thrown HERE, BEFORE the Admin
+    // API call, so an oversized handle is a loud, local, immediate failure —
+    // never a network round trip that might still "succeed" for the wrong
+    // reason.
+    if (input.handle.length > FULFILLMENT_ORDER_HOLD_HANDLE_MAX_LENGTH) {
+      throw new Error(
+        `holdFulfillmentOrder: handle "${input.handle}" is ${input.handle.length} characters, exceeding ` +
+          `Shopify's ${FULFILLMENT_ORDER_HOLD_HANDLE_MAX_LENGTH}-character limit on FulfillmentOrderHoldInput.handle. ` +
+          "Refused before calling the Admin API."
+      );
+    }
 
     const data = await execute(this.client, "fulfillmentOrderHold", FULFILLMENT_ORDER_HOLD_MUTATION, {
       id: input.fulfillmentOrderGid,
@@ -321,7 +368,7 @@ export class ShopifyLuxuryStealOrderReviewAdapter implements LuxuryStealOrderRev
         // about why the order is held — see module doc comment.
         reason: "OTHER",
         reasonNotes: input.reasonNotes,
-        handle,
+        handle: input.handle,
       },
     });
 

@@ -2,10 +2,37 @@ import { describe, expect, it } from "vitest";
 
 import { prisma } from "~/db/client.server";
 import { listAuditEventsForEntity } from "~/db/repositories/auditEventRepository.server";
+import { getLatestPolicyVersion } from "~/db/repositories/policyVersionRepository.server";
+import {
+  GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_AFFIRMATIVE_ACTION_LABEL,
+  GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_POLICY_SLUG,
+} from "~/domain/groupbuy/cancellationAcknowledgmentText";
 import { CampaignOpenTierPublishError, openGroupBuyCampaign } from "~/jobs/groupbuy/openCampaign.server";
 import type { ShopifyPriceSyncPort } from "~/jobs/pricing/ports";
 import { RecordingPriceSyncPort } from "~/jobs/pricing/ports";
+import type { LuxuryStealOrderReviewPort } from "~/shopify/admin/luxuryStealOrderReviewAdapter.server";
 import { handleGroupBuyOrderCreateWebhook } from "~/shopify/webhooks/groupBuyOrderHandler.server";
+
+/**
+ * A NO-OP review port. This file is not about cancellation-acknowledgment
+ * verification (that is `orderCreateWebhook.test.ts`'s own suite) — every
+ * order below carries a fully valid, verified acknowledgment purely so the
+ * ALWAYS-RECONCILE tag/hold step (see `groupBuyOrderHandler.server.ts`'s own
+ * module comment) has something harmless to call rather than reaching the
+ * real, machine-configured Shopify Admin API client this suite must never
+ * touch.
+ */
+function noopReviewPort(): LuxuryStealOrderReviewPort {
+  return {
+    async addOrderTags() {},
+    async listFulfillmentOrders() {
+      return [];
+    },
+    async holdFulfillmentOrder() {
+      throw new Error("must not be called — every order in this file carries a verified acknowledgment");
+    },
+  };
+}
 
 /**
  * Publishing tier 1 at campaign OPEN — the second half of the gap the
@@ -107,6 +134,22 @@ async function createLinkedPriceableVariant() {
   return { variantId: variant.id, shopifyVariantGid: variant.shopifyVariantGid!, shopifyProductGid: product.shopifyProductGid! };
 }
 
+/** A fully valid cancellation acknowledgment against the REAL provisioned policy_version row — mirrors `orderCreateWebhook.test.ts`'s identical fixture. */
+async function createValidCancellationAcknowledgment(input: { customerGid: string; campaignCode: string }) {
+  const pv = await getLatestPolicyVersion(GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_POLICY_SLUG);
+  if (!pv) throw new Error("expected the Group Buy cancellation policy_version migration to already be applied");
+  return prisma.acknowledgment.create({
+    data: {
+      exactText: pv.text,
+      policyVersionId: pv.id,
+      acknowledgedAt: new Date(),
+      affirmativeActionLabel: GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_AFFIRMATIVE_ACTION_LABEL,
+      customerRef: input.customerGid,
+      campaignRef: input.campaignCode,
+    },
+  });
+}
+
 async function draftCampaign(variantId: string) {
   return prisma.groupBuyCampaign.create({
     data: {
@@ -177,7 +220,15 @@ describe("publishing tier 1 at open", () => {
     expect(port.calls).toHaveLength(1);
 
     const numericVariantId = shopifyVariantGid.split("/").pop();
-    const rawBody = `{"id":${nextNumericId()},"line_items":[{"id":"1","admin_graphql_api_id":"gid://shopify/LineItem/1","variant_id":${numericVariantId},"quantity":2}]}`;
+    const numericCustomerId = nextNumericId();
+    const ack = await createValidCancellationAcknowledgment({
+      customerGid: `gid://shopify/Customer/${numericCustomerId}`,
+      campaignCode: draft.code,
+    });
+    const rawBody =
+      `{"id":${nextNumericId()},"customer":{"id":${numericCustomerId},"admin_graphql_api_id":"gid://shopify/Customer/${numericCustomerId}"},` +
+      `"line_items":[{"id":"1","admin_graphql_api_id":"gid://shopify/LineItem/1","variant_id":${numericVariantId},"quantity":2,` +
+      `"properties":[{"name":"_carat_gb_cancel_ack","value":${JSON.stringify(ack.id)}}]}]}`;
 
     await handleGroupBuyOrderCreateWebhook(
       {
@@ -187,7 +238,7 @@ describe("publishing tier 1 at open", () => {
         rawBody,
         payload: JSON.parse(rawBody) as unknown,
       },
-      { resolveSyncPort: async () => port }
+      { resolveSyncPort: async () => port, resolveReviewPort: async () => noopReviewPort(), resolveEmailPort: () => ({ configured: false, reason: "not needed" }) }
     );
 
     // Still tier 1 (2 units, threshold for tier 2 is 5) and tier 1 was
@@ -241,7 +292,15 @@ describe("publishing tier 1 at open", () => {
 
     const recordingPort = new RecordingPriceSyncPort();
     const numericVariantId = shopifyVariantGid.split("/").pop();
-    const rawBody = `{"id":${nextNumericId()},"line_items":[{"id":"1","admin_graphql_api_id":"gid://shopify/LineItem/1","variant_id":${numericVariantId},"quantity":1}]}`;
+    const numericCustomerId = nextNumericId();
+    const ack = await createValidCancellationAcknowledgment({
+      customerGid: `gid://shopify/Customer/${numericCustomerId}`,
+      campaignCode: draft.code,
+    });
+    const rawBody =
+      `{"id":${nextNumericId()},"customer":{"id":${numericCustomerId},"admin_graphql_api_id":"gid://shopify/Customer/${numericCustomerId}"},` +
+      `"line_items":[{"id":"1","admin_graphql_api_id":"gid://shopify/LineItem/1","variant_id":${numericVariantId},"quantity":1,` +
+      `"properties":[{"name":"_carat_gb_cancel_ack","value":${JSON.stringify(ack.id)}}]}]}`;
 
     await handleGroupBuyOrderCreateWebhook(
       {
@@ -251,7 +310,11 @@ describe("publishing tier 1 at open", () => {
         rawBody,
         payload: JSON.parse(rawBody) as unknown,
       },
-      { resolveSyncPort: async () => recordingPort }
+      {
+        resolveSyncPort: async () => recordingPort,
+        resolveReviewPort: async () => noopReviewPort(),
+        resolveEmailPort: () => ({ configured: false, reason: "not needed" }),
+      }
     );
 
     expect(recordingPort.calls).toHaveLength(1);

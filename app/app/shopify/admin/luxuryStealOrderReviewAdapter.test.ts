@@ -5,7 +5,7 @@ import { AdminApiError } from "./productClient.server";
 import {
   ShopifyLuxuryStealOrderReviewAdapter,
   buildLuxuryStealHoldHandle,
-  LUXURY_STEAL_HOLD_HANDLE_MAX_LENGTH,
+  FULFILLMENT_ORDER_HOLD_HANDLE_MAX_LENGTH,
 } from "./luxuryStealOrderReviewAdapter.server";
 
 /** Same fake-client shape as `draftOrderAdapter.test.ts` — asserts on the SERIALISED variables, never an intermediate object. */
@@ -130,10 +130,10 @@ describe("buildLuxuryStealHoldHandle", () => {
     // Checked against an id far longer than Shopify currently issues, so the
     // margin is tested rather than the one case that happens to fit today.
     const realistic = buildLuxuryStealHoldHandle("gid://shopify/FulfillmentOrder/8330163061037");
-    expect(realistic.length).toBeLessThanOrEqual(LUXURY_STEAL_HOLD_HANDLE_MAX_LENGTH);
+    expect(realistic.length).toBeLessThanOrEqual(FULFILLMENT_ORDER_HOLD_HANDLE_MAX_LENGTH);
 
     const oversized = buildLuxuryStealHoldHandle(`gid://shopify/FulfillmentOrder/${"9".repeat(30)}`);
-    expect(oversized.length).toBeLessThanOrEqual(LUXURY_STEAL_HOLD_HANDLE_MAX_LENGTH);
+    expect(oversized.length).toBeLessThanOrEqual(FULFILLMENT_ORDER_HOLD_HANDLE_MAX_LENGTH);
   });
 
   it("derives the same handle every time for the same fulfilment order, and a different one for a different order", () => {
@@ -177,6 +177,7 @@ describe("ShopifyLuxuryStealOrderReviewAdapter.holdFulfillmentOrder", () => {
     await adapter.holdFulfillmentOrder({
       fulfillmentOrderGid: "gid://shopify/FulfillmentOrder/1",
       reasonNotes: "Unverified Luxury Steal acknowledgment — staff review required.",
+      handle: buildLuxuryStealHoldHandle("gid://shopify/FulfillmentOrder/1"),
     });
 
     expect(calls[0]?.document).toMatch(/fulfillmentOrderHold/);
@@ -204,6 +205,7 @@ describe("ShopifyLuxuryStealOrderReviewAdapter.holdFulfillmentOrder", () => {
     const result = await adapter.holdFulfillmentOrder({
       fulfillmentOrderGid: "gid://shopify/FulfillmentOrder/1",
       reasonNotes: "Unverified Luxury Steal acknowledgment — staff review required.",
+      handle: buildLuxuryStealHoldHandle("gid://shopify/FulfillmentOrder/1"),
     });
 
     expect(result).toEqual({ status: "ON_HOLD", recognizedVia: "applied", userErrorCodes: [] });
@@ -235,6 +237,7 @@ describe("ShopifyLuxuryStealOrderReviewAdapter.holdFulfillmentOrder", () => {
     const result = await adapter.holdFulfillmentOrder({
       fulfillmentOrderGid: "gid://shopify/FulfillmentOrder/1",
       reasonNotes: "Unverified Luxury Steal acknowledgment — staff review required.",
+      handle: buildLuxuryStealHoldHandle("gid://shopify/FulfillmentOrder/1"),
     });
 
     expect(result).toEqual({
@@ -270,6 +273,7 @@ describe("ShopifyLuxuryStealOrderReviewAdapter.holdFulfillmentOrder", () => {
     const result = await adapter.holdFulfillmentOrder({
       fulfillmentOrderGid: "gid://shopify/FulfillmentOrder/1",
       reasonNotes: "reason",
+      handle: buildLuxuryStealHoldHandle("gid://shopify/FulfillmentOrder/1"),
     });
 
     expect(result).toEqual({ status: "ON_HOLD", recognizedVia: "status_fallback", userErrorCodes: [] });
@@ -304,6 +308,7 @@ describe("ShopifyLuxuryStealOrderReviewAdapter.holdFulfillmentOrder", () => {
       const result = await adapter.holdFulfillmentOrder({
         fulfillmentOrderGid: "gid://shopify/FulfillmentOrder/1",
         reasonNotes: "x",
+        handle: buildLuxuryStealHoldHandle("gid://shopify/FulfillmentOrder/1"),
       });
 
       expect(result).toEqual({ status: "ON_HOLD", recognizedVia: "status_fallback", userErrorCodes: [code] });
@@ -325,7 +330,7 @@ describe("ShopifyLuxuryStealOrderReviewAdapter.holdFulfillmentOrder", () => {
     const adapter = new ShopifyLuxuryStealOrderReviewAdapter(client);
 
     await expect(
-      adapter.holdFulfillmentOrder({ fulfillmentOrderGid: "gid://shopify/FulfillmentOrder/1", reasonNotes: "x" })
+      adapter.holdFulfillmentOrder({ fulfillmentOrderGid: "gid://shopify/FulfillmentOrder/1", reasonNotes: "x", handle: buildLuxuryStealHoldHandle("gid://shopify/FulfillmentOrder/1") })
     ).rejects.toBeInstanceOf(AdminApiError);
   });
 
@@ -341,7 +346,7 @@ describe("ShopifyLuxuryStealOrderReviewAdapter.holdFulfillmentOrder", () => {
     const adapter = new ShopifyLuxuryStealOrderReviewAdapter(client);
 
     await expect(
-      adapter.holdFulfillmentOrder({ fulfillmentOrderGid: "gid://shopify/FulfillmentOrder/1", reasonNotes: "x" })
+      adapter.holdFulfillmentOrder({ fulfillmentOrderGid: "gid://shopify/FulfillmentOrder/1", reasonNotes: "x", handle: buildLuxuryStealHoldHandle("gid://shopify/FulfillmentOrder/1") })
     ).rejects.toBeInstanceOf(AdminApiError);
   });
 
@@ -350,7 +355,7 @@ describe("ShopifyLuxuryStealOrderReviewAdapter.holdFulfillmentOrder", () => {
     const adapter = new ShopifyLuxuryStealOrderReviewAdapter(client);
 
     await expect(
-      adapter.holdFulfillmentOrder({ fulfillmentOrderGid: "gid://shopify/FulfillmentOrder/1", reasonNotes: "x" })
+      adapter.holdFulfillmentOrder({ fulfillmentOrderGid: "gid://shopify/FulfillmentOrder/1", reasonNotes: "x", handle: buildLuxuryStealHoldHandle("gid://shopify/FulfillmentOrder/1") })
     ).rejects.toBeInstanceOf(AdminApiError);
     expect(calls).toHaveLength(1);
   });
@@ -362,7 +367,57 @@ describe("ShopifyLuxuryStealOrderReviewAdapter.holdFulfillmentOrder", () => {
     const adapter = new ShopifyLuxuryStealOrderReviewAdapter(client);
 
     await expect(
-      adapter.holdFulfillmentOrder({ fulfillmentOrderGid: "gid://shopify/FulfillmentOrder/1", reasonNotes: "x" })
+      adapter.holdFulfillmentOrder({ fulfillmentOrderGid: "gid://shopify/FulfillmentOrder/1", reasonNotes: "x", handle: buildLuxuryStealHoldHandle("gid://shopify/FulfillmentOrder/1") })
     ).rejects.toBeInstanceOf(AdminApiError);
+  });
+
+  /**
+   * THE GUARD THIS ADAPTER'S OWN HISTORY SAYS MUST EXIST (architect review,
+   * 2026-09-28): `handle` became a caller-supplied parameter, which removed
+   * the structural guarantee that `buildLuxuryStealHoldHandle` always
+   * produced a value under Shopify's limit. Proving this rejects is not
+   * enough by itself — the ONE assertion that actually matters is that the
+   * Admin API was never called, because the original failure mode was a
+   * SILENT no-op: the oversized handle reached Shopify, was rejected, and a
+   * naive fallback could still read the fulfilment order as protected for an
+   * unrelated reason. A local, pre-flight throw is what makes that
+   * impossible.
+   */
+  it("refuses a handle over the Shopify limit BEFORE calling the Admin API at all", async () => {
+    const { client, calls } = fakeClient({});
+    const adapter = new ShopifyLuxuryStealOrderReviewAdapter(client);
+    const oversizedHandle = "x".repeat(FULFILLMENT_ORDER_HOLD_HANDLE_MAX_LENGTH + 1);
+
+    await expect(
+      adapter.holdFulfillmentOrder({
+        fulfillmentOrderGid: "gid://shopify/FulfillmentOrder/1",
+        reasonNotes: "x",
+        handle: oversizedHandle,
+      })
+    ).rejects.toThrow(/64|exceed/i);
+
+    // THE ASSERTION THAT MATTERS: no network round trip was even attempted.
+    expect(calls).toHaveLength(0);
+  });
+
+  it("accepts a handle exactly AT the limit — the guard is > , not >=", async () => {
+    const { client } = fakeClient({
+      data: {
+        fulfillmentOrderHold: {
+          fulfillmentOrder: { id: "gid://shopify/FulfillmentOrder/1", status: "ON_HOLD" },
+          userErrors: [],
+        },
+      },
+    });
+    const adapter = new ShopifyLuxuryStealOrderReviewAdapter(client);
+    const exactLimitHandle = "x".repeat(FULFILLMENT_ORDER_HOLD_HANDLE_MAX_LENGTH);
+
+    await expect(
+      adapter.holdFulfillmentOrder({
+        fulfillmentOrderGid: "gid://shopify/FulfillmentOrder/1",
+        reasonNotes: "x",
+        handle: exactLimitHandle,
+      })
+    ).resolves.toMatchObject({ status: "ON_HOLD" });
   });
 });

@@ -203,36 +203,56 @@ describe("CaratGroupBuyCampaign._internal — pure logic", () => {
     });
   });
 
-  describe("canSubmitOrder — the required-Payment-Type + sign-in + availability gate", () => {
+  describe("canSubmitOrder — the required-Payment-Type + sign-in + availability + acknowledgment gate", () => {
     const availableVariant: GroupBuyVariant = { id: 1, available: true };
     const soldOutVariant: GroupBuyVariant = { id: 2, available: false };
 
-    it("allows Card or Bank Payment once a variant is resolved, available, and signed in", () => {
+    it("allows Card or Bank Payment once a variant is resolved, available, signed in, and acknowledged", () => {
       const { _internal } = loadGroupBuyCampaign();
-      expect(_internal.canSubmitOrder({ variant: availableVariant, paymentType: "card", signedIn: true })).toBe(true);
-      expect(_internal.canSubmitOrder({ variant: availableVariant, paymentType: "bank", signedIn: true })).toBe(true);
+      expect(
+        _internal.canSubmitOrder({ variant: availableVariant, paymentType: "card", signedIn: true, acknowledged: true })
+      ).toBe(true);
+      expect(
+        _internal.canSubmitOrder({ variant: availableVariant, paymentType: "bank", signedIn: true, acknowledged: true })
+      ).toBe(true);
     });
 
     it("refuses without a resolved variant", () => {
       const { _internal } = loadGroupBuyCampaign();
-      expect(_internal.canSubmitOrder({ variant: null, paymentType: "card", signedIn: true })).toBe(false);
+      expect(
+        _internal.canSubmitOrder({ variant: null, paymentType: "card", signedIn: true, acknowledged: true })
+      ).toBe(false);
     });
 
     it("refuses a sold-out variant", () => {
       const { _internal } = loadGroupBuyCampaign();
-      expect(_internal.canSubmitOrder({ variant: soldOutVariant, paymentType: "card", signedIn: true })).toBe(false);
+      expect(
+        _internal.canSubmitOrder({ variant: soldOutVariant, paymentType: "card", signedIn: true, acknowledged: true })
+      ).toBe(false);
     });
 
     it("refuses without a Payment Type selection — required before ordering (README/owner §9)", () => {
       const { _internal } = loadGroupBuyCampaign();
-      expect(_internal.canSubmitOrder({ variant: availableVariant, paymentType: null, signedIn: true })).toBe(false);
+      expect(
+        _internal.canSubmitOrder({ variant: availableVariant, paymentType: null, signedIn: true, acknowledged: true })
+      ).toBe(false);
     });
 
     it("refuses when not signed in, defense in depth even though Liquid already hides the control", () => {
       const { _internal } = loadGroupBuyCampaign();
-      expect(_internal.canSubmitOrder({ variant: availableVariant, paymentType: "card", signedIn: false })).toBe(
-        false
-      );
+      expect(
+        _internal.canSubmitOrder({ variant: availableVariant, paymentType: "card", signedIn: false, acknowledged: true })
+      ).toBe(false);
+    });
+
+    it("refuses the Group Buy cancellation-policy acknowledgment (owner spec 2026-09-27/28) — a UX gate, never pre-checked, but required before either action", () => {
+      const { _internal } = loadGroupBuyCampaign();
+      expect(
+        _internal.canSubmitOrder({ variant: availableVariant, paymentType: "card", signedIn: true, acknowledged: false })
+      ).toBe(false);
+      expect(
+        _internal.canSubmitOrder({ variant: availableVariant, paymentType: "bank", signedIn: true, acknowledged: false })
+      ).toBe(false);
     });
   });
 });
@@ -394,6 +414,30 @@ describe("the account-required gate (docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4) —
     expect(out).not.toMatch(/Bank Payment Price/);
   });
 
+  it("the Group Buy cancellation-acknowledgment checkbox is never pre-checked, and its hidden ack-id input starts empty", async () => {
+    const out = await renderSection(SIGNED_IN_CUSTOMER);
+    const checkboxes = out.match(/<input[^>]*data-carat-gb-cancel-ack-checkbox[^>]*>/g) ?? [];
+    expect(checkboxes.length).toBe(1);
+    expect(checkboxes[0]).not.toMatch(/\schecked\b/);
+
+    const hiddenInputs = out.match(/<input[^>]*data-carat-gb-cancel-ack-input[^>]*>/g) ?? [];
+    expect(hiddenInputs.length).toBe(1);
+    expect(hiddenInputs[0]).toMatch(/value=""/);
+  });
+
+  it("renders the pinned cancellation disclosure/checkbox/label copy verbatim, matching the domain module", async () => {
+    const out = await renderSection(SIGNED_IN_CUSTOMER);
+    // `t` is unregistered in this test's Liquid engine (see createSectionEngine's
+    // own comment) — an unknown filter passes its input through unchanged, so
+    // the rendered output contains the LOCALE KEY itself, not the resolved
+    // string. This still proves the template names the right keys; exact
+    // wording is proven separately by `cancellationAcknowledgmentText.test.ts`'s
+    // locale-file fence.
+    expect(out).toContain("templates.group_buy_campaign.cancellation_disclosure");
+    expect(out).toContain("templates.group_buy_campaign.cancellation_checkbox_label");
+    expect(out).toContain("templates.group_buy_campaign.cancellation_affirm_label");
+  });
+
   it("this file never claims client-side gating is the enforcement", () => {
     const sectionSource = readFileSync(join(THEME_ROOT, SECTION), "utf8");
     const jsSource = readFileSync(join(THEME_ROOT, "assets", "group-buy-campaign.js"), "utf8");
@@ -426,6 +470,10 @@ describe("templates.group_buy_campaign — new locale keys resolve", () => {
     "bank_contact_cta",
     "sign_in_required_heading",
     "sign_in_required_message",
+    "cancellation_disclosure",
+    "cancellation_checkbox_label",
+    "cancellation_affirm_label",
+    "cancellation_ack_error",
   ];
 
   it.each(KEYS)("templates.group_buy_campaign.%s is a non-empty string", (key) => {

@@ -342,6 +342,51 @@
                 {{ 'templates.group_buy_campaign.order_hint' | t }}
               </p>
 
+              {%- comment -%}
+                Group Buy cancellation-policy acknowledgment (owner spec
+                2026-09-27/28). CAPTURE + UX GATE ONLY, NOT ENFORCEMENT — the
+                binding control is the `orders/create` order-time
+                verification in `groupBuyOrderHandler.server.ts`; this
+                checkbox can only stop a customer who actually uses this page,
+                never a direct `/cart/add` POST. Required before EITHER
+                action below (see `canSubmitOrder` in group-buy-campaign.js),
+                never pre-checked. `required` on the checkbox itself is a
+                progressive-enhancement backstop for a JS-disabled visitor —
+                same reasoning as `luxury-product-gate.liquid`'s identical
+                attribute on its own checkbox.
+              {%- endcomment -%}
+              <div class="carat-gb-campaign__cancellation-ack" data-carat-gb-cancel-ack>
+                <p class="carat-gb-campaign__cancellation-disclosure" id="CaratGbCancelDisclosure-{{ section.id }}">
+                  {{- 'templates.group_buy_campaign.cancellation_disclosure' | t -}}
+                </p>
+                <label class="carat-gb-campaign__cancellation-checkbox-row">
+                  <input
+                    type="checkbox"
+                    id="CaratGbCancelCheckbox-{{ section.id }}"
+                    data-carat-gb-cancel-ack-checkbox
+                    aria-describedby="CaratGbCancelDisclosure-{{ section.id }}"
+                    required
+                  >
+                  <span class="visually-hidden">{{ 'templates.group_buy_campaign.cancellation_checkbox_label' | t }}: </span>
+                  {{- 'templates.group_buy_campaign.cancellation_affirm_label' | t -}}
+                </label>
+                <p
+                  class="carat-gb-campaign__cancellation-status"
+                  role="status"
+                  data-carat-gb-cancel-ack-status
+                  hidden
+                ></p>
+                <p class="carat-gb-campaign__cancellation-error" role="alert" data-carat-gb-cancel-ack-error hidden>
+                  {{- 'templates.group_buy_campaign.cancellation_ack_error' | t -}}
+                </p>
+                <input
+                  type="hidden"
+                  name="properties[_carat_gb_cancel_ack]"
+                  value=""
+                  data-carat-gb-cancel-ack-input
+                >
+              </div>
+
               <form data-carat-gb-add-to-cart-form>
                 <input type="hidden" name="id" value="" data-carat-gb-variant-id>
                 <input type="hidden" name="quantity" value="1">

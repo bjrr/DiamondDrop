@@ -48,6 +48,7 @@ export interface GroupBuyCampaignModule {
       variant: GroupBuyVariant | null;
       paymentType: "card" | "bank" | null;
       signedIn: boolean;
+      acknowledged: boolean;
     }): boolean;
   };
 }

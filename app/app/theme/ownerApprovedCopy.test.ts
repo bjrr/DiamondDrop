@@ -100,6 +100,21 @@ const APPROVED: ReadonlyArray<readonly [string, string]> = [
     "templates.group_buy_campaign.sign_in_required_message",
     "Please sign in or create a CaratForUs account to continue.",
   ],
+  // Owner-approved 2026-09-27, docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md.
+  // The Group Buy cancellation-policy disclosure/checkbox/label. Source of
+  // truth is `app/domain/groupbuy/cancellationAcknowledgmentText.ts`, whose
+  // own test (`cancellationAcknowledgmentText.test.ts`) independently proves
+  // this locale is byte-identical to it — pinned here too so a scan of this
+  // one file still finds every piece of owner-approved copy in the theme.
+  [
+    "templates.group_buy_campaign.cancellation_disclosure",
+    "Before the campaign closes, you may request a cancellation, but cancellation is not automatic and requires CaratForUs approval. Once the campaign closes, your Group Buy order is committed and cannot be canceled or returned because you change your mind. This does not affect claims for defects, incorrect items or specifications, shipping damage, warranty issues, fulfillment problems, or other rights required by law.",
+  ],
+  [
+    "templates.group_buy_campaign.cancellation_checkbox_label",
+    "I understand that cancellation requests before the campaign closes require CaratForUs approval, and that once the campaign closes my Group Buy order is committed and is not eligible for discretionary cancellation or return.",
+  ],
+  ["templates.group_buy_campaign.cancellation_affirm_label", "I Understand & Agree"],
 ];
 
 describe("owner-approved customer-facing copy is pinned verbatim", () => {

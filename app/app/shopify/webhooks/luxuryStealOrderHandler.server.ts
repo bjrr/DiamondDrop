@@ -10,6 +10,7 @@ import { AdminApiError } from "~/shopify/admin/productClient.server";
 import { logger } from "~/lib/logger.server";
 import type { AdminGraphqlClient } from "~/shopify/admin/productClient.server";
 import {
+  buildLuxuryStealHoldHandle,
   ShopifyLuxuryStealOrderReviewAdapter,
   type FulfillmentOrderSummary,
   type LuxuryStealOrderReviewPort,
@@ -543,7 +544,15 @@ async function reconcileShopifyOrderReviewState(
     }
 
     try {
-      const result = await port.holdFulfillmentOrder({ fulfillmentOrderGid: fulfillmentOrder.id, reasonNotes });
+      const result = await port.holdFulfillmentOrder({
+        fulfillmentOrderGid: fulfillmentOrder.id,
+        reasonNotes,
+        // Caller-supplied, now that `holdFulfillmentOrder` is reused by more
+        // than one consumer (see that method's own doc comment) — this is
+        // the SAME handle this file always sent, just no longer computed
+        // inside the adapter.
+        handle: buildLuxuryStealHoldHandle(fulfillmentOrder.id),
+      });
       // Three distinct outcomes, per `HoldFulfillmentOrderResult`'s own doc
       // comment (live-verified 2026-09-24): "applied" is fresh,
       // "duplicate_handle" is Shopify's own typed confirmation that WE

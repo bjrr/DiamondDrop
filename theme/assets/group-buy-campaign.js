@@ -199,9 +199,20 @@
    * explicit parameter rather than an assumption so it is directly
    * testable and so a future caller cannot accidentally omit the check.
    */
+  /*
+   * `acknowledged` (owner spec 2026-09-27/28): the Group Buy cancellation
+   * -policy checkbox — see `group-buy-cancellation-gate` wiring in `init()`
+   * below. REQUIRED before either action, not only the Card add-to-cart:
+   * neither path places or requests an order without it. THIS IS A UX GATE,
+   * NOT ENFORCEMENT — a bypassed storefront can still POST directly to
+   * `/cart/add`. The BINDING control is the `orders/create` order-time
+   * verification in `groupBuyOrderHandler.server.ts`, which this gate cannot
+   * replace and does not attempt to. See that handler's own module comment.
+   */
   function canSubmitOrder(state) {
     if (!state || !state.signedIn) return false;
     if (!state.variant || state.variant.available === false) return false;
+    if (!state.acknowledged) return false;
     return state.paymentType === "card" || state.paymentType === "bank";
   }
 
@@ -401,6 +412,10 @@
     var addToCartButton = root.querySelector('[data-carat-gb-payment-type-target="card"]');
     var bankContactLink = root.querySelector('[data-carat-gb-payment-type-target="bank"]');
     var addToCartForm = root.querySelector("[data-carat-gb-add-to-cart-form]");
+    var cancelAckCheckbox = root.querySelector("[data-carat-gb-cancel-ack-checkbox]");
+    var cancelAckInput = root.querySelector("[data-carat-gb-cancel-ack-input]");
+    var cancelAckStatus = root.querySelector("[data-carat-gb-cancel-ack-status]");
+    var cancelAckError = root.querySelector("[data-carat-gb-cancel-ack-error]");
 
     // Unlike a <button disabled>, a plain <a> stays clickable regardless of
     // `aria-disabled` — this is the one place that matters, since the link
@@ -419,11 +434,25 @@
       lastData: null,
       hasEverLoaded: false,
       signedIn: !!(addToCartButton || bankContactLink),
+      // Owner spec 2026-09-27/28 — never pre-checked, never inferred. See
+      // `canSubmitOrder`'s own comment on why this gates both actions and
+      // why it is a UX gate, not enforcement.
+      acknowledged: false,
     };
 
     function updateOrderControls() {
-      var canCard = canSubmitOrder({ variant: state.variant, paymentType: "card", signedIn: state.signedIn });
-      var canBank = canSubmitOrder({ variant: state.variant, paymentType: "bank", signedIn: state.signedIn });
+      var canCard = canSubmitOrder({
+        variant: state.variant,
+        paymentType: "card",
+        signedIn: state.signedIn,
+        acknowledged: state.acknowledged,
+      });
+      var canBank = canSubmitOrder({
+        variant: state.variant,
+        paymentType: "bank",
+        signedIn: state.signedIn,
+        acknowledged: state.acknowledged,
+      });
 
       if (addToCartButton) {
         addToCartButton.hidden = state.paymentType !== "card";
@@ -512,16 +541,94 @@
       });
     });
 
+    // -----------------------------------------------------------------
+    // Group Buy cancellation-policy acknowledgment (owner spec 2026-09-27/28).
+    // CAPTURE ONLY, NOT ENFORCEMENT — see `canSubmitOrder`'s own comment and
+    // `groupBuyOrderHandler.server.ts`'s module comment for the binding
+    // control this gate feeds evidence to but cannot replace. Mirrors
+    // `luxury-steal-gate.js`'s checkbox -> capture-endpoint -> hidden-input
+    // shape, simplified: this acknowledgment is CAMPAIGN-scoped, not
+    // per-variant, so — unlike that gate — nothing here resets it on an
+    // option/variant change within the same page load.
+    // -----------------------------------------------------------------
+    if (cancelAckCheckbox) {
+      // NEVER PRE-CHECKED — defensive reset against bfcache restoring stale
+      // form state, same discipline `luxury-steal-gate.js` documents for its
+      // own checkbox, even though the server-rendered markup already starts
+      // unchecked by construction.
+      cancelAckCheckbox.checked = false;
+      if (cancelAckInput) cancelAckInput.value = "";
+
+      cancelAckCheckbox.addEventListener("change", function () {
+        if (!cancelAckCheckbox.checked) {
+          state.acknowledged = false;
+          if (cancelAckInput) cancelAckInput.value = "";
+          if (cancelAckError) cancelAckError.hidden = true;
+          updateOrderControls();
+          return;
+        }
+
+        cancelAckCheckbox.disabled = true;
+        if (cancelAckError) cancelAckError.hidden = true;
+        if (cancelAckStatus) cancelAckStatus.hidden = true;
+
+        fetch("/apps/carat/group-buy-cancellation-acknowledgment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({
+            campaignCode: code,
+            shopifyVariantId: state.variant ? state.variant.id : undefined,
+          }),
+        })
+          .then(function (response) {
+            if (!response.ok) throw new Error("status " + response.status);
+            return response.json();
+          })
+          .then(function (data) {
+            if (!data || !data.acknowledgmentId) throw new Error("acknowledgment response missing acknowledgmentId");
+            if (cancelAckInput) cancelAckInput.value = data.acknowledgmentId;
+            state.acknowledged = true;
+            updateOrderControls();
+          })
+          .catch(function () {
+            // The click did not result in recorded evidence, so the checkbox
+            // must not be left showing "checked" — that would visually claim
+            // an acknowledgment that was never captured.
+            cancelAckCheckbox.checked = false;
+            state.acknowledged = false;
+            if (cancelAckInput) cancelAckInput.value = "";
+            updateOrderControls();
+            if (cancelAckError) cancelAckError.hidden = false;
+          })
+          .finally(function () {
+            cancelAckCheckbox.disabled = false;
+          });
+      });
+    }
+
     if (addToCartForm) {
       addToCartForm.addEventListener("submit", function (evt) {
         evt.preventDefault();
-        if (!canSubmitOrder({ variant: state.variant, paymentType: "card", signedIn: state.signedIn })) return;
+        if (
+          !canSubmitOrder({
+            variant: state.variant,
+            paymentType: "card",
+            signedIn: state.signedIn,
+            acknowledged: state.acknowledged,
+          })
+        ) {
+          return;
+        }
         if (addToCartButton) addToCartButton.setAttribute("aria-disabled", "true");
 
         fetch(cartAddUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ id: state.variant.id, quantity: 1 }),
+          body: JSON.stringify({
+            id: state.variant.id,
+            quantity: 1,
+            properties: cancelAckInput && cancelAckInput.value ? { _carat_gb_cancel_ack: cancelAckInput.value } : undefined,
+          }),
         })
           .then(function (response) {
             if (!response.ok) throw new Error("status " + response.status);

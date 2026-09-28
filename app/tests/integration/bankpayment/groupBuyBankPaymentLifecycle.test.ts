@@ -95,6 +95,27 @@ async function openCampaignFixture(masterVariantId: string) {
   return campaign;
 }
 
+/** Same fixture shape as `tests/integration/rma/rmaRepository.test.ts`'s own `createAcknowledgment` — a synthetic `policy_version` + `acknowledgment` row, not the real provisioned Group Buy cancellation policy (this file tests the LIFECYCLE state machine, not the checkout route's own acknowledgment-capture path). */
+async function createAcknowledgment(slugPrefix: string) {
+  const policy = await prisma.policyVersion.create({
+    data: {
+      slug: `${slugPrefix}-${uniq()}`,
+      version: 1,
+      effectiveFrom: new Date(),
+      text: `${slugPrefix} text`,
+      contentHash: `hash-${uniq()}`,
+    },
+  });
+  return prisma.acknowledgment.create({
+    data: {
+      exactText: `${slugPrefix} exact text`,
+      policyVersionId: policy.id,
+      acknowledgedAt: new Date(),
+      affirmativeActionLabel: "I Understand & Agree",
+    },
+  });
+}
+
 /** Inserts a `GroupBuyBankPaymentOrder` header row directly — this file tests the LIFECYCLE state machine, not the checkout route that normally creates one. */
 async function createOrderRow(input: {
   campaignId: string;
@@ -102,6 +123,7 @@ async function createOrderRow(input: {
   status?: "active" | "inactive";
   reactivatedAt?: Date | null;
 }) {
+  const cancellationAcknowledgment = await createAcknowledgment("group-buy-cancellation");
   return prisma.groupBuyBankPaymentOrder.create({
     data: {
       campaignId: input.campaignId,
@@ -113,6 +135,7 @@ async function createOrderRow(input: {
       quotedAt: input.quotedAt,
       status: input.status ?? "active",
       reactivatedAt: input.reactivatedAt ?? null,
+      cancellationAcknowledgmentId: cancellationAcknowledgment.id,
     },
   });
 }

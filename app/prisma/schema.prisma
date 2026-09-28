@@ -142,6 +142,16 @@ model Acknowledgment {
   /// NOT NULL FK on `RmaRequest.returnPolicyAcknowledgmentId` (criterion
   /// 180). Adds no column here.
   rmaRequests                         RmaRequest[]
+  /// Group Buy cancellation-acknowledgment back-relation only — required by
+  /// Prisma for the NOT NULL FK on
+  /// `GroupBuyBankPaymentOrder.cancellationAcknowledgmentId`. Adds no column
+  /// here.
+  groupBuyBankPaymentOrders           GroupBuyBankPaymentOrder[]
+  /// Order-time verification (native/Card path) back-relation only —
+  /// required by Prisma for the nullable FK on
+  /// `GroupBuyOrderCancellationCheck.matchedAcknowledgmentId`. Adds no column
+  /// here.
+  groupBuyOrderCancellationChecks     GroupBuyOrderCancellationCheck[]
 
   @@index([policyVersionId])
   @@index([customerRef])
@@ -715,6 +725,7 @@ model MasterVariant {
   luxuryStealSyncFailures  LuxuryStealSyncFailure[]
   warrantyClaims           WarrantyClaim[]
   rmaRequests              RmaRequest[]
+  groupBuyOrderCancellationChecks GroupBuyOrderCancellationCheck[]
 
   @@unique([masterProductId, metal, purity, bandId])
   @@index([status])
@@ -2120,6 +2131,16 @@ model GroupBuyBankPaymentOrder {
   /// The instant the 48h+48h payment window (owner §24) starts counting from.
   quotedAt DateTime @map("quoted_at") @db.Timestamptz(6)
 
+  /// REQUIRED (NOT NULL FK) — owner-approved 2026-09-27 Group Buy
+  /// cancellation-policy acknowledgment (app/domain/groupbuy/
+  /// cancellationAcknowledgmentText.ts). Same evidence-not-checkbox pattern
+  /// as `RmaRequest.returnPolicyAcknowledgmentId`: there is no boolean
+  /// "accepted" column here, and this order cannot exist without one — the
+  /// checkout route refuses the request server-side (fail closed) when the
+  /// acknowledgment is absent, exactly like the RMA intake route.
+  cancellationAcknowledgmentId String         @map("cancellation_acknowledgment_id") @db.Uuid
+  cancellationAcknowledgment   Acknowledgment @relation(fields: [cancellationAcknowledgmentId], references: [id])
+
   /// Set once, by the sweep, when 96 hours have elapsed since `quotedAt` with
   /// no reactivation resetting the clock (owner §24). Nullable while `active`.
   inactivatedAt DateTime? @map("inactivated_at") @db.Timestamptz(6)
@@ -2176,6 +2197,84 @@ model GroupBuyBankPaymentOrderLine {
 
   @@index([groupBuyBankPaymentOrderId])
   @@map("group_buy_bank_payment_order_line")
+}
+
+// =============================================================================
+// Group Buy cancellation-acknowledgment order-boundary evidence (owner spec
+// 2026-09-27/28). Mirrors `LuxuryStealOrderCheck`/`LuxuryStealOrderCheckOutcome`
+// below deliberately — same class of material evidence (owner's own words),
+// same D28 order-time-verification discipline, same append-only shape. See
+// `~/domain/groupbuy/cancellationOrderCheck.ts` for the pure decision rule
+// this table's CHECK constraint mirrors, and the webhook handler
+// (`groupBuyOrderHandler.server.ts`) for the one critical difference from
+// Luxury Steals: THIS check must run, and be recorded, BEFORE a qualifying
+// unit is ever counted for the line it covers — Group Buy progress is
+// monotonic and non-decrementable by design, so a unit counted from an
+// unverified line can never be un-counted later, unlike a Luxury Steal
+// order, which can still be held/reviewed after the fact with no equivalent
+// unfixable side effect.
+// =============================================================================
+
+/// Whether an `orders/create` line's Group Buy cancellation acknowledgment
+/// verified against the order's own authenticated customer, the named
+/// campaign, and the CURRENT required policy version/text/label — never
+/// merely "does an acknowledgment with this id exist" (owner: "the line-item
+/// acknowledgment ID is only a reference, not proof by itself"). Recorded
+/// EITHER WAY, mirroring `LuxuryStealOrderCheckOutcome`'s own reasoning.
+enum GroupBuyOrderCancellationCheckOutcome {
+  matched
+  unmatched
+
+  @@map("group_buy_order_cancellation_check_outcome")
+}
+
+/// Append-only. See migration 20260913000100 for the enforcing trigger
+/// functions (reused unchanged, same as `LuxuryStealOrderCheck`).
+model GroupBuyOrderCancellationCheck {
+  id String @id @default(uuid()) @db.Uuid
+
+  orderRef String @map("order_ref")
+  lineRef  String @map("line_ref")
+
+  /// The specific campaign this line's variant belongs to — the SCOPE the
+  /// candidate acknowledgment's own `campaignRef` must equal (see
+  /// `verifyCancellationAcknowledgment`). Text, not an FK: a campaign is
+  /// never deleted, but keeping this an independent scalar (like
+  /// `LuxuryStealOrderCheck.variantRef`) means this evidence row is never at
+  /// the mercy of a future FK behavior change on `group_buy_campaign`.
+  campaignRef String @map("campaign_ref")
+
+  masterVariantId String        @map("master_variant_id") @db.Uuid
+  masterVariant   MasterVariant @relation(fields: [masterVariantId], references: [id])
+
+  /// Populated only when `outcome = matched` — enforced by a CHECK in this
+  /// slice's migration raw SQL, identical coupling to
+  /// `LuxuryStealOrderCheck.matchedAcknowledgmentId`.
+  matchedAcknowledgmentId String?         @map("matched_acknowledgment_id") @db.Uuid
+  matchedAcknowledgment   Acknowledgment? @relation(fields: [matchedAcknowledgmentId], references: [id])
+
+  /// Internal-only diagnostic (see `CancellationAcknowledgmentMismatchReason`
+  /// in `~/domain/groupbuy/cancellationOrderCheck.ts`) — never customer
+  /// -facing. Populated only when `outcome = unmatched`; a human reviewing a
+  /// held order reads this instead of re-deriving the mismatch by hand.
+  mismatchReason String? @map("mismatch_reason")
+
+  outcome   GroupBuyOrderCancellationCheckOutcome
+  checkedAt DateTime                               @default(now()) @map("checked_at") @db.Timestamptz(6)
+
+  /// UNLIKE `LuxuryStealOrderCheck`'s `(orderRef, lineRef)` — a Luxury Steal
+  /// line belongs to exactly one program membership, so that pair alone is
+  /// enough. A Group Buy LINE could, in principle, belong to more than one
+  /// simultaneously-open campaign (nothing in `GroupBuyCampaignVariant`
+  /// forbids the same variant being added to two campaigns), and each
+  /// campaign's acknowledgment requirement is verified independently — so
+  /// `campaignRef` joins the idempotency key to keep two different
+  /// campaigns' outcomes for the SAME line from colliding into one row.
+  @@unique([orderRef, lineRef, campaignRef])
+  @@index([orderRef])
+  @@index([campaignRef])
+  @@index([masterVariantId])
+  @@map("group_buy_order_cancellation_check")
 }
 
 // =============================================================================

@@ -347,7 +347,11 @@
       "add_to_cart": "Add to Cart",
       "bank_contact_cta": "Contact us about Bank Payment",
       "sign_in_required_heading": "Sign in required",
-      "sign_in_required_message": "Please sign in or create a CaratForUs account to continue."
+      "sign_in_required_message": "Please sign in or create a CaratForUs account to continue.",
+      "cancellation_disclosure": "Before the campaign closes, you may request a cancellation, but cancellation is not automatic and requires CaratForUs approval. Once the campaign closes, your Group Buy order is committed and cannot be canceled or returned because you change your mind. This does not affect claims for defects, incorrect items or specifications, shipping damage, warranty issues, fulfillment problems, or other rights required by law.",
+      "cancellation_checkbox_label": "I understand that cancellation requests before the campaign closes require CaratForUs approval, and that once the campaign closes my Group Buy order is committed and is not eligible for discretionary cancellation or return.",
+      "cancellation_affirm_label": "I Understand & Agree",
+      "cancellation_ack_error": "We couldn't record your acknowledgment. Please try again."
     }
   },
   "sections": {
