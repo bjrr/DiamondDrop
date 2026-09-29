@@ -109,7 +109,30 @@ embedded = true
 # own doc comment) — this file records the target state; it has not itself
 # been pushed (`shopify app deploy` has deliberately not been run — see the
 # file header).
-scopes = "read_products,write_products,read_inventory,write_draft_orders,read_orders,write_payment_terms,write_orders,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders"
+#   read_customers   Owner-approved 2026-09-29, after the Slice 5 live gate
+#                    proved the need rather than argued it. `Order.customer`
+#                    is denied without this scope, and BOTH the warranty and
+#                    RMA order lookups query `customer { id }` to answer the
+#                    only question that matters at intake: does this order
+#                    belong to the customer asking? Without it every warranty
+#                    claim and every RMA in production returns 502
+#                    `order_lookup_failed` — fail-closed, so nothing wrong is
+#                    ever written, but the features simply do not work.
+#
+#                    READ ONLY, AND ONLY BECAUSE OWNERSHIP DEMANDS IT. The app
+#                    never creates, edits or deletes a customer;
+#                    `write_customers` was explicitly REFUSED by the owner
+#                    when it was wanted merely to automate test fixtures, and
+#                    that refusal stands. Live gates use customers created by
+#                    hand instead.
+#
+#                    Do NOT "solve" a future scope problem by trusting a
+#                    browser-supplied customer id, email, or order number:
+#                    ownership is established from the App Proxy's signed
+#                    `logged_in_customer_id` against an order retrieved
+#                    server-side, and a missing scope must keep failing
+#                    closed rather than degrade to a weaker check.
+scopes = "read_products,write_products,read_inventory,read_customers,write_draft_orders,read_orders,write_payment_terms,write_orders,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders"
 optional_scopes = [ ]
 
 # Token exchange rather than the legacy OAuth redirect dance.
