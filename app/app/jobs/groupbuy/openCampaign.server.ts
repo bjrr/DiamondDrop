@@ -10,7 +10,6 @@ import type { BuyNowPriceResult, BuyNowPricingInputs } from "~/domain/pricing/ty
 import { ensureGroupBuyCampaignSyncedToCurrentTier } from "~/jobs/groupbuy/tierPriceSync.server";
 import type { ShopifyPriceSyncPort } from "~/jobs/pricing/ports";
 import { resolveInputsForVariant } from "~/jobs/pricing/resolveInputs.server";
-import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
 import { createProductionPriceSyncPort } from "~/shopify/admin/productionPriceSyncPort.server";
 
@@ -183,37 +182,32 @@ export interface OpenCampaignResult {
 }
 
 /**
- * TEMPORARY PRODUCTION LOCK (owner-directed 2026-09-28). Remove together with
- * `GROUP_BUY_CAMPAIGN_OPEN_ENABLED` once the seven-case acknowledgment live
- * gate has passed in production — see that variable's comment in
- * `~/lib/env.server.ts`.
+ * THE TEMPORARY PRODUCTION LOCK IS GONE, and this note records why it existed
+ * so its absence is not read as an oversight.
  *
- * FIRST STATEMENT IN THE FUNCTION, deliberately. Opening a campaign freezes
- * pricing, publishes tier-1 prices to Shopify and makes the campaign
- * customer-facing; a guard placed after any of that would be refusing a
- * decision already partly taken.
+ * Between 2026-09-28 and 2026-09-29 this function refused outright in
+ * production unless `GROUP_BUY_CAMPAIGN_OPEN_ENABLED` was exactly "true". It
+ * existed because opening a campaign is the one irreversible Group Buy act —
+ * public progress is MONOTONIC, so a unit counted for an order whose
+ * acknowledgment was never verified can never be taken back — and the
+ * verify-before-counting path had not yet been proven against production.
+ *
+ * It has now been proven. The seven-case live gate
+ * (`tests/live/slice6.groupBuyCancellationOrderEnforcement.ts`) passed with
+ * every case executing: an acknowledged Card order counted, a missing
+ * acknowledgment counted ZERO and was held, a copied one counted ZERO and was
+ * held, an acknowledged Bank Payment order counted, and an unacknowledged Bank
+ * request was refused before any draft order existed. The lock itself was
+ * demonstrated refusing a real open against the production database before
+ * each of those runs.
+ *
+ * What protects campaign opening from here is the ordinary control: it is a
+ * staff action behind embedded-admin authentication. If verify-before-counting
+ * is ever materially changed, re-run that gate before trusting it again.
  */
-export class GroupBuyCampaignOpenLockedError extends Error {
-  constructor() {
-    super(
-      "Opening a Group Buy campaign is locked in production until the " +
-        "acknowledgment-before-counting path is deployed and live-proven. Public progress is " +
-        "monotonic, so a unit counted for an unverified order can never be taken back. " +
-        "Set GROUP_BUY_CAMPAIGN_OPEN_ENABLED=true only after the seven-case live gate passes."
-    );
-    this.name = "GroupBuyCampaignOpenLockedError";
-  }
-}
-
 export async function openGroupBuyCampaign(
   options: OpenCampaignOptions
 ): Promise<OpenCampaignResult> {
-  const env = getEnv();
-  if (env.APP_ENV === "production" && env.GROUP_BUY_CAMPAIGN_OPEN_ENABLED !== "true") {
-    logger.error("groupbuy.campaign_open_refused_production_lock", { campaignId: options.campaignId });
-    throw new GroupBuyCampaignOpenLockedError();
-  }
-
   const asOf = options.asOf ?? new Date();
 
   const campaign = await prisma.groupBuyCampaign.findUniqueOrThrow({

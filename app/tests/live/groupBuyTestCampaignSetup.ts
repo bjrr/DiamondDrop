@@ -26,16 +26,8 @@
  * the product is DRAFT and published to no sales channel, and the campaign is
  * never linked from any storefront surface.
  *
- * ============================================================================
- * CASE 7 IS PROVEN HERE, NOT ASSUMED
- * ============================================================================
- * Before opening anything, this script calls `openGroupBuyCampaign` with
- * APP_ENV=production and the flag ABSENT, and requires it to throw
- * `GroupBuyCampaignOpenLockedError`. Only then does it retry with the flag set
- * for that one call. So the lock is demonstrated to refuse a real open against
- * the real production database, rather than being taken on faith from a unit
- * test — and the window in which opening is permitted is a single function
- * call inside this script, not a flag left set on the deployed app.
+ * The production-open lock this script once exercised was removed on
+ * 2026-09-29, after the seven-case gate it gated passed in production.
  *
  * RUN: npx tsx tests/live/groupBuyTestCampaignSetup.ts
  *   (DATABASE_URL must point at the production database)
@@ -183,54 +175,19 @@ async function main() {
   await addGroupBuyCampaignEligibleVariant(campaign.id, masterVariantId);
   console.log(`  created DRAFT campaign ${campaign.id}  code=${code}`);
 
-  // -------------------------------------------------------------------------
-  // CASE 7 — the production-open lock must REFUSE before it permits.
-  // -------------------------------------------------------------------------
-  const { openGroupBuyCampaign, GroupBuyCampaignOpenLockedError } = await import("~/jobs/groupbuy/openCampaign.server");
+  // THE PRODUCTION-OPEN LOCK IS GONE — removed 2026-09-29 once the seven-case
+  // gate passed, which is what it was gating. This script used to prove the
+  // lock refused here before opening through a one-call window; there is no
+  // longer a lock to prove, so it opens directly.
+  //
+  // What still protects a real campaign is the ordinary control: opening is a
+  // staff action behind embedded-admin authentication. If verify-before-
+  // counting is ever materially changed, re-run the seven-case gate before
+  // trusting it again.
+  const { openGroupBuyCampaign } = await import("~/jobs/groupbuy/openCampaign.server");
 
-  // THE ENV CACHE MUST BE CLEARED AFTER EVERY MUTATION, or this whole case is
-  // theatre. `getEnv()` memoizes on first read, and by this point the Prisma
-  // client and the repositories above have already triggered that read with
-  // APP_ENV=development. Without the reset, the lock would consult the cached
-  // development value, never fire, and the campaign would OPEN while this
-  // script reported a lock failure — a false negative that also leaves a
-  // campaign open behind it.
-  const { __resetEnvCacheForTests } = await import("~/lib/env.server");
-
-  console.log("\nCASE 7 — production-open lock");
-  process.env.APP_ENV = "production";
-  delete process.env.GROUP_BUY_CAMPAIGN_OPEN_ENABLED;
-  __resetEnvCacheForTests();
-  let refused = false;
-  try {
-    await openGroupBuyCampaign({ campaignId: campaign.id, openedBy: "live-gate" });
-  } catch (error) {
-    refused = error instanceof GroupBuyCampaignOpenLockedError;
-    if (!refused) throw error;
-  }
-  console.log(
-    refused
-      ? "  PASS  [case7-lock-refuses] opening was REFUSED in production with the flag absent"
-      : "  FAIL  [case7-lock-refuses] the campaign OPENED with the lock engaged — do not proceed"
-  );
-  if (!refused) {
-    process.exitCode = 1;
-    return;
-  }
-
-  // The permitted window is this single call, not a flag left set anywhere.
-  console.log("\nopening the TEST campaign through a one-call window");
-  process.env.GROUP_BUY_CAMPAIGN_OPEN_ENABLED = "true";
-  __resetEnvCacheForTests();
-  try {
-    await openGroupBuyCampaign({ campaignId: campaign.id, openedBy: "live-gate" });
-  } finally {
-    // Closed in a `finally` so a failed open cannot leave the permission
-    // standing for anything later in this process.
-    delete process.env.GROUP_BUY_CAMPAIGN_OPEN_ENABLED;
-    process.env.APP_ENV = "development";
-    __resetEnvCacheForTests();
-  }
+  console.log("\nopening the TEST campaign");
+  await openGroupBuyCampaign({ campaignId: campaign.id, openedBy: "live-gate" });
 
   const opened = await prisma.groupBuyCampaign.findUniqueOrThrow({ where: { id: campaign.id } });
   console.log(`  campaign status: ${opened.status}`);

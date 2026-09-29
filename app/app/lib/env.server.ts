@@ -13,27 +13,6 @@ import { z } from "zod";
  */
 const envSchema = z.object({
   APP_ENV: z.enum(["development", "test", "staging", "production"]),
-  /**
-   * TEMPORARY, OWNER-LOCKED (2026-09-28). Opening a Group Buy campaign in
-   * PRODUCTION is refused unless this is exactly "true".
-   *
-   * Opening a campaign is the one irreversible Group Buy act: it freezes
-   * pricing, makes the campaign customer-facing, and starts counting real
-   * orders against real tiers. The acknowledgment-before-counting path must be
-   * committed, deployed AND live-proven first — until then, a campaign opened
-   * in production could count units for orders whose acknowledgment was never
-   * verified, and public progress is MONOTONIC, so a wrongly-counted unit can
-   * never be taken back.
-   *
-   * ABSENT MEANS REFUSED. Left unset in every environment, which is the point:
-   * the protection cannot be lost by forgetting something, only by setting
-   * this on purpose. Non-production environments are unaffected, so tests and
-   * staging rehearsals keep working.
-   *
-   * DELETE THIS, and its guard in `openCampaign.server.ts`, once the seven-case
-   * live gate has passed in production. It is scaffolding, not architecture.
-   */
-  GROUP_BUY_CAMPAIGN_OPEN_ENABLED: z.string().optional(),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   /**
    * The unpooled endpoint, used by the Prisma CLI for migrations only - see

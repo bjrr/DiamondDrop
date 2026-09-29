@@ -92,6 +92,23 @@ const TEST_VARIANT_GID = process.env.CARAT_LIVE_GATE_VARIANT_GID ?? "gid://shopi
  * Same discipline as `tests/live/slice5.r2EvidenceStorage.ts`: assertions are
  * named, coverage is required, and a case that never ran is NOT a pass.
  */
+/**
+ * RUN THIS AGAINST A FRESH CAMPAIGN EVERY TIME. Re-running against a campaign
+ * a previous run already used makes CASE 5 lie.
+ *
+ * The Bank checkout key is `hash(customerGid, campaignId, lines[variant,
+ * quantity, unitPrice, currency])` — no nonce, deliberately, because that is
+ * what stops a customer double-ordering on a retry. A second gate run sends a
+ * byte-identical request, so the route correctly REPLAYS the stored response:
+ * HTTP 200, no new order. `case5-accepted` passes on a cached success while
+ * `case5-counted` fails against an order the PREVIOUS code built.
+ *
+ * That cost a debugging cycle: the fix under test was already correct and the
+ * gate was re-examining a stale order. `campaignId` is part of the key, so a
+ * campaign created fresh by `groupBuyTestCampaignSetup.ts` gives a clean key
+ * space — and a zero baseline, which also keeps the delta assertions simple.
+ */
+
 /** Every Card order this gate places is one unit; every Bank checkout is one unit. Kept as named constants so the delta assertions and the payloads cannot drift apart. */
 const CASE1_QUANTITY = 1;
 const BANK_CASE_QUANTITY = 1;
