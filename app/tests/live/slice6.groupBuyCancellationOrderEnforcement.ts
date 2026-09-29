@@ -223,6 +223,29 @@ async function gql<T>(admin: { graphql: AdminGraphql }, query: string, variables
 }
 
 /** Mints a throwaway Shopify customer for this run only, tagged for easy manual cleanup. */
+/**
+ * Two throwaway customers, EITHER minted here OR created by hand and named in
+ * the environment — mirrors `slice5.warrantyUploadFlow.ts`'s helper exactly.
+ *
+ * `customerCreate` needs `write_customers`, which this app deliberately does
+ * NOT request (owner decision 2026-09-28: do not widen app permissions just to
+ * automate test-fixture creation). So the pre-provisioned path is the normal
+ * one here, not a fallback.
+ *
+ * Accepts a bare numeric id or a full `gid://shopify/Customer/...` — the
+ * dashboard shows one and the API the other, and making the caller convert
+ * between them is a pointless way to fail a live gate.
+ */
+function preProvisionedCustomer(label: "A" | "B"): { id: string; numericId: string } | null {
+  const raw = (label === "A" ? process.env.CARAT_LIVE_GATE_CUSTOMER_A : process.env.CARAT_LIVE_GATE_CUSTOMER_B)?.trim();
+  if (!raw) return null;
+  const numericId = raw.startsWith("gid://") ? raw.split("/").pop()! : raw;
+  if (!/^\d+$/.test(numericId)) {
+    throw new Error(`CARAT_LIVE_GATE_CUSTOMER_${label} must be a numeric customer id or a customer gid; got ${JSON.stringify(raw)}`);
+  }
+  return { id: `gid://shopify/Customer/${numericId}`, numericId };
+}
+
 async function createTestCustomer(admin: { graphql: AdminGraphql }, label: string): Promise<{ id: string; numericId: string }> {
   const suffix = `${Date.now()}-${label}`;
   const created = await gql<{
@@ -347,8 +370,25 @@ async function main() {
   console.log(`baseline public qualifying units for ${TEST_CAMPAIGN_CODE}: ${unitsBefore}\n`);
 
   console.log("0. minting two throwaway test customers");
-  const customerA = await createTestCustomer(admin, "A");
-  const customerB = await createTestCustomer(admin, "B");
+  const provisionedA = preProvisionedCustomer("A");
+  const provisionedB = preProvisionedCustomer("B");
+  if (provisionedA && provisionedB) {
+    console.log("  using pre-provisioned test customers (no write_customers scope needed)");
+  } else if (provisionedA || provisionedB) {
+    throw new Error(
+      "Set BOTH CARAT_LIVE_GATE_CUSTOMER_A and CARAT_LIVE_GATE_CUSTOMER_B, or neither. Case 3 — the COPIED " +
+        "acknowledgment — is the one that proves an acknowledgment id is a reference and not proof, and it is " +
+        "meaningless unless A and B are genuinely different identities."
+    );
+  }
+  const customerA = provisionedA ?? (await createTestCustomer(admin, "A"));
+  const customerB = provisionedB ?? (await createTestCustomer(admin, "B"));
+  if (customerA.numericId === customerB.numericId) {
+    throw new Error(
+      "customer A and customer B are the same identity — case 3 would pass vacuously, appearing to prove " +
+        "customer-mismatch rejection while actually proving nothing."
+    );
+  }
   console.log(`  customer A = ${customerA.id}`);
   console.log(`  customer B = ${customerB.id}\n`);
 

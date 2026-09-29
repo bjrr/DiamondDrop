@@ -436,13 +436,27 @@ async function main() {
     accepted.status === 201,
     `claim accepted with the issued storageKey (HTTP ${accepted.status}) ${accepted.status >= 400 ? accepted.body.slice(0, 200) : ""}`
   );
-  // PERSISTENCE, proven by behaviour: this key was issued by a DIFFERENT HTTP
-  // request minutes earlier and nothing carried its state forward. It could
-  // only be found because the app durably recorded it.
+  // PERSISTENCE, proven by WHICH refusal does not happen — independent of
+  // whether the claim ultimately succeeds.
+  //
+  // Uploads are verified and consumed BEFORE the order lookup. So a request
+  // carrying an unpersisted storageKey cannot get past that step: it returns
+  // 422 `invalid_upload_reference` and never reaches the lookup. Anything
+  // OTHER than 422 therefore proves the destination — issued by a different
+  // HTTP request minutes earlier, with nothing carrying its state forward —
+  // was found in durable storage.
+  //
+  // KEYED THIS WAY DELIBERATELY. An earlier version asserted `status === 201`,
+  // which coupled persistence to the whole claim succeeding. When the live run
+  // hit an unrelated 502 (a missing `read_customers` scope breaking the order
+  // lookup), that reported persistence as broken when the evidence in the same
+  // response — a 502, reached only by passing the upload check — proved the
+  // opposite. An assertion should fail for its own reason and no other.
   check(
     "destination-persisted",
-    accepted.status === 201,
-    "a destination issued by an earlier, separate request was still resolvable — it was durably recorded"
+    accepted.status !== 422,
+    `the claim got PAST upload verification (HTTP ${accepted.status}, not 422) — the destination issued by an ` +
+      `earlier request was found in durable storage`
   );
 
   // -------------------------------------------------------------------------
