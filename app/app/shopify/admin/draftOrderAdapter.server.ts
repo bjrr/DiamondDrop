@@ -211,6 +211,26 @@ export interface DraftOrderShippingAddressInput {
 }
 
 export interface CreateDraftOrderInput {
+  /**
+   * The AUTHENTICATED customer this order belongs to. Sent as `customerId` so
+   * Shopify attaches the order to that exact customer record.
+   *
+   * WITHOUT IT, SHOPIFY INVENTS ONE. A draft order created with only an email
+   * gets a customer matched or CREATED from that email, which is a different
+   * record from the signed-in customer — different gid, same person. That was
+   * a live production defect: every Group Buy Bank Payment order was attached
+   * to an email-derived customer, so the `orders/create` handler compared the
+   * order's customer against the acknowledgment's authenticated customer,
+   * found `customer_mismatch`, held the line and counted ZERO units. The
+   * acknowledgment check was right; the order was attached to the wrong
+   * person. It also meant the order would not appear in the customer's own
+   * account, which `docs/REQUIRED-CUSTOMER-ACCOUNTS.md` requires.
+   *
+   * Optional only because Buy Now's verification-screen path predates it and
+   * has no authenticated customer to pass. Any flow whose order must be
+   * attributable to a signed-in customer MUST set it.
+   */
+  customerGid?: string;
   email: string;
   /**
    * Sent to Shopify and NOT returned by this adapter (criterion 97/99): this
@@ -436,6 +456,9 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
     // test asserts this on the serialised payload, not on this comment.
     const variables = {
       input: {
+        // Spread-conditional so the Buy Now path, which has no authenticated
+        // customer to attach, sends no `customerId` at all rather than null.
+        ...(input.customerGid ? { customerId: input.customerGid } : {}),
         email: input.email,
         shippingAddress: {
           firstName: input.shippingAddress.firstName,

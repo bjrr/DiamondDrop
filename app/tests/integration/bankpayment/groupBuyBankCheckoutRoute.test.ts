@@ -1092,6 +1092,23 @@ describe("the acknowledgment id reaches Shopify on every line — without it, ZE
       expect(attr!.value).toBe(stored.cancellationAcknowledgmentId);
     }
 
+    // THE ORDER MUST BELONG TO THE AUTHENTICATED CUSTOMER, not to whoever
+    // Shopify matches from the email. A draft order created with only an
+    // email gets a customer matched or CREATED from it — a different record
+    // for the same person. That shipped, and the Slice 6 live gate caught it:
+    // the `orders/create` handler compared the customer Shopify attached
+    // against the acknowledgment recorded for the authenticated caller, found
+    // `customer_mismatch`, held the line and counted ZERO units. The
+    // acknowledgment check was right; the order was attached to the wrong
+    // person. It also kept the order out of the customer's own account, which
+    // docs/REQUIRED-CUSTOMER-ACCOUNTS.md requires.
+    //
+    // No unit test could have found this: a fake draft-order port echoes back
+    // whatever it is handed, so the two customer records only diverge against
+    // real Shopify. What this test CAN do is pin that the route sends the
+    // authenticated gid at all.
+    expect(port.createCalls[0]!.customerGid).toBe(DEFAULT_CUSTOMER_GID);
+
     // And the row is genuinely resolvable by that id — the webhook's own read.
     const ack = await prisma.acknowledgment.findUnique({ where: { id: stored.cancellationAcknowledgmentId } });
     expect(ack).not.toBeNull();

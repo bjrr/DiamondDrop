@@ -87,11 +87,14 @@ function check(id: AssertionId, condition: unknown, message: string): void {
 
 
 /**
- * Whole seconds from milliseconds, WITHOUT Math.floor. This repo bans the
- * Math rounding family outright (money must round through the versioned rule
- * registry), and the ban is deliberately unconditional so nobody has to judge
- * whether a given call site is "money enough" to matter. Exact integer
- * arithmetic needs no exception.
+ * Whole seconds from milliseconds, using exact integer arithmetic.
+ *
+ * This repo bans the Math rounding helpers outright — money must round through
+ * the versioned rule registry — and the ban is deliberately unconditional so
+ * nobody has to judge whether a given call site is "money enough" to matter.
+ * Integer arithmetic needs no exception, so this takes none.
+ *
+ * The scan is textual, so even naming those helpers in a comment trips it.
  */
 function wholeSeconds(ms: number): number {
   return (ms - (ms % 1000)) / 1000;
@@ -104,8 +107,9 @@ function missingAssertions(): AssertionId[] {
 // ---------------------------------------------------------------------------
 // Shopify App Proxy signing — identical to
 // `slice6.groupBuyCancellationOrderEnforcement.ts`'s helper, including the
-// deliberate avoidance of Math.floor (this repo's money-safety lint bans that
-// family unconditionally, even for a non-money timestamp).
+// deliberate use of string truncation for the timestamp rather than a
+// rounding helper, which this repo bans unconditionally even for a value that
+// is not money.
 // ---------------------------------------------------------------------------
 function signedProxyUrl(path: string, params: Record<string, string>): string {
   const search = new URLSearchParams({

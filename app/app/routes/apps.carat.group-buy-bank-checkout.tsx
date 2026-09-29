@@ -311,6 +311,14 @@ async function performGroupBuyBankCheckout(input: {
   }));
 
   const created = await input.draftOrderPort.createDraftOrder({
+    // THE AUTHENTICATED CUSTOMER, not whoever Shopify would match from the
+    // email. Without this the order is attached to an email-derived customer
+    // record, the `orders/create` handler compares THAT against the
+    // acknowledgment's authenticated customer, finds `customer_mismatch`, and
+    // counts ZERO units — while the order also fails to appear in the
+    // customer's own account. Found by the Slice 6 live gate, which is the
+    // only place the two customer records could be seen to differ.
+    customerGid: input.customerGid,
     email: input.resolvedEmail,
     shippingAddress: input.shippingAddress,
     lineItems,
