@@ -29,14 +29,22 @@ export interface WarrantyClaimFormModule {
       order: { orderRef: string; orderName: string; lineItems: { lineRef: string; title: string; quantity: number }[] } | null;
     };
     buildLineItemOptionLabel(template: string, item: { title: string; quantity: number }): string;
+    /** The upload descriptors ready to submit — empty until a file genuinely reaches R2. */
+    collectUploads(): { kind: string; storageKey: string; contentType: string; sizeBytes: number; checksum: string }[];
+    /** The client-minted claim id, stable for the life of the page. */
+    claimIdForUploads(): string;
   };
 }
 
 export function loadWarrantyClaimForm(): WarrantyClaimFormModule {
   const source = readFileSync(join(THEME_ASSETS_ROOT, "warranty-claim-form.js"), "utf8");
 
-  const windowStub: { CaratWarrantyClaimForm?: WarrantyClaimFormModule; caratWarrantyClaimFormLoaded?: boolean; location: { search: string }; warrantyClaimStrings?: Record<string, string> } = {
+  const windowStub: { CaratWarrantyClaimForm?: WarrantyClaimFormModule; caratWarrantyClaimFormLoaded?: boolean; location: { search: string }; crypto: Crypto; warrantyClaimStrings?: Record<string, string> } = {
     location: { search: "" },
+    // The controller reads WebCrypto off `window`, not off the global, because
+    // that is what a browser gives it. Stubbing the global alone left
+    // `window.crypto` undefined and the claim-id path throwing.
+    crypto: globalThis.crypto,
   };
 
   const documentStub = {
@@ -56,6 +64,10 @@ export function loadWarrantyClaimForm(): WarrantyClaimFormModule {
     document: documentStub,
     window: windowStub,
     URLSearchParams,
+    // Real WebCrypto, so the claim-id minting path is exercised rather than
+    // stubbed. The controller needs `crypto.randomUUID` (or `getRandomValues` as its
+    // fallback); a stub would prove only that the stub works.
+    crypto: globalThis.crypto,
     fetch: () => Promise.reject(new Error("warrantyClaimFormSandbox: fetch should not be called by _internal tests")),
   };
 

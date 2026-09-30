@@ -59,16 +59,24 @@
   "as soon as possible", no promise of repair over replacement/refund
   anywhere in this file's copy.
 
-  UPLOADS -- OMITTED, NOT FAKED. `docs/specs/SLICE-5-WARRANTY-CLAIMS.md` §5:
-  the R2 bucket does not exist and all four `STORAGE_*` env vars are empty
-  in every environment. Building a file-input control here would either do
-  nothing when clicked or silently drop whatever the customer selected --
-  both worse than not offering it. This form has NO upload control at all;
-  `templates.warranty_claim.form.uploads_note` tells the customer plainly
-  (with no internal-infrastructure reason attached -- "isn't available in
-  this form yet", never "our storage bucket isn't provisioned") that photos/
-  video aren't collected here yet, and invites them to mention that fact in
-  the problem description instead. `shopifyVariantId` is similarly not
+  UPLOADS -- NOW OFFERED, BECAUSE THE PREMISE FOR OMITTING THEM IS GONE.
+  This form previously had no upload control at all, on the correct reasoning
+  that the R2 bucket did not exist and all four `STORAGE_*` variables were
+  empty, so a file input would either do nothing or silently drop what the
+  customer chose. That changed on 2026-09-29: the bucket is live and the whole
+  application path is live-proven end to end against production
+  (`tests/live/slice5.warrantyUploadFlow.ts`, 10/10 — issued destination
+  persisted and bound to the authenticated customer, single-use, expiry
+  enforced, a substituted key refused, and no claim created when any key is
+  unverifiable).
+
+  What survives from that reasoning is the honesty rule, not the omission:
+  the control is hidden and replaced by
+  `templates.warranty_claim.form.uploads_note` the moment the destination
+  endpoint reports storage unavailable, and that note still names no internal
+  cause. Photos only for now -- the checksum the server requires is computed
+  in the browser, and the 20 MB photo ceiling keeps that bounded where the
+  300 MB video ceiling would not. `shopifyVariantId` is similarly not
   collected as an explicit visible field -- see the JS file's own comment on
   why it is a best-effort, query-string-only convenience rather than
   something asked of the customer directly.
@@ -420,7 +428,64 @@
         </small>
       </div>
 
-      <p class="carat-warranty-claim__uploads-note">
+      {%- comment -%}
+        PHOTO UPLOADS. Optional, and optional in a load-bearing way: a claim
+        with no photos is a complete claim, so nothing here may block
+        submission. The control is shown optimistically and replaced by
+        `uploads_note` if the destination endpoint reports storage
+        unavailable — the customer is told plainly, never left with a control
+        that silently does nothing.
+
+        PHOTOS ONLY IN THIS ITERATION. The server accepts video too (300 MB
+        ceiling), but the browser must hash each file to produce the required
+        checksum, and hashing a 300 MB video in a phone tab is a hang waiting
+        to happen. The 20 MB photo ceiling keeps that bounded. Video is
+        deferred rather than half-offered.
+
+        NO SHIPPING INSTRUCTION ANYWHERE HERE (criterion 156) — this block
+        collects files; it never tells a customer to send anything.
+      {%- endcomment -%}
+      <fieldset
+        class="carat-warranty-claim__fieldset carat-warranty-claim__uploads"
+        data-carat-warranty-uploads
+        hidden
+      >
+        <legend class="carat-warranty-claim__legend">
+          {{- 'templates.warranty_claim.form.uploads_legend' | t -}}
+        </legend>
+        <p class="carat-warranty-claim__help" id="carat-warranty-uploads-help">
+          {{- 'templates.warranty_claim.form.uploads_help' | t -}}
+        </p>
+        <input
+          type="file"
+          class="carat-warranty-claim__file-input"
+          accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+          multiple
+          aria-describedby="carat-warranty-uploads-help"
+          data-carat-warranty-upload-input
+        >
+        <ul class="carat-warranty-claim__upload-list" data-carat-warranty-upload-list></ul>
+        <small
+          class="carat-warranty-claim__field-error form__message"
+          hidden
+          data-carat-warranty-upload-error
+          role="status"
+        >
+          <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+          <span data-carat-warranty-upload-error-text></span>
+        </small>
+      </fieldset>
+
+      {%- comment -%}
+        The fallback, shown only when uploads are genuinely unavailable. Says
+        what the customer can do instead, and names no internal cause — never
+        "our storage bucket isn't provisioned".
+      {%- endcomment -%}
+      <p
+        class="carat-warranty-claim__uploads-note"
+        data-carat-warranty-uploads-unavailable
+        hidden
+      >
         {{- 'templates.warranty_claim.form.uploads_note' | t -}}
       </p>
 

@@ -428,6 +428,16 @@
       claimAcknowledgmentAccepted: true,
     };
 
+    // UPLOADS AND THEIR CLAIM ID TRAVEL TOGETHER OR NOT AT ALL. The server
+    // requires `claimId` only when `uploads` is non-empty, and honours it
+    // only then -- so one without the other is refused, and neither is a
+    // perfectly valid claim.
+    var uploads = collectUploads();
+    if (uploads.length > 0) {
+      body.claimId = claimIdForUploads();
+      body.uploads = uploads;
+    }
+
     var variantId = trimmedValue(form, 'variant_id');
     if (variantId) body.shopifyVariantId = variantId;
 
@@ -667,12 +677,282 @@
     }
   }
 
+  // =========================================================================
+  // PHOTO UPLOADS
+  // =========================================================================
+  //
+  // OPTIONAL, AND THAT IS LOAD-BEARING. A claim with no photos is a complete
+  // claim. Nothing in this block may prevent submission: every failure path
+  // ends with the customer still able to submit, and `collectUploads()`
+  // returning only the files that genuinely reached R2.
+  //
+  // THE THREE-STEP HANDSHAKE, and why the claim id is minted here.
+  // Evidence is uploaded BEFORE the claim exists, so the server cannot bind a
+  // destination to a claim row that is not there yet. Instead this file
+  // generates the claim's id up front, uses it for every destination request,
+  // and submits it as `claimId`. That is safe because a caller-supplied id can
+  // only ever create a BRAND NEW claim -- the primary key refuses reuse -- so
+  // it cannot attach evidence to someone else's claim, and the persisted
+  // destination's own `customerRef` still gates consumption to the identity
+  // that requested it. (See `apps.carat.warranty-claim-upload-destination.tsx`.)
+  //
+  // PHOTOS ONLY. The server also accepts video, but the checksum it requires
+  // is computed here, in the browser, and hashing a 300 MB video in a phone
+  // tab is a hang. The 20 MB photo ceiling keeps it bounded.
+  var UPLOAD_DESTINATION_PROXY_PATH = '/apps/carat/warranty-claim-upload-destination';
+  var UPLOAD_MAX_PHOTOS = 5;
+  // Mirrors `WARRANTY_CLAIM_UPLOAD_MAX_SIZE_BYTES.photo` and the photo half of
+  // `WARRANTY_CLAIM_UPLOAD_ALLOWED_CONTENT_TYPES`. Duplicated deliberately:
+  // this is a courtesy check so the customer learns immediately rather than
+  // after an upload round trip. The SERVER remains the authority and re-checks
+  // both -- never treat this list as the enforcement point.
+  var UPLOAD_MAX_BYTES = 20000000;
+  var UPLOAD_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+
+  // Populated only by uploads that actually completed.
+  var uploadedFiles = [];
+  var uploadClaimId = null;
+  var uploadsDisabled = false;
+
+  function newClaimId() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return window.crypto.randomUUID();
+    }
+    // Fallback for browsers without randomUUID. Uses crypto.getRandomValues
+    // (not Math.random) so the id is still unguessable -- a guessable claim id
+    // would not grant access to anything, but there is no reason to weaken it.
+    var bytes = new Uint8Array(16);
+    window.crypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    var hex = [];
+    for (var i = 0; i < bytes.length; i++) {
+      hex.push((bytes[i] + 0x100).toString(16).slice(1));
+    }
+    return (
+      hex.slice(0, 4).join('') +
+      '-' +
+      hex.slice(4, 6).join('') +
+      '-' +
+      hex.slice(6, 8).join('') +
+      '-' +
+      hex.slice(8, 10).join('') +
+      '-' +
+      hex.slice(10, 16).join('')
+    );
+  }
+
+  function claimIdForUploads() {
+    if (!uploadClaimId) uploadClaimId = newClaimId();
+    return uploadClaimId;
+  }
+
+  /** SHA-256 of the file bytes, hex, prefixed to name the algorithm. */
+  function checksumFor(file) {
+    return file.arrayBuffer().then(function (buffer) {
+      return window.crypto.subtle.digest('SHA-256', buffer).then(function (digest) {
+        var view = new Uint8Array(digest);
+        var hex = '';
+        for (var i = 0; i < view.length; i++) {
+          hex += (view[i] + 0x100).toString(16).slice(1);
+        }
+        return 'sha256:' + hex;
+      });
+    });
+  }
+
+  function showUploadError(messageKey) {
+    var wrapper = document.querySelector('[data-carat-warranty-upload-error]');
+    var text = document.querySelector('[data-carat-warranty-upload-error-text]');
+    if (!wrapper || !text) return;
+    text.textContent = localeString(messageKey);
+    wrapper.hidden = false;
+  }
+
+  function clearUploadError() {
+    var wrapper = document.querySelector('[data-carat-warranty-upload-error]');
+    if (wrapper) wrapper.hidden = true;
+  }
+
+  /**
+   * Storage is unavailable. Replace the control with the plain note rather
+   * than leaving a file input that cannot work -- the original reason this
+   * form shipped without uploads at all, kept as the failure path.
+   */
+  function disableUploads() {
+    uploadsDisabled = true;
+    var fieldset = document.querySelector('[data-carat-warranty-uploads]');
+    var note = document.querySelector('[data-carat-warranty-uploads-unavailable]');
+    if (fieldset) fieldset.hidden = true;
+    if (note) note.hidden = false;
+  }
+
+  function renderUploadList() {
+    var list = document.querySelector('[data-carat-warranty-upload-list]');
+    if (!list) return;
+    list.textContent = '';
+    for (var i = 0; i < uploadedFiles.length; i++) {
+      var entry = uploadedFiles[i];
+      var item = document.createElement('li');
+      item.className = 'carat-warranty-claim__upload-item';
+      var name = document.createElement('span');
+      // textContent, never innerHTML: the file name comes from the customer's
+      // own device and is untrusted input like any other.
+      name.textContent = entry.fileName;
+      var status = document.createElement('span');
+      status.className = 'carat-warranty-claim__upload-status';
+      status.textContent = localeString(entry.storageKey ? 'uploads_done' : 'uploads_pending');
+      item.appendChild(name);
+      item.appendChild(status);
+      list.appendChild(item);
+    }
+  }
+
+  /** One file, end to end. Resolves to the descriptor, or null if it did not make it. */
+  function uploadOne(file) {
+    var claimId = claimIdForUploads();
+    var entry = { fileName: file.name, storageKey: null };
+    uploadedFiles.push(entry);
+    renderUploadList();
+
+    return fetch(UPLOAD_DESTINATION_PROXY_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        claimId: claimId,
+        kind: 'photo',
+        contentType: file.type,
+        sizeBytes: file.size,
+      }),
+    })
+      .then(function (response) {
+        if (response.status === 503) {
+          // Storage genuinely unavailable — not this file's fault.
+          disableUploads();
+          return null;
+        }
+        if (!response.ok) return null;
+        return response.json();
+      })
+      .then(function (destination) {
+        if (!destination || !destination.uploadUrl || !destination.storageKey) return null;
+        return fetch(destination.uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': file.type },
+          body: file,
+        }).then(function (putResponse) {
+          if (!putResponse.ok) return null;
+          return checksumFor(file).then(function (checksum) {
+            entry.storageKey = destination.storageKey;
+            entry.contentType = file.type;
+            entry.sizeBytes = file.size;
+            entry.checksum = checksum;
+            renderUploadList();
+            return entry;
+          });
+        });
+      })
+      .catch(function () {
+        // Network/crypto failure. Swallowed on purpose: the claim must remain
+        // submittable, and the customer is told below.
+        return null;
+      })
+      .then(function (result) {
+        if (!result) {
+          // Drop the placeholder so a failed file is not shown as attached.
+          var index = uploadedFiles.indexOf(entry);
+          if (index >= 0) uploadedFiles.splice(index, 1);
+          renderUploadList();
+          if (!uploadsDisabled) showUploadError('error_upload_failed');
+        }
+        return result;
+      });
+  }
+
+  function handleUploadSelection(event) {
+    var input = event.target;
+    if (!input || !input.files || input.files.length === 0) return;
+    clearUploadError();
+
+    var files = [];
+    for (var i = 0; i < input.files.length; i++) files.push(input.files[i]);
+
+    // Courtesy validation, in the order a customer would care about.
+    if (uploadedFiles.length + files.length > UPLOAD_MAX_PHOTOS) {
+      showUploadError('error_upload_too_many');
+      input.value = '';
+      return;
+    }
+    for (var j = 0; j < files.length; j++) {
+      if (UPLOAD_ALLOWED_TYPES.indexOf(files[j].type) === -1) {
+        showUploadError('error_upload_type');
+        input.value = '';
+        return;
+      }
+      if (files[j].size > UPLOAD_MAX_BYTES) {
+        showUploadError('error_upload_too_large');
+        input.value = '';
+        return;
+      }
+    }
+
+    // Sequential, not parallel: several 20 MB PUTs at once on a phone
+    // connection is how an upload appears to hang.
+    var chain = Promise.resolve();
+    for (var k = 0; k < files.length; k++) {
+      chain = chain.then(
+        (function (file) {
+          return function () {
+            return uploadOne(file);
+          };
+        })(files[k])
+      );
+    }
+    chain.then(function () {
+      input.value = '';
+    });
+  }
+
+  /** The descriptors for `uploads`, and nothing that failed. */
+  function collectUploads() {
+    var ready = [];
+    for (var i = 0; i < uploadedFiles.length; i++) {
+      var entry = uploadedFiles[i];
+      if (!entry.storageKey) continue;
+      ready.push({
+        kind: 'photo',
+        storageKey: entry.storageKey,
+        contentType: entry.contentType,
+        sizeBytes: entry.sizeBytes,
+        checksum: entry.checksum,
+      });
+    }
+    return ready;
+  }
+
+  function wireUploads() {
+    var fieldset = document.querySelector('[data-carat-warranty-uploads]');
+    var input = document.querySelector('[data-carat-warranty-upload-input]');
+    if (!fieldset || !input) return;
+    // `crypto.subtle` is unavailable on insecure origins, and without it the
+    // checksum the server requires cannot be produced. Offering the control
+    // anyway would fail at the last step, after the customer had waited for
+    // an upload — so it is not offered.
+    if (!window.crypto || !window.crypto.subtle || typeof window.crypto.subtle.digest !== 'function') {
+      disableUploads();
+      return;
+    }
+    fieldset.hidden = false;
+    input.addEventListener('change', handleUploadSelection);
+  }
+
   function init() {
     var form = document.querySelector(FORM_SELECTOR);
     if (!form) return;
 
     prefillFromQueryString(form);
     wireOrderLookup(form);
+    wireUploads();
     wireConditionalDetails(
       '[data-carat-warranty-impact-radio]',
       '[data-carat-warranty-impact-details-wrapper]',
@@ -706,6 +986,8 @@
       orderLookupMessageKeyForFailure: orderLookupMessageKeyForFailure,
       normalizeOrderLookupResult: normalizeOrderLookupResult,
       buildLineItemOptionLabel: buildLineItemOptionLabel,
+      collectUploads: collectUploads,
+      claimIdForUploads: claimIdForUploads,
     },
   };
 })();

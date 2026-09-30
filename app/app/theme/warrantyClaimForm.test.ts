@@ -320,3 +320,48 @@ describe("templates.warranty_claim.form — new order-picker/sign-in locale keys
     );
   });
 });
+
+/**
+ * PHOTO UPLOADS — the parts observable without a DOM.
+ *
+ * The full selection -> destination -> PUT -> checksum chain needs real files
+ * and a real bucket, and is live-proven end to end by
+ * `tests/live/slice5.warrantyUploadFlow.ts` (10/10 against production). What
+ * belongs here is the property that no live gate can easily demonstrate: that
+ * a claim with NO photos is a complete claim, and that nothing about uploads
+ * leaks into a submission that has none.
+ */
+describe("photo uploads are optional in a load-bearing way", () => {
+  it("collects nothing before any file is chosen", () => {
+    const form = loadWarrantyClaimForm();
+    expect(form._internal.collectUploads()).toEqual([]);
+  });
+
+  it("mints a claim id that is stable for the page", () => {
+    // Stability matters: every destination request for one claim must carry
+    // the SAME id, or each upload would be bound to a different claim and
+    // none of them would verify at submission.
+    const form = loadWarrantyClaimForm();
+    const first = form._internal.claimIdForUploads();
+    const second = form._internal.claimIdForUploads();
+    expect(first).toBe(second);
+  });
+
+  it("mints a v4-shaped UUID, because the server validates the shape", () => {
+    // `apps.carat.warranty-claim-upload-destination.tsx` requires
+    // `z.string().uuid()`; a malformed id is refused with 400 before anything
+    // is issued, so a bad generator would break uploads entirely.
+    const form = loadWarrantyClaimForm();
+    expect(form._internal.claimIdForUploads()).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    );
+  });
+
+  it("gives a different id to a different page load", () => {
+    // A shared id across two claims would make the second submission collide
+    // on the primary key and fail — the safe direction, but still broken.
+    const a = loadWarrantyClaimForm()._internal.claimIdForUploads();
+    const b = loadWarrantyClaimForm()._internal.claimIdForUploads();
+    expect(a).not.toBe(b);
+  });
+});

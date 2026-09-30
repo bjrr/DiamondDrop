@@ -115,6 +115,25 @@ const APPROVED: ReadonlyArray<readonly [string, string]> = [
     "I understand that cancellation requests before the campaign closes require CaratForUs approval, and that once the campaign closes my Group Buy order is committed and is not eligible for discretionary cancellation or return.",
   ],
   ["templates.group_buy_campaign.cancellation_affirm_label", "I Understand & Agree"],
+  // Owner-approved 2026-09-29, docs/specs/STOREFRONT-COPY-DECISIONS.md §2.2.
+  //
+  // The examples sentence is the OWNER'S OWN WORDING, not the draft. A first
+  // attempt offered "a stone coming loose from a setting that wasn't damaged"
+  // and was rejected for implying that any loose stone is automatically
+  // covered — a claim the policy does not make. The replacement names
+  // workmanship failures rather than symptoms.
+  //
+  // The WHOLE paragraph is pinned, coverage and exclusions together, because
+  // the exclusions are what stop the examples reading as an open promise.
+  // Editing either half in isolation is what would do damage, so neither can
+  // move without this failing.
+  [
+    "templates.warranty_claim.form.intro",
+    "Use this form to report a suspected manufacturing defect covered by CaratForUs's 1-year limited manufacturing warranty. " +
+      "The warranty covers defects in materials, construction, setting, or assembly under normal use. " +
+      "Examples may include defective solder joints, structural workmanship failures, setting defects, and defective clasps or mechanisms under normal use. " +
+      "It does not cover normal wear, scratches, dents, impact damage, worn or bent prongs, stone loss caused by damage or wear, misuse, improper care, sizing changes, or unauthorized repairs, alterations, or modifications.",
+  ],
 ];
 
 describe("owner-approved customer-facing copy is pinned verbatim", () => {
