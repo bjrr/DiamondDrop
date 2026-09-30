@@ -29,6 +29,30 @@ process.env.PRISMA_EMIT_QUERY_EVENTS = "1";
 process.env.PRICE_AUTO_PUBLISH_ENABLED = "";
 
 /**
+ * OBVIOUSLY-FAKE BANK PAYMENT COORDINATES, SET UNCONDITIONALLY.
+ *
+ * Group Buy Bank Payment checkout now fails closed with 503 when payment
+ * coordinates are missing — it refuses to create an order it cannot tell the
+ * customer how to pay for. That is correct, and it means the suite must
+ * supply coordinates or every checkout test would assert against a 503 and
+ * quietly stop testing checkout at all.
+ *
+ * SET HERE, NOT READ FROM `.env`, and deliberately overwriting whatever is
+ * there. The same reasoning as `PRICE_AUTO_PUBLISH_ENABLED` above: a test run
+ * whose behaviour depends on a developer's local secrets is the problem being
+ * removed. It also guarantees that if REAL coordinates ever land in a
+ * developer's `.env`, no test can email them anywhere or assert on them.
+ *
+ * The values are visibly unusable on purpose — `.invalid` is reserved by
+ * RFC 2606 and all-zero routing/account numbers are not valid anywhere.
+ */
+process.env.PAYMENT_ZELLE_RECIPIENT = "test-pay@example.invalid";
+process.env.PAYMENT_WIRE_BANK_NAME = "TEST BANK — NOT REAL";
+process.env.PAYMENT_WIRE_ACCOUNT_NAME = "TEST ACCOUNT — NOT REAL";
+process.env.PAYMENT_WIRE_ROUTING_NUMBER = "000000000";
+process.env.PAYMENT_WIRE_ACCOUNT_NUMBER = "000000000000";
+
+/**
  * Same reasoning as the line above, and the second time this exact thing has
  * happened: configuring the real Resend channel in `app/.env` turned four
  * integration tests red — tests that assert the HONEST `skipped_unconfigured`

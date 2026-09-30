@@ -4,8 +4,10 @@ Supersedes the approval queue in `STOREFRONT-COPY-FOR-APPROVAL.md`. These five
 sentences were the only ones outstanding; all are now decided. Everything else
 on those surfaces reuses already-locked wording and is not restated here.
 
-**Use these exact strings.** Two are approved CONDITIONALLY and must not ship
-until the condition is met — see the blocker note under each.
+**Use these exact strings.** Two were approved conditionally on an email that
+did not yet exist; both emails were built on 2026-09-29 and the conditions are
+met — see the note under each for what remains operational rather than
+editorial.
 
 ---
 
@@ -17,16 +19,20 @@ until the condition is met — see the blocker note under each.
 
 Appears on the Group Buy campaign page after a Bank Payment order is placed.
 
-> ⛔ **BLOCKED — the condition is NOT met today.** The owner approved this
-> "only because the Bank Payment workflow actually sends those instructions".
-> It does not. `apps.carat.group-buy-bank-checkout.tsx` sends no email, and a
-> whole-app audit found only four senders — `adminAlertDispatch.server.ts`,
-> `guaranteeSweep.server.ts` (Buy Now cancellation/guarantee, not Group Buy
-> instructions), and the two order-handler admin alerts. None sends a customer
-> payment instruction.
+> ✅ **UNBLOCKED 2026-09-29 — condition met, pending secrets.** The email now
+> exists: `app/domain/bankpayment/groupBuyPaymentInstructionsEmail.ts`, sent by
+> `apps.carat.group-buy-bank-checkout.tsx` after the order is created. It
+> carries the exact amount due, the order reference, both owner-approved
+> methods (Zelle and domestic wire), the deadline taken from the same
+> `groupBuyPaymentWindowDeadline` the inactivation sweep enforces, and the
+> locked statement that payment is not confirmed until received and verified.
 >
-> Do not publish this sentence until a Group Buy Bank Payment instruction
-> email exists and is covered by live proof.
+> ONE OPERATIONAL PRECONDITION REMAINS: the five `PAYMENT_*` Fly secrets must
+> be set. Until they are, Group Buy Bank Payment checkout fails closed with
+> 503 BEFORE creating any order — it will not produce an order it cannot tell
+> the customer how to pay for. So this sentence is safe to publish the moment
+> those secrets exist, and harmless before then, because no customer can reach
+> a Bank Payment order at all.
 
 ## §2.2 Warranty — what's covered
 
@@ -74,13 +80,18 @@ compressed onto a page a customer skims.
 
 Appears on the claim confirmation screen, above the §2.4 do-not-ship notice.
 
-> ⛔ **BLOCKED — the condition is NOT met today.** The owner required that the
-> notification "actually exists in the workflow before shipping this
-> sentence". `apps.carat.warranty-claim.tsx` sends no email; the only
-> occurrence of "email" in that route is the `purchaserEmail` field it stores.
+> ✅ **UNBLOCKED 2026-09-29 — condition met.** The email now exists:
+> `app/domain/warranty/claimAcknowledgmentEmail.ts`, sent by
+> `apps.carat.warranty-claim.tsx` after the claim is committed. Its copy was
+> approved verbatim on 2026-09-29 and is pinned character-for-character,
+> including a test that forbids any turnaround-time phrasing — the owner
+> struck that twice and a future edit should fail loudly rather than quietly
+> reintroduce it.
 >
-> Do not publish this sentence until a warranty claim acknowledgement email
-> exists and is covered by live proof.
+> The send is best-effort and deliberately cannot fail the claim: the claim is
+> already committed and its upload destinations already spent, so turning a
+> mail-provider outage into an error the customer would retry is strictly
+> worse than an acknowledgement that arrives late.
 
 ---
 
@@ -93,8 +104,10 @@ material promise or changes locked policy.
 
 ## Open work created by these decisions
 
-1. Group Buy Bank Payment instruction email (unblocks §1.5).
-2. Warranty claim acknowledgement email (unblocks §2.8).
+1. ~~Group Buy Bank Payment instruction email~~ — BUILT 2026-09-29. Needs the
+   five `PAYMENT_*` Fly secrets set before Bank Payment checkout will accept
+   an order at all.
+2. ~~Warranty claim acknowledgement email~~ — BUILT 2026-09-29.
 3. The customer-facing warranty claim page itself does not exist in this
    repository yet — only `app/domain/warranty/acknowledgmentText.ts`. When it
    is built, §2.2/§2.4/§2.5 above are the strings to use.

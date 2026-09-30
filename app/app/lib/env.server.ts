@@ -52,6 +52,29 @@ const envSchema = z.object({
   EMAIL_API_KEY: z.string().optional(), // first transactional email (slice 7+)
   EMAIL_FROM: z.string().optional(),
   STAFF_EMAIL_ALLOWLIST: z.string().optional(), // first admin auth (slice 2+)
+
+  /**
+   * WHERE A GROUP BUY BANK PAYMENT CUSTOMER ACTUALLY SENDS MONEY.
+   * Owner decision 2026-09-29: MVP1 offers Zelle and DOMESTIC WIRE only. ACH
+   * and generic "bank transfer" stay unexposed for now — the policy permits
+   * them, but there is no need to surface every allowed method at launch. No
+   * SWIFT/BIC, because domestic wire does not need one.
+   *
+   * NEVER HARD-CODED, AND NEVER LOGGED. These are the real coordinates of a
+   * real account. `bankPaymentCoordinates.server.ts` is the only thing that
+   * reads them; it fails closed when any is missing rather than sending an
+   * email that tells a customer to pay and then omits where. Nothing may log
+   * their values, put them in an error message, or persist them — see that
+   * module's own header for why each of those is a separate rule.
+   *
+   * Optional here only because every other environment legitimately runs
+   * without them; the resolver, not the schema, is what refuses to proceed.
+   */
+  PAYMENT_ZELLE_RECIPIENT: z.string().optional(),
+  PAYMENT_WIRE_BANK_NAME: z.string().optional(),
+  PAYMENT_WIRE_ACCOUNT_NAME: z.string().optional(),
+  PAYMENT_WIRE_ROUTING_NUMBER: z.string().optional(),
+  PAYMENT_WIRE_ACCOUNT_NUMBER: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

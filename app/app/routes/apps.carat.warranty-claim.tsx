@@ -11,7 +11,9 @@ import {
   WARRANTY_CLAIM_ACKNOWLEDGMENT_POLICY_SLUG,
   WARRANTY_CLAIM_ACKNOWLEDGMENT_TEXT,
 } from "~/domain/warranty/acknowledgmentText";
+import { buildWarrantyClaimAcknowledgmentEmail } from "~/domain/warranty/claimAcknowledgmentEmail";
 import { validateWarrantyUploadMetadata } from "~/jobs/warranty/uploadValidation";
+import { resolveEmailPort } from "~/lib/email/configuredPort.server";
 import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
 import type { WarrantyClaimOrderLookupPort } from "~/shopify/admin/warrantyClaimOrderLookupAdapter.server";
@@ -587,6 +589,43 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   logger.info("warranty_claim.submitted", { claimId: claim.id });
+
+  // ACKNOWLEDGEMENT EMAIL — BEST EFFORT, AFTER THE CLAIM EXISTS.
+  //
+  // Deliberately not awaited into the response's success: the claim is already
+  // committed, its evidence is recorded, and a mail-provider outage must not
+  // turn an accepted claim into an error the customer will retry — a retry
+  // that would consume nothing (their upload destinations are already spent)
+  // and could read to them as the claim having failed.
+  //
+  // So a send failure is LOGGED and the 201 stands. The confirmation screen
+  // already tells the customer everything the email repeats, which is why
+  // degrading here is acceptable rather than silently lossy.
+  try {
+    const emailResolution = resolveEmailPort();
+    if (!emailResolution.configured) {
+      logger.warn("warranty_claim.acknowledgment_email_unconfigured", { reason: emailResolution.reason });
+    } else {
+      const content = buildWarrantyClaimAcknowledgmentEmail({
+        claimReference: claim.claimReference,
+        // The address the claim itself recorded, echoed back so the customer
+        // can see which one we hold.
+        purchaserEmail: claim.purchaserEmail,
+      });
+      await emailResolution.port.send({
+        from: emailResolution.from,
+        to: [claim.purchaserEmail],
+        subject: content.subject,
+        text: content.text,
+      });
+      logger.info("warranty_claim.acknowledgment_email_sent", { claimId: claim.id });
+    }
+  } catch (error) {
+    logger.error("warranty_claim.acknowledgment_email_failed", {
+      claimId: claim.id,
+      errorName: error instanceof Error ? error.name : "unknown",
+    });
+  }
 
   return Response.json(buildConfirmationDto(claim), { status: 201, headers: { "Cache-Control": "private, no-store" } });
 }

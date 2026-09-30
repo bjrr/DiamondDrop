@@ -14,7 +14,18 @@ import {
 } from "~/domain/bankpayment/groupBuyCheckoutResponseDto";
 import { computeGroupBuyBankCheckoutIdempotencyKey } from "~/domain/bankpayment/groupBuyCheckoutIdempotencyKey";
 import { computeGroupBuyTierLinePrice, type GroupBuyTierPricingProfile } from "~/domain/bankpayment/groupBuyTierPrice";
+import {
+  groupBuyPaymentWindowDeadline,
+  resolveGroupBuyPaymentWindowStart,
+} from "~/domain/bankpayment/groupBuyPaymentWindow";
+import { buildGroupBuyPaymentInstructionsEmail } from "~/domain/bankpayment/groupBuyPaymentInstructionsEmail";
 import { normalizeShopifyVariantGid } from "~/domain/cart/shopifyVariantId";
+import { resolveEmailPort } from "~/lib/email/configuredPort.server";
+import {
+  resolveBankPaymentCoordinates,
+  type BankPaymentCoordinates,
+} from "~/lib/payments/bankPaymentCoordinates.server";
+import { minorUnitsToDecimalString } from "~/shopify/admin/priceSyncAdapter.server";
 import { buildAcknowledgmentRecord } from "~/domain/evidence/acknowledgment";
 import {
   GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_AFFIRMATIVE_ACTION_LABEL,
@@ -267,6 +278,12 @@ async function performGroupBuyBankCheckout(input: {
    * file's CANCELLATION ACKNOWLEDGMENT module comment.
    */
   cancellationPolicyVersion: { id: string; text: string };
+  /**
+   * Proven present BEFORE any Shopify call by the action-level gate. Passed
+   * through rather than re-read so the coordinates that gated the order are
+   * exactly the ones the customer is sent.
+   */
+  paymentCoordinates: BankPaymentCoordinates;
 }): Promise<GroupBuyBankCheckoutResultDto> {
   // THE ACKNOWLEDGMENT ID IS MINTED BEFORE SHOPIFY IS CALLED, not after.
   //
@@ -403,6 +420,69 @@ async function performGroupBuyBankCheckout(input: {
     lineCount: input.quotedLines.length,
   });
 
+  // PAYMENT INSTRUCTIONS — the email the storefront promises (§1.5).
+  //
+  // Coordinates were already proven present before any Shopify call, so this
+  // cannot produce a partial email; the resolution is passed in rather than
+  // re-read so the check that gated the order and the values that reach the
+  // customer are the same ones.
+  //
+  // THE DEADLINE IS NOT COMPUTED HERE. It comes from the same
+  // `groupBuyPaymentWindowDeadline` the inactivation sweep uses, applied to
+  // this order's own window start, so the email cannot promise a different
+  // deadline from the one that will actually be enforced.
+  //
+  // A send failure does NOT undo the order: the order is committed, its units
+  // count, and the price is locked. It is logged at error so staff can send
+  // instructions by hand — losing the order because the mail provider is down
+  // would be far worse than an order whose instructions arrive late.
+  try {
+    const emailResolution = resolveEmailPort();
+    if (!emailResolution.configured) {
+      logger.error("group_buy_bank_checkout.instructions_email_unconfigured", {
+        groupBuyBankPaymentOrderId: groupBuyBankPaymentOrder.id,
+        reason: emailResolution.reason,
+      });
+    } else {
+      // BIGINT THROUGHOUT. Quantity is multiplied into the unit price in
+      // minor units and summed; the decimal string is produced once, at the
+      // end, by the same helper the Shopify price path uses. No float ever
+      // touches this, which is why it is computed here rather than in the
+      // email module — that module formats nothing.
+      const totalDueMinorUnits = input.quotedLines.reduce(
+        (sum, line) => sum + line.quotedBankPaymentPriceMinorUnits * BigInt(line.quantity),
+        0n
+      );
+      const currency = input.quotedLines[0]!.currency;
+
+      const content = buildGroupBuyPaymentInstructionsEmail({
+        bankPaymentOrderId: groupBuyBankPaymentOrder.id,
+        campaignCode: input.campaignCode,
+        formattedAmountDue: `${minorUnitsToDecimalString(totalDueMinorUnits)} ${currency}`,
+        paymentDeadline: groupBuyPaymentWindowDeadline(
+          resolveGroupBuyPaymentWindowStart(groupBuyBankPaymentOrder)
+        ),
+        coordinates: input.paymentCoordinates,
+      });
+      await emailResolution.port.send({
+        from: emailResolution.from,
+        to: [input.resolvedEmail],
+        subject: content.subject,
+        text: content.text,
+      });
+      // NOTHING ABOUT THE COORDINATES IS LOGGED — not which method, not a
+      // masked tail. Only that instructions went out, and for which order.
+      logger.info("group_buy_bank_checkout.instructions_email_sent", {
+        groupBuyBankPaymentOrderId: groupBuyBankPaymentOrder.id,
+      });
+    }
+  } catch (error) {
+    logger.error("group_buy_bank_checkout.instructions_email_failed", {
+      groupBuyBankPaymentOrderId: groupBuyBankPaymentOrder.id,
+      errorName: error instanceof Error ? error.name : "unknown",
+    });
+  }
+
   return buildGroupBuyBankCheckoutResultDto({
     groupBuyBankPaymentOrderId: groupBuyBankPaymentOrder.id,
     campaignId: input.campaignId,
@@ -491,6 +571,29 @@ export async function action({ request }: ActionFunctionArgs) {
   if (!cancellationPolicyVersion) {
     logger.error("group_buy_bank_checkout.acknowledgment_copy_pending_approval", {});
     return Response.json({ error: "acknowledgment_copy_pending_approval" }, { status: 503 });
+  }
+
+  // --- PAYMENT COORDINATES MUST EXIST BEFORE ANY ORDER DOES. ---
+  //
+  // Checked HERE, before Shopify is touched, and not at send time. The whole
+  // point of this route is to produce an order the customer then PAYS for; if
+  // we cannot tell them where to send money, creating the order first would
+  // leave a real Shopify order, a real counted unit and a customer with no way
+  // to pay and no idea why. Failing before anything exists is the only honest
+  // order of operations — the same reasoning as the acknowledgment-copy gate
+  // immediately above.
+  //
+  // The reason string names MISSING VARIABLES only, never a coordinate value;
+  // the response carries no detail at all, because a customer cannot act on
+  // our configuration problem and an attacker should not learn our state from
+  // it. (`resolveBankPaymentCoordinates`' own header explains why those are
+  // two separate rules.)
+  const paymentCoordinates = resolveBankPaymentCoordinates();
+  if (!paymentCoordinates.configured) {
+    logger.error("group_buy_bank_checkout.payment_coordinates_unconfigured", {
+      reason: paymentCoordinates.reason,
+    });
+    return Response.json({ error: "checkout_unavailable" }, { status: 503 });
   }
 
   // --- Resolve the campaign FIRST: every downstream check (eligibility,
@@ -638,6 +741,7 @@ export async function action({ request }: ActionFunctionArgs) {
           quotedLines,
           idempotencyKey,
           cancellationPolicyVersion: { id: cancellationPolicyVersion.id, text: cancellationPolicyVersion.text },
+          paymentCoordinates: paymentCoordinates.coordinates,
         })
     );
     return Response.json(result, { status: 200 });
