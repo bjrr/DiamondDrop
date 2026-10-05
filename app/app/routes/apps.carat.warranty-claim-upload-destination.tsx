@@ -194,7 +194,8 @@ export async function action({ request }: ActionFunctionArgs) {
   let destination;
   try {
     destination = await resolution.port.createUploadDestination({
-      claimId: body.claimId,
+      purpose: "warranty_claim",
+      ownerId: body.claimId,
       kind: body.kind,
       contentType: body.contentType,
       sizeBytes: body.sizeBytes,

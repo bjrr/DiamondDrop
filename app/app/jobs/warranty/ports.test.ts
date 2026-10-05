@@ -19,7 +19,7 @@ describe("RecordingWarrantyUploadPort", () => {
   it("produces a destination for a valid request and records the call", async () => {
     const port = new RecordingWarrantyUploadPort();
     const destination = await port.createUploadDestination({
-      claimId: "11111111-1111-1111-1111-111111111111",
+      ownerId: "11111111-1111-1111-1111-111111111111",
       kind: "photo",
       contentType: "image/jpeg",
       sizeBytes: 1_000_000,
@@ -35,7 +35,7 @@ describe("RecordingWarrantyUploadPort", () => {
 
   it("produces distinct storage keys for repeated requests against the same claim", async () => {
     const port = new RecordingWarrantyUploadPort();
-    const request = { claimId: "claim-1", kind: "photo" as const, contentType: "image/jpeg", sizeBytes: 1_000 };
+    const request = { ownerId: "claim-1", kind: "photo" as const, contentType: "image/jpeg", sizeBytes: 1_000 };
     const first = await port.createUploadDestination(request);
     const second = await port.createUploadDestination(request);
     expect(first.storageKey).not.toBe(second.storageKey);
@@ -45,7 +45,7 @@ describe("RecordingWarrantyUploadPort", () => {
     const port = new RecordingWarrantyUploadPort();
     await expect(
       port.createUploadDestination({
-        claimId: "claim-1",
+        ownerId: "claim-1",
         kind: "photo",
         contentType: "application/pdf",
         sizeBytes: 1_000,
@@ -58,7 +58,7 @@ describe("RecordingWarrantyUploadPort", () => {
     const port = new RecordingWarrantyUploadPort();
     await expect(
       port.createUploadDestination({
-        claimId: "claim-1",
+        ownerId: "claim-1",
         kind: "photo",
         contentType: "image/jpeg",
         sizeBytes: 1_000_000_000,
@@ -133,7 +133,7 @@ describe("R2WarrantyUploadPort — the production adapter", () => {
     if (!result.configured) throw new Error("expected configured");
 
     const destination = await result.port.createUploadDestination({
-      claimId: "11111111-1111-1111-1111-111111111111",
+      ownerId: "11111111-1111-1111-1111-111111111111",
       kind: "photo",
       contentType: "image/jpeg",
       sizeBytes: 1_000_000,
@@ -154,7 +154,7 @@ describe("R2WarrantyUploadPort — the production adapter", () => {
 
     await expect(
       result.port.createUploadDestination({
-        claimId: "claim-1",
+        ownerId: "claim-1",
         kind: "photo",
         contentType: "application/pdf",
         sizeBytes: 1_000,
@@ -168,7 +168,7 @@ describe("R2WarrantyUploadPort — the production adapter", () => {
 
     await expect(
       result.port.createUploadDestination({
-        claimId: "claim-1",
+        ownerId: "claim-1",
         kind: "video",
         contentType: "video/mp4",
         sizeBytes: 1_000_000_000_000,
@@ -180,7 +180,7 @@ describe("R2WarrantyUploadPort — the production adapter", () => {
     const result = resolveWarrantyUploadPort(CONFIGURED_ENV);
     if (!result.configured) throw new Error("expected configured");
 
-    const request = { claimId: "claim-1", kind: "photo" as const, contentType: "image/jpeg", sizeBytes: 1_000 };
+    const request = { ownerId: "claim-1", kind: "photo" as const, contentType: "image/jpeg", sizeBytes: 1_000 };
     const first = await result.port.createUploadDestination(request);
     const second = await result.port.createUploadDestination(request);
     expect(first.storageKey).not.toBe(second.storageKey);

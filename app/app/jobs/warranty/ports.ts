@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { UploadDestinationPurpose } from "@prisma/client";
 import type { WarrantyClaimUploadKind } from "@prisma/client";
 
 import { getEnv, type Env } from "~/lib/env.server";
@@ -39,8 +40,17 @@ import { validateWarrantyUploadMetadata } from "./uploadValidation";
  */
 
 export interface WarrantyUploadDestinationRequest {
-  /** `WarrantyClaim.id` — used only to shape the storage key, never persisted by this port. */
-  readonly claimId: string;
+  /**
+   * What this upload is FOR. Shapes the storage key prefix so evidence from
+   * different flows is separable in the bucket, and so a key read in
+   * isolation says which flow produced it.
+   *
+   * Defaults to `warranty_claim` purely so the pre-existing call site and
+   * its tests keep their meaning; new callers pass it explicitly.
+   */
+  readonly purpose?: UploadDestinationPurpose;
+  /** The owning entity id — warranty claim or Custom Jewelry project. Used only to shape the storage key; never persisted by this port. */
+  readonly ownerId: string;
   readonly kind: WarrantyClaimUploadKind;
   readonly contentType: string;
   readonly sizeBytes: number | bigint;
@@ -86,8 +96,19 @@ function extensionForContentType(contentType: string): string {
   return subtype === "jpeg" ? "jpg" : subtype;
 }
 
-function buildStorageKey(claimId: string, kind: WarrantyClaimUploadKind, contentType: string): string {
-  return `warranty/${claimId}/${kind}/${randomUUID()}.${extensionForContentType(contentType)}`;
+/** One prefix per purpose, so a storage key read on its own says which flow produced it. */
+const KEY_PREFIX: Record<UploadDestinationPurpose, string> = {
+  warranty_claim: "warranty",
+  custom_jewelry_project: "custom-jewelry",
+};
+
+function buildStorageKey(
+  purpose: UploadDestinationPurpose,
+  ownerId: string,
+  kind: WarrantyClaimUploadKind,
+  contentType: string
+): string {
+  return `${KEY_PREFIX[purpose]}/${ownerId}/${kind}/${randomUUID()}.${extensionForContentType(contentType)}`;
 }
 
 /**
@@ -131,7 +152,7 @@ export class RecordingWarrantyUploadPort implements WarrantyUploadPort {
 
     this.requests.push(request);
     return {
-      storageKey: buildStorageKey(request.claimId, request.kind, request.contentType),
+      storageKey: buildStorageKey(request.purpose ?? "warranty_claim", request.ownerId, request.kind, request.contentType),
       uploadUrl: null,
       expiresAt: null,
     };
@@ -160,7 +181,7 @@ export class R2WarrantyUploadPort implements WarrantyUploadPort {
     // this port (`apps.carat.warranty-claim-upload-destination.tsx`) is what
     // enforces that `claimId` itself belongs to the authenticated caller
     // BEFORE this is ever reached; this port has no notion of "customer".
-    const storageKey = buildStorageKey(request.claimId, request.kind, request.contentType);
+    const storageKey = buildStorageKey(request.purpose ?? "warranty_claim", request.ownerId, request.kind, request.contentType);
     const presigned = await this.client.createPresignedPutUrl({
       key: storageKey,
       contentType: request.contentType,
