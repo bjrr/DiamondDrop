@@ -5,7 +5,11 @@ import type {
   GroupBuyCampaignVariant,
 } from "@prisma/client";
 
-import { EXCLUDE_TEST_FIXTURE_CAMPAIGNS } from "~/domain/groupbuy/testFixtureCampaign";
+import {
+  EXCLUDE_ARCHIVED_CAMPAIGNS,
+  EXCLUDE_TEST_FIXTURE_CAMPAIGNS,
+  STAFF_ARCHIVED_ONLY,
+} from "~/domain/groupbuy/campaignVisibility";
 import { validateTierSet, type TierDefinition } from "~/domain/groupbuy/tiers";
 import type { GroupBuyCampaignOptions } from "~/domain/groupbuy/campaignOptions";
 import { getCurrentTier } from "~/jobs/groupbuy/unitLedger.server";
@@ -241,11 +245,47 @@ export interface GroupBuyCampaignListRow {
  * suppresses evidence; a staff member who needs to see what a gate left
  * behind asks for it explicitly, and gets it.
  */
+export interface StaffCampaignListOptions {
+  /** Live-gate fixtures are hidden by default. Set to see what a gate left behind. */
+  readonly includeTestFixtures?: boolean;
+  /**
+   * `operational` (default) — real business campaigns, archived ones hidden.
+   * `archived` — exactly the campaigns the default view hides for being archived.
+   * `all` — everything, for audit.
+   *
+   * ARCHIVING MUST NEVER MAKE HISTORY INACCESSIBLE TO STAFF (owner-locked
+   * 2026-10-05). That is why `archived` and `all` exist as first-class views
+   * rather than archiving being a one-way disappearance.
+   */
+  readonly view?: "operational" | "archived" | "all";
+}
+
+/**
+ * Composed additively, one independent decision at a time, rather than as a
+ * matrix of pre-built filters. The two questions — "are fixtures included"
+ * and "which archive state" — are genuinely independent, and an earlier
+ * version expressed their combination with `code: undefined` to cancel a
+ * spread. That works in Prisma, and it is the kind of cleverness that reads
+ * as a bug to the next person.
+ */
+function buildStaffCampaignFilter(options: StaffCampaignListOptions) {
+  const view = options.view ?? "operational";
+  const filter: Record<string, unknown> = {};
+
+  if (!options.includeTestFixtures) Object.assign(filter, EXCLUDE_TEST_FIXTURE_CAMPAIGNS);
+
+  // `all` adds no archive condition on purpose — it is the audit view.
+  if (view === "operational") Object.assign(filter, EXCLUDE_ARCHIVED_CAMPAIGNS);
+  if (view === "archived") Object.assign(filter, STAFF_ARCHIVED_ONLY);
+
+  return Object.keys(filter).length > 0 ? filter : undefined;
+}
+
 export async function listGroupBuyCampaignsForStaff(
-  options: { includeTestFixtures?: boolean } = {}
+  options: StaffCampaignListOptions = {}
 ): Promise<readonly GroupBuyCampaignListRow[]> {
   const rows = await prisma.groupBuyCampaign.findMany({
-    where: options.includeTestFixtures ? undefined : EXCLUDE_TEST_FIXTURE_CAMPAIGNS,
+    where: buildStaffCampaignFilter(options),
     select: {
       id: true,
       code: true,

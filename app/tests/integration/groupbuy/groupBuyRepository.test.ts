@@ -609,3 +609,186 @@ describe("a campaign carrying historical evidence cannot be deleted", () => {
     expect(await prisma.groupBuyUnitEvent.count({ where: { campaignId } })).toBeGreaterThan(0);
   });
 });
+
+/**
+ * ARCHIVED CAMPAIGNS STAY REACHABLE BY STAFF (owner-locked 2026-10-05).
+ * Archiving tidies the default view; it must never make history inaccessible.
+ */
+describe("the staff list separates operational from archived without losing either", () => {
+  async function archivedCampaign() {
+    const campaign = await createGroupBuyCampaign({
+      code: `gb-archived-${uniq()}`,
+      name: "archived",
+      currency: "USD",
+      createdBy: "integration-test",
+      tiers: TIERS,
+    });
+    await archiveGroupBuyCampaign({
+      campaignId: campaign.id,
+      archivedBy: "staff:ada",
+      reason: "no longer relevant",
+    });
+    return campaign;
+  }
+
+  it("omits an archived campaign from the default operational view", async () => {
+    const campaign = await archivedCampaign();
+    const listed = await listGroupBuyCampaignsForStaff();
+    expect(listed.some((c) => c.code === campaign.code)).toBe(false);
+  });
+
+  it("returns it under the Archived view", async () => {
+    const campaign = await archivedCampaign();
+    const listed = await listGroupBuyCampaignsForStaff({ view: "archived" });
+    expect(listed.some((c) => c.code === campaign.code)).toBe(true);
+  });
+
+  it("returns it under the audit 'all' view too", async () => {
+    const campaign = await archivedCampaign();
+    const listed = await listGroupBuyCampaignsForStaff({ view: "all" });
+    expect(listed.some((c) => c.code === campaign.code)).toBe(true);
+  });
+
+  it("the Archived view does NOT show unarchived business campaigns", async () => {
+    // Guard the guard: an Archived view that showed everything would make the
+    // first assertion meaningless.
+    const live = await createGroupBuyCampaign({
+      code: `gb-live-${uniq()}`,
+      name: "live",
+      currency: "USD",
+      createdBy: "integration-test",
+      tiers: TIERS,
+    });
+    const listed = await listGroupBuyCampaignsForStaff({ view: "archived" });
+    expect(listed.some((c) => c.code === live.code)).toBe(false);
+  });
+
+  it("NOTHING is invisible in both views — archiving cannot hide history from staff", async () => {
+    const campaign = await archivedCampaign();
+    const operational = await listGroupBuyCampaignsForStaff();
+    const archived = await listGroupBuyCampaignsForStaff({ view: "archived" });
+    const reachable =
+      operational.some((c) => c.code === campaign.code) || archived.some((c) => c.code === campaign.code);
+    expect(reachable).toBe(true);
+  });
+
+  it("the Archived view still excludes fixtures — not a place test data hides in plain sight", async () => {
+    const fixture = await createGroupBuyCampaign({
+      code: `zz-live-gate-${uniq()}`,
+      name: "fixture",
+      currency: "USD",
+      createdBy: "integration-test",
+      tiers: TIERS,
+    });
+    await archiveGroupBuyCampaign({
+      campaignId: fixture.id,
+      archivedBy: "staff:ada",
+      reason: "live-gate fixture",
+    });
+
+    const archived = await listGroupBuyCampaignsForStaff({ view: "archived" });
+    expect(archived.some((c) => c.code === fixture.code)).toBe(false);
+
+    // ...but still retrievable when explicitly asked for, so evidence is never lost.
+    const withFixtures = await listGroupBuyCampaignsForStaff({ view: "archived", includeTestFixtures: true });
+    expect(withFixtures.some((c) => c.code === fixture.code)).toBe(true);
+  });
+});
+
+/**
+ * DELETION REGRESSION SUITE (owner-required 2026-10-05).
+ *
+ * `group_buy_frozen_child_guard` was relaxed to recognise a cascading delete.
+ * That relaxation is only safe because `group_buy_campaign_no_delete_with_history`
+ * refuses first, so these cases exist to prove the safe case became possible
+ * WITHOUT any unsafe case becoming possible.
+ *
+ * The history trigger is the authoritative boundary. Every "cannot be
+ * deleted" case below is asserted against the DATABASE, not against a
+ * repository pre-check that a different code path could skip.
+ */
+describe("campaign deletion: the empty case works, every historical case is refused", () => {
+  async function emptyDraft() {
+    return createGroupBuyCampaign({
+      code: `gb-del-empty-${uniq()}`,
+      name: "empty draft",
+      currency: "USD",
+      createdBy: "integration-test",
+      tiers: TIERS,
+    });
+  }
+
+  it("1. a truly empty draft CAN be deleted — the one case deletion exists for", async () => {
+    const campaign = await emptyDraft();
+    // It has tiers. Those are configuration, not history, and must not block.
+    expect(await prisma.groupBuyCampaignTier.count({ where: { campaignId: campaign.id } })).toBeGreaterThan(0);
+
+    await prisma.groupBuyCampaign.delete({ where: { id: campaign.id } });
+    expect(await prisma.groupBuyCampaign.count({ where: { id: campaign.id } })).toBe(0);
+    // The cascade removed its tiers rather than being refused by the old guard.
+    expect(await prisma.groupBuyCampaignTier.count({ where: { campaignId: campaign.id } })).toBe(0);
+  });
+
+  it("2. a campaign with qualifying units CANNOT be deleted", async () => {
+    const { campaignId } = await seedCampaignWithUnits();
+    await expect(prisma.groupBuyCampaign.delete({ where: { id: campaignId } })).rejects.toThrow(
+      /carries historical evidence.*qualifying unit event/s
+    );
+    expect(await prisma.groupBuyCampaign.count({ where: { id: campaignId } })).toBe(1);
+  });
+
+  it("3. a campaign with acknowledgment / cancellation evidence CANNOT be deleted", async () => {
+    const campaign = await emptyDraft();
+    const policy = await prisma.policyVersion.findFirstOrThrow({ orderBy: { version: "desc" } });
+    await prisma.acknowledgment.create({
+      data: {
+        exactText: policy.text,
+        policyVersionId: policy.id,
+        acknowledgedAt: new Date(),
+        affirmativeActionLabel: "I Understand & Agree",
+        customerRef: `gid://shopify/Customer/${uniq()}`,
+        // Matched by CODE, which is how this table references a campaign.
+        campaignRef: campaign.code,
+      },
+    });
+
+    await expect(prisma.groupBuyCampaign.delete({ where: { id: campaign.id } })).rejects.toThrow(
+      /carries historical evidence.*acknowledgment/s
+    );
+  });
+
+  it("4. refund / settlement history blocks deletion", async () => {
+    const { campaignId } = await seedCampaignWithUnits();
+    // A refund row is settlement history even before it is paid.
+    const summary = await describeGroupBuyCampaignHistory(campaignId);
+    expect(summary.hasHistory).toBe(true);
+    await expect(prisma.groupBuyCampaign.delete({ where: { id: campaignId } })).rejects.toThrow(
+      /carries historical evidence/
+    );
+  });
+
+  it("5. ARCHIVING DOES NOT WEAKEN HISTORY PROTECTION", async () => {
+    // The dangerous shortcut would be "archived means safe to clean up".
+    const { campaignId } = await seedCampaignWithUnits();
+    await archiveGroupBuyCampaign({
+      campaignId,
+      archivedBy: "staff:ada",
+      reason: "tidying the dashboard",
+    });
+
+    await expect(prisma.groupBuyCampaign.delete({ where: { id: campaignId } })).rejects.toThrow(
+      /carries historical evidence/
+    );
+    expect(await prisma.groupBuyUnitEvent.count({ where: { campaignId } })).toBeGreaterThan(0);
+  });
+
+  it("6. RAW SQL CANNOT BYPASS THE TRIGGER", async () => {
+    // The whole reason the protection is in the database. A repository
+    // pre-check would be irrelevant here.
+    const { campaignId } = await seedCampaignWithUnits();
+    await expect(
+      prisma.$executeRawUnsafe(`DELETE FROM group_buy_campaign WHERE id = '${campaignId}'::uuid`)
+    ).rejects.toThrow(/carries historical evidence/);
+    expect(await prisma.groupBuyCampaign.count({ where: { id: campaignId } })).toBe(1);
+  });
+});
