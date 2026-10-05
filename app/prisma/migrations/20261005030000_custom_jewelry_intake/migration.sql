@@ -90,3 +90,13 @@ ALTER TABLE "custom_jewelry_project" ADD CONSTRAINT "custom_jewelry_project_budg
 ALTER TABLE "custom_jewelry_project" ADD CONSTRAINT "custom_jewelry_project_deadline_exclusive" CHECK (
     NOT (has_no_deadline AND desired_completion_date IS NOT NULL)
 );
+
+-- Plain-text inspiration links, so a SIGNED-OUT visitor can convey references
+-- without uploading files (owner decision 2026-10-05). File uploads require an
+-- authenticated account — an anonymous endpoint minting presigned PUTs is free
+-- file hosting on our account — but links require nothing.
+--
+-- STORED, NEVER FETCHED. Nothing server-side follows these. A server that
+-- fetches a customer-supplied URL is an SSRF primitive; staff open them in a
+-- browser, where they are ordinary untrusted links.
+ALTER TABLE "custom_jewelry_project" ADD COLUMN "inspiration_links" TEXT;

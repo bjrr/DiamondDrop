@@ -3458,6 +3458,17 @@ model CustomJewelryProject {
 
   jewelryType String? @map("jewelry_type")
 
+  /// Plain-text reference links, so a SIGNED-OUT visitor can point at
+  /// inspiration without uploading anything. File uploads require an
+  /// authenticated account (an anonymous endpoint minting presigned PUTs is
+  /// free file hosting on our account); links require nothing, and the
+  /// README only asks that inspiration can be conveyed.
+  ///
+  /// STORED AS TEXT, NEVER FETCHED. Nothing server-side follows these — a
+  /// server that fetches a customer-supplied URL is an SSRF primitive. Staff
+  /// open them in a browser, where they are ordinary untrusted links.
+  inspirationLinks String? @map("inspiration_links")
+
   /// Approximate budget. MINOR UNITS AND A CURRENCY, never a float and never
   /// a parsed string — CLAUDE.md rule 6 applies to a customer's rough figure
   /// exactly as it applies to a charged price.

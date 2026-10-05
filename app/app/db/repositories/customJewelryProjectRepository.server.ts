@@ -77,6 +77,8 @@ export interface CreateCustomJewelryProjectInput {
   readonly startingPoint: CustomJewelryStartingPoint;
   readonly promptText: string;
   readonly jewelryType?: string | null;
+  /** Free text. Stored, never fetched server-side — see the column comment on why. */
+  readonly inspirationLinks?: string | null;
   /** Minor units and currency travel together or not at all — the database enforces it too. */
   readonly approximateBudget?: { readonly amountMinorUnits: bigint; readonly currency: string } | null;
   /** A date OR `hasNoDeadline`, never both. The database refuses the combination. */
@@ -110,6 +112,7 @@ export async function createCustomJewelryProject(
           startingPoint: input.startingPoint,
           promptText: input.promptText,
           jewelryType: input.jewelryType ?? null,
+          inspirationLinks: input.inspirationLinks ?? null,
           approximateBudgetMinorUnits: input.approximateBudget?.amountMinorUnits ?? null,
           approximateBudgetCurrency: input.approximateBudget?.currency ?? null,
           desiredCompletionDate: input.desiredCompletionDate ?? null,
