@@ -127,6 +127,27 @@ const APPROVED: ReadonlyArray<readonly [string, string]> = [
   // the exclusions are what stop the examples reading as an open promise.
   // Editing either half in isolation is what would do damage, so neither can
   // move without this failing.
+  // Owner-approved 2026-09-28, docs/specs/STOREFRONT-COPY-DECISIONS.md §2.4,
+  // reconciled onto the live page 2026-10-04.
+  //
+  // THE PAGE PREVIOUSLY CARRIED A PARAPHRASE: "CaratForUs reviews every claim
+  // before authorizing an inspection. Please do not send your jewelry to us
+  // until we have reviewed your claim and provided authorization and
+  // instructions." Substantively the same, separately approved nowhere, and
+  // pinned nowhere — which is exactly how a second wording of a material
+  // instruction survives. Replaced with the approved sentence and pinned so
+  // there is one wording, not two that drift.
+  //
+  // A FIRST-PERSON FORM OF THE SAME INSTRUCTION EXISTS ON PURPOSE, inside
+  // `acknowledgment_text` ("I will not send my jewelry until..."), where the
+  // customer is certifying rather than being told. That one is pinned by
+  // `app/domain/warranty/acknowledgmentText.ts` and its own test. Two
+  // grammatical persons for two different speech acts is not two variants of
+  // one instruction — but a third wording would be, so do not add one.
+  [
+    "templates.warranty_claim.form.notice_body",
+    "Do not send your jewelry until CaratForUs authorizes an inspection and provides shipping instructions.",
+  ],
   [
     "templates.warranty_claim.form.intro",
     "Use this form to report a suspected manufacturing defect covered by CaratForUs's 1-year limited manufacturing warranty. " +
