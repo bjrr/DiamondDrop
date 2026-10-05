@@ -136,8 +136,8 @@ model Acknowledgment {
   /// Slice 5 M13 back-relations only — required by Prisma for the two NOT
   /// NULL FKs on `WarrantyClaim` (criterion 154: both acknowledgments are
   /// mandatory, not optional). Adds no column here.
-  warrantyClaimAccuracyCertifications WarrantyClaim[]         @relation("WarrantyClaimAccuracyCertification")
-  warrantyClaimCoverageNotEstablished WarrantyClaim[]         @relation("WarrantyClaimCoverageNotEstablished")
+  warrantyClaimAccuracyCertifications WarrantyClaim[]                  @relation("WarrantyClaimAccuracyCertification")
+  warrantyClaimCoverageNotEstablished WarrantyClaim[]                  @relation("WarrantyClaimCoverageNotEstablished")
   /// Slice 4 M-rma-request back-relation only — required by Prisma for the
   /// NOT NULL FK on `RmaRequest.returnPolicyAcknowledgmentId` (criterion
   /// 180). Adds no column here.
@@ -709,22 +709,22 @@ model MasterVariant {
   createdAt                     DateTime            @default(now()) @map("created_at")
   updatedAt                     DateTime            @updatedAt @map("updated_at")
 
-  weightOverrides          VariantWeightOverride[]
-  stones                   MasterVariantStone[]
-  priceCalculations        PriceCalculation[]        @relation("VariantCalculations")
-  syncIntents              PriceSyncIntent[]
-  priceOverrides           PriceOverride[]
-  groupBuyCampaignVariants GroupBuyCampaignVariant[]
-  groupBuyUnitEvents       GroupBuyUnitEvent[]
-  groupBuyRefunds          GroupBuyRefund[]
-  priceSyncFailures        PriceSyncFailure[]
-  priceCalculationFailures PriceCalculationFailure[]
-  bankPaymentOrderLines    BankPaymentOrderLine[]
-  groupBuyBankPaymentOrderLines GroupBuyBankPaymentOrderLine[]
-  adminAlertNotifications  AdminAlertNotification[]
-  luxuryStealSyncFailures  LuxuryStealSyncFailure[]
-  warrantyClaims           WarrantyClaim[]
-  rmaRequests              RmaRequest[]
+  weightOverrides                 VariantWeightOverride[]
+  stones                          MasterVariantStone[]
+  priceCalculations               PriceCalculation[]               @relation("VariantCalculations")
+  syncIntents                     PriceSyncIntent[]
+  priceOverrides                  PriceOverride[]
+  groupBuyCampaignVariants        GroupBuyCampaignVariant[]
+  groupBuyUnitEvents              GroupBuyUnitEvent[]
+  groupBuyRefunds                 GroupBuyRefund[]
+  priceSyncFailures               PriceSyncFailure[]
+  priceCalculationFailures        PriceCalculationFailure[]
+  bankPaymentOrderLines           BankPaymentOrderLine[]
+  groupBuyBankPaymentOrderLines   GroupBuyBankPaymentOrderLine[]
+  adminAlertNotifications         AdminAlertNotification[]
+  luxuryStealSyncFailures         LuxuryStealSyncFailure[]
+  warrantyClaims                  WarrantyClaim[]
+  rmaRequests                     RmaRequest[]
   groupBuyOrderCancellationChecks GroupBuyOrderCancellationCheck[]
 
   @@unique([masterProductId, metal, purity, bandId])
@@ -1824,10 +1824,10 @@ model GroupBuyCampaign {
   archivedBy    String?   @map("archived_by")
   archiveReason String?   @map("archive_reason")
 
-  tiers      GroupBuyCampaignTier[]
-  variants   GroupBuyCampaignVariant[]
-  unitEvents GroupBuyUnitEvent[]
-  refunds    GroupBuyRefund[]
+  tiers             GroupBuyCampaignTier[]
+  variants          GroupBuyCampaignVariant[]
+  unitEvents        GroupBuyUnitEvent[]
+  refunds           GroupBuyRefund[]
   bankPaymentOrders GroupBuyBankPaymentOrder[]
 
   @@index([status])
@@ -2296,7 +2296,7 @@ model GroupBuyOrderCancellationCheck {
   mismatchReason String? @map("mismatch_reason")
 
   outcome   GroupBuyOrderCancellationCheckOutcome
-  checkedAt DateTime                               @default(now()) @map("checked_at") @db.Timestamptz(6)
+  checkedAt DateTime                              @default(now()) @map("checked_at") @db.Timestamptz(6)
 
   /// UNLIKE `LuxuryStealOrderCheck`'s `(orderRef, lineRef)` — a Luxury Steal
   /// line belongs to exactly one program membership, so that pair alone is
@@ -2734,7 +2734,7 @@ model WarrantyClaimUploadDestination {
   id String @id @default(uuid()) @db.Uuid
 
   /// See the model comment — a value to match against, not a foreign key.
-  claimId String @map("claim_id") @db.Uuid
+  claimId     String @map("claim_id") @db.Uuid
   /// The authenticated identity this was issued to
   /// (`logged_in_customer_id`), NEVER a client-supplied field. Re-checked at
   /// consumption time, not merely at issuance.
@@ -2745,10 +2745,10 @@ model WarrantyClaimUploadDestination {
   /// Globally unique — this IS the object key the presigned PUT was scoped
   /// to (`~/jobs/warranty/ports.ts`'s `buildStorageKey`, a fresh UUID per
   /// destination), so two destinations can never collide on this column.
-  storageKey String @unique @map("storage_key")
+  storageKey  String                  @unique @map("storage_key")
 
-  issuedAt  DateTime @default(now()) @map("issued_at") @db.Timestamptz(6)
-  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  issuedAt   DateTime  @default(now()) @map("issued_at") @db.Timestamptz(6)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
   /// NULL until consumed. See the model comment for why this column is
   /// mutable despite every sibling table in this file being append-only.
   consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
@@ -2958,7 +2958,7 @@ model Shipment {
   /// branched on here or anywhere outside app/app/insurance/**. Nullable —
   /// a shipment may be insured via a bare carrier declared-value receipt
   /// with no named external provider at all.
-  insuranceProviderId String? @map("insurance_provider_id")
+  insuranceProviderId                 String?   @map("insurance_provider_id")
   /// D32 — MVP1 records and verifies externally purchased coverage rather
   /// than integrating a live API: this pair is staff's attestation that
   /// they confirmed, with the provider, that `insuranceReference` actually
@@ -3182,7 +3182,7 @@ enum RmaRemedyStatus {
 /// `(orderRef, lineRef)` here. The idempotency this slice's design actually
 /// protects (criterion 196/204) is REMEDY issuance, on `RmaRemedy` below.
 model RmaRequest {
-  id          String @id @default(uuid()) @db.Uuid
+  id           String @id @default(uuid()) @db.Uuid
   /// Customer/support-facing reference (e.g. "RMA-000123"). Generated by a
   /// later repository task, not a database default — same precedent as
   /// `WarrantyClaim.claimReference`.
@@ -3221,14 +3221,14 @@ model RmaRequest {
   requestedRemedyKind RmaRemedyKind? @map("requested_remedy_kind")
 
   /// Policy §7/§9 condition confirmations, captured at intake.
-  confirmsUnwornBeyondInspection Boolean @map("confirms_unworn_beyond_inspection")
-  confirmsUndamaged              Boolean @map("confirms_undamaged")
-  confirmsUnalteredAfterDelivery Boolean @map("confirms_unaltered_after_delivery")
+  confirmsUnwornBeyondInspection    Boolean @map("confirms_unworn_beyond_inspection")
+  confirmsUndamaged                 Boolean @map("confirms_undamaged")
+  confirmsUnalteredAfterDelivery    Boolean @map("confirms_unaltered_after_delivery")
   confirmsOriginalPackagingIncluded Boolean @map("confirms_original_packaging_included")
 
   /// Criterion 183 — personalization/alteration eligibility, checked before
   /// approval (`app/app/domain/rma/eligibility.ts`), not merely displayed.
-  isPersonalizedOrAltered         Boolean @map("is_personalized_or_altered")
+  isPersonalizedOrAltered          Boolean @map("is_personalized_or_altered")
   hasProductSpecificReturnOverride Boolean @default(false) @map("has_product_specific_return_override")
 
   /// Criterion 180 — "applicable return-policy acknowledgment." Required
@@ -3248,9 +3248,9 @@ model RmaRequest {
   /// from row creation, not be deferred to a later staff action. Immutable
   /// thereafter (criterion 184): never recomputed if the day thresholds
   /// change later.
-  windowKind         RmaWindowKind  @map("window_kind")
-  approvedAt         DateTime?      @map("approved_at") @db.Timestamptz(6)
-  approvedByActorRef String?        @map("approved_by_actor_ref")
+  windowKind                          RmaWindowKind @map("window_kind")
+  approvedAt                          DateTime?     @map("approved_at") @db.Timestamptz(6)
+  approvedByActorRef                  String?       @map("approved_by_actor_ref")
   /// Criterion 191 — "eligible merchandise amount" (policy §3/§4), the
   /// merchandise-only value this remedy percentage applies to. Excludes tax,
   /// shipping, duties — the same excluded-charges definition D29 established
@@ -3258,15 +3258,15 @@ model RmaRequest {
   /// Required at creation, same reasoning as `windowKind` above: criterion
   /// 181 already requires the order/line to resolve before a row can exist
   /// at all, and this amount is part of that same resolution.
-  eligibleMerchandiseAmountMinorUnits BigInt @map("eligible_merchandise_amount_minor_units")
-  eligibleMerchandiseAmountCurrency   String @map("eligible_merchandise_amount_currency") @db.Char(3)
+  eligibleMerchandiseAmountMinorUnits BigInt        @map("eligible_merchandise_amount_minor_units")
+  eligibleMerchandiseAmountCurrency   String        @map("eligible_merchandise_amount_currency") @db.Char(3)
   /// Criterion 198 — "no later than 14 calendar days after original...
   /// delivery" (standard) or "within 10 calendar days after RMA approval"
   /// (late). Unlike `windowKind`, this genuinely depends on the approval
   /// timestamp for the late-window formula, so it is computed once, only at
   /// approval, uniformly for both windows (not conditionally at two
   /// different times depending on which window applies).
-  receiveByDeadline  DateTime?      @map("receive_by_deadline") @db.Date
+  receiveByDeadline                   DateTime?     @map("receive_by_deadline") @db.Date
 
   deniedAt         DateTime? @map("denied_at") @db.Timestamptz(6)
   deniedByActorRef String?   @map("denied_by_actor_ref")
@@ -3275,12 +3275,12 @@ model RmaRequest {
   /// Criterion 198 — customer-paid, tracked, insured (policy §6). All
   /// nullable until the customer actually ships; insured value is money,
   /// present-together-or-absent-together with its currency.
-  returnTrackingCarrier          String?  @map("return_tracking_carrier")
-  returnTrackingNumber           String?  @map("return_tracking_number")
-  returnInsuranceReference       String?  @map("return_insurance_reference")
-  returnInsuredValueMinorUnits   BigInt?  @map("return_insured_value_minor_units")
-  returnInsuredValueCurrency     String?  @map("return_insured_value_currency") @db.Char(3)
-  returnShippedAt                DateTime? @map("return_shipped_at") @db.Timestamptz(6)
+  returnTrackingCarrier        String?   @map("return_tracking_carrier")
+  returnTrackingNumber         String?   @map("return_tracking_number")
+  returnInsuranceReference     String?   @map("return_insurance_reference")
+  returnInsuredValueMinorUnits BigInt?   @map("return_insured_value_minor_units")
+  returnInsuredValueCurrency   String?   @map("return_insured_value_currency") @db.Char(3)
+  returnShippedAt              DateTime? @map("return_shipped_at") @db.Timestamptz(6)
 
   expiredAt DateTime? @map("expired_at") @db.Timestamptz(6)
 
@@ -3406,14 +3406,111 @@ model RmaRemedy {
   shopifyTaxAdjustmentMinorUnits BigInt? @map("shopify_tax_adjustment_minor_units")
   actualRefundOrCreditMinorUnits BigInt? @map("actual_refund_or_credit_minor_units")
 
-  processorReference  String? @map("processor_reference")
-  failureReason       String? @map("failure_reason")
+  processorReference String? @map("processor_reference")
+  failureReason      String? @map("failure_reason")
   /// Criterion 194 — required when `status = staff_review_required`.
-  staffReviewReason   String? @map("staff_review_reason")
+  staffReviewReason  String? @map("staff_review_reason")
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   issuedAt  DateTime? @map("issued_at") @db.Timestamptz(6)
 
   @@map("rma_remedy")
+}
+
+/// Custom Jewelry intake (Slice 9, README "Custom Jewelry — MVP1 Locked Direction").
+///
+/// INTAKE IS FREE AND MAY BE ANONYMOUS. The README calls it "intentionally
+/// low-friction", and `docs/REQUIRED-CUSTOMER-ACCOUNTS.md` requires an
+/// authenticated account for every PURCHASE path — naming "Custom Jewelry
+/// final approval/purchase" specifically — not for a pre-purchase enquiry.
+/// So `customerRef` is nullable here and REQUIRED later, at approval.
+///
+/// NO DEPOSIT IS CHARGED AT INTAKE. The README is explicit: create the
+/// project, store the answers, confirm, notify, "and do not charge the Design
+/// Deposit yet". The $49 is charged only when CaratForUs is ready to begin
+/// design/CAD work, which is a staff action.
+model CustomJewelryProject {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Customer-facing reference, e.g. "CJ-7Q2MPX4N". Generated in the
+  /// repository with a collision retry, exactly like `WarrantyClaim`'s —
+  /// unambiguous alphabet, so it survives being read aloud to support.
+  projectReference String @unique @map("project_reference")
+
+  /// The authenticated Shopify customer, WHEN there is one. Null for an
+  /// anonymous enquiry. Never customer-supplied: populated from the App
+  /// Proxy's signed `logged_in_customer_id` only.
+  customerRef String? @map("customer_ref")
+
+  /// Contact details, required by the README even for an anonymous enquiry —
+  /// this is how staff reply, since MVP1 consultation is email-driven.
+  firstName String @map("first_name")
+  lastName  String @map("last_name")
+  email     String
+  phone     String
+
+  startingPoint CustomJewelryStartingPoint @map("starting_point")
+
+  /// Free text, required: "let the customer explain what they want to create
+  /// or change". The structured fields below stay deliberately few.
+  promptText String @map("prompt_text")
+
+  jewelryType String? @map("jewelry_type")
+
+  /// Approximate budget. MINOR UNITS AND A CURRENCY, never a float and never
+  /// a parsed string — CLAUDE.md rule 6 applies to a customer's rough figure
+  /// exactly as it applies to a charged price.
+  approximateBudgetMinorUnits BigInt? @map("approximate_budget_minor_units")
+  approximateBudgetCurrency   String? @map("approximate_budget_currency") @db.Char(3)
+
+  /// A desired date, or an explicit "no deadline". Both nullable+boolean
+  /// rather than a sentinel date, so "no deadline" cannot be confused with
+  /// "not answered".
+  desiredCompletionDate DateTime? @map("desired_completion_date") @db.Date
+  hasNoDeadline         Boolean   @default(false) @map("has_no_deadline")
+
+  followUpPreference CustomJewelryFollowUpPreference @map("follow_up_preference")
+
+  status CustomJewelryProjectStatus @default(submitted)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([customerRef])
+  @@index([status])
+  @@map("custom_jewelry_project")
+}
+
+enum CustomJewelryStartingPoint {
+  /// Starting from an existing CaratForUs design.
+  existing_design
+  /// "I have my own idea / Starting from scratch."
+  from_scratch
+
+  @@map("custom_jewelry_starting_point")
+}
+
+enum CustomJewelryFollowUpPreference {
+  schedule_consultation
+  contact_me
+
+  @@map("custom_jewelry_follow_up_preference")
+}
+
+/// MVP1 lifecycle. Deliberately short: consultation and revisions happen over
+/// email (README), so this tracks only the states that carry money or
+/// evidence consequences, not every conversational step.
+enum CustomJewelryProjectStatus {
+  submitted
+  /// $49 Design Deposit charged; design/CAD work may begin.
+  deposit_charged
+  /// A staff-built approval/purchase page exists and is awaiting the customer.
+  awaiting_approval
+  /// The customer gave the affirmative, unchecked approval.
+  approved
+  purchased
+  closed
+
+  @@map("custom_jewelry_project_status")
 }
