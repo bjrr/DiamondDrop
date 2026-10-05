@@ -1,4 +1,4 @@
-import { groupBuyPaymentWindowDeadline } from "./groupBuyPaymentWindow";
+import { groupBuyInitialPaymentDeadline } from "./groupBuyPaymentWindow";
 
 /**
  * The Group Buy Bank Payment Checkout response contract.
@@ -40,7 +40,20 @@ export interface GroupBuyBankCheckoutResultDto {
   readonly tierNumber: number;
   /** ISO-8601. The instant this order's 48h+48h payment window starts counting from. */
   readonly quotedAt: string;
-  /** ISO-8601. `quotedAt` + 96 hours — see `groupBuyPaymentWindowDeadline`. */
+  /**
+   * ISO-8601. `quotedAt` + 48 HOURS — the deadline the CUSTOMER is given,
+   * matching the locked sentence "You have 48 hours to send payment" and the
+   * date in the instructions email.
+   *
+   * THIS WAS `quotedAt` + 96 HOURS AND THAT WAS WRONG FOR A CUSTOMER-FACING
+   * FIELD. 96 hours is the INACTIVATION instant — when the sweep may set an
+   * unpaid order aside, after the one automatic extension. It is internal
+   * lifecycle timing, not a promise. A field literally named "payment due by",
+   * returned to the customer browser, carrying an enforcement deadline four
+   * days out, would have contradicted the email the moment any surface
+   * rendered it. Nothing rendered it yet, which is the only reason no customer
+   * saw two different dates.
+   */
   readonly paymentDueBy: string;
   readonly lines: readonly GroupBuyBankCheckoutLineResultDto[];
 }
@@ -90,7 +103,7 @@ export function buildGroupBuyBankCheckoutResultDto(input: {
     shopifyOrderGid: input.shopifyOrderGid,
     tierNumber: input.tierNumber,
     quotedAt: input.quotedAt.toISOString(),
-    paymentDueBy: groupBuyPaymentWindowDeadline(input.quotedAt).toISOString(),
+    paymentDueBy: groupBuyInitialPaymentDeadline(input.quotedAt).toISOString(),
     lines: input.lines.map(buildGroupBuyBankCheckoutLineResultDto),
   };
 }

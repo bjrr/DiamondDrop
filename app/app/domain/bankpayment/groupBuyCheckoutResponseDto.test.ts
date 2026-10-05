@@ -26,7 +26,12 @@ describe("buildGroupBuyBankCheckoutResultDto", () => {
 
     expect(dto.quotedAt).toBe("2026-09-27T00:00:00.000Z");
     // quotedAt + 96 hours, exactly.
-    expect(dto.paymentDueBy).toBe("2026-10-01T00:00:00.000Z");
+    // 48 HOURS, not 96. The customer-facing field carries the customer
+    // deadline; the 96-hour value is the inactivation instant and must never
+    // reach a customer surface. Both are asserted so a future edit cannot
+    // quietly swap one for the other.
+    expect(dto.paymentDueBy).toBe("2026-09-29T00:00:00.000Z");
+    expect(dto.paymentDueBy).not.toBe("2026-10-01T00:00:00.000Z");
     expect(dto.lines).toEqual([
       {
         shopifyVariantId: "gid://shopify/ProductVariant/1",

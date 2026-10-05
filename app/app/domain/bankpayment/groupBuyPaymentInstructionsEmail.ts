@@ -23,7 +23,7 @@ import type { BankPaymentCoordinates } from "~/lib/payments/bankPaymentCoordinat
  * drift into saying two different things about the same deadline.
  *
  * THE DEADLINE IS PASSED IN, NEVER COMPUTED HERE. It comes from
- * `groupBuyPaymentWindowDeadline` applied to the order's own window start, so
+ * `groupBuyInitialPaymentDeadline` applied to the order's own window start, so
  * the email cannot disagree with the sweep that will actually inactivate the
  * order. A second implementation of "when is this due" is the same class of
  * mistake as a second refund formula.
@@ -49,7 +49,7 @@ export interface GroupBuyPaymentInstructionsEmailInput {
   campaignCode: string;
   /** Pre-formatted, e.g. "$1,062.00". Formatted by the caller from minor units — never computed here. */
   formattedAmountDue: string;
-  /** From `groupBuyPaymentWindowDeadline(resolveGroupBuyPaymentWindowStart(order))`. */
+  /** From `groupBuyInitialPaymentDeadline(resolveGroupBuyPaymentWindowStart(order))` — the 48-hour CUSTOMER deadline, never the 96-hour inactivation instant. */
   paymentDeadline: Date;
   coordinates: BankPaymentCoordinates;
 }

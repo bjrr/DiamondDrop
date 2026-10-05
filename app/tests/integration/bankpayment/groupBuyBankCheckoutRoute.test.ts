@@ -563,7 +563,13 @@ describe("pricing — from the frozen snapshot at the CURRENT tier, never getPub
     };
     expect(body.tierNumber).toBe(1);
     expect(body.lines[0]!.quotedBankPaymentPriceMinorUnits).toBe(expected.bankPaymentPriceMinorUnits.toString());
-    expect(new Date(body.paymentDueBy).getTime() - new Date(body.quotedAt).getTime()).toBe(96 * 60 * 60 * 1000);
+    // 48 HOURS — the CUSTOMER deadline, matching the instructions email and
+    // the locked "You have 48 hours" sentence. The 96-hour value is the
+    // INACTIVATION instant: internal lifecycle timing that must never appear
+    // on a customer surface. Asserted in both directions so swapping them
+    // fails loudly rather than shipping a date four days out.
+    expect(new Date(body.paymentDueBy).getTime() - new Date(body.quotedAt).getTime()).toBe(48 * 60 * 60 * 1000);
+    expect(new Date(body.paymentDueBy).getTime() - new Date(body.quotedAt).getTime()).not.toBe(96 * 60 * 60 * 1000);
 
     // The adapter was told to charge the SAME figure, and completed
     // immediately — see the route's own module comment on why this differs
