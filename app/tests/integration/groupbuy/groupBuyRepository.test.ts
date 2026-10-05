@@ -13,6 +13,10 @@ import {
   getFrozenGroupBuyCampaignOptions,
   getLatestGroupBuyCampaignOptionsUpload,
   listGroupBuyCampaignsForStaff,
+  archiveGroupBuyCampaign,
+  unarchiveGroupBuyCampaign,
+  describeGroupBuyCampaignHistory,
+  GroupBuyCampaignArchiveReasonRequiredError,
   listMasterVariantsForGroupBuySelection,
   removeGroupBuyCampaignEligibleVariant,
   replaceGroupBuyCampaignTiers,
@@ -44,6 +48,38 @@ async function eligibleVariant() {
     where: { status: "active", isLuxurySteal: false },
     orderBy: { baseWeightGrams: "desc" },
   });
+}
+
+/**
+ * A campaign carrying real historical evidence — one qualifying unit event.
+ * Written directly rather than through the ledger: this fixture only needs a
+ * dependent row to exist, and going through the real recording path would
+ * drag in campaign-open, freezing and tier publication that have nothing to
+ * do with what the deletion guard is being asked.
+ */
+async function seedCampaignWithUnits() {
+  const variant = await eligibleVariant();
+  const campaign = await createGroupBuyCampaign({
+    code: `gb-history-${uniq()}`,
+    name: "has history",
+    currency: "USD",
+    createdBy: "integration-test",
+    tiers: TIERS,
+  });
+  await prisma.groupBuyUnitEvent.create({
+    data: {
+      campaignId: campaign.id,
+      masterVariantId: variant.id,
+      kind: "purchased",
+      quantity: 1,
+      orderRef: `gid://shopify/Order/${uniq()}`,
+      lineRef: `gid://shopify/LineItem/${uniq()}`,
+      externalRef: `ext-${uniq()}`,
+      occurredAt: new Date(),
+      recordedBy: "integration-test",
+    },
+  });
+  return { campaignId: campaign.id };
 }
 
 const TIERS: readonly TierDefinition[] = [
@@ -454,5 +490,122 @@ describe("the staff campaign list segregates live-gate fixtures", () => {
 
     const listed = await listGroupBuyCampaignsForStaff();
     expect(listed.some((c) => c.code === businessCode)).toBe(true);
+  });
+});
+
+/**
+ * ARCHIVING AND HISTORY PROTECTION (owner-locked 2026-10-05).
+ *
+ * The load-bearing test here is the DATABASE one: a repository pre-check is
+ * bypassed by any path that does not call it, so for a destructive operation
+ * on money-adjacent evidence the backstop has to be somewhere an admin script
+ * or a future function cannot route around.
+ */
+describe("campaign archiving is an annotation with a mandatory reason", () => {
+  async function draftCampaign(prefix = "gb-archive") {
+    return createGroupBuyCampaign({
+      code: `${prefix}-${uniq()}`,
+      name: "archive fixture",
+      currency: "USD",
+      createdBy: "integration-test",
+      tiers: TIERS,
+    });
+  }
+
+  it("records reason, actor and timestamp together", async () => {
+    const campaign = await draftCampaign();
+    await archiveGroupBuyCampaign({
+      campaignId: campaign.id,
+      archivedBy: "staff:ada",
+      reason: "live-gate fixture, retained for evidence",
+    });
+
+    const row = await prisma.groupBuyCampaign.findUniqueOrThrow({ where: { id: campaign.id } });
+    expect(row.archivedAt).not.toBeNull();
+    expect(row.archivedBy).toBe("staff:ada");
+    expect(row.archiveReason).toBe("live-gate fixture, retained for evidence");
+    // ANNOTATION ONLY — status is untouched.
+    expect(row.status).toBe("draft");
+  });
+
+  it("REFUSES an empty or whitespace-only reason", async () => {
+    const campaign = await draftCampaign();
+    for (const reason of ["", "   ", "\t\n"]) {
+      await expect(
+        archiveGroupBuyCampaign({ campaignId: campaign.id, archivedBy: "staff:ada", reason })
+      ).rejects.toBeInstanceOf(GroupBuyCampaignArchiveReasonRequiredError);
+    }
+    const row = await prisma.groupBuyCampaign.findUniqueOrThrow({ where: { id: campaign.id } });
+    expect(row.archivedAt).toBeNull();
+  });
+
+  it("REFUSES a missing actor — 'hidden by nobody' is the state this prevents", async () => {
+    const campaign = await draftCampaign();
+    await expect(
+      archiveGroupBuyCampaign({ campaignId: campaign.id, archivedBy: "  ", reason: "a real reason" })
+    ).rejects.toBeInstanceOf(GroupBuyCampaignArchiveReasonRequiredError);
+  });
+
+  it("the DATABASE also refuses a half-recorded archive, independent of the repository", async () => {
+    // The typed error above is a courtesy. This is the guarantee: a direct
+    // write bypassing the repository still cannot produce an archive with no
+    // reason.
+    const campaign = await draftCampaign();
+    await expect(
+      prisma.$executeRawUnsafe(
+        `UPDATE group_buy_campaign SET archived_at = now() WHERE id = '${campaign.id}'::uuid`
+      )
+    ).rejects.toThrow(/group_buy_campaign_archive_complete/);
+  });
+
+  it("is reversible", async () => {
+    const campaign = await draftCampaign();
+    await archiveGroupBuyCampaign({ campaignId: campaign.id, archivedBy: "staff:ada", reason: "mistake" });
+    await unarchiveGroupBuyCampaign(campaign.id);
+
+    const row = await prisma.groupBuyCampaign.findUniqueOrThrow({ where: { id: campaign.id } });
+    expect(row.archivedAt).toBeNull();
+    expect(row.archivedBy).toBeNull();
+    expect(row.archiveReason).toBeNull();
+  });
+});
+
+describe("a campaign carrying historical evidence cannot be deleted", () => {
+  it("reports no history for a freshly created draft — the one case deletion exists for", async () => {
+    const campaign = await createGroupBuyCampaign({
+      code: `gb-history-none-${uniq()}`,
+      name: "empty draft",
+      currency: "USD",
+      createdBy: "integration-test",
+      tiers: TIERS,
+    });
+    // Tiers exist and must NOT count: they are configuration, not history.
+    const summary = await describeGroupBuyCampaignHistory(campaign.id);
+    expect(summary.hasHistory).toBe(false);
+    expect(summary.describedParts).toEqual([]);
+  });
+
+  it("names what exists, so a human can decide rather than hunt", async () => {
+    const { campaignId } = await seedCampaignWithUnits();
+    const summary = await describeGroupBuyCampaignHistory(campaignId);
+    expect(summary.hasHistory).toBe(true);
+    expect(summary.qualifyingUnitEvents).toBeGreaterThan(0);
+    expect(summary.describedParts.join(", ")).toMatch(/qualifying unit event/);
+  });
+
+  it("THE DATABASE refuses the delete, naming the evidence — not merely 'failed'", async () => {
+    const { campaignId } = await seedCampaignWithUnits();
+    await expect(prisma.groupBuyCampaign.delete({ where: { id: campaignId } })).rejects.toThrow(
+      /carries historical evidence and cannot be deleted.*qualifying unit event/s
+    );
+  });
+
+  it("the campaign and its evidence are still intact after the refused delete", async () => {
+    // A refusal that half-deleted something would be worse than no guard.
+    const { campaignId } = await seedCampaignWithUnits();
+    await expect(prisma.groupBuyCampaign.delete({ where: { id: campaignId } })).rejects.toThrow();
+
+    expect(await prisma.groupBuyCampaign.count({ where: { id: campaignId } })).toBe(1);
+    expect(await prisma.groupBuyUnitEvent.count({ where: { campaignId } })).toBeGreaterThan(0);
   });
 });

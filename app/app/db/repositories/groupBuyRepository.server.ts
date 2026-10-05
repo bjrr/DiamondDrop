@@ -643,3 +643,126 @@ export async function getFrozenGroupBuyCampaignOptions(
     contentHash: pinned.contentHash,
   };
 }
+
+// ---------------------------------------------------------------------------
+// ARCHIVING, AND THE HISTORY CHECK THAT GUARDS DELETION
+//
+// Owner-locked 2026-10-05: a non-empty reason is required, the acting staff
+// identity and timestamp are retained, and archiving is ALWAYS an explicit
+// action — there is deliberately no auto-archive function here for a job to
+// call later.
+// ---------------------------------------------------------------------------
+
+/** Thrown rather than silently writing a half-recorded archive. */
+export class GroupBuyCampaignArchiveReasonRequiredError extends Error {
+  constructor() {
+    super(
+      "Archiving a Group Buy campaign requires a non-empty reason and an acting staff identity. " +
+        "A campaign hidden by nobody for no stated reason cannot be understood later, which is the " +
+        "state this requirement exists to prevent."
+    );
+    this.name = "GroupBuyCampaignArchiveReasonRequiredError";
+  }
+}
+
+export interface ArchiveGroupBuyCampaignInput {
+  readonly campaignId: string;
+  readonly archivedBy: string;
+  readonly reason: string;
+  /** Resolution instant. An input, never a clock read, so archives are reproducible in tests. */
+  readonly archivedAt?: Date;
+}
+
+/**
+ * Marks a campaign archived. ANNOTATION ONLY — no row is removed, no status
+ * changes, nothing becomes unqueryable. Evidence is untouched.
+ *
+ * The database enforces all-or-nothing too
+ * (`group_buy_campaign_archive_complete`); this check exists so the caller
+ * gets a typed, explanatory error rather than a constraint violation.
+ */
+export async function archiveGroupBuyCampaign(input: ArchiveGroupBuyCampaignInput): Promise<void> {
+  const reason = input.reason?.trim() ?? "";
+  const by = input.archivedBy?.trim() ?? "";
+  if (reason.length === 0 || by.length === 0) throw new GroupBuyCampaignArchiveReasonRequiredError();
+
+  await prisma.groupBuyCampaign.update({
+    where: { id: input.campaignId },
+    data: { archivedAt: input.archivedAt ?? new Date(), archivedBy: by, archiveReason: reason },
+  });
+}
+
+/**
+ * Reverses an archive. Deliberately possible: archiving is a presentation
+ * decision, and a reversible action needs far less ceremony than an
+ * irreversible one. Deletion, by contrast, is not reversible and is guarded in
+ * the database.
+ */
+export async function unarchiveGroupBuyCampaign(campaignId: string): Promise<void> {
+  await prisma.groupBuyCampaign.update({
+    where: { id: campaignId },
+    data: { archivedAt: null, archivedBy: null, archiveReason: null },
+  });
+}
+
+/** What historical evidence a campaign carries. Empty means it is safe to delete. */
+export interface GroupBuyCampaignHistorySummary {
+  readonly qualifyingUnitEvents: number;
+  readonly refunds: number;
+  readonly bankPaymentOrders: number;
+  readonly acknowledgments: number;
+  readonly cancellationChecks: number;
+  /** Human-readable, naming only what is actually present. */
+  readonly describedParts: readonly string[];
+  readonly hasHistory: boolean;
+}
+
+/**
+ * Counts a campaign's dependent evidence so a caller can explain WHY deletion
+ * is refused before attempting it.
+ *
+ * NOT THE ENFORCEMENT POINT. The database trigger
+ * `group_buy_campaign_no_delete_with_history` is, because a pre-check is
+ * bypassed by any path that does not call it. This exists so the UI can say
+ * "3 qualifying unit events, 1 acknowledgment" instead of surfacing a raw
+ * constraint violation.
+ *
+ * TIERS AND VARIANTS ARE NOT COUNTED. They are configuration, not history; a
+ * draft created by mistake has both, and that is exactly the case deletion
+ * exists for.
+ */
+export async function describeGroupBuyCampaignHistory(
+  campaignId: string
+): Promise<GroupBuyCampaignHistorySummary> {
+  const campaign = await prisma.groupBuyCampaign.findUniqueOrThrow({
+    where: { id: campaignId },
+    select: { code: true },
+  });
+
+  const [qualifyingUnitEvents, refunds, bankPaymentOrders, acknowledgments, cancellationChecks] =
+    await Promise.all([
+      prisma.groupBuyUnitEvent.count({ where: { campaignId } }),
+      prisma.groupBuyRefund.count({ where: { campaignId } }),
+      prisma.groupBuyBankPaymentOrder.count({ where: { campaignId } }),
+      // By CODE, not id — these tables reference a campaign by `campaignRef`.
+      prisma.acknowledgment.count({ where: { campaignRef: campaign.code } }),
+      prisma.groupBuyOrderCancellationCheck.count({ where: { campaignRef: campaign.code } }),
+    ]);
+
+  const describedParts: string[] = [];
+  if (qualifyingUnitEvents > 0) describedParts.push(`${qualifyingUnitEvents} qualifying unit event(s)`);
+  if (refunds > 0) describedParts.push(`${refunds} refund(s)`);
+  if (bankPaymentOrders > 0) describedParts.push(`${bankPaymentOrders} bank payment order(s)`);
+  if (acknowledgments > 0) describedParts.push(`${acknowledgments} acknowledgment(s)`);
+  if (cancellationChecks > 0) describedParts.push(`${cancellationChecks} cancellation check(s)`);
+
+  return {
+    qualifyingUnitEvents,
+    refunds,
+    bankPaymentOrders,
+    acknowledgments,
+    cancellationChecks,
+    describedParts,
+    hasHistory: describedParts.length > 0,
+  };
+}

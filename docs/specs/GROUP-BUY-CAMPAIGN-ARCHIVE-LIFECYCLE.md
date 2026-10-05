@@ -129,10 +129,13 @@ Their evidence stays exactly as recorded.
    inline copy of either predicate is the failure mode this whole document
    exists to prevent.
 
-## Open questions for the owner
+## Owner decisions, locked 2026-10-05
 
-- Should archiving require a reason string? (Recommended: yes, it is free and
-  answers "why is this hidden" a year later.)
-- Should a closed campaign auto-archive after some period, or always by hand?
-  (Recommended: by hand. An automatic rule that hides business history is a
-  rule that will surprise someone during a dispute.)
+1. **Archiving requires a non-empty reason string**, with the acting staff
+   identity and a timestamp retained. All three move together or not at all.
+2. **Closed campaigns do NOT auto-archive.** Archiving is always an explicit
+   staff action. No scheduled job, no status side effect.
+3. **Enforcement ordering is mandatory.** The new deletion/history protection
+   lands and is verified BEFORE `group_buy_frozen_child_guard` is touched.
+   There must be no deployment window in which a campaign carrying historical
+   evidence becomes deletable.

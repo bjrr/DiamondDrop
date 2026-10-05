@@ -1803,6 +1803,27 @@ model GroupBuyCampaign {
   finalQualifyingUnits Int? @map("final_qualifying_units")
   finalTierNumber      Int? @map("final_tier_number")
 
+  /// ARCHIVING IS AN ANNOTATION — never a deletion, never a status change.
+  /// Owner-locked 2026-10-05. `status` already means something operational
+  /// (draft/open/closed); archival is orthogonal, so it lives in its own
+  /// fields and cannot be reached by confusing it with closing.
+  ///
+  /// ALL THREE MOVE TOGETHER OR NOT AT ALL, enforced by a CHECK — the same
+  /// discipline `group_buy_refund_override_complete` already uses. The reason
+  /// is REQUIRED and must be non-empty: it answers "why is this hidden" a
+  /// year later, when whoever hid it is unavailable.
+  ///
+  /// NO AUTO-ARCHIVE. Owner-locked: archiving is always an explicit staff
+  /// action. No scheduled job, no side effect of closing. An automatic rule
+  /// that hides business history is one that surprises someone mid-dispute.
+  ///
+  /// Archiving governs what staff read as live business. It never removes,
+  /// rewrites, or hides evidence from audit queries, and must never be used
+  /// as a retention or privacy control.
+  archivedAt    DateTime? @map("archived_at") @db.Timestamptz(6)
+  archivedBy    String?   @map("archived_by")
+  archiveReason String?   @map("archive_reason")
+
   tiers      GroupBuyCampaignTier[]
   variants   GroupBuyCampaignVariant[]
   unitEvents GroupBuyUnitEvent[]
