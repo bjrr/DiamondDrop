@@ -35,13 +35,13 @@ function signed(path: string, params: Record<string, string>): Request {
   return new Request(url);
 }
 
-async function openCampaign(options?: { units?: number; scheduledCloseAt?: Date }) {
+async function openCampaign(options?: { units?: number; scheduledCloseAt?: Date; codePrefix?: string }) {
   const variant = await prisma.masterVariant.findFirstOrThrow({
     where: { status: "active", isLuxurySteal: false },
     orderBy: { baseWeightGrams: "desc" },
   });
 
-  const code = `gb-progress-${uniq()}`;
+  const code = `${options?.codePrefix ?? "gb-progress-"}${uniq()}`;
   const draft = await prisma.groupBuyCampaign.create({
     data: {
       code,
@@ -325,5 +325,43 @@ describe("the theme passes Shopify variant ids, not ours", () => {
       variantId: string;
     };
     expect(body.variantId).toBe(variantId);
+  });
+});
+
+/**
+ * LIVE-GATE FIXTURE CAMPAIGNS ARE NOT REACHABLE BY A CUSTOMER.
+ *
+ * They are real, OPEN campaigns with real frozen prices — that is what makes
+ * them useful for proving enforcement, and what makes them dangerous if a
+ * storefront can render one. Being unlisted is not a control: a code ends up
+ * in logs, screenshots and handover notes, and "nobody knows it" is an
+ * assumption rather than a guarantee.
+ */
+describe("a live-gate fixture campaign is refused on the public surface", () => {
+  it("returns not_found for a zz-live-gate- campaign that is genuinely open", async () => {
+    const { code } = await openCampaign({ units: 1, codePrefix: "zz-live-gate-" });
+
+    const response = await call(code);
+    expect(response.status).toBe(404);
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toBe("not_found");
+  });
+
+  it("gives the SAME response as an unknown code, so probing learns nothing", async () => {
+    const { code } = await openCampaign({ units: 1, codePrefix: "zz-live-gate-" });
+
+    const fixture = await call(code);
+    const unknown = await call(`no-such-campaign-${Date.now()}`);
+
+    expect(fixture.status).toBe(unknown.status);
+    expect(await fixture.json()).toEqual(await unknown.json());
+  });
+
+  it("an otherwise-identical BUSINESS campaign is still served — the filter is the prefix, not the shape", async () => {
+    // Guard the guard: if this refused everything, the two assertions above
+    // would pass while the public endpoint was simply broken.
+    const { code } = await openCampaign({ units: 1 });
+    const response = await call(code);
+    expect(response.status).toBe(200);
   });
 });

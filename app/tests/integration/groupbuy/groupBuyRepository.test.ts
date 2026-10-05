@@ -404,3 +404,55 @@ describe("getFrozenGroupBuyCampaignOptions — the configuration PINNED at open"
     await expect(getFrozenGroupBuyCampaignOptions(null)).resolves.toBeNull();
   });
 });
+
+/**
+ * The admin landing list must not count live-gate fixtures as business
+ * activity — but must not hide them either. They are permanent (campaign rows
+ * cannot be deleted) and carry real evidence, so the requirement is
+ * segregation, not concealment.
+ */
+describe("the staff campaign list segregates live-gate fixtures", () => {
+  it("omits a zz-live-gate- campaign by default", async () => {
+    const fixtureCode = `zz-live-gate-${uniq()}`;
+    await createGroupBuyCampaign({
+      code: fixtureCode,
+      name: "fixture",
+      currency: "USD",
+      createdBy: "integration-test",
+      tiers: TIERS,
+    });
+
+    const listed = await listGroupBuyCampaignsForStaff();
+    expect(listed.some((c) => c.code === fixtureCode)).toBe(false);
+  });
+
+  it("returns it when asked explicitly — findable, not hidden", async () => {
+    const fixtureCode = `zz-live-gate-${uniq()}`;
+    await createGroupBuyCampaign({
+      code: fixtureCode,
+      name: "fixture",
+      currency: "USD",
+      createdBy: "integration-test",
+      tiers: TIERS,
+    });
+
+    const listed = await listGroupBuyCampaignsForStaff({ includeTestFixtures: true });
+    expect(listed.some((c) => c.code === fixtureCode)).toBe(true);
+  });
+
+  it("still lists business campaigns by default — the filter is the prefix, not the list", async () => {
+    // Guard the guard: an over-broad filter would make the first assertion
+    // pass while emptying the dashboard entirely.
+    const businessCode = `gb-business-${uniq()}`;
+    await createGroupBuyCampaign({
+      code: businessCode,
+      name: "business",
+      currency: "USD",
+      createdBy: "integration-test",
+      tiers: TIERS,
+    });
+
+    const listed = await listGroupBuyCampaignsForStaff();
+    expect(listed.some((c) => c.code === businessCode)).toBe(true);
+  });
+});

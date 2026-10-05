@@ -5,6 +5,7 @@ import type {
   GroupBuyCampaignVariant,
 } from "@prisma/client";
 
+import { EXCLUDE_TEST_FIXTURE_CAMPAIGNS } from "~/domain/groupbuy/testFixtureCampaign";
 import { validateTierSet, type TierDefinition } from "~/domain/groupbuy/tiers";
 import type { GroupBuyCampaignOptions } from "~/domain/groupbuy/campaignOptions";
 import { getCurrentTier } from "~/jobs/groupbuy/unitLedger.server";
@@ -226,8 +227,25 @@ export interface GroupBuyCampaignListRow {
 }
 
 /** Every campaign, newest first — the admin landing list. No price, cost, profile, or override field is selected. */
-export async function listGroupBuyCampaignsForStaff(): Promise<readonly GroupBuyCampaignListRow[]> {
+/**
+ * LIVE-GATE FIXTURE CAMPAIGNS ARE EXCLUDED BY DEFAULT.
+ *
+ * They are real rows with real orders and real qualifying units, created so
+ * the gates could prove enforcement against production, and they can never be
+ * deleted — `group_buy_campaign` rows are refused by the frozen-child guard,
+ * and their units and acknowledgments are append-only evidence besides. Left
+ * in this list they would inflate every number a human reads as business
+ * activity.
+ *
+ * `includeTestFixtures` keeps them FINDABLE rather than hidden. Nothing here
+ * suppresses evidence; a staff member who needs to see what a gate left
+ * behind asks for it explicitly, and gets it.
+ */
+export async function listGroupBuyCampaignsForStaff(
+  options: { includeTestFixtures?: boolean } = {}
+): Promise<readonly GroupBuyCampaignListRow[]> {
   const rows = await prisma.groupBuyCampaign.findMany({
+    where: options.includeTestFixtures ? undefined : EXCLUDE_TEST_FIXTURE_CAMPAIGNS,
     select: {
       id: true,
       code: true,

@@ -2,6 +2,7 @@ import type { LoaderFunctionArgs } from "react-router";
 
 import { prisma } from "~/db/client.server";
 import { buildCampaignProgress, type DualPrice } from "~/domain/groupbuy/campaignProgress";
+import { isTestFixtureCampaignCode } from "~/domain/groupbuy/testFixtureCampaign";
 import type { TierDefinition } from "~/domain/groupbuy/tiers";
 import { tierBankPaymentPriceExact } from "~/domain/groupbuy/tiers";
 import { MoneyDecimal } from "~/domain/money/decimal";
@@ -82,6 +83,24 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   // Only an OPEN campaign has live progress. A draft has no frozen prices yet,
   // and a closed one has a settled final tier rather than a moving one.
   if (!campaign || campaign.status !== "open") return notFound();
+
+  // A LIVE-GATE FIXTURE CAMPAIGN IS NOT REACHABLE BY A CUSTOMER, EVER — even
+  // by someone holding its code.
+  //
+  // These are real, open campaigns with real frozen prices, created so the
+  // gates could prove enforcement against production. They are unlisted
+  // rather than unreachable by nature: the code is the only thing standing
+  // between a customer and a live Group Buy page offering a synthetic product
+  // at a synthetic price. "Nobody knows the code" is an assumption, not a
+  // control, and it is a poor one — codes end up in logs, screenshots and
+  // handover notes.
+  //
+  // Returns the SAME `not_found` as a genuinely unknown code, so this does not
+  // confirm the campaign exists to anyone probing.
+  if (isTestFixtureCampaignCode(campaign.code)) {
+    logger.warn("groupbuy.public_progress_test_fixture_refused", { campaignCode: campaign.code });
+    return notFound();
+  }
 
   // The selected variant, per "selected variant's current Group Buy price".
   //
