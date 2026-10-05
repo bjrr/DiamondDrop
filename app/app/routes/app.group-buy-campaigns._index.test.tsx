@@ -45,8 +45,12 @@ const ROW: CampaignRowFixture = {
   tierPublish: null,
 };
 
-function renderPage(campaigns: readonly CampaignRowFixture[], loadError: string | null = null): string {
-  const loaderData = { apiKey: "test-public-client-id", shop: "caratforus-dev.myshopify.com", campaigns, loadError };
+function renderPage(
+  campaigns: readonly CampaignRowFixture[],
+  loadError: string | null = null,
+  view: "operational" | "archived" | "all" = "operational"
+): string {
+  const loaderData = { apiKey: "test-public-client-id", shop: "caratforus-dev.myshopify.com", campaigns, loadError, view };
   const router = createMemoryRouter(
     [
       {
@@ -77,8 +81,14 @@ describe("Group Buy campaigns list", () => {
     expect(renderPage([ROW])).toMatch(/\/app\/group-buy-campaigns\/new/);
   });
 
-  it("shows a clear empty state with no campaigns", () => {
-    expect(textOf(renderPage([]))).toMatch(/no Group Buy campaigns yet/i);
+  it("names the view in the empty state, so an empty Archived list is not read as a broken page", () => {
+    // The default view deliberately says where the missing rows might BE,
+    // rather than "none yet" — which would be wrong the moment anything is
+    // archived, and would send a staff member looking for a bug.
+    expect(textOf(renderPage([]))).toMatch(/no active Group Buy campaigns/i);
+    expect(textOf(renderPage([]))).toMatch(/archived view/i);
+    expect(textOf(renderPage([], null, "archived"))).toMatch(/no archived Group Buy campaigns/i);
+    expect(textOf(renderPage([], null, "all"))).toMatch(/no Group Buy campaigns yet/i);
   });
 
   it("shows a clear load error rather than crashing", () => {
@@ -102,5 +112,30 @@ describe("Group Buy campaigns list", () => {
     const text = textOf(renderPage([gap, healthy]));
     expect(text).toMatch(/Tier 1 NOT on Shopify/);
     expect(text).toMatch(/Tier 2 live/);
+  });
+});
+
+/**
+ * ARCHIVING MUST NEVER MAKE HISTORY UNREACHABLE (owner-locked 2026-10-05).
+ * The data layer enforces that; these assert the UI actually offers the way in.
+ */
+describe("the archived view is reachable from the page", () => {
+  it("offers Active, Archived and All", () => {
+    const text = textOf(renderPage([ROW]));
+    expect(text).toMatch(/Active/);
+    expect(text).toMatch(/Archived/);
+    expect(text).toMatch(/All/);
+  });
+
+  it("links to the archived and all views", () => {
+    const html = renderPage([ROW]);
+    expect(html).toMatch(/\/app\/group-buy-campaigns\?view=archived/);
+    expect(html).toMatch(/\/app\/group-buy-campaigns\?view=all/);
+  });
+
+  it("marks the current view, so a staff member can tell which list they are reading", () => {
+    // Without this, an Archived list showing few rows looks identical to an
+    // Active list showing few rows.
+    expect(renderPage([ROW], null, "archived")).toMatch(/aria-current="page"/);
   });
 });

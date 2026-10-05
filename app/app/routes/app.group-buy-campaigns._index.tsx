@@ -68,6 +68,7 @@ interface LoaderData {
   shop: string;
   campaigns: readonly SerializedCampaignRow[];
   loadError: string | null;
+  view: "operational" | "archived" | "all";
 }
 
 function serialize(row: GroupBuyCampaignListRow, tierPublish: GroupBuyCampaignTierPublishStatus | null): SerializedCampaignRow {
@@ -87,13 +88,28 @@ function serialize(row: GroupBuyCampaignListRow, tierPublish: GroupBuyCampaignTi
   };
 }
 
+/**
+ * Which campaigns this page is showing. Read from the query string so the
+ * view is linkable and bookmarkable — a staff member investigating something
+ * archived can send the URL to a colleague.
+ *
+ * ANYTHING UNRECOGNISED FALLS BACK TO `operational`. A typo in a hand-edited
+ * URL should show the normal list, never silently widen it to include
+ * archived or fixture rows while looking like the default.
+ */
+function resolveView(request: Request): "operational" | "archived" | "all" {
+  const requested = new URL(request.url).searchParams.get("view");
+  return requested === "archived" || requested === "all" ? requested : "operational";
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session } = await authenticate.admin(request);
+  const view = resolveView(request);
 
   let campaigns: SerializedCampaignRow[] = [];
   let loadError: string | null = null;
   try {
-    const rows = await listGroupBuyCampaignsForStaff();
+    const rows = await listGroupBuyCampaignsForStaff({ view });
     // Only OPEN campaigns can have a publish gap at all (see
     // getGroupBuyCampaignTierPublishStatus) — draft/closed rows skip the
     // extra query entirely rather than asking a question this list has no
@@ -116,6 +132,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     shop: session.shop,
     campaigns,
     loadError,
+    view,
   } satisfies LoaderData;
 }
 
@@ -129,7 +146,7 @@ function statusLabel(status: string): string {
 }
 
 export default function GroupBuyCampaignsListPage() {
-  const { apiKey, shop, campaigns, loadError } = useLoaderData<typeof loader>();
+  const { apiKey, shop, campaigns, loadError, view } = useLoaderData<typeof loader>();
 
   return (
     <AppProvider apiKey={apiKey}>
@@ -143,12 +160,45 @@ export default function GroupBuyCampaignsListPage() {
           eligible variants, and the campaign-options upload while it is still a draft.
         </p>
 
+        {/*
+          VIEW SWITCHER. Archiving tidies the default list; it must never make
+          history unreachable (owner-locked 2026-10-05), so the archived rows
+          are one click away and the current view is always stated rather than
+          implied by an empty table.
+        */}
+        <nav aria-label="Campaign views" style={{ display: "flex", gap: "0.75rem", margin: "0 0 1rem" }}>
+          {([
+            ["operational", "Active"],
+            ["archived", "Archived"],
+            ["all", "All"],
+          ] as const).map(([value, label]) => (
+            <Link
+              key={value}
+              to={value === "operational" ? "/app/group-buy-campaigns" : `/app/group-buy-campaigns?view=${value}`}
+              aria-current={view === value ? "page" : undefined}
+              style={{
+                fontWeight: view === value ? 600 : 400,
+                textDecoration: view === value ? "none" : "underline",
+                color: view === value ? "#111" : undefined,
+              }}
+            >
+              {label}
+            </Link>
+          ))}
+        </nav>
+
         {loadError ? (
           <p role="alert" style={{ color: "#b00" }}>
             Could not load Group Buy campaigns: {loadError}
           </p>
         ) : campaigns.length === 0 ? (
-          <p style={{ color: "#555" }}>No Group Buy campaigns yet.</p>
+          <p style={{ color: "#555" }}>
+            {view === "archived"
+              ? "No archived Group Buy campaigns."
+              : view === "all"
+                ? "No Group Buy campaigns yet."
+                : "No active Group Buy campaigns. Archived ones are under the Archived view."}
+          </p>
         ) : (
           <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "0.875rem" }}>
             <thead>
