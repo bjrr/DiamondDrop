@@ -38,6 +38,29 @@ export function groupBuyPaymentWindowDeadline(windowStartedAt: Date): Date {
 }
 
 /**
+ * `windowStartedAt` + 48 hours — the deadline a CUSTOMER is given.
+ *
+ * TWO DEADLINES EXIST AND THEY ARE NOT INTERCHANGEABLE. The 96-hour one above
+ * is an INTERNAL enforcement instant: when the sweep may inactivate an unpaid
+ * order. This 48-hour one is what the locked copy promises — "You have 48
+ * hours to send payment; if you need longer we'll automatically extend it
+ * once, by a further 48 hours."
+ *
+ * Telling a customer the 96-hour date while that sentence sits beside it says
+ * two different things at once, and the production configuration gate caught
+ * exactly that in the instructions email: a date four days out under the words
+ * "48 hours". The customer-facing date is this one; the extension is described
+ * in prose, not folded silently into the number.
+ *
+ * Added as its own function rather than letting callers add 48 hours inline,
+ * for the same reason the 96-hour value is a function: a deadline computed in
+ * two places eventually disagrees with itself.
+ */
+export function groupBuyInitialPaymentDeadline(windowStartedAt: Date): Date {
+  return new Date(windowStartedAt.getTime() + GROUP_BUY_INITIAL_PAYMENT_WINDOW_MS);
+}
+
+/**
  * True once `now` is AT OR PAST the 96-hour deadline. `windowStartedAt` is
  * whichever of `quotedAt` (never reactivated) or `reactivatedAt` (most
  * recently reactivated) the caller resolves as current — see the module

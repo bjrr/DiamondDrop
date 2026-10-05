@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  GROUP_BUY_AUTOMATIC_EXTENSION_MS,
   GROUP_BUY_TOTAL_PAYMENT_WINDOW_MS,
+  groupBuyInitialPaymentDeadline,
   groupBuyPaymentWindowDeadline,
   hasGroupBuyPaymentWindowElapsed,
   resolveGroupBuyPaymentWindowStart,
@@ -60,5 +62,37 @@ describe("resolveGroupBuyPaymentWindowStart", () => {
   it("uses reactivatedAt in preference to quotedAt once the order has been reactivated", () => {
     const reactivatedAt = new Date(QUOTED_AT.getTime() + 200 * 60 * 60 * 1000);
     expect(resolveGroupBuyPaymentWindowStart({ quotedAt: QUOTED_AT, reactivatedAt })).toEqual(reactivatedAt);
+  });
+});
+
+/**
+ * TWO DEADLINES, AND THEY MUST NOT BE CONFUSED.
+ *
+ * `groupBuyPaymentWindowDeadline` is the 96-hour INACTIVATION instant — when
+ * the sweep may set an unpaid order aside. `groupBuyInitialPaymentDeadline` is
+ * the 48-hour date a CUSTOMER is given, matching the locked sentence "You have
+ * 48 hours to send payment".
+ *
+ * The production configuration gate caught the instructions email printing the
+ * 96-hour value under those words, so a customer would have read a date four
+ * days out while being told forty-eight hours. These tests exist so the two
+ * can never quietly become the same number again.
+ */
+describe("the customer deadline and the inactivation deadline are different instants", () => {
+  const start = new Date("2026-10-05T00:00:00.000Z");
+
+  it("the customer is given 48 hours", () => {
+    expect(groupBuyInitialPaymentDeadline(start).toISOString()).toBe("2026-10-07T00:00:00.000Z");
+  });
+
+  it("inactivation is 96 hours — initial window plus the one automatic extension", () => {
+    expect(groupBuyPaymentWindowDeadline(start).toISOString()).toBe("2026-10-09T00:00:00.000Z");
+  });
+
+  it("they are exactly one extension apart, never equal", () => {
+    const customer = groupBuyInitialPaymentDeadline(start).getTime();
+    const inactivation = groupBuyPaymentWindowDeadline(start).getTime();
+    expect(inactivation).toBeGreaterThan(customer);
+    expect(inactivation - customer).toBe(GROUP_BUY_AUTOMATIC_EXTENSION_MS);
   });
 });

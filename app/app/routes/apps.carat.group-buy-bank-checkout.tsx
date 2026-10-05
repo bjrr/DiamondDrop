@@ -15,7 +15,7 @@ import {
 import { computeGroupBuyBankCheckoutIdempotencyKey } from "~/domain/bankpayment/groupBuyCheckoutIdempotencyKey";
 import { computeGroupBuyTierLinePrice, type GroupBuyTierPricingProfile } from "~/domain/bankpayment/groupBuyTierPrice";
 import {
-  groupBuyPaymentWindowDeadline,
+  groupBuyInitialPaymentDeadline,
   resolveGroupBuyPaymentWindowStart,
 } from "~/domain/bankpayment/groupBuyPaymentWindow";
 import { buildGroupBuyPaymentInstructionsEmail } from "~/domain/bankpayment/groupBuyPaymentInstructionsEmail";
@@ -428,7 +428,7 @@ async function performGroupBuyBankCheckout(input: {
   // customer are the same ones.
   //
   // THE DEADLINE IS NOT COMPUTED HERE. It comes from the same
-  // `groupBuyPaymentWindowDeadline` the inactivation sweep uses, applied to
+  // `groupBuyPaymentWindow` module the inactivation sweep uses, applied to
   // this order's own window start, so the email cannot promise a different
   // deadline from the one that will actually be enforced.
   //
@@ -459,7 +459,14 @@ async function performGroupBuyBankCheckout(input: {
         bankPaymentOrderId: groupBuyBankPaymentOrder.id,
         campaignCode: input.campaignCode,
         formattedAmountDue: `${minorUnitsToDecimalString(totalDueMinorUnits)} ${currency}`,
-        paymentDeadline: groupBuyPaymentWindowDeadline(
+        // THE 48-HOUR CUSTOMER DEADLINE, not the 96-hour inactivation instant.
+        // The email states "You have 48 hours to send payment" immediately
+        // below this date; printing the 96-hour value there told the customer
+        // two different things at once — a date four days out under the words
+        // "48 hours". The extension is described in prose, never folded
+        // silently into the number. Caught by the production configuration
+        // gate, which is the only place the two could be compared.
+        paymentDeadline: groupBuyInitialPaymentDeadline(
           resolveGroupBuyPaymentWindowStart(groupBuyBankPaymentOrder)
         ),
         coordinates: input.paymentCoordinates,
