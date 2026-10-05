@@ -5,7 +5,7 @@ import { prisma } from "~/db/client.server";
 import { createAcknowledgment } from "~/db/repositories/acknowledgmentRepository.server";
 import { getLatestPolicyVersion } from "~/db/repositories/policyVersionRepository.server";
 import { createWarrantyClaim, recordWarrantyClaimUpload } from "~/db/repositories/warrantyClaimRepository.server";
-import { consumeWarrantyClaimUploadDestination } from "~/db/repositories/warrantyClaimUploadDestinationRepository.server";
+import { consumeUploadDestination } from "~/db/repositories/uploadDestinationRepository.server";
 import {
   WARRANTY_CLAIM_ACKNOWLEDGMENT_AFFIRMATIVE_ACTION_LABEL,
   WARRANTY_CLAIM_ACKNOWLEDGMENT_POLICY_SLUG,
@@ -425,8 +425,13 @@ export async function action({ request }: ActionFunctionArgs) {
     try {
       await prisma.$transaction(async (tx) => {
         for (const upload of uploads) {
-          const consumed = await consumeWarrantyClaimUploadDestination(
-            { storageKey: upload.storageKey, claimId: body.claimId!, customerRef },
+          const consumed = await consumeUploadDestination(
+            {
+              purpose: "warranty_claim",
+              ownerId: body.claimId!,
+              storageKey: upload.storageKey,
+              customerRef,
+            },
             tx
           );
           // THROW, do not merely return/break. Returning a sentinel value

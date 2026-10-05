@@ -2,7 +2,7 @@ import type { ActionFunctionArgs } from "react-router";
 import { z } from "zod";
 
 import { getWarrantyClaimForCustomer } from "~/db/repositories/warrantyClaimRepository.server";
-import { recordIssuedWarrantyClaimUploadDestination } from "~/db/repositories/warrantyClaimUploadDestinationRepository.server";
+import { recordIssuedUploadDestination } from "~/db/repositories/uploadDestinationRepository.server";
 import type { WarrantyUploadPortResolution } from "~/jobs/warranty/ports";
 import { InvalidWarrantyUploadMetadataError, resolveWarrantyUploadPort } from "~/jobs/warranty/ports";
 import { getEnv } from "~/lib/env.server";
@@ -216,8 +216,12 @@ export async function action({ request }: ActionFunctionArgs) {
   // URL's own expiry, `R2_PUT_URL_EXPIRY_SECONDS`) rather than being computed
   // separately here, so the persisted record and the actual signed URL can
   // never disagree about when this destination stops being usable.
-  await recordIssuedWarrantyClaimUploadDestination({
-    claimId: body.claimId,
+  await recordIssuedUploadDestination({
+    // PURPOSE IS A SECURITY BOUNDARY: a destination issued here can only ever
+    // be spent on a warranty claim submission, because `purpose` is part of
+    // the consumption match rather than something a caller checks.
+    purpose: "warranty_claim",
+    ownerId: body.claimId,
     customerRef,
     kind: body.kind,
     contentType: body.contentType,

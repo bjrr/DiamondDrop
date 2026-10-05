@@ -180,9 +180,19 @@ async function createVariant(overrides: { shopifyVariantGid?: string } = {}) {
 async function seedDestination(
   overrides: Partial<{ claimId: string; customerRef: string; storageKey: string; expiresAt: Date; consumedAt: Date | null }> = {}
 ) {
+  // PURPOSE AND OWNER ARE SET HERE TOO, because the shared destination
+  // service matches on both. A fixture that writes the row directly and omits
+  // them produces a destination the real consumption path cannot find — which
+  // is exactly what happened when the service was generalised, and is a
+  // fixture bug rather than a product one. Set explicitly rather than routed
+  // through the issuance helper so the expired/consumed cases below can still
+  // construct states the real issuer would never produce.
+  const claimId = overrides.claimId ?? randomUUID();
   return prisma.warrantyClaimUploadDestination.create({
     data: {
-      claimId: overrides.claimId ?? randomUUID(),
+      purpose: "warranty_claim",
+      ownerId: claimId,
+      claimId,
       customerRef: overrides.customerRef ?? DEFAULT_CUSTOMER_GID,
       kind: "photo",
       contentType: "image/jpeg",

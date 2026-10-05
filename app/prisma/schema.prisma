@@ -2734,11 +2734,26 @@ model WarrantyClaimUploadDestination {
   id String @id @default(uuid()) @db.Uuid
 
   /// See the model comment — a value to match against, not a foreign key.
-  claimId     String @map("claim_id") @db.Uuid
+  /// TRANSITIONAL. Superseded by `purpose` + `ownerId`; still written so the
+  /// expand phase can be deployed without a window where running code writes a
+  /// column that no longer exists. Dropped in the contract migration.
+  claimId String @map("claim_id") @db.Uuid
+
+  /// THE SECURITY BOUNDARY BETWEEN UPLOAD KINDS, not a label. A destination
+  /// issued for one purpose must be unusable for another, enforced by this
+  /// column being part of the consumption WHERE clause rather than by callers
+  /// remembering to check it. Nullable only during expand/contract.
+  purpose UploadDestinationPurpose?
+
+  /// Generic owner reference: the warranty claim id, or the Custom Jewelry
+  /// project id. Deliberately NOT a foreign key, for the same reason
+  /// `claimId` never was — a destination is issued BEFORE the row it belongs
+  /// to exists, so a FK would make the normal flow impossible.
+  ownerId     String? @map("owner_id") @db.Uuid
   /// The authenticated identity this was issued to
   /// (`logged_in_customer_id`), NEVER a client-supplied field. Re-checked at
   /// consumption time, not merely at issuance.
-  customerRef String @map("customer_ref")
+  customerRef String  @map("customer_ref")
 
   kind        WarrantyClaimUploadKind @map("kind")
   contentType String                  @map("content_type")
@@ -2754,6 +2769,7 @@ model WarrantyClaimUploadDestination {
   consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
 
   @@index([claimId])
+  @@index([purpose, ownerId], map: "upload_destination_purpose_owner_idx")
   @@map("warranty_claim_upload_destination")
 }
 
@@ -3524,4 +3540,14 @@ enum CustomJewelryProjectStatus {
   closed
 
   @@map("custom_jewelry_project_status")
+}
+
+/// What an upload destination is FOR. One table serves several evidence
+/// flows; this is what stops a destination issued for one being spent on
+/// another.
+enum UploadDestinationPurpose {
+  warranty_claim
+  custom_jewelry_project
+
+  @@map("upload_destination_purpose")
 }
