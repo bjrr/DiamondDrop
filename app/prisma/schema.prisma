@@ -3504,6 +3504,8 @@ model CustomJewelryProject {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  uploads CustomJewelryProjectUpload[]
+
   @@index([customerRef])
   @@index([status])
   @@map("custom_jewelry_project")
@@ -3550,4 +3552,36 @@ enum UploadDestinationPurpose {
   custom_jewelry_project
 
   @@map("upload_destination_purpose")
+}
+
+/// Inspiration files a customer attached to a Custom Jewelry enquiry.
+///
+/// METADATA ONLY — no bytes. The object lives in private R2; this row records
+/// what was uploaded and where, exactly as `WarrantyClaimUpload` does.
+///
+/// A SEPARATE TABLE FROM WarrantyClaimUpload, DELIBERATELY. The owner's
+/// one-implementation mandate was about the DESTINATION service — the
+/// security properties (customer binding, single use, expiry, key binding,
+/// cross-purpose isolation), which now have exactly one implementation in
+/// `uploadDestinationRepository.server.ts`. These record tables are plain
+/// per-entity data with different foreign keys and different readers; merging
+/// them would mean a nullable FK per flow and a discriminator to decide which
+/// is valid, which is more fragile than two honest tables, not less.
+model CustomJewelryProjectUpload {
+  id        String               @id @default(uuid()) @db.Uuid
+  projectId String               @map("project_id") @db.Uuid
+  project   CustomJewelryProject @relation(fields: [projectId], references: [id])
+
+  kind        WarrantyClaimUploadKind @map("kind")
+  storageKey  String                  @map("storage_key")
+  contentType String                  @map("content_type")
+  sizeBytes   BigInt                  @map("size_bytes")
+  checksum    String
+
+  uploadedByActorType ActorType @map("uploaded_by_actor_type")
+  uploadedByActorRef  String?   @map("uploaded_by_actor_ref")
+  uploadedAt          DateTime  @default(now()) @map("uploaded_at") @db.Timestamptz(6)
+
+  @@index([projectId])
+  @@map("custom_jewelry_project_upload")
 }

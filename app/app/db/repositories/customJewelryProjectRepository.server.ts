@@ -64,6 +64,18 @@ export class CustomJewelryProjectReferenceExhaustedError extends Error {
 
 export interface CreateCustomJewelryProjectInput {
   /**
+   * A CLIENT-SUPPLIED primary key, used ONLY to bind inspiration files
+   * uploaded before this project existed. Safe because a caller-supplied id
+   * can only ever create a BRAND NEW row — primary-key uniqueness refuses
+   * reuse — so it cannot attach files to someone else’s enquiry, and the
+   * persisted destination’s own `customerRef` still gates consumption.
+   *
+   * Omitted when there are no uploads, so the column default generates it.
+   * Honouring a bare id with no files would make creation a weak existence
+   * oracle for a guessed id.
+   */
+  readonly id?: string;
+  /**
    * The AUTHENTICATED Shopify customer, or null for an anonymous enquiry.
    * Intake is deliberately open (README: "free and intentionally
    * low-friction"); the purchase path is not. Never accepted from the browser
@@ -103,6 +115,7 @@ export async function createCustomJewelryProject(
     try {
       return await prisma.customJewelryProject.create({
         data: {
+          id: input.id,
           projectReference,
           customerRef: input.customerRef,
           firstName: input.firstName,
@@ -146,4 +159,43 @@ export function toCustomJewelryProjectConfirmation(
   project: CustomJewelryProject
 ): CustomJewelryProjectConfirmation {
   return { projectReference: project.projectReference, status: project.status };
+}
+
+/**
+ * Records an inspiration upload's METADATA. No bytes — the object is already
+ * in private R2 by the time this is called, and this row says what and where.
+ *
+ * Only ever called AFTER the destination for this exact storage key has been
+ * verified and consumed through `uploadDestinationRepository`. Recording an
+ * upload for an unverified key would create a project that appears to carry
+ * reference images and does not, which is the trust gap the destination
+ * service exists to close.
+ */
+export interface RecordCustomJewelryUploadInput {
+  readonly projectId: string;
+  readonly kind: "photo" | "video";
+  readonly storageKey: string;
+  readonly contentType: string;
+  readonly sizeBytes: bigint;
+  readonly checksum: string;
+  /** The authenticated customer who uploaded it — uploads require an account. */
+  readonly uploadedByActorRef: string;
+}
+
+export async function recordCustomJewelryUpload(
+  input: RecordCustomJewelryUploadInput,
+  tx: Prisma.TransactionClient | typeof prisma = prisma
+): Promise<void> {
+  await tx.customJewelryProjectUpload.create({
+    data: {
+      projectId: input.projectId,
+      kind: input.kind,
+      storageKey: input.storageKey,
+      contentType: input.contentType,
+      sizeBytes: input.sizeBytes,
+      checksum: input.checksum,
+      uploadedByActorType: "customer",
+      uploadedByActorRef: input.uploadedByActorRef,
+    },
+  });
 }

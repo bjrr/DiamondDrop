@@ -1,10 +1,13 @@
 import type { ActionFunctionArgs } from "react-router";
 import { z } from "zod";
 
+import { prisma } from "~/db/client.server";
 import {
   createCustomJewelryProject,
+  recordCustomJewelryUpload,
   toCustomJewelryProjectConfirmation,
 } from "~/db/repositories/customJewelryProjectRepository.server";
+import { consumeUploadDestination } from "~/db/repositories/uploadDestinationRepository.server";
 import { buildCustomJewelryIntakeConfirmationEmail } from "~/domain/customjewelry/intakeConfirmationEmail";
 import { resolveEmailPort } from "~/lib/email/configuredPort.server";
 import { getEnv } from "~/lib/env.server";
@@ -92,8 +95,37 @@ const bodySchema = z
     hasNoDeadline: z.boolean().optional(),
 
     followUpPreference: z.enum(["schedule_consultation", "contact_me"]),
+
+    /**
+     * The client-minted project id. Required ONLY when `uploads` is
+     * non-empty, and honoured only then — see the uploads comment below.
+     */
+    projectId: z.string().uuid().optional(),
+
+    /**
+     * Files already PUT to R2 against destinations issued by
+     * `apps.carat.custom-jewelry-upload-destination.tsx`. Metadata only; every
+     * one is verified and consumed before the project is created.
+     */
+    uploads: z
+      .array(
+        z
+          .object({
+            kind: z.enum(["photo", "video"]),
+            storageKey: z.string().min(1).max(500),
+            contentType: z.string().min(1).max(200),
+            sizeBytes: z.number().int().positive(),
+            checksum: z.string().min(1).max(200),
+          })
+          .strict()
+      )
+      .max(10)
+      .optional(),
   })
   .strict();
+
+/** Thrown INSIDE the transaction so Prisma actually rolls it back. */
+class UnverifiableUploadReferenceError extends Error {}
 
 function badRequest(reason: string) {
   return Response.json({ error: "invalid_request", reason }, { status: 400 });
@@ -148,6 +180,65 @@ export async function action({ request }: ActionFunctionArgs) {
     return badRequest("choose either a desired completion date or no deadline, not both");
   }
 
+  const uploads = body.uploads ?? [];
+
+  // UPLOADS REQUIRE AN ACCOUNT EVEN THOUGH THE ENQUIRY DOES NOT.
+  // Owner decision 2026-10-05: an endpoint accepting anonymous file
+  // references is the same abuse surface as one minting anonymous presigned
+  // PUTs. A signed-out visitor may still submit — just without files, using
+  // `inspirationLinks` instead.
+  if (uploads.length > 0 && customerRef === null) {
+    logger.warn("custom_jewelry_intake.uploads_require_account", {});
+    return Response.json(
+      {
+        error: "authentication_required_for_uploads",
+        message: "Please sign in or create a CaratForUs account to continue.",
+      },
+      { status: 401 }
+    );
+  }
+  if (uploads.length > 0 && !body.projectId) {
+    return badRequest("projectId is required when uploads are provided");
+  }
+
+  // VERIFY AND CONSUME EVERY UPLOAD BEFORE THE PROJECT EXISTS.
+  //
+  // One transaction across the whole batch: if ANY key fails, destinations
+  // already consumed earlier in the same loop roll back with it, and NO
+  // project is created. A submission that succeeded minus some of its
+  // inspiration would look complete and be wrong — the same reasoning the
+  // warranty route documents, and the reason a sentinel return value is not
+  // enough here (returning from a Prisma transaction callback does NOT roll
+  // it back; only a throw does).
+  if (uploads.length > 0) {
+    try {
+      await prisma.$transaction(async (tx) => {
+        for (const upload of uploads) {
+          const consumed = await consumeUploadDestination(
+            {
+              purpose: "custom_jewelry_project",
+              ownerId: body.projectId!,
+              customerRef: customerRef!,
+              storageKey: upload.storageKey,
+            },
+            tx
+          );
+          if (!consumed) throw new UnverifiableUploadReferenceError();
+        }
+      });
+    } catch (error) {
+      if (error instanceof UnverifiableUploadReferenceError) {
+        // Deliberately generic. A key issued for someone else, for a warranty
+        // claim, or never issued at all are indistinguishable from here — the
+        // shared service collapses every failure into one value by design, so
+        // this cannot become an oracle for guessing another customer’s key.
+        logger.warn("custom_jewelry_intake.invalid_upload_reference", {});
+        return Response.json({ error: "invalid_upload_reference" }, { status: 422 });
+      }
+      throw error;
+    }
+  }
+
   const project = await createCustomJewelryProject({
     customerRef,
     firstName: body.firstName,
@@ -170,7 +261,29 @@ export async function action({ request }: ActionFunctionArgs) {
     desiredCompletionDate: body.desiredCompletionDate ? new Date(`${body.desiredCompletionDate}T00:00:00.000Z`) : null,
     hasNoDeadline: body.hasNoDeadline ?? false,
     followUpPreference: body.followUpPreference,
+    // Keyed on uploads.length, NOT on whether projectId happens to be
+    // present. A client-chosen primary key is accepted for exactly one
+    // reason — binding files uploaded before the project existed — so with no
+    // files there is nothing to bind and the column default generates the id.
+    // Honouring a bare projectId would make project creation a weak existence
+    // oracle for a guessed id; the identical mistake was shipped once on the
+    // warranty claim route and caught there.
+    id: uploads.length > 0 ? body.projectId : undefined,
   });
+
+  // Metadata recorded AFTER the project row exists, and only for keys the
+  // shared service already verified and consumed above.
+  for (const upload of uploads) {
+    await recordCustomJewelryUpload({
+      projectId: project.id,
+      kind: upload.kind,
+      storageKey: upload.storageKey,
+      contentType: upload.contentType,
+      sizeBytes: BigInt(upload.sizeBytes),
+      checksum: upload.checksum,
+      uploadedByActorRef: customerRef!,
+    });
+  }
 
   logger.info("custom_jewelry_intake.submitted", {
     projectReference: project.projectReference,
