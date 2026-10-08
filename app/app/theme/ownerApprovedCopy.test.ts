@@ -3,6 +3,12 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import {
+  CUSTOM_JEWELRY_DESIGN_DEPOSIT_DISCLOSURE,
+  CUSTOM_JEWELRY_FOLLOW_UP_CHOICES,
+  CUSTOM_JEWELRY_INTAKE_CONFIRMATION_TEMPLATE,
+} from "../domain/customjewelry/intakeCopy";
+
 /**
  * OWNER-APPROVED CUSTOMER-FACING COPY, PINNED CHARACTER FOR CHARACTER.
  *
@@ -156,6 +162,74 @@ const APPROVED: ReadonlyArray<readonly [string, string]> = [
       "It does not cover normal wear, scratches, dents, impact damage, worn or bent prongs, stone loss caused by damage or wear, misuse, improper care, sizing changes, or unauthorized repairs, alterations, or modifications.",
   ],
 ];
+
+/**
+ * SLICE 9 — CUSTOM JEWELRY. Pinned differently from everything above, and
+ * deliberately so.
+ *
+ * The strings above are literals in this file, which is right when the theme
+ * is the only place they live. These two ALSO exist as TypeScript constants,
+ * because the server needs them (the confirmation is returned to the browser;
+ * the deposit disclosure will be re-shown on the deposit step). A third copy
+ * here would be a third thing to keep in step. So instead of restating them,
+ * this asserts the locale file EQUALS the constant — `intakeCopy.test.ts`
+ * pins the constant against the owner's approved wording, and this pins the
+ * storefront against the constant. Two links, no loose ends.
+ */
+const APPROVED_AGAINST_CONSTANT: ReadonlyArray<readonly [string, string]> = [
+  ["templates.custom_jewelry.form.confirmation_template", CUSTOM_JEWELRY_INTAKE_CONFIRMATION_TEMPLATE],
+  ["templates.custom_jewelry.form.deposit_disclosure", CUSTOM_JEWELRY_DESIGN_DEPOSIT_DISCLOSURE],
+  [
+    "templates.custom_jewelry.form.follow_up_schedule_consultation",
+    CUSTOM_JEWELRY_FOLLOW_UP_CHOICES[0].label,
+  ],
+  ["templates.custom_jewelry.form.follow_up_contact_me", CUSTOM_JEWELRY_FOLLOW_UP_CHOICES[1].label],
+];
+
+describe("the Custom Jewelry storefront renders the same bytes as the approved constants", () => {
+  it.each(APPROVED_AGAINST_CONSTANT)("%s equals its approved constant", (path, expected) => {
+    expect(
+      at(path),
+      `${path} has drifted from app/domain/customjewelry/intakeCopy.ts. The constant is the ` +
+        `approval record; the locale is what the customer reads. If the wording genuinely needs ` +
+        `to change, take it to the owner and change BOTH in one commit.`
+    ).toBe(expected);
+  });
+
+  it("guards the guard: a comparison against undefined cannot pass", () => {
+    // Every expectation here comes from a constant rather than a literal, so a
+    // typo'd PATH would compare undefined against a real string and fail —
+    // but an empty constant would make the assertion vacuous in both
+    // directions. Both sides are checked to be non-empty strings.
+    for (const [path, expected] of APPROVED_AGAINST_CONSTANT) {
+      expect(typeof expected, `the constant behind ${path} is not a string`).toBe("string");
+      expect(expected.length, `the constant behind ${path} is empty`).toBeGreaterThan(0);
+      expect(typeof at(path), `${path} is missing from the locale file`).toBe("string");
+    }
+  });
+
+  it("the intake form carries NO abandonment rule and NO response-time promise", () => {
+    // Owner instruction, verbatim: "Do not put the abandonment/non-response
+    // rule on the initial intake form. Keep the intake welcoming." And: "Do
+    // not add a response-time promise." `intakeCopy.test.ts` asserts this of
+    // the constants; this asserts it of the WHOLE rendered locale block,
+    // including the mechanical labels that no constant covers — which is
+    // where such a sentence would most plausibly be added by someone trying
+    // to be helpful.
+    const block = at("templates.custom_jewelry.form");
+    expect(typeof block, "templates.custom_jewelry.form is missing").toBe("object");
+    const rendered = JSON.stringify(block).toLowerCase();
+    for (const term of ["abandon", "stops responding", "stop responding", "unresponsive", "non-response"]) {
+      expect(rendered.includes(term), `the intake copy mentions "${term}" — that rule belongs on the deposit step`).toBe(
+        false
+      );
+    }
+    for (const promise of ["shortly", "as soon as possible", "business day", "promptly", "right away"]) {
+      expect(rendered.includes(promise), `the intake copy promises a response time ("${promise}")`).toBe(false);
+    }
+    expect(/within \d+/.test(rendered), "the intake copy promises a response time").toBe(false);
+  });
+});
 
 describe("owner-approved customer-facing copy is pinned verbatim", () => {
   it.each(APPROVED)("%s matches the approved wording exactly", (path, expected) => {
