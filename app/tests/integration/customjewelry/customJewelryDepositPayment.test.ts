@@ -45,8 +45,17 @@ function call(fn: typeof intakeAction, request: Request) {
 }
 
 /** An admin client that answers "which order did this draft order become?". */
-function fakeAdmin(resultingOrderGidByDraft: Map<string, string | null>, options: { fail?: boolean } = {}): AdminGraphqlClient {
-  return {
+/**
+ * Returned as a FACTORY, matching the handler's lazy dependency. `calls`
+ * counts how many times the factory was invoked, so a test can assert the
+ * Admin client was never built for an order that is none of our business.
+ */
+function fakeAdmin(
+  resultingOrderGidByDraft: Map<string, string | null>,
+  options: { fail?: boolean } = {}
+): (() => Promise<AdminGraphqlClient>) & { calls: () => number } {
+  let calls = 0;
+  const client: AdminGraphqlClient = {
     async graphql(_query: string, opts?: { variables?: Record<string, unknown> }) {
       const id = String(opts?.variables?.id ?? "");
       if (options.fail) {
@@ -57,6 +66,11 @@ function fakeAdmin(resultingOrderGidByDraft: Map<string, string | null>, options
       return { json: async () => ({ data: { draftOrder: { id, order: order ? { id: order } : null } } }) };
     },
   };
+  const factory = async () => {
+    calls += 1;
+    return client;
+  };
+  return Object.assign(factory, { calls: () => calls });
 }
 
 function fakeDraftOrders(gid: string): DraftOrderPort {
@@ -195,16 +209,42 @@ describe("a paid deposit order is recorded and advances the project", () => {
   });
 });
 
-describe("orders that are not ours are ignored silently", () => {
-  it("does nothing for an order with no deposit tag", async () => {
+describe("orders that are not ours are ignored silently, and cost nothing", () => {
+  it("does nothing for an order with no deposit tag, and NEVER builds an Admin client", async () => {
+    // THIS ASSERTION EXISTS BECAUSE A LIVE TEST DELIVERY FOUND THE BUG. The
+    // route originally built the Admin client before the handler ran, so every
+    // Buy Now and Group Buy order depended on a session lookup it never needed
+    // — and a delivery for an unknown shop returned 500, asking Shopify to
+    // redeliver an order the handler would have ignored. A transient session
+    // problem would have done the same to real customer orders.
+    //
+    // Counting factory invocations is what makes the fix provable: a lazily
+    // resolved client that is still resolved eagerly looks identical from the
+    // outside until something upstream fails.
     const before = await prisma.customJewelryDepositPayment.count();
+    const admin = fakeAdmin(new Map(), { fail: true });
+
     await handleCustomJewelryDepositOrderPaidWebhook(
       orderPaidEvent({ orderGid: `gid://shopify/Order/${Date.now()}`, tags: ["carat-group-buy"] }),
-      // The admin client must never be consulted: most orders on the store are
-      // not deposits, and a Shopify round trip per order would be waste.
-      { adminGraphql: fakeAdmin(new Map(), { fail: true }) }
+      { adminGraphql: admin }
     );
+
+    expect(admin.calls(), "an order that is not a deposit must not cost a Shopify session lookup").toBe(0);
     expect(await prisma.customJewelryDepositPayment.count()).toBe(before);
+  });
+
+  it("does not build an Admin client for a deposit-tagged order with no invoice either", async () => {
+    // The lookup is only needed to VERIFY an invoice. With no invoice there is
+    // nothing to verify, so this must also stay free.
+    const admin = fakeAdmin(new Map(), { fail: true });
+    await handleCustomJewelryDepositOrderPaidWebhook(
+      orderPaidEvent({
+        orderGid: `gid://shopify/Order/${Date.now()}${++seq}`,
+        tags: [CUSTOM_JEWELRY_DEPOSIT_CLASS_TAG, "carat-project-CJ-NOSUCHREF2"],
+      }),
+      { adminGraphql: admin }
+    );
+    expect(admin.calls()).toBe(0);
   });
 });
 

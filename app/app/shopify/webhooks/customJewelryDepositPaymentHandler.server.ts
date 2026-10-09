@@ -94,7 +94,22 @@ const DRAFT_ORDER_RESULTING_ORDER_QUERY = `#graphql
   }`;
 
 export interface CustomJewelryDepositPaymentDeps {
-  readonly adminGraphql: AdminGraphqlClient;
+  /**
+   * RESOLVED LAZILY, and that is a correctness property rather than a
+   * micro-optimisation.
+   *
+   * Almost every `orders/paid` delivery on this store is a Buy Now or Group
+   * Buy order, not a deposit. An eagerly-built Admin client made each of those
+   * depend on a session lookup they never needed — and a live test delivery
+   * proved the consequence: the route returned 500 and asked Shopify to
+   * redeliver, for an order the handler would have ignored anyway. A transient
+   * session problem would have done the same to real customer orders.
+   *
+   * So the client is built ONLY after the tags say this is a deposit and an
+   * invoice has been found — at which point a failure genuinely is worth
+   * retrying.
+   */
+  readonly adminGraphql: () => Promise<AdminGraphqlClient>;
 }
 
 function parseTags(raw: string | null | undefined): string[] {
@@ -217,7 +232,12 @@ export async function handleCustomJewelryDepositOrderPaidWebhook(
   // THE AUTHORITATIVE CHECK. Ask Shopify which order this invoice's draft
   // order became, and require it to be this one.
   // ---------------------------------------------------------------------------
-  const response = await deps.adminGraphql.graphql(DRAFT_ORDER_RESULTING_ORDER_QUERY, {
+  // Built here, not at entry — see `CustomJewelryDepositPaymentDeps`. A
+  // failure to obtain it now IS retryable: this really is a deposit order, so
+  // we must not record a payment without verifying it, and a later delivery
+  // may succeed.
+  const adminGraphql = await deps.adminGraphql();
+  const response = await adminGraphql.graphql(DRAFT_ORDER_RESULTING_ORDER_QUERY, {
     variables: { id: invoice.draftOrderGid },
   });
   const body = (await response.json()) as {

@@ -38,16 +38,26 @@ import { unauthenticated } from "~/shopify.server";
  * has no user session; the shop domain comes from the verified delivery.
  */
 async function handleOrdersPaid(event: ReceivedWebhookEvent): Promise<void> {
-  if (!event.shopDomain) {
-    // Without a shop there is no Admin client to verify against, and the
-    // handler's authoritative check cannot run. Thrown rather than skipped: a
-    // verified delivery should always carry one, so this is a real anomaly and
-    // a redelivery may well carry it.
-    throw new Error("orders/paid delivery carried no shop domain — cannot resolve an Admin client to verify against");
-  }
-
-  const { admin } = await unauthenticated.admin(event.shopDomain);
-  await handleCustomJewelryDepositOrderPaidWebhook(event, { adminGraphql: admin });
+  // A FACTORY, NOT A CLIENT. The handler calls this only once it knows the
+  // order is a Design Deposit with an invoice to verify — see
+  // `CustomJewelryDepositPaymentDeps`. Building it here instead made every
+  // Buy Now and Group Buy order depend on a session lookup it never needed; a
+  // live test delivery for an unknown shop returned 500 and asked Shopify to
+  // redeliver an order the handler would have ignored.
+  //
+  // The shop is checked INSIDE the factory for the same reason: a delivery
+  // with no shop domain is only a problem if we actually needed an Admin
+  // client, and failing on it up front would again punish orders that are
+  // none of our business.
+  await handleCustomJewelryDepositOrderPaidWebhook(event, {
+    adminGraphql: async () => {
+      if (!event.shopDomain) {
+        throw new Error("orders/paid delivery carried no shop domain — cannot resolve an Admin client to verify against");
+      }
+      const { admin } = await unauthenticated.admin(event.shopDomain);
+      return admin;
+    },
+  });
 }
 
 export async function action({ request }: ActionFunctionArgs) {
