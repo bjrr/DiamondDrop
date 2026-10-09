@@ -1,9 +1,11 @@
 # Slice 9 — Custom Jewelry intake
 
-Status: **intake, uploads, confirmation email and the Design Deposit
-acceptance step shipped.** Uploads are live-proven against production.
-Deposit *collection* is the remaining follow-on — the acceptance that must
-precede it is done.
+Status: **the whole deposit chain ships** — intake, inspiration uploads, the
+confirmation email, the Design Deposit acceptance, issuing the invoice, and
+recording payment. Uploads and the acceptance route's enforcement are
+live-proven against production; the custom-line price field is live-verified
+against the real store. A genuinely paid order has NOT been run end to end —
+see §8.4.
 
 Authoritative sources: `README.md` "Custom Jewelry — MVP1 Locked Direction";
 `docs/REQUIRED-CUSTOMER-ACCOUNTS.md`; owner decisions 2026-10-05 (copy, the
@@ -370,12 +372,95 @@ that does not exist and tell a customer to pay something never sent. An
 orphaned draft is unpaid, un-emailed, and tagged with the project reference:
 a mess, not a loss.
 
-## 8. Deliberate follow-ons
+## 8. Collecting the deposit — shipped
 
-**Deposit collection** — recording that the money actually arrived and
-advancing the project to `deposit_charged`. Needs an `orders/paid` webhook
-subscription; the invoice's `draft_order_gid` is UNIQUE precisely so a webhook
-carrying only the Shopify order can resolve back to exactly one invoice.
+`orders/paid` → `webhooks.carat.orders-paid.tsx` →
+`customJewelryDepositPaymentHandler.server.ts`. The money arriving is recorded
+as a fact, and `deposit_charged` is set from that fact rather than from having
+asked.
+
+**A separate topic from `orders/create`**, deliberately: a deposit invoice is
+paid through Shopify's own checkout, so the order exists before the money
+does, and `orders/create` fires while it is still unpaid.
+
+### 8.1 The tag is a hint; Shopify is the authority
+
+The order inherits `carat-design-deposit` and `carat-project-<reference>` from
+the draft order. Those are how the handler knows a delivery is worth looking
+at and finds the candidate cheaply — and they are **not trusted for the
+match**, because an order tag is editable by any Shopify admin user, and
+matching money on an editable field is how the wrong deposit gets marked paid.
+
+So the handler asks Shopify which order the invoice's draft order actually
+became and requires it to be this one. Same discipline as every ownership
+check here: the supplied value locates the record, the server-side lookup
+decides.
+
+**The amount must match too.** A draft order can be edited before payment, so
+a total that is not the invoiced figure records nothing and does not advance
+the project. The stored amount is the **observed** one, not a copy of the
+invoice's — which is what makes their agreement a verified fact rather than an
+assumption.
+
+### 8.2 Which failures retry, and which do not
+
+| Situation | Behaviour | Why |
+| --- | --- | --- |
+| Shopify lookup failed | **throws** → Shopify redelivers | a retry can succeed |
+| No deposit tag | returns, silent | most orders here are Buy Now or Group Buy |
+| Order/amount/ambiguity mismatch | returns + error log + audit event | a retry cannot fix data that is simply what it is; looping Shopify would bury the anomaly in redelivery noise |
+
+Idempotent three times over: the receive layer dedupes by event id, the
+payment table is UNIQUE on both `invoice_id` and `order_gid`, and the status
+write is a fixed value rather than an increment.
+
+### 8.3 Two defects this work surfaced
+
+**The handler would have ignored every payment, forever.**
+`preserveShopifyBigIntIds` returns a doctored JSON *string*, not an object,
+and it was passed straight to a Zod object schema — so every payload failed to
+parse and the handler returned early. Invisible in production precisely
+because "not ours, return silently" is the common path for this topic: a
+handler doing nothing looks identical to one with nothing to do. Only a test
+asserting the positive path could find it.
+
+**Every non-deposit order paid for a session lookup it never needed.** The
+route built the Admin client before the handler ran. A live test delivery for
+an unknown shop therefore returned **500**, asking Shopify to redeliver an
+order the handler would have ignored — and a transient session problem would
+have done the same to real customer orders. The dependency is now a factory
+called only after the tags say "deposit" *and* an invoice is found. Re-sent
+the same delivery after deploying: **200**. Two tests count factory
+invocations, because a lazily declared client that is still resolved eagerly
+looks identical from outside until something upstream fails.
+
+### 8.4 What is not proven
+
+`webhookSubscriptions` returns nothing for this app — **not even
+`orders/create`**, which demonstrably works. The query only sees API-created
+subscriptions and is blind to the declarative ones in `shopify.app.*.toml`, so
+its empty result is the wrong instrument, not evidence of absence. (Reading an
+empty response as proof is a mistake this project has already made once, with
+`read_customers`.)
+
+Registration therefore rests on the app version having released successfully
+with `orders/paid` declared — the same mechanism `orders/create` works by.
+**End-to-end proof would require a genuinely paid order, which has not been
+done.** The endpoint itself is proven: a real signed delivery reached the
+handler through HMAC verification and was answered 200.
+
+## 9. Deliberate follow-ons
+
+**The customer-facing deposit page.** The acceptance route exists and is
+live-proven, but there is no storefront page, because there is no staff action
+that invites a customer to one — a page with no entry point would be
+speculative. The natural pairing is "mark ready for design" → customer accepts
+→ staff issue invoice.
+
+**A real paid-order run** through the whole chain: accept → issue → pay →
+`deposit_charged`, against the production store with a test customer. It
+creates a genuinely paid $49 order, so it is a deliberate owner decision
+rather than something to do unprompted.
 
 **The customer-facing deposit page.** The acceptance route exists and is
 live-proven, but there is no storefront page yet, because there is no staff
@@ -390,7 +475,7 @@ deferred rather than half-offered.
 
 ---
 
-## 9. Owner action required to make the page reachable
+## 10. Owner action required to make the page reachable
 
 The theme files are deployed; **the Shopify Page does not exist yet**, so
 `/pages/custom-jewelry` 404s until it is created. We hold no content scope
