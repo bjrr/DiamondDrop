@@ -3601,7 +3601,49 @@ model CustomJewelryDepositInvoice {
   issuedByActorRef  String?   @map("issued_by_actor_ref")
   issuedAt          DateTime  @default(now()) @map("issued_at") @db.Timestamptz(6)
 
+  /// At most one — one invoice is paid once.
+  payment CustomJewelryDepositPayment?
+
   @@map("custom_jewelry_deposit_invoice")
+}
+
+/// Evidence that a Design Deposit was actually PAID.
+///
+/// THE THIRD AND LAST OF THREE SEPARATE FACTS: the customer agreed
+/// (`CustomJewelryDepositAcceptance`), we asked (`...DepositInvoice`), the
+/// money arrived (this). Three append-only records rather than one row with
+/// three nullable timestamps — as fields they could be set, cleared and
+/// re-set; as records each is a thing that happened and none can be
+/// un-happened.
+///
+/// The FK chain is enforced at every link: a payment needs an invoice, and an
+/// invoice needs an acceptance. Nothing re-checks the chain at the end because
+/// nothing has to.
+///
+/// APPEND-ONLY at the database level, all three guards.
+model CustomJewelryDepositPayment {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// UNIQUE — one invoice is paid once.
+  invoiceId String                      @unique @map("invoice_id") @db.Uuid
+  invoice   CustomJewelryDepositInvoice @relation(fields: [invoiceId], references: [id])
+
+  /// The REAL Shopify order, not the draft. UNIQUE so the same order cannot
+  /// be used to mark a second invoice paid.
+  orderGid String @unique @map("order_gid")
+
+  /// OBSERVED on the order, NOT copied from the invoice. The handler refuses
+  /// to record a payment whose amount differs from the invoice, so these
+  /// agree in practice — storing what was actually seen is what makes that a
+  /// verified fact rather than an assumption.
+  amountMinorUnits BigInt @map("amount_minor_units")
+  currency         String @db.Char(3)
+
+  /// Shopify's own timestamp for the payment, not our clock.
+  paidAt     DateTime @map("paid_at") @db.Timestamptz(6)
+  recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+
+  @@map("custom_jewelry_deposit_payment")
 }
 
 enum CustomJewelryStartingPoint {

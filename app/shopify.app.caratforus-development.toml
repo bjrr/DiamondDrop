@@ -239,6 +239,23 @@ api_version = "2026-07"
   topics = ["orders/create"]
   uri = "/webhooks/carat/orders-create"
 
+  # Slice 9 — Custom Jewelry Design Deposit collection.
+  #
+  # A SEPARATE TOPIC FROM orders/create, deliberately. A deposit invoice is
+  # paid through Shopify's own checkout, so the order exists before the money
+  # does — orders/create would fire while it was still unpaid and tell us
+  # nothing we could act on. orders/paid fires when the money is actually
+  # there, which is the only moment that justifies advancing a project to
+  # deposit_charged.
+  #
+  # NO SCOPE CHANGE. `read_orders` already covers receiving this payload
+  # (granted in Slice 2C), and the handler's authoritative draft-order lookup
+  # uses `write_draft_orders`, also already granted. A webhook subscription is
+  # not a permission.
+  [[webhooks.subscriptions]]
+  topics = ["orders/paid"]
+  uri = "/webhooks/carat/orders-paid"
+
 [app_proxy]
 # Storefront requests to
 #   https://caratforus-dev.myshopify.com/apps/carat/...

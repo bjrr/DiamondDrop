@@ -78,12 +78,20 @@ export function depositInvoiceLineTitle(projectReference: string): string {
 }
 
 /**
- * Tags on the Shopify draft order.
+ * The tag that marks an order as a Design Deposit. It is what makes these
+ * orders findable as a class in the Shopify admin and distinguishable from
+ * Buy Now, Group Buy and Luxury Steals orders by anything reading the order
+ * stream.
  *
- * `carat-design-deposit` is what makes these orders findable as a class in
- * the Shopify admin and distinguishable from Buy Now, Group Buy and Luxury
- * Steals orders by anything reading the order stream.
+ * EXPORTED because the `orders/paid` handler keys on it: a literal in two
+ * places is two places that can drift, and the handler silently ignoring every
+ * deposit order is exactly the failure that would cause.
  */
+export const CUSTOM_JEWELRY_DEPOSIT_CLASS_TAG = "carat-design-deposit";
+
+/** The per-project tag prefix. Same reasoning as the class tag. */
+export const CUSTOM_JEWELRY_DEPOSIT_PROJECT_TAG_PREFIX = "carat-project-";
+
 export function depositInvoiceTags(projectReference: string): readonly string[] {
-  return ["carat-design-deposit", `carat-project-${projectReference}`];
+  return [CUSTOM_JEWELRY_DEPOSIT_CLASS_TAG, `${CUSTOM_JEWELRY_DEPOSIT_PROJECT_TAG_PREFIX}${projectReference}`];
 }
