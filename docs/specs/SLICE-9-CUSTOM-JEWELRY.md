@@ -414,7 +414,56 @@ Idempotent three times over: the receive layer dedupes by event id, the
 payment table is UNIQUE on both `invoice_id` and `order_gid`, and the status
 write is a fixed value rather than an increment.
 
-### 8.3 Two defects this work surfaced
+### 8.3 The status only ever moves forward
+
+The enum runs `submitted → deposit_charged → awaiting_approval → approved →
+purchased → closed`. The handler originally wrote `deposit_charged`
+unconditionally, which would drag a project **backwards** if a delayed or
+redelivered `orders/paid` arrived after staff had advanced it. Nothing else
+writes that column yet, which is the only reason it was not already live —
+the next slice's staff action makes it reachable.
+
+**`submitted` is the authoritative predecessor**, verified against the model
+rather than inferred from the implementation: the enum has no
+accepted/awaiting-payment state, accepting the terms and issuing the invoice
+record their own append-only evidence rows and leave status alone (both
+asserted), the staff list derives its three deposit stages from those rows,
+and this handler is the only code in the app that writes the column.
+
+The guard is a condition in the SQL `WHERE`, not a prior read — a
+read-then-write loses to a concurrent staff action, and being correct under
+exactly that race is the point. `updateMany` rather than `update`, so a
+non-matching status is "nothing to do" instead of a thrown not-found that
+would roll the payment back with it.
+
+**The receipt survives a refused advancement.** The money genuinely arrived;
+discarding it because the project had moved on would lose the payment record,
+which is worse than a status needing a human. A refusal logs and writes an
+audit event naming the status found.
+
+### 8.4 Duplicate delivery is inert
+
+| Case | Outcome |
+| --- | --- |
+| Same Shopify event id | deduped by the receive layer, handler never called |
+| Redelivery, new event id | `invoice.payment` check returns early — no second payment, no second anomaly |
+| Redelivery after a *refused* advancement | still one anomaly, not one per delivery |
+| Two concurrent deliveries | UNIQUE indexes decide; loser treated as already-recorded, no error, no anomaly |
+| Same order against a second invoice | refused by the UNIQUE `order_gid` index |
+
+The third row is the subtle one: after a refused advancement the status will
+**never** equal `submitted` again, so a handler re-deriving the anomaly from
+"status ≠ predecessor" would write a fresh entry on every delivery and bury
+the original in duplicates. The `invoice.payment` early return fires before
+the status logic is reached.
+
+The concurrent case used to return 500: both deliveries pass that check
+before either writes, and the loser's `P2002` propagated — asking Shopify to
+redeliver a payment the winner had already recorded correctly. It is now
+treated as already-recorded with **deliberately no anomaly event**, because a
+routine race must not produce something a human has to triage.
+
+### 8.5 Two defects this work surfaced
 
 **The handler would have ignored every payment, forever.**
 `preserveShopifyBigIntIds` returns a doctored JSON *string*, not an object,
@@ -434,7 +483,7 @@ the same delivery after deploying: **200**. Two tests count factory
 invocations, because a lazily declared client that is still resolved eagerly
 looks identical from outside until something upstream fails.
 
-### 8.4 What is not proven
+### 8.6 What is not proven
 
 `webhookSubscriptions` returns nothing for this app — **not even
 `orders/create`**, which demonstrably works. The query only sees API-created
