@@ -309,24 +309,89 @@ export async function handleCustomJewelryDepositOrderPaidWebhook(
   // ONE TRANSACTION. The payment and the status it justifies are one fact; a
   // project showing `deposit_charged` with no payment row would assert a
   // receipt that does not exist, which is the whole thing this path guards.
-  await prisma.$transaction(async (tx) => {
-    await tx.customJewelryDepositPayment.create({
-      data: {
-        invoiceId: invoice.id,
-        orderGid,
-        // The OBSERVED figure, not the invoice's — see the table comment.
-        amountMinorUnits: observedMinorUnits,
-        currency: observedCurrency,
-        paidAt,
-      },
+  //
+  // ============================================================================
+  // THE STATUS ONLY EVER MOVES FORWARD
+  // ============================================================================
+  // The enum runs submitted -> deposit_charged -> awaiting_approval ->
+  // approved -> purchased -> closed. Writing `deposit_charged` unconditionally
+  // would drag a project BACKWARDS if it had already advanced — and that is
+  // reachable the moment a staff action sets `awaiting_approval`, because a
+  // delayed or redelivered `orders/paid` would arrive after it.
+  //
+  // So the update is CONDITIONAL on the project still being at `submitted`,
+  // expressed in the WHERE clause rather than by reading the status first:
+  // a read-then-write loses to a concurrent staff action, and the point is to
+  // be correct under exactly that race.
+  //
+  // THE PAYMENT IS STILL RECORDED EITHER WAY. The money genuinely arrived; a
+  // handler that refused to record it because the project had moved on would
+  // lose the receipt, which is far worse than a status that needs a human to
+  // look at. The two halves are not the same decision and are not treated as
+  // one.
+  let advanced: boolean;
+  try {
+    advanced = await prisma.$transaction(async (tx) => {
+      await tx.customJewelryDepositPayment.create({
+        data: {
+          invoiceId: invoice.id,
+          orderGid,
+          // The OBSERVED figure, not the invoice's — see the table comment.
+          amountMinorUnits: observedMinorUnits,
+          currency: observedCurrency,
+          paidAt,
+        },
+      });
+      // `updateMany`, not `update`: a status that no longer matches must be
+      // "nothing to do" rather than a thrown not-found that would roll the
+      // payment back.
+      const result = await tx.customJewelryProject.updateMany({
+        where: { id: project.id, status: "submitted" },
+        data: { status: "deposit_charged" },
+      });
+      return result.count === 1;
     });
-    await tx.customJewelryProject.update({
-      where: { id: project.id },
-      data: { status: "deposit_charged" },
-    });
-  });
+  } catch (error) {
+    // TWO CONCURRENT DELIVERIES OF THE SAME ORDER. The receive layer dedupes
+    // by Shopify event id, and the `invoice.payment` check above catches a
+    // sequential redelivery — but two deliveries in flight at once both pass
+    // that check and both attempt the insert. The UNIQUE indexes on
+    // `invoice_id` and `order_gid` are what actually decide it, and the loser
+    // lands here.
+    //
+    // THAT IS NOT A FAILURE AND MUST NOT BE REPORTED AS ONE. Letting it
+    // propagate returned 500 and asked Shopify to redeliver a payment that
+    // was already recorded correctly by the winner — noise that looks like a
+    // money-path error. The payment exists; there is nothing left to do.
+    //
+    // Deliberately NO anomaly event either: nothing anomalous happened, and
+    // writing one would mean a routine race produced an entry a human has to
+    // triage.
+    if (isUniqueViolation(error)) {
+      logger.info("custom_jewelry_deposit_payment.concurrent_duplicate", { orderGid, projectReference });
+      return;
+    }
+    throw error;
+  }
 
-  logger.info("custom_jewelry_deposit_payment.recorded", { orderGid, projectReference });
+  if (!advanced) {
+    // The deposit was paid for a project that had already moved past
+    // `deposit_charged`. Not an error and not a reason to discard the receipt
+    // — but a human should see it, because it means work advanced before the
+    // money landed.
+    logger.warn("custom_jewelry_deposit_payment.status_not_advanced", {
+      orderGid,
+      projectReference,
+      status: project.status,
+    });
+    await recordAnomaly(
+      orderGid,
+      `payment recorded, but project ${projectReference} was already at status "${project.status}" rather than ` +
+        `"submitted", so the status was left alone rather than moved backwards`
+    );
+  }
+
+  logger.info("custom_jewelry_deposit_payment.recorded", { orderGid, projectReference, statusAdvanced: advanced });
 }
 
 /**
@@ -355,4 +420,17 @@ async function recordAnomaly(orderGid: string, detail: string): Promise<void> {
       errorName: error instanceof Error ? error.name : "unknown",
     });
   }
+}
+
+/**
+ * Prisma's unique-constraint code, matched structurally rather than on the
+ * message text, which is not a stable contract.
+ */
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
 }

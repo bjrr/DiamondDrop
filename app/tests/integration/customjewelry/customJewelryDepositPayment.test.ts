@@ -209,6 +209,206 @@ describe("a paid deposit order is recorded and advances the project", () => {
   });
 });
 
+describe("the project status only ever moves forward", () => {
+  it("records the payment but does NOT drag a project backwards from a later status", async () => {
+    // REACHABLE AS SOON AS A STAFF ACTION SETS `awaiting_approval`: a delayed
+    // or redelivered `orders/paid` would arrive after it, and an
+    // unconditional write would move the project back to `deposit_charged`.
+    // A status silently going backwards on a money path is the kind of thing
+    // a confused customer discovers for us.
+    const fixture = await seedInvoicedProject();
+    const orderGid = `gid://shopify/Order/${Date.now()}${++seq}`;
+
+    // Simulates that staff action, which is the only way to reach this state.
+    await prisma.customJewelryProject.update({
+      where: { id: fixture.projectId },
+      data: { status: "awaiting_approval" },
+    });
+
+    await handleCustomJewelryDepositOrderPaidWebhook(
+      orderPaidEvent({
+        orderGid,
+        tags: [CUSTOM_JEWELRY_DEPOSIT_CLASS_TAG, `carat-project-${fixture.projectReference}`],
+      }),
+      { adminGraphql: fakeAdmin(new Map([[fixture.draftOrderGid, orderGid]])) }
+    );
+
+    // THE MONEY IS STILL RECORDED. Refusing the receipt because the project
+    // had moved on would lose the fact that payment arrived, which is worse
+    // than a status a human needs to look at.
+    const payment = await prisma.customJewelryDepositPayment.findUniqueOrThrow({
+      where: { invoiceId: fixture.invoiceId },
+    });
+    expect(payment.orderGid).toBe(orderGid);
+
+    // AND THE STATUS IS UNTOUCHED.
+    const project = await prisma.customJewelryProject.findUniqueOrThrow({ where: { id: fixture.projectId } });
+    expect(project.status).toBe("awaiting_approval");
+
+    // Surfaced for a human rather than silently absorbed.
+    const audit = await prisma.auditEvent.findMany({
+      where: { entityType: "custom_jewelry_deposit_payment", entityId: orderGid },
+    });
+    expect(audit).toHaveLength(1);
+    expect(audit[0]!.reason).toContain("awaiting_approval");
+  });
+
+  it("still advances a project that IS at submitted — the guard is conditional, not a block", async () => {
+    // Without this, the guard could be "never advance" and the case above
+    // would still pass.
+    const fixture = await seedInvoicedProject();
+    const orderGid = `gid://shopify/Order/${Date.now()}${++seq}`;
+
+    await handleCustomJewelryDepositOrderPaidWebhook(
+      orderPaidEvent({
+        orderGid,
+        tags: [CUSTOM_JEWELRY_DEPOSIT_CLASS_TAG, `carat-project-${fixture.projectReference}`],
+      }),
+      { adminGraphql: fakeAdmin(new Map([[fixture.draftOrderGid, orderGid]])) }
+    );
+
+    const project = await prisma.customJewelryProject.findUniqueOrThrow({ where: { id: fixture.projectId } });
+    expect(project.status).toBe("deposit_charged");
+    // No anomaly for the normal path.
+    expect(
+      await prisma.auditEvent.count({
+        where: { entityType: "custom_jewelry_deposit_payment", entityId: orderGid },
+      })
+    ).toBe(0);
+  });
+});
+
+describe("duplicate delivery is inert, including after a refused advancement", () => {
+  it("a redelivery after a REFUSED advancement writes no SECOND anomaly", async () => {
+    // THE SUBTLE ONE. The first delivery records the payment and declines to
+    // move the status, writing one anomaly. On every later delivery the status
+    // STILL does not equal `submitted` — so a handler that re-derived the
+    // anomaly from "status != predecessor" would write a fresh entry each
+    // time, and a human triaging them would see a growing pile describing one
+    // event. The `invoice.payment` check returns before the status logic is
+    // reached, which is what prevents it.
+    const fixture = await seedInvoicedProject();
+    const orderGid = `gid://shopify/Order/${Date.now()}${++seq}`;
+    const admin = fakeAdmin(new Map([[fixture.draftOrderGid, orderGid]]));
+    const makeEvent = () =>
+      orderPaidEvent({
+        orderGid,
+        tags: [CUSTOM_JEWELRY_DEPOSIT_CLASS_TAG, `carat-project-${fixture.projectReference}`],
+      });
+
+    await prisma.customJewelryProject.update({
+      where: { id: fixture.projectId },
+      data: { status: "awaiting_approval" },
+    });
+
+    await handleCustomJewelryDepositOrderPaidWebhook(makeEvent(), { adminGraphql: admin });
+    // Two more deliveries with FRESH event ids — i.e. reaching the handler
+    // rather than being deduped upstream by the receive layer.
+    await handleCustomJewelryDepositOrderPaidWebhook(makeEvent(), { adminGraphql: admin });
+    await handleCustomJewelryDepositOrderPaidWebhook(makeEvent(), { adminGraphql: admin });
+
+    expect(
+      await prisma.auditEvent.count({
+        where: { entityType: "custom_jewelry_deposit_payment", entityId: orderGid },
+      }),
+      "one event produced one anomaly, however many times it was delivered"
+    ).toBe(1);
+    expect(await prisma.customJewelryDepositPayment.count({ where: { invoiceId: fixture.invoiceId } })).toBe(1);
+    expect((await prisma.customJewelryProject.findUniqueOrThrow({ where: { id: fixture.projectId } })).status).toBe(
+      "awaiting_approval"
+    );
+  });
+
+  it("an already-deposit_charged project neither regresses nor advances again", async () => {
+    const fixture = await seedInvoicedProject();
+    const orderGid = `gid://shopify/Order/${Date.now()}${++seq}`;
+    const admin = fakeAdmin(new Map([[fixture.draftOrderGid, orderGid]]));
+    const makeEvent = () =>
+      orderPaidEvent({
+        orderGid,
+        tags: [CUSTOM_JEWELRY_DEPOSIT_CLASS_TAG, `carat-project-${fixture.projectReference}`],
+      });
+
+    await handleCustomJewelryDepositOrderPaidWebhook(makeEvent(), { adminGraphql: admin });
+    expect((await prisma.customJewelryProject.findUniqueOrThrow({ where: { id: fixture.projectId } })).status).toBe(
+      "deposit_charged"
+    );
+
+    await handleCustomJewelryDepositOrderPaidWebhook(makeEvent(), { adminGraphql: admin });
+
+    expect((await prisma.customJewelryProject.findUniqueOrThrow({ where: { id: fixture.projectId } })).status).toBe(
+      "deposit_charged"
+    );
+    expect(await prisma.customJewelryDepositPayment.count({ where: { invoiceId: fixture.invoiceId } })).toBe(1);
+    // No anomaly on the normal redelivery path — the status equalling
+    // `deposit_charged` is exactly what the first delivery achieved.
+    expect(
+      await prisma.auditEvent.count({
+        where: { entityType: "custom_jewelry_deposit_payment", entityId: orderGid },
+      })
+    ).toBe(0);
+  });
+
+  it("TWO CONCURRENT deliveries record one payment, with no error and no anomaly", async () => {
+    // Both pass the `invoice.payment` check before either writes, so the
+    // UNIQUE indexes decide it. The loser used to let P2002 propagate, which
+    // returned 500 and asked Shopify to redeliver a payment that had already
+    // been recorded correctly — noise shaped exactly like a money-path error.
+    const fixture = await seedInvoicedProject();
+    const orderGid = `gid://shopify/Order/${Date.now()}${++seq}`;
+    const admin = fakeAdmin(new Map([[fixture.draftOrderGid, orderGid]]));
+    const makeEvent = () =>
+      orderPaidEvent({
+        orderGid,
+        tags: [CUSTOM_JEWELRY_DEPOSIT_CLASS_TAG, `carat-project-${fixture.projectReference}`],
+      });
+
+    // NEITHER may reject — the race is routine, not a failure.
+    await expect(
+      Promise.all([
+        handleCustomJewelryDepositOrderPaidWebhook(makeEvent(), { adminGraphql: admin }),
+        handleCustomJewelryDepositOrderPaidWebhook(makeEvent(), { adminGraphql: admin }),
+      ])
+    ).resolves.toBeDefined();
+
+    expect(await prisma.customJewelryDepositPayment.count({ where: { invoiceId: fixture.invoiceId } })).toBe(1);
+    expect((await prisma.customJewelryProject.findUniqueOrThrow({ where: { id: fixture.projectId } })).status).toBe(
+      "deposit_charged"
+    );
+    expect(
+      await prisma.auditEvent.count({
+        where: { entityType: "custom_jewelry_deposit_payment", entityId: orderGid },
+      }),
+      "a routine race must not produce an entry a human has to triage"
+    ).toBe(0);
+  });
+
+  it("the same ORDER cannot be used to pay a SECOND invoice", async () => {
+    // `order_gid` is UNIQUE independently of `invoice_id`: one payment, one
+    // order. Asserted by direct SQL because no code path should be able to
+    // reach it, which is precisely why the index rather than a check is what
+    // guarantees it.
+    const paid = await seedInvoicedProject();
+    const other = await seedInvoicedProject();
+    const orderGid = `gid://shopify/Order/${Date.now()}${++seq}`;
+
+    await handleCustomJewelryDepositOrderPaidWebhook(
+      orderPaidEvent({
+        orderGid,
+        tags: [CUSTOM_JEWELRY_DEPOSIT_CLASS_TAG, `carat-project-${paid.projectReference}`],
+      }),
+      { adminGraphql: fakeAdmin(new Map([[paid.draftOrderGid, orderGid]])) }
+    );
+
+    await expect(
+      prisma.$executeRaw`
+        INSERT INTO "custom_jewelry_deposit_payment"
+          ("id", "invoice_id", "order_gid", "amount_minor_units", "currency", "paid_at")
+        VALUES (gen_random_uuid(), ${other.invoiceId}::uuid, ${orderGid}, 4900, 'USD', now())`
+    ).rejects.toThrow();
+  });
+});
+
 describe("orders that are not ours are ignored silently, and cost nothing", () => {
   it("does nothing for an order with no deposit tag, and NEVER builds an Admin client", async () => {
     // THIS ASSERTION EXISTS BECAUSE A LIVE TEST DELIVERY FOUND THE BUG. The
