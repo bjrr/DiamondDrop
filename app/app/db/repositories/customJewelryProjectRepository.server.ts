@@ -199,3 +199,45 @@ export async function recordCustomJewelryUpload(
     },
   });
 }
+
+export interface RecordCustomJewelryDepositAcceptanceInput {
+  readonly projectId: string;
+  readonly acknowledgmentId: string;
+  /** Integer MINOR UNITS, frozen at acceptance — never recomputed later. */
+  readonly amountMinorUnits: bigint;
+  readonly currency: string;
+  /** The AUTHENTICATED identity. Never browser-supplied. */
+  readonly customerRef: string;
+  readonly acceptedAt: Date;
+}
+
+/**
+ * Records that a customer affirmatively accepted the Design Deposit terms.
+ *
+ * NO UPDATE COUNTERPART, and there will not be one: the table is append-only
+ * at the database level (UPDATE/DELETE/TRUNCATE triggers). A correction is a
+ * new fact recorded elsewhere, not an edit to what the evidence says the
+ * customer agreed to.
+ *
+ * A P2002 here means the project already has an acceptance — the UNIQUE
+ * index is the authority on "once", not a prior read. Deliberately NOT
+ * swallowed: the caller decides what a duplicate means for the customer, and
+ * a repository that quietly returned the existing row would hide a genuine
+ * concurrent-write race from a caller that might care.
+ */
+export async function recordCustomJewelryDepositAcceptance(
+  input: RecordCustomJewelryDepositAcceptanceInput,
+  tx: Prisma.TransactionClient | typeof prisma = prisma
+): Promise<{ id: string; acceptedAt: Date }> {
+  return tx.customJewelryDepositAcceptance.create({
+    data: {
+      projectId: input.projectId,
+      acknowledgmentId: input.acknowledgmentId,
+      amountMinorUnits: input.amountMinorUnits,
+      currency: input.currency,
+      customerRef: input.customerRef,
+      acceptedAt: input.acceptedAt,
+    },
+    select: { id: true, acceptedAt: true },
+  });
+}

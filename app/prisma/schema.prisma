@@ -152,6 +152,9 @@ model Acknowledgment {
   /// `GroupBuyOrderCancellationCheck.matchedAcknowledgmentId`. Adds no column
   /// here.
   groupBuyOrderCancellationChecks     GroupBuyOrderCancellationCheck[]
+  /// Slice 9 back-relation only — required by Prisma for the NOT NULL FK on
+  /// `CustomJewelryDepositAcceptance.acknowledgmentId`. Adds no column here.
+  customJewelryDepositAcceptances     CustomJewelryDepositAcceptance[]
 
   @@index([policyVersionId])
   @@index([customerRef])
@@ -3503,10 +3506,61 @@ model CustomJewelryProject {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   uploads CustomJewelryProjectUpload[]
+  /// At most one — enforced by a UNIQUE index on the acceptance side, not by
+  /// the route checking first. Modelled as an optional to-one.
+  depositAcceptance CustomJewelryDepositAcceptance?
 
   @@index([customerRef])
   @@index([status])
   @@map("custom_jewelry_project")
+}
+
+/// Evidence that a customer affirmatively accepted the $49 Design Deposit
+/// terms BEFORE any charge (README "Custom Jewelry — MVP1 Locked Direction";
+/// owner decision 2026-10-05 on the four required disclosures).
+///
+/// APPEND-ONLY at the database level (UPDATE/DELETE/TRUNCATE triggers from
+/// migrations 20260913000100 and 20260914000000). A project row is mutable —
+/// status advances, contact details get corrected — and this must not be. The
+/// only way to be sure evidence was not quietly adjusted later is to make
+/// adjusting it impossible.
+///
+/// AUTHORIZATION, NOT COLLECTION. This says the customer agreed to pay, not
+/// that they paid. Do not add payment-status columns: conflating the two is
+/// how design work starts against money that never arrived.
+model CustomJewelryDepositAcceptance {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// UNIQUE — one acceptance per project. A double-submitted form, a retried
+  /// request or two open tabs must not be able to produce two rows for one
+  /// deposit, and "the route checks first" is an intention rather than a
+  /// guarantee.
+  projectId String               @unique @map("project_id") @db.Uuid
+  project   CustomJewelryProject @relation(fields: [projectId], references: [id])
+
+  /// Carries the EXACT TEXT shown, the policy version it came from, the
+  /// affirmative-action label the customer actually clicked, and the
+  /// timestamp. NOT NULL: an acceptance without the text it accepted is not
+  /// evidence of anything.
+  acknowledgmentId String         @map("acknowledgment_id") @db.Uuid
+  acknowledgment   Acknowledgment @relation(fields: [acknowledgmentId], references: [id])
+
+  /// FROZEN AT ACCEPTANCE, never recomputed and never read from a constant at
+  /// display time. If the deposit price ever changes, this row must still say
+  /// what THIS customer authorized.
+  amountMinorUnits BigInt @map("amount_minor_units")
+  currency         String @db.Char(3)
+
+  /// The AUTHENTICATED identity, from the App Proxy's signed
+  /// `logged_in_customer_id` only. NOT NULL — unlike the enquiry, which is
+  /// deliberately open to signed-out visitors, authorizing a charge requires
+  /// an account.
+  customerRef String @map("customer_ref")
+
+  acceptedAt DateTime @default(now()) @map("accepted_at") @db.Timestamptz(6)
+
+  @@index([customerRef])
+  @@map("custom_jewelry_deposit_acceptance")
 }
 
 enum CustomJewelryStartingPoint {

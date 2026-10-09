@@ -1,6 +1,11 @@
 import { sha256Hex } from "./hash";
 import { buildPolicyVersionRecord } from "./policyVersion";
 import {
+  CUSTOM_JEWELRY_DEPOSIT_ACKNOWLEDGMENT_TEXT,
+  CUSTOM_JEWELRY_DEPOSIT_POLICY_SLUG,
+  CUSTOM_JEWELRY_DEPOSIT_POLICY_VERSION,
+} from "~/domain/customjewelry/designDepositAcknowledgmentText";
+import {
   GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_POLICY_SLUG,
   GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_POLICY_VERSION,
   GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_TEXT,
@@ -142,6 +147,16 @@ export const REQUIRED_POLICY_VERSIONS: readonly RequiredPolicyVersion[] = [
     slug: GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_POLICY_SLUG,
     version: GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_POLICY_VERSION,
     text: GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_TEXT,
+  }),
+  // Slice 9. REQUIRED rather than optional: without this row the deposit
+  // acknowledgment cannot be recorded, so the route must refuse to charge —
+  // which is correct behaviour and a total outage of the deposit step. Being
+  // in this list is what makes a missing row visible at deploy time via
+  // /health instead of at the first customer's attempt to pay.
+  toRequiredPolicyVersion({
+    slug: CUSTOM_JEWELRY_DEPOSIT_POLICY_SLUG,
+    version: CUSTOM_JEWELRY_DEPOSIT_POLICY_VERSION,
+    text: CUSTOM_JEWELRY_DEPOSIT_ACKNOWLEDGMENT_TEXT,
   }),
 ];
 
