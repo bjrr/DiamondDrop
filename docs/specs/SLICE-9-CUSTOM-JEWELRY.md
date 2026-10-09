@@ -293,10 +293,95 @@ returned 500 `policy_unavailable` on its first real production request for
 exactly this reason. The migration fence was confirmed to cover the new entry
 by corrupting the hash and watching it fail, rather than trusting a green run.
 
-## 7. Deliberate follow-ons
+## 7. Issuing the deposit invoice — shipped
 
-**Deposit collection** — charging the authorized $49 and advancing the
-project to `deposit_charged` only once funds are confirmed.
+Staff action on `/app/custom-jewelry/:id`, reached from the queue at
+`/app/custom-jewelry`. Creates a Shopify draft order for the authorized
+amount, as a **custom line** — no product variant, so no store setup, and
+nothing to ship.
+
+### 7.1 The invariant: no invoice without an acceptance
+
+`custom_jewelry_deposit_invoice.acceptance_id` is a **NOT NULL foreign key to
+the acceptance**, not to the project. An invoice for a customer who never
+agreed to the four disclosures is unrepresentable — a route that forgot to
+check could not create one, and neither could a careless manual INSERT. The
+issuing function checks too, but a test asserts the schema refuses it
+independently, which is what makes the code check a convenience rather than
+the guarantee.
+
+`UNIQUE` on `acceptance_id`: two live payment links for one $49 is a customer
+who can pay twice. A repeat attempt returns the existing invoice and never
+reaches Shopify.
+
+### 7.2 The amount comes from the acceptance, not from today's price
+
+Those are different questions. The constant is what we charge now; the
+acceptance is what *this* customer agreed to. The two are compared and a
+divergence **refuses in both directions** — invoicing more than was authorized
+is obviously wrong, and invoicing less is also wrong, because the record of
+what the customer agreed to would stop describing what we are doing to them.
+A price change therefore needs a fresh acceptance, not a quietly re-priced
+invoice.
+
+### 7.3 A separate adapter method, and a different price field
+
+`createServiceDraftOrder` is deliberately not options on `createDraftOrder`:
+loosening the money-critical Bank Payment input's required shipping address
+and variant would leave every future reader working out which combination of
+optional fields is legal for which caller.
+
+It sends **`originalUnitPriceWithCurrency`**, not `priceOverride`. A custom
+line has no catalogue price to override, and Shopify's own description says
+the former is "for custom line items" and "ignored when variantId is
+provided".
+
+**That distinction already cost one live defect here.** The adapter first sent
+`originalUnitPrice` on variant lines; Shopify neither errored nor coerced — it
+silently ignored the field and charged the catalogue price — and no unit test
+could have caught it, because a mocked client echoes back whatever it is
+handed.
+
+So it is **live-verified**: `tests/live/slice9.depositInvoicePriceField.ts`,
+**5/5** against caratforus-dev. One real draft order, read back in a *separate*
+query (the create response's echo comes from the same mutation, so it proves
+reflection rather than persistence), asserting the line persisted at 49.00 with
+no variant attached. The probe order is deleted in a `finally`, and the
+cleanup is itself an assertion.
+
+No shipping line — there is nothing to ship, and a zero one would imply a
+delivery. No payment terms, the opposite choice from Bank Payment and for the
+opposite reason: this is paid *through* Shopify, so the order becomes paid when
+the customer pays.
+
+### 7.4 Issuing is not collecting, and not contacting
+
+The project status stays `submitted` (asserted) and **no email is sent**. The
+Shopify invoice email's wording is partly ours (`customMessage`) and has not
+been approved, so staff send it from the Shopify admin where they can see
+exactly what goes out. The test's fake port **throws** if `sendInvoice` is
+called, so an accidental send is a hard failure rather than something nobody
+notices.
+
+The ordering hazard is stated rather than hidden: the draft order is created
+before the local record, so a crash between them leaves an orphaned draft
+order. That is the correct way round — the reverse would record an invoice
+that does not exist and tell a customer to pay something never sent. An
+orphaned draft is unpaid, un-emailed, and tagged with the project reference:
+a mess, not a loss.
+
+## 8. Deliberate follow-ons
+
+**Deposit collection** — recording that the money actually arrived and
+advancing the project to `deposit_charged`. Needs an `orders/paid` webhook
+subscription; the invoice's `draft_order_gid` is UNIQUE precisely so a webhook
+carrying only the Shopify order can resolve back to exactly one invoice.
+
+**The customer-facing deposit page.** The acceptance route exists and is
+live-proven, but there is no storefront page yet, because there is no staff
+action that invites a customer to one — a page with no entry point would be
+speculative. The natural pairing is "mark ready for design" → customer accepts
+→ staff issue invoice.
 
 **Video uploads.** The server accepts video (300 MB ceiling), but the
 checksum it requires is computed in the browser and hashing a 300 MB file in
@@ -305,7 +390,7 @@ deferred rather than half-offered.
 
 ---
 
-## 8. Owner action required to make the page reachable
+## 9. Owner action required to make the page reachable
 
 The theme files are deployed; **the Shopify Page does not exist yet**, so
 `/pages/custom-jewelry` 404s until it is created. We hold no content scope
