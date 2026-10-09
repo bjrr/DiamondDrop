@@ -2733,23 +2733,28 @@ model WarrantyClaimUpload {
 model WarrantyClaimUploadDestination {
   id String @id @default(uuid()) @db.Uuid
 
-  /// See the model comment — a value to match against, not a foreign key.
-  /// TRANSITIONAL. Superseded by `purpose` + `ownerId`; still written so the
-  /// expand phase can be deployed without a window where running code writes a
-  /// column that no longer exists. Dropped in the contract migration.
-  claimId String @map("claim_id") @db.Uuid
+  /// TRANSITIONAL, and NO LONGER WRITTEN. Superseded by `purpose` + `ownerId`.
+  /// Contract step A (20261007020000) relaxed it to nullable so the writer
+  /// could stop setting it while the previous deploy was still serving; step B
+  /// drops the column. Kept in the model only until then — Prisma must know
+  /// about a column that still exists, or `prisma migrate diff` proposes
+  /// re-adding it.
+  claimId String? @map("claim_id") @db.Uuid
 
   /// THE SECURITY BOUNDARY BETWEEN UPLOAD KINDS, not a label. A destination
   /// issued for one purpose must be unusable for another, enforced by this
   /// column being part of the consumption WHERE clause rather than by callers
-  /// remembering to check it. Nullable only during expand/contract.
-  purpose UploadDestinationPurpose?
+  /// remembering to check it. NOT NULL since contract step A: a NULL purpose
+  /// would fail closed, but it would also be a destination no caller could
+  /// ever consume — dead rather than merely safe.
+  purpose UploadDestinationPurpose
 
   /// Generic owner reference: the warranty claim id, or the Custom Jewelry
   /// project id. Deliberately NOT a foreign key, for the same reason
   /// `claimId` never was — a destination is issued BEFORE the row it belongs
   /// to exists, so a FK would make the normal flow impossible.
-  ownerId     String? @map("owner_id") @db.Uuid
+  /// NOT NULL since contract step A — see `purpose` above for why.
+  ownerId     String  @map("owner_id") @db.Uuid
   /// The authenticated identity this was issued to
   /// (`logged_in_customer_id`), NEVER a client-supplied field. Re-checked at
   /// consumption time, not merely at issuance.

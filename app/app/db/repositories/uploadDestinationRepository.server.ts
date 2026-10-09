@@ -54,10 +54,10 @@ export async function recordIssuedUploadDestination(
     data: {
       purpose: input.purpose,
       ownerId: input.ownerId,
-      // TRANSITIONAL: still written so the expand phase deploys without a
-      // window where running code writes a dropped column. Removed with the
-      // column in the contract migration.
-      claimId: input.ownerId,
+      // `claimId` is NO LONGER WRITTEN. Contract step A
+      // (20261007020000) relaxed it to nullable precisely so this line could
+      // go while the previous deploy was still setting it; step B drops the
+      // column once nothing running references it. Do not reinstate it.
       customerRef: input.customerRef,
       kind: input.kind,
       contentType: input.contentType,

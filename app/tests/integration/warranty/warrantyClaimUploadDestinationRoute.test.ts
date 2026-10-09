@@ -163,7 +163,13 @@ describe("ownership — the gate this route exists for", () => {
     const body = (await response.json()) as { storageKey: string };
 
     const persisted = await prisma.warrantyClaimUploadDestination.findUnique({ where: { storageKey: body.storageKey } });
-    expect(persisted?.claimId).toBe(pendingClaimId);
+    // `ownerId` + `purpose`, NOT the retired `claim_id`. This assertion used
+    // to read `claimId`, and it failed the moment the writer stopped setting
+    // that column in contract step A — correctly: it was checking a value
+    // that no longer carries the binding. `ownerId` is what consumption
+    // actually matches on, so it is what the test must pin.
+    expect(persisted?.ownerId).toBe(pendingClaimId);
+    expect(persisted?.purpose).toBe("warranty_claim");
     expect(persisted?.customerRef).toBe(DEFAULT_CUSTOMER_GID);
     expect(persisted?.consumedAt).toBeNull();
   });
@@ -179,7 +185,16 @@ describe("ownership — the gate this route exists for", () => {
     const body = (await response.json()) as { error: string };
     expect(body.error).toBe("claim_unresolved");
 
-    const persisted = await prisma.warrantyClaimUploadDestination.findFirst({ where: { claimId: otherCustomerClaim.id } });
+    // QUERIED BY `ownerId`, NOT the retired `claim_id`. This matters more here
+    // than in the assertion above: this one asserts that NO row exists, and
+    // since contract step A stopped writing `claim_id`, a query on that column
+    // finds nothing whether or not the route leaked a destination. It would
+    // have passed vacuously — a check that can only ever succeed is not a
+    // check. `purpose` is included so a Custom Jewelry row sharing this owner
+    // id could not be mistaken for the thing under test.
+    const persisted = await prisma.warrantyClaimUploadDestination.findFirst({
+      where: { purpose: "warranty_claim", ownerId: otherCustomerClaim.id },
+    });
     expect(persisted).toBeNull();
   });
 
