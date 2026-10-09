@@ -17,6 +17,8 @@
     "test:watch": "vitest --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "check:money-safety": "node ./scripts/check-money-safety.mjs",
+    "verify": "npm run typecheck && npm run lint && npm run check:money-safety && npm test",
+    "verify:all": "npm run verify && npm run test:integration",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",

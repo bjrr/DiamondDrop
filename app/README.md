@@ -53,6 +53,26 @@ above. Stop the server with `pg_ctl -D <data-dir> stop`.
 
 ## Common commands
 
+**RUN THESE FROM `app/`, OR WITH `npm --prefix app`.** Every command below
+resolves its config relative to the working directory, and the failure when
+you get that wrong does not look like a failure.
+
+From the repository root, `npx vitest run --config vitest.integration.config.ts`
+does not find the config, exits 1, and prints a Vite build error — so a
+summary scraped from its output shows no tests, no timeouts and no failures,
+which reads as a clean pass. That has happened. `npm run` sets the working
+directory to the package itself, so prefer it over calling the tools directly:
+
+```sh
+cd app && npm run verify:all
+# or, from anywhere in the repo:
+npm --prefix app run verify:all
+```
+
+When you scrape output, assert that a "Test Files"/"Tests" summary line was
+actually produced. A verification command that can execute zero tests and
+report nothing wrong is worse than one that fails.
+
 | Command | Purpose |
 |---|---|
 | `npm run dev` | Start the React Router dev server |
@@ -62,6 +82,8 @@ above. Stop the server with `pg_ctl -D <data-dir> stop`.
 | `npm test` | Unit tests (Vitest, no database) |
 | `npm run test:integration` | Integration tests against real Postgres (requires `DATABASE_URL` and a migrated database) |
 | `npm run check:money-safety` | Repository-wide scan for ad-hoc `Math.round`/`floor`/`ceil` on money |
+| `npm run verify` | Everything that needs no database: typecheck, lint, money-safety, unit tests |
+| `npm run verify:all` | `verify` plus the integration suite — the full gate |
 | `npm run db:migrate:dev` | Create/apply a new migration locally |
 | `npm run db:migrate` | Apply existing migrations (CI/deploy) |
 | `npm run db:seed` | Seed sample data |
