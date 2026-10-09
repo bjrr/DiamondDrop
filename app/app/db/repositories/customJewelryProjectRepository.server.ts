@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import type {
   CustomJewelryFollowUpPreference,
   CustomJewelryProject,
+  CustomJewelryProjectStatus,
   CustomJewelryStartingPoint,
 } from "@prisma/client";
 
@@ -307,4 +308,98 @@ export async function getCustomJewelryProjectForDepositInvoice(projectId: string
       },
     },
   });
+}
+
+export interface CustomJewelryStaffListRow {
+  readonly id: string;
+  readonly projectReference: string;
+  readonly status: string;
+  readonly customerName: string;
+  readonly email: string;
+  readonly createdAt: Date;
+  /** Null until the customer accepts the deposit terms. */
+  readonly depositAcceptedAt: Date | null;
+  readonly depositInvoiceIssuedAt: Date | null;
+}
+
+export interface SearchCustomJewelryProjectsInput {
+  /** Matches the project reference or the customer's email, case-insensitively. */
+  readonly query?: string;
+  readonly status?: CustomJewelryProjectStatus | readonly CustomJewelryProjectStatus[];
+  readonly page?: number;
+}
+
+const CUSTOM_JEWELRY_PAGE_SIZE = 25;
+
+/**
+ * The staff triage list.
+ *
+ * AN EXPLICIT `select` ALLOWLIST, not a spread — the same discipline every
+ * other staff list in this repo follows. There is no cost or margin on these
+ * records to leak, but the habit is what keeps a later column from appearing
+ * on a staff screen simply because it was added to the model.
+ *
+ * `promptText` is deliberately ABSENT. It is free text a customer wrote and
+ * can be long; a list that renders it becomes unreadable, and the detail page
+ * is where it belongs.
+ */
+export async function searchCustomJewelryProjectsForStaff(
+  input: SearchCustomJewelryProjectsInput = {}
+): Promise<{ rows: CustomJewelryStaffListRow[]; totalCount: number; pageSize: number }> {
+  const page = input.page && input.page > 0 ? input.page : 1;
+
+  const where: Prisma.CustomJewelryProjectWhereInput = {
+    ...(input.query
+      ? {
+          OR: [
+            { projectReference: { contains: input.query, mode: "insensitive" } },
+            { email: { contains: input.query, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+    // Normalised to an `in` filter in both cases. `Array.isArray` does not
+    // narrow a `readonly T[]` union usefully, and branching on it produced a
+    // union Prisma's generated `WhereInput` rejected — one shape is simpler
+    // than two anyway.
+    ...(input.status
+      ? { status: { in: Array.isArray(input.status) ? [...input.status] : [input.status] } }
+      : {}),
+  };
+
+  const [rows, totalCount] = await Promise.all([
+    prisma.customJewelryProject.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * CUSTOM_JEWELRY_PAGE_SIZE,
+      take: CUSTOM_JEWELRY_PAGE_SIZE,
+      select: {
+        id: true,
+        projectReference: true,
+        status: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        createdAt: true,
+        depositAcceptance: {
+          select: { acceptedAt: true, invoice: { select: { issuedAt: true } } },
+        },
+      },
+    }),
+    prisma.customJewelryProject.count({ where }),
+  ]);
+
+  return {
+    rows: rows.map((row) => ({
+      id: row.id,
+      projectReference: row.projectReference,
+      status: row.status,
+      customerName: `${row.firstName} ${row.lastName}`,
+      email: row.email,
+      createdAt: row.createdAt,
+      depositAcceptedAt: row.depositAcceptance?.acceptedAt ?? null,
+      depositInvoiceIssuedAt: row.depositAcceptance?.invoice?.issuedAt ?? null,
+    })),
+    totalCount,
+    pageSize: CUSTOM_JEWELRY_PAGE_SIZE,
+  };
 }
