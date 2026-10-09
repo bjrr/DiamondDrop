@@ -93,6 +93,22 @@ const EXEMPT_UI_ACTION_ROUTES: Readonly<Record<string, string>> = {
     "Origin and is same-origin by construction, unlike an App Proxy, webhook or " +
     "cron caller. If this route ever accepts a POST from anywhere but its own " +
     "rendered form, this exemption stops being true and must be re-argued.",
+  "app.custom-jewelry.$id.tsx":
+    "the staff Custom Jewelry project surface (Slice 9). Same argument as " +
+    "app.bank-payments.$id.tsx, not _index.tsx: this route IS a real production " +
+    "mutation, and a money-moving one — it creates a Shopify draft order asking a " +
+    "customer for the $49 Design Deposit. It stands on the same load-bearing leg " +
+    "alone: Shopify Admin iframes this route at the app's own URL, so a form inside " +
+    "it posts with the app's own Origin and is same-origin by construction, unlike " +
+    "an App Proxy, webhook or cron caller. " +
+    "Note what a forged POST here could NOT do even if the leg failed: it could only " +
+    "issue an invoice for a deposit the customer had already affirmatively accepted, " +
+    "for exactly the amount they authorized, once — the acceptance FK and the UNIQUE " +
+    "index are schema-level, not checks this route performs. That is a smaller blast " +
+    "radius than its siblings, and it is not the reason for the exemption; the " +
+    "same-origin argument is. " +
+    "If this route ever accepts a POST from anywhere but its own rendered form, this " +
+    "exemption stops being true and must be re-argued.",
   "app.warranty-claims.$id.tsx":
     "the staff warranty claim review/workflow surface (Slice 5 task 5-4). Same " +
     "argument as app.bank-payments.$id.tsx and app.luxury-steals._index.tsx: this " +

@@ -118,6 +118,16 @@ function fakeDraftOrderPort(): DraftOrderPort & {
   return {
     createCalls,
     completeCalls,
+    // Not exercised by this suite. Throws rather than returning a stub value,
+
+    // so an accidental call is loud instead of silently succeeding.
+
+    async createServiceDraftOrder(): Promise<never> {
+
+      throw new Error("createServiceDraftOrder is not expected in this test");
+
+    },
+
     async createDraftOrder(input: CreateDraftOrderInput): Promise<CreatedDraftOrder> {
       createCalls.push(input);
       const id = randomUUID();

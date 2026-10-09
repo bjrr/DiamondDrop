@@ -55,6 +55,11 @@ const VERIFIER = { verifiedByShopifyUserId: 42n, verifiedByEmail: "jordan@exampl
 function fakePort(orderGid = "gid://shopify/Order/999") {
   const completeCalls: CompleteDraftOrderInput[] = [];
   const port: DraftOrderPort = {
+    // Not exercised by this suite. Throws rather than returning a stub value,
+    // so an accidental call is loud instead of silently succeeding.
+    async createServiceDraftOrder(): Promise<never> {
+      throw new Error("createServiceDraftOrder is not expected in this test");
+    },
     async createDraftOrder() {
       throw new Error("not used");
     },
@@ -75,6 +80,11 @@ function fakePort(orderGid = "gid://shopify/Order/999") {
 /** A port whose completeDraftOrder always throws — D25's completion-failure path. */
 function failingPort(message = "Shopify Admin API draftOrderComplete failed: simulated outage") {
   const port: DraftOrderPort = {
+    // Not exercised by this suite. Throws rather than returning a stub value,
+    // so an accidental call is loud instead of silently succeeding.
+    async createServiceDraftOrder(): Promise<never> {
+      throw new Error("createServiceDraftOrder is not expected in this test");
+    },
     async createDraftOrder() {
       throw new Error("not used");
     },

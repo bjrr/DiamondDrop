@@ -250,6 +250,31 @@ export interface CreateDraftOrderInput {
   tags?: readonly string[];
 }
 
+/**
+ * A draft order for a SERVICE — one custom line, no variant, nothing to ship.
+ * Deliberately NOT a variation of `CreateDraftOrderInput`: see
+ * `createServiceDraftOrder`'s comment for why the money-critical Bank Payment
+ * input is not loosened to accommodate this.
+ */
+export interface CreateServiceDraftOrderInput {
+  /**
+   * REQUIRED, unlike on `CreateDraftOrderInput`. Without it Shopify matches or
+   * CREATES a customer from the email — a different record from the
+   * authenticated one, which is exactly how every Group Buy Bank Payment order
+   * ended up attached to the wrong person.
+   */
+  customerGid: string;
+  email: string;
+  /** What the customer sees as the line's name on the invoice. */
+  title: string;
+  /** The price for the single unit of this line. Quantity is always 1. */
+  unitPrice: Money;
+  customAttributes?: readonly DraftOrderLineItemAttributeInput[];
+  /** Never put cost, margin or other admin-only data here — see `CreateDraftOrderInput.note`. */
+  note?: string;
+  tags?: readonly string[];
+}
+
 export interface CreatedDraftOrder {
   draftOrderGid: string;
   /** Null when Shopify has not (yet) generated one for this draft order. */
@@ -292,6 +317,15 @@ export interface CancelDraftOrderInput {
 export interface DraftOrderPort {
   /** `draftOrderCreate`. Never sends `reserveInventoryUntil` (§22, criterion 73). */
   createDraftOrder(input: CreateDraftOrderInput): Promise<CreatedDraftOrder>;
+
+  /**
+   * `draftOrderCreate` for a SERVICE — one custom line, no variant, no
+   * shipping, no payment terms. Takes `originalUnitPriceWithCurrency` rather
+   * than `priceOverride` because a custom line has no catalogue price to
+   * override; see the implementation's comment for why that distinction has
+   * already cost one live defect.
+   */
+  createServiceDraftOrder(input: CreateServiceDraftOrderInput): Promise<CreatedDraftOrder>;
 
   /** `draftOrderInvoiceSend`. */
   sendInvoice(input: SendDraftOrderInvoiceInput): Promise<{ invoiceSentAt: Date }>;
@@ -543,6 +577,137 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
           `variant ${variantGid}: published price mismatch — sent ${sentPrice} but Shopify echoed ${returned.originalUnitPrice}`,
         ]);
       }
+    }
+
+    return {
+      draftOrderGid: draftOrder.id,
+      invoiceUrl: draftOrder.invoiceUrl,
+    };
+  }
+
+  /**
+   * A draft order for a SERVICE — one custom line, no product variant, no
+   * shipping address. Built for the $49 Custom Jewelry Design Deposit.
+   *
+   * ============================================================================
+   * WHY THIS IS A SEPARATE METHOD RATHER THAN OPTIONS ON `createDraftOrder`
+   * ============================================================================
+   * `createDraftOrder` serves Bank Payment Checkout, which is money-critical
+   * and live-proven. Making its `shippingAddress` optional and its
+   * `shopifyVariantGid` nullable to accommodate a deposit would weaken the
+   * contract that path depends on, so that every future reader has to work out
+   * which combination of optional fields is legal for which caller. A separate
+   * method with its own narrow input cannot do that.
+   *
+   * ============================================================================
+   * A DIFFERENT PRICE FIELD, AND THAT IS THE WHOLE PRICE
+   * ============================================================================
+   * `createDraftOrder` sends `priceOverride`, which is correct for a line that
+   * has a `variantId` — it replaces the variant's catalogue price. A CUSTOM
+   * line has no catalogue price to override. Shopify's own description is
+   * explicit that `originalUnitPriceWithCurrency` is "for custom line items"
+   * and is "ignored when variantId is provided", so the two cases genuinely
+   * take different fields.
+   *
+   * THAT DISTINCTION ALREADY COST ONE LIVE DEFECT. This adapter first sent
+   * `originalUnitPrice` on variant lines; Shopify neither errored nor coerced,
+   * it silently ignored the field and charged the catalogue price. No unit test
+   * could have caught it — a mocked client echoes back whatever it is handed.
+   * Only the live echo check found it. The same hazard applies here in full, so
+   * this method keeps the same step-5 echo check and MUST be live-verified
+   * against the real store before it is trusted; `tests/live/
+   * slice9.depositInvoice.ts` is that verification.
+   *
+   * ============================================================================
+   * NO SHIPPING LINE, DELIBERATELY
+   * ============================================================================
+   * `createDraftOrder` sends an explicit zero-price shipping line so the record
+   * shows shipping was priced at nil on purpose. There is nothing to ship here
+   * at all — a design deposit is work, not goods — so no shipping line is sent
+   * rather than a zero one, which would imply a delivery that does not exist.
+   *
+   * NO PAYMENT TERMS EITHER, and that is the opposite choice from Bank Payment
+   * for the opposite reason. A Bank Payment order must complete UNPAID because
+   * the money moves outside Shopify. A deposit invoice is paid THROUGH
+   * Shopify's own checkout, so the order should become paid exactly when the
+   * customer pays — which is what happens with no payment terms attached.
+   */
+  async createServiceDraftOrder(input: CreateServiceDraftOrderInput): Promise<CreatedDraftOrder> {
+    const priceDecimalString = minorUnitsToDecimalString(input.unitPrice.amountMinorUnits);
+    const currency = input.unitPrice.currency;
+
+    const variables = {
+      input: {
+        // REQUIRED HERE, not optional as on `createDraftOrder`. A deposit must
+        // be attributable to the signed-in customer: without `customerId`,
+        // Shopify matches or CREATES a customer from the email — a different
+        // record from the authenticated one. That exact defect attached every
+        // Group Buy Bank Payment order to the wrong person and counted zero
+        // qualifying units.
+        customerId: input.customerGid,
+        email: input.email,
+        lineItems: [
+          {
+            // No `variantId` — this IS the custom line.
+            title: input.title,
+            quantity: 1,
+            // The custom-line price field. See the method comment.
+            originalUnitPriceWithCurrency: {
+              amount: priceDecimalString,
+              currencyCode: currency,
+            },
+            ...(input.customAttributes && input.customAttributes.length > 0
+              ? { customAttributes: input.customAttributes.map((a) => ({ key: a.key, value: a.value })) }
+              : {}),
+          },
+        ],
+        note: input.note,
+        tags: input.tags ? [...input.tags] : undefined,
+      },
+    };
+
+    const payload = await this.runDraftOrderMutation<{
+      draftOrder?: {
+        id: string;
+        invoiceUrl: string | null;
+        lineItems?: { nodes?: { quantity: number; originalUnitPrice: string; variant?: { id: string } | null }[] };
+      } | null;
+      userErrors?: { field?: string[] | null; message: string }[];
+    }>("draftOrderCreate", CREATE_DRAFT_ORDER_MUTATION, variables, "draftOrderCreate");
+
+    const draftOrder = payload.draftOrder;
+    if (!draftOrder) {
+      throw new AdminApiError("draftOrderCreate", ["response carried no userErrors but also no draftOrder"]);
+    }
+
+    // STEP 5 — echo check, and for this method it is the ONLY thing standing
+    // between a wrong price field and a deposit charged at zero. Matched
+    // positionally because there is exactly one line and it has no variant gid
+    // to match on; the count check below is what makes that safe.
+    const returnedLines = draftOrder.lineItems?.nodes ?? [];
+    if (returnedLines.length !== 1) {
+      throw new AdminApiError("draftOrderCreate", [
+        `sent 1 custom line item but the response echoed ${returnedLines.length}`,
+      ]);
+    }
+    const returned = returnedLines[0]!;
+    if (returned.quantity !== 1) {
+      throw new AdminApiError("draftOrderCreate", [
+        `sent quantity 1 but Shopify echoed ${returned.quantity}`,
+      ]);
+    }
+    if (returned.originalUnitPrice !== priceDecimalString) {
+      throw new AdminApiError("draftOrderCreate", [
+        `custom line price mismatch — sent ${priceDecimalString} but Shopify echoed ${returned.originalUnitPrice}. ` +
+          `A deposit invoice for the wrong amount must never be issued.`,
+      ]);
+    }
+    if (returned.variant?.id) {
+      // A custom line must not somehow acquire a variant: that would mean
+      // Shopify priced it from a catalogue entry rather than from what we sent.
+      throw new AdminApiError("draftOrderCreate", [
+        `sent a custom line with no variant but Shopify echoed variant ${returned.variant.id}`,
+      ]);
     }
 
     return {

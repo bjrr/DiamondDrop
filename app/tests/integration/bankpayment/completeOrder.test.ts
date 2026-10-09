@@ -43,6 +43,11 @@ afterEach(async () => {
 function fakePort(orderGid = "gid://shopify/Order/999") {
   const calls: CompleteDraftOrderInput[] = [];
   const port: DraftOrderPort = {
+    // Not exercised by this suite. Throws rather than returning a stub value,
+    // so an accidental call is loud instead of silently succeeding.
+    async createServiceDraftOrder(): Promise<never> {
+      throw new Error("createServiceDraftOrder is not expected in this test");
+    },
     async createDraftOrder() {
       throw new Error("not used");
     },

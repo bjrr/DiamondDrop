@@ -246,13 +246,37 @@ describe("the acceptance record cannot be altered once written", () => {
     ).rejects.toThrow(/append-only/i);
   });
 
-  it("rejects TRUNCATE at the database level", async () => {
+  it("rejects TRUNCATE at the database level, AND still carries its own guard", async () => {
     // The guard the first pass at append-only protection missed, because
     // TRUNCATE is neither an UPDATE nor a DELETE. Two of three guards looks
     // protected and is not.
-    await expect(prisma.$executeRawUnsafe(`TRUNCATE TABLE "custom_jewelry_deposit_acceptance"`)).rejects.toThrow(
-      /append-only/i
+    //
+    // THIS ASSERTION USED TO READ `.rejects.toThrow(/append-only/i)` AND
+    // BROKE WHEN THE INVOICE TABLE LANDED. Postgres refuses to truncate a
+    // table referenced by a foreign key, and it checks that BEFORE firing
+    // BEFORE TRUNCATE triggers — so the error became `0A000 cannot truncate
+    // a table referenced in a foreign key constraint` and the trigger never
+    // ran. The table is MORE protected than before, not less.
+    //
+    // But that is exactly how a guard disappears unnoticed: the FK now masks
+    // the trigger, so deleting the trigger would change nothing observable
+    // here, and dropping the invoice table later would silently remove the
+    // protection with it. So this asserts both halves — that TRUNCATE is
+    // refused for whatever reason, and that the trigger is still present.
+    await expect(prisma.$executeRawUnsafe(`TRUNCATE TABLE "custom_jewelry_deposit_acceptance"`)).rejects.toThrow();
+
+    const triggers = await prisma.$queryRaw<{ tgname: string }[]>`
+      SELECT t.tgname
+        FROM pg_trigger t
+        JOIN pg_class c ON c.oid = t.tgrelid
+       WHERE c.relname = 'custom_jewelry_deposit_acceptance'
+         AND NOT t.tgisinternal`;
+    const names = triggers.map((t) => t.tgname);
+    expect(names, "the append-only TRUNCATE guard is missing — the FK is masking its absence").toContain(
+      "custom_jewelry_deposit_acceptance_no_truncate"
     );
+    expect(names).toContain("custom_jewelry_deposit_acceptance_no_update");
+    expect(names).toContain("custom_jewelry_deposit_acceptance_no_delete");
   });
 
   it("refuses to delete a project that has an acceptance", async () => {

@@ -3559,8 +3559,49 @@ model CustomJewelryDepositAcceptance {
 
   acceptedAt DateTime @default(now()) @map("accepted_at") @db.Timestamptz(6)
 
+  /// At most one — see `CustomJewelryDepositInvoice`.
+  invoice CustomJewelryDepositInvoice?
+
   @@index([customerRef])
   @@map("custom_jewelry_deposit_acceptance")
+}
+
+/// A Design Deposit invoice that was ISSUED.
+///
+/// THE MONEY-CRITICAL INVARIANT LIVES IN THIS MODEL'S SHAPE: the foreign key
+/// points at the ACCEPTANCE, not the project, and it is NOT NULL. No invoice
+/// can exist without the customer having affirmatively accepted the four
+/// deposit disclosures first — not because a route checks, but because the
+/// alternative is unrepresentable. Do not re-point this at
+/// `CustomJewelryProject` "for convenience"; the project is reachable through
+/// the acceptance, which is itself unique per project.
+///
+/// APPEND-ONLY at the database level, all three guards.
+///
+/// ISSUED, NOT PAID. Whether the money arrived is a separate fact with its
+/// own record. Do not add payment-status columns here.
+model CustomJewelryDepositInvoice {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// UNIQUE — one outstanding invoice per acceptance. Two live payment links
+  /// for one $49 deposit is a customer who can pay twice.
+  acceptanceId String                         @unique @map("acceptance_id") @db.Uuid
+  acceptance   CustomJewelryDepositAcceptance @relation(fields: [acceptanceId], references: [id])
+
+  /// UNIQUE so a webhook carrying only the Shopify order can resolve back to
+  /// exactly one invoice.
+  draftOrderGid String @unique @map("draft_order_gid")
+
+  /// Asserted equal to the acceptance's amount by the issuing code — an
+  /// invoice must never ask for a sum the customer did not authorize.
+  amountMinorUnits BigInt @map("amount_minor_units")
+  currency         String @db.Char(3)
+
+  issuedByActorType ActorType @map("issued_by_actor_type")
+  issuedByActorRef  String?   @map("issued_by_actor_ref")
+  issuedAt          DateTime  @default(now()) @map("issued_at") @db.Timestamptz(6)
+
+  @@map("custom_jewelry_deposit_invoice")
 }
 
 enum CustomJewelryStartingPoint {

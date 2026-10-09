@@ -241,3 +241,70 @@ export async function recordCustomJewelryDepositAcceptance(
     select: { id: true, acceptedAt: true },
   });
 }
+
+export interface RecordCustomJewelryDepositInvoiceInput {
+  /** The ACCEPTANCE, not the project — see the model comment for why. */
+  readonly acceptanceId: string;
+  readonly draftOrderGid: string;
+  readonly amountMinorUnits: bigint;
+  readonly currency: string;
+  readonly issuedByActorRef: string;
+}
+
+/**
+ * Records that a Design Deposit invoice was ISSUED.
+ *
+ * NO UPDATE COUNTERPART, and no "mark paid": the table is append-only, and
+ * whether the money arrived is a separate fact with its own record. A
+ * repository method that could flip an invoice to paid would make "issued"
+ * and "collected" one mutable field, which is precisely the conflation this
+ * table's comment forbids.
+ *
+ * A P2002 means this acceptance already has an invoice. Deliberately NOT
+ * swallowed — two live payment links for one $49 deposit is a customer who
+ * can pay twice, so the caller must decide what that means rather than have
+ * the repository quietly return the existing row.
+ */
+export async function recordCustomJewelryDepositInvoice(
+  input: RecordCustomJewelryDepositInvoiceInput,
+  tx: Prisma.TransactionClient | typeof prisma = prisma
+): Promise<{ id: string; issuedAt: Date }> {
+  return tx.customJewelryDepositInvoice.create({
+    data: {
+      acceptanceId: input.acceptanceId,
+      draftOrderGid: input.draftOrderGid,
+      amountMinorUnits: input.amountMinorUnits,
+      currency: input.currency,
+      issuedByActorType: "staff",
+      issuedByActorRef: input.issuedByActorRef,
+    },
+    select: { id: true, issuedAt: true },
+  });
+}
+
+/**
+ * Everything the issuing path needs about a project, in one read: whether an
+ * acceptance exists, what it authorized, and whether an invoice already went
+ * out. Returns null when the project does not exist.
+ */
+export async function getCustomJewelryProjectForDepositInvoice(projectId: string) {
+  return prisma.customJewelryProject.findUnique({
+    where: { id: projectId },
+    select: {
+      id: true,
+      projectReference: true,
+      email: true,
+      customerRef: true,
+      status: true,
+      depositAcceptance: {
+        select: {
+          id: true,
+          amountMinorUnits: true,
+          currency: true,
+          customerRef: true,
+          invoice: { select: { id: true, draftOrderGid: true, issuedAt: true } },
+        },
+      },
+    },
+  });
+}
