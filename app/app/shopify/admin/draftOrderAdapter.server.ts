@@ -613,10 +613,19 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
    * `originalUnitPrice` on variant lines; Shopify neither errored nor coerced,
    * it silently ignored the field and charged the catalogue price. No unit test
    * could have caught it — a mocked client echoes back whatever it is handed.
-   * Only the live echo check found it. The same hazard applies here in full, so
-   * this method keeps the same step-5 echo check and MUST be live-verified
-   * against the real store before it is trusted; `tests/live/
-   * slice9.depositInvoice.ts` is that verification.
+   * Only the live echo check found it.
+   *
+   * SO THIS METHOD IS LIVE-VERIFIED, 2026-10-09:
+   * `tests/live/slice9.depositInvoicePriceField.ts`, 5/5 against
+   * caratforus-dev. It creates one real draft order, reads it back in a
+   * SEPARATE query (the create response's echo comes from the same mutation,
+   * so it cannot prove persistence), and asserts the line persisted at 49.00
+   * with no variant attached — i.e. priced from
+   * `originalUnitPriceWithCurrency` and not from a catalogue entry. The probe
+   * order is deleted in a `finally`, and the cleanup is itself an assertion.
+   *
+   * Re-run it if this method's mutation input changes at all. The step-5 echo
+   * check below is still what guards production at runtime.
    *
    * ============================================================================
    * NO SHIPPING LINE, DELIBERATELY
