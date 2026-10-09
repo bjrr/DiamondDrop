@@ -192,7 +192,6 @@ async function seedDestination(
     data: {
       purpose: "warranty_claim",
       ownerId: claimId,
-      claimId,
       customerRef: overrides.customerRef ?? DEFAULT_CUSTOMER_GID,
       kind: "photo",
       contentType: "image/jpeg",

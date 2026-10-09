@@ -2712,17 +2712,18 @@ model WarrantyClaimUpload {
 /// "not already consumed" — all in one conditional UPDATE, never a
 /// read-then-write.
 ///
-/// `claimId` IS DELIBERATELY NOT A FOREIGN KEY. A destination must be
-/// issuable before the claim it belongs to exists: the client generates the
-/// claim's id and presents that same id both when requesting a destination
-/// and when submitting the claim that creates the row with that exact id
-/// (`apps.carat.warranty-claim.tsx`'s module comment). A hard FK cannot
-/// reference a row that does not exist yet at INSERT time here. Consumption
-/// still requires `claimId` to equal the real claim's id, so this is a value
-/// match, not a referential shortcut — and a client-supplied id can only
-/// ever create a BRAND NEW claim row (Postgres's primary-key uniqueness on
-/// `warranty_claim` refuses an attempt to reuse an existing one), so this
-/// never lets anyone attach evidence to a claim they did not just create.
+/// `ownerId` IS DELIBERATELY NOT A FOREIGN KEY. A destination must be
+/// issuable before the thing it belongs to exists: the client generates the
+/// claim's (or Custom Jewelry project's) id and presents that same id both
+/// when requesting a destination and when submitting the thing that creates
+/// the row with that exact id (`apps.carat.warranty-claim.tsx`'s module
+/// comment). A hard FK cannot reference a row that does not exist yet at
+/// INSERT time here, and there is no single table it could point at now that
+/// two purposes share this one. Consumption still requires `ownerId` to equal
+/// the real row's id, so this is a value match, not a referential shortcut —
+/// and a client-supplied id can only ever create a BRAND NEW row (Postgres's
+/// primary-key uniqueness refuses an attempt to reuse an existing one), so
+/// this never lets anyone attach files to something they did not just create.
 ///
 /// DELIBERATELY NOT APPEND-ONLY, unlike every other table in this file. This
 /// is a single-use reservation ticket, not evidence of the claim's content —
@@ -2733,14 +2734,6 @@ model WarrantyClaimUpload {
 model WarrantyClaimUploadDestination {
   id String @id @default(uuid()) @db.Uuid
 
-  /// TRANSITIONAL, and NO LONGER WRITTEN. Superseded by `purpose` + `ownerId`.
-  /// Contract step A (20261007020000) relaxed it to nullable so the writer
-  /// could stop setting it while the previous deploy was still serving; step B
-  /// drops the column. Kept in the model only until then — Prisma must know
-  /// about a column that still exists, or `prisma migrate diff` proposes
-  /// re-adding it.
-  claimId String? @map("claim_id") @db.Uuid
-
   /// THE SECURITY BOUNDARY BETWEEN UPLOAD KINDS, not a label. A destination
   /// issued for one purpose must be unusable for another, enforced by this
   /// column being part of the consumption WHERE clause rather than by callers
@@ -2750,9 +2743,10 @@ model WarrantyClaimUploadDestination {
   purpose UploadDestinationPurpose
 
   /// Generic owner reference: the warranty claim id, or the Custom Jewelry
-  /// project id. Deliberately NOT a foreign key, for the same reason
-  /// `claimId` never was — a destination is issued BEFORE the row it belongs
-  /// to exists, so a FK would make the normal flow impossible.
+  /// project id. Deliberately NOT a foreign key — a destination is issued
+  /// BEFORE the row it belongs to exists, so a FK would make the normal flow
+  /// impossible, and there is no single table it could point at now that two
+  /// purposes share this one. See the model comment above.
   /// NOT NULL since contract step A — see `purpose` above for why.
   ownerId     String  @map("owner_id") @db.Uuid
   /// The authenticated identity this was issued to
@@ -2773,7 +2767,6 @@ model WarrantyClaimUploadDestination {
   /// mutable despite every sibling table in this file being append-only.
   consumedAt DateTime? @map("consumed_at") @db.Timestamptz(6)
 
-  @@index([claimId])
   @@index([purpose, ownerId], map: "upload_destination_purpose_owner_idx")
   @@map("warranty_claim_upload_destination")
 }
