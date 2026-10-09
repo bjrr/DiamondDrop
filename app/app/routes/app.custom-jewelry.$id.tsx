@@ -58,14 +58,14 @@ import { authenticate } from "~/shopify.server";
 // View model — an explicit field list, never a Prisma spread.
 // ---------------------------------------------------------------------------
 
-interface UploadView {
+export interface UploadView {
   readonly id: string;
   readonly kind: string;
   readonly contentType: string;
   readonly uploadedAt: string;
 }
 
-interface AcceptanceView {
+export interface AcceptanceView {
   readonly acceptedAt: string;
   /** The EXACT text the customer agreed to, from the acknowledgment row. */
   readonly exactText: string;
@@ -80,7 +80,7 @@ interface AcceptanceView {
   } | null;
 }
 
-interface ProjectView {
+export interface ProjectView {
   readonly id: string;
   readonly projectReference: string;
   readonly status: string;
