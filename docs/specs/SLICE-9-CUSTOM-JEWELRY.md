@@ -1,7 +1,9 @@
 # Slice 9 — Custom Jewelry intake
 
-Status: **intake, uploads and confirmation email shipped and live-proven.**
-Deposit/design-approval step is a deliberate follow-on, not an omission.
+Status: **intake, uploads, confirmation email and the Design Deposit
+acceptance step shipped.** Uploads are live-proven against production.
+Deposit *collection* is the remaining follow-on — the acceptance that must
+precede it is done.
 
 Authoritative sources: `README.md` "Custom Jewelry — MVP1 Locked Direction";
 `docs/REQUIRED-CUSTOMER-ACCOUNTS.md`; owner decisions 2026-10-05 (copy, the
@@ -122,7 +124,23 @@ warranty-issued key simply finds no row on the Custom Jewelry path.
 | `20261005040000_upload_destination_generalize_expand` | add `purpose` + `owner_id` nullable, backfill `warranty_claim`/`claim_id`, self-verify the backfill |
 | `20261007010000_custom_jewelry_project_upload` | the Custom Jewelry upload record table |
 | `20261007020000_upload_destination_contract_step_a` | `purpose`/`owner_id` `NOT NULL`; `claim_id` relaxed to nullable; writer stops setting it |
-| *step B, a later deploy* | `DROP COLUMN claim_id` |
+| `20261008010000_upload_destination_contract_step_b` | `DROP COLUMN claim_id`, guarded |
+| `20261008020000_custom_jewelry_deposit_policy_version` | the Design Deposit acknowledgment policy, version 1 |
+| `20261008030000_custom_jewelry_deposit_acceptance` | the append-only deposit acceptance record |
+
+**Step B's precondition is proven, not assumed**, and anchored on step A's
+own recorded `finished_at` rather than a pasted timestamp. If a row issued
+after step A still sets `claim_id`, the migration refuses with the count. If
+step A is missing or unfinished, it **raises rather than passing** — `issued_at
+> NULL` yields NULL and `count()` of no rows is 0, so the check would have
+read "fine" precisely when it could not tell.
+
+`uploadDestinationContractGuard.test.ts` makes that guard **fire**: it reads
+the real `DO` block out of the migration file (extracted, never retyped, so a
+copy cannot keep passing after the original is weakened) and runs it against
+all three failure states and both legitimate ones. The permissive cases
+matter as much as the refusals — without them the guard could be "always
+raise" and every refusal test would still pass.
 
 **Why step B is a separate deploy.** Fly runs `prisma migrate deploy` as a
 release command that completes *before* any new machine starts, so the
@@ -173,9 +191,16 @@ warranty-key-rejected-by-cj     cj-key-rejected-by-warranty
 foreign-project-refused
 ```
 
-**Warranty upload live gate re-run after the generalization — 10/10.** The
-owner's first regression requirement; the shared service still serves the
-path it was extracted from.
+**Warranty upload live gate — 10/10.** The owner's first regression
+requirement. Re-run twice: after the generalization, and again after
+`claim_id` was dropped. The shared service still serves the path it was
+extracted from.
+
+**Both gates re-run after EACH contract step**, not just at the end — 15/15
+after step A constrained `purpose`/`owner_id` and the writer stopped
+setting `claim_id`, and 15/15 again after step B dropped the column. A
+schema change proven only before and long after is a schema change whose
+intermediate state nobody checked.
 
 Both cross-purpose probes are constructed so **`purpose` is the only thing
 that differs** — same customer, and the warranty `claimId` reused verbatim as
@@ -197,23 +222,81 @@ leaked a destination — it would have passed vacuously. Re-keyed onto
 
 ---
 
-## 6. Deliberate follow-ons
+## 6. The Design Deposit acceptance step — shipped
 
-**The deposit / design-approval step.** Four things must be displayed, with
-affirmative acceptance and the accepted text, version and timestamp pinned
-*before* the card is charged:
+`POST /apps/carat/custom-jewelry-deposit-acceptance`. All four required
+disclosures, affirmative acceptance, and an append-only record of what was
+agreed.
 
-1. the $49 amount;
-2. that it is credited toward the final price;
+**It authorizes; it does not charge.** No draft order, no payment provider,
+and the project status deliberately stays `submitted` — a test asserts that.
+`deposit_charged` means money arrived, and setting it at acceptance would
+start design work against funds that may never be collected. Collection is
+the remaining follow-on, with its own record: conflating "agreed to pay" with
+"paid" is the failure this separation exists to prevent.
+
+**An account is required here**, unlike the enquiry — the identity comes from
+the signed `logged_in_customer_id` only, and someone else's project is
+refused with the same generic 422 as a nonexistent one.
+
+### 6.1 The four disclosures and where each came from
+
+1. the $49 amount
+2. that it is credited toward the final price
 3. that it is refunded if CaratForUs completes the agreed design stage and
-   the customer decides not to proceed;
+   the customer decides not to proceed
+
+Those three are the **owner-approved intake wording, imported verbatim** from
+`intakeCopy.ts` rather than restated — a test asserts byte-identity, because
+the customer saw that exact sentence on the enquiry form and a second copy at
+the point of charge is where drift does most damage.
+
 4. **conspicuously** — that a refund is *not* automatic if the customer
    abandons the project or stops responding before the agreed design stage is
-   completed.
+   completed
 
-(4) is the sentence the owner kept off the intake form. A material condition
-belongs where it can be acknowledged, not where it reads as a warning to
-someone who has not been asked for anything yet.
+This is the sentence the owner kept off the intake form ("Keep the intake
+welcoming"). It is rendered from the owner's own words, recast into first
+person because the customer is certifying rather than being told — the same
+grammatical split the warranty copy draws between `notice_body` and
+`acknowledgment_text`.
+
+**Nothing was added to it.** No grace period, no cure window, no definition
+of "stops responding"; tests reject each by name. Inventing policy inside an
+acknowledgment is how a customer ends up agreeing to a term nobody approved.
+
+> **Owner confirmation pass outstanding on the first-person rendering of (4).**
+> The substance is the owner's, quoted; the wording is engineering's. It is
+> pinned and versioned, so a revision is a visible diff plus policy version 2
+> — never a silent edit.
+
+**Both conditions ship together**, in the order the owner stated them,
+enforced by an assertion on their relative position: the refund condition
+read alone is a promise, the abandonment rule read alone is a threat.
+
+### 6.2 Why the record can be trusted afterwards
+
+| Property | How it is guaranteed |
+| --- | --- |
+| Names the exact text shown | NOT NULL FK to `acknowledgment`, which carries the text, policy version, clicked label and timestamp |
+| Amount matches the disclosure | `$49` in the copy and `4900n` minor units pinned to each other by test; amount then **frozen** on the row |
+| Exists at most once | UNIQUE index on `project_id` — not a prior read. Race tested: both requests pass the read, one loses, exactly one acknowledgment survives |
+| Cannot be altered | append-only UPDATE/DELETE/**TRUNCATE** triggers, all three |
+| Cannot be destroyed with the project | `ON DELETE RESTRICT` on both FKs |
+| Cannot be zero or negative | CHECK `amount_minor_units > 0` |
+| Acceptance cannot be inferred | `z.literal(true)` — a missing or `false` flag cannot produce a parsed body at all |
+
+The policy row is provisioned by **migration**, not seed, and registered in
+`requiredPolicyVersions.ts` so a missing one surfaces at `/health` when a
+deploy finishes. Not hypothetical: the Luxury Steals acknowledgment endpoint
+returned 500 `policy_unavailable` on its first real production request for
+exactly this reason. The migration fence was confirmed to cover the new entry
+by corrupting the hash and watching it fail, rather than trusting a green run.
+
+## 7. Deliberate follow-ons
+
+**Deposit collection** — charging the authorized $49 and advancing the
+project to `deposit_charged` only once funds are confirmed.
 
 **Video uploads.** The server accepts video (300 MB ceiling), but the
 checksum it requires is computed in the browser and hashing a 300 MB file in
@@ -222,7 +305,7 @@ deferred rather than half-offered.
 
 ---
 
-## 7. Owner action required to make the page reachable
+## 8. Owner action required to make the page reachable
 
 The theme files are deployed; **the Shopify Page does not exist yet**, so
 `/pages/custom-jewelry` 404s until it is created. We hold no content scope
