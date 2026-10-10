@@ -108,6 +108,14 @@ under `/tests/integration` (require Postgres).
 
 ## Integration tests and your dev database
 
+**Which server it runs against is decided by `INTEGRATION_DATABASE_URL`.**
+Unset (the default) means your local Postgres and a 45s per-test timeout.
+Set means a remote database and 600s. Measured: the same 81 files / 1181
+tests take **4m41s local** and **~2.5 hours remote**, because the pricing job
+issues very many small queries. Keep it unset unless you are deliberately
+verifying against the remote database — and when you are, run nothing else
+against it at the same time.
+
 `npm run test:integration` creates a **disposable** database per run
 (`carat_it_<pid>_<ts>`), migrates and seeds it, and drops it afterwards. Your
 `carat_dev` is never written to by the suite.
