@@ -58,7 +58,27 @@ export type BeatQuoteSubmissionKind = "custom_quote" | "online_listing" | "compe
  */
 export type BeatQuoteVerificationOutcome = "pending" | "verified" | "rejected";
 
-/** Which treatment a submission receives. Derived, never chosen by the customer. */
+/**
+ * Which treatment a submission receives. Derived, never chosen by the customer.
+ *
+ * ============================================================================
+ * `guarantee` MEANS "GUARANTEE-ELIGIBLE", NOT "GUARANTEE IN FORCE"
+ * ============================================================================
+ * This value is FROZEN at intake, and at intake nothing has been verified yet.
+ * So it answers the question age and kind can settle on their own — "could this
+ * submission ever carry the guarantee?" — and nothing more.
+ *
+ * The guarantee is actually owed only when that is true AND a reviewer has
+ * verified the submission AND CaratForUs cannot match or beat the price. Those
+ * later conditions are deliberately NOT folded in here, because folding them in
+ * would make the value unfreezable: it would have to change when a reviewer
+ * acts, and the whole point of freezing is that a submission's position cannot
+ * move after the fact.
+ *
+ * `isGuaranteeInForce` below is the question that includes verification. Keep
+ * the two apart; conflating them is how a submission either ages out in a queue
+ * or earns a benefit nobody verified.
+ */
 export type BeatQuoteTreatment = "guarantee" | "review_only";
 
 export interface ClassifyBeatQuoteInput {
@@ -238,4 +258,101 @@ export function classifyBeatQuoteSubmission(input: ClassifyBeatQuoteInput): Beat
     quoteAgeInCalendarDays: age,
     reason: "recent_verified_custom_quote",
   };
+}
+
+// ---------------------------------------------------------------------------
+// INTAKE: the frozen classification
+// ---------------------------------------------------------------------------
+
+export interface DeriveIntakeTreatmentInput {
+  readonly kind: BeatQuoteSubmissionKind;
+  /** `YYYY-MM-DD`. Required for `custom_quote`, forbidden for the others. */
+  readonly quoteIssuedOn?: string;
+  /** `YYYY-MM-DD`. The calendar date the submission is made. */
+  readonly submittedOn: string;
+}
+
+export interface IntakeTreatment {
+  readonly treatment: BeatQuoteTreatment;
+  /** Null for the kinds that have no age rule at all (amendment section 1). */
+  readonly quoteAgeInCalendarDays: number | null;
+  readonly reason:
+    | "recent_custom_quote"
+    | "custom_quote_older_than_window"
+    | "online_listing_review_only"
+    | "competing_group_buy_review_only";
+}
+
+/**
+ * The treatment to FREEZE at intake, derived from nothing but the submission
+ * kind and two calendar dates.
+ *
+ * ============================================================================
+ * VERIFICATION IS NOT AN INPUT HERE, ON PURPOSE
+ * ============================================================================
+ * At intake nothing has been verified — `verification` is `pending` by
+ * definition. If this function took it, every submission would freeze as
+ * `review_only` and the stored value would have to be rewritten when a
+ * reviewer acted, which defeats freezing entirely.
+ *
+ * So this answers only what age and kind can settle: could this submission ever
+ * carry the guarantee? A reviewer later decides whether it actually does.
+ *
+ * ============================================================================
+ * THE CUSTOMER SUPPLIES FACTS, NEVER THE CONCLUSION
+ * ============================================================================
+ * Everything here is derived. There is no code path by which a request can
+ * assert a treatment, an eligibility, or an acknowledgment variant — the public
+ * request schema does not carry those fields at all, which is stronger than
+ * accepting and ignoring them, because a field that is accepted is a field
+ * somebody later wires up.
+ */
+export function deriveIntakeTreatment(input: DeriveIntakeTreatmentInput): IntakeTreatment {
+  if (input.kind === "online_listing") {
+    return {
+      treatment: "review_only",
+      quoteAgeInCalendarDays: null,
+      reason: "online_listing_review_only",
+    };
+  }
+  if (input.kind === "competing_group_buy") {
+    return {
+      treatment: "review_only",
+      quoteAgeInCalendarDays: null,
+      reason: "competing_group_buy_review_only",
+    };
+  }
+
+  if (input.quoteIssuedOn === undefined) {
+    throw new InvalidBeatQuoteDateError("quoteIssuedOn", "(absent)");
+  }
+  const age = calendarDaysBetween(input.quoteIssuedOn, input.submittedOn);
+
+  // A quote dated after the submission is incoherent evidence, not a fresh
+  // quote. Treated as outside the window rather than as a negative age that
+  // would sail through a `<= 7` comparison.
+  if (age < 0 || age > BEAT_QUOTE_GUARANTEE_WINDOW_CALENDAR_DAYS) {
+    return {
+      treatment: "review_only",
+      quoteAgeInCalendarDays: age,
+      reason: "custom_quote_older_than_window",
+    };
+  }
+
+  return { treatment: "guarantee", quoteAgeInCalendarDays: age, reason: "recent_custom_quote" };
+}
+
+/**
+ * Whether the guarantee is actually in force — the question that DOES include
+ * verification.
+ *
+ * Used when deciding whether a fallback is owed, never at intake. Takes the
+ * FROZEN treatment rather than recomputing it from dates, so a submission's
+ * eligibility cannot shift because staff opened the case a week later.
+ */
+export function isGuaranteeInForce(input: {
+  readonly treatment: BeatQuoteTreatment;
+  readonly verification: BeatQuoteVerificationOutcome;
+}): boolean {
+  return input.treatment === "guarantee" && input.verification === "verified";
 }

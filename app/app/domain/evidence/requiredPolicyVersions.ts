@@ -1,6 +1,16 @@
 import { sha256Hex } from "./hash";
 import { buildPolicyVersionRecord } from "./policyVersion";
 import {
+  BEAT_QUOTE_AUTHENTICITY_TEXT,
+  BEAT_QUOTE_GROUP_BUY_TEXT,
+  BEAT_QUOTE_OLDER_QUOTE_TEXT,
+  BEAT_QUOTE_ONLINE_LISTING_TEXT,
+  BEAT_QUOTE_POLICY_SLUGS,
+  BEAT_QUOTE_POLICY_VERSION,
+  BEAT_QUOTE_RECENT_QUOTE_TEXT,
+  BEAT_QUOTE_WHAT_WE_MATCH_TEXT,
+} from "~/domain/beatyourquote/acknowledgmentText";
+import {
   CUSTOM_JEWELRY_DEPOSIT_ACKNOWLEDGMENT_TEXT,
   CUSTOM_JEWELRY_DEPOSIT_POLICY_SLUG,
   CUSTOM_JEWELRY_DEPOSIT_POLICY_VERSION,
@@ -157,6 +167,41 @@ export const REQUIRED_POLICY_VERSIONS: readonly RequiredPolicyVersion[] = [
     slug: CUSTOM_JEWELRY_DEPOSIT_POLICY_SLUG,
     version: CUSTOM_JEWELRY_DEPOSIT_POLICY_VERSION,
     text: CUSTOM_JEWELRY_DEPOSIT_ACKNOWLEDGMENT_TEXT,
+  }),
+  // Slice 10. SIX, not five: the original specification defines no
+  // acknowledgment for an active online listing, because there a live listing
+  // was guarantee-eligible and took 3A. Amendment §1 moved it to review-only
+  // and supplied its own wording — so provisioning only the original five
+  // would leave an online listing showing the 3A guarantee text.
+  toRequiredPolicyVersion({
+    slug: BEAT_QUOTE_POLICY_SLUGS.whatWeMatch,
+    version: BEAT_QUOTE_POLICY_VERSION,
+    text: BEAT_QUOTE_WHAT_WE_MATCH_TEXT,
+  }),
+  toRequiredPolicyVersion({
+    slug: BEAT_QUOTE_POLICY_SLUGS.authenticity,
+    version: BEAT_QUOTE_POLICY_VERSION,
+    text: BEAT_QUOTE_AUTHENTICITY_TEXT,
+  }),
+  toRequiredPolicyVersion({
+    slug: BEAT_QUOTE_POLICY_SLUGS.recentQuote,
+    version: BEAT_QUOTE_POLICY_VERSION,
+    text: BEAT_QUOTE_RECENT_QUOTE_TEXT,
+  }),
+  toRequiredPolicyVersion({
+    slug: BEAT_QUOTE_POLICY_SLUGS.olderQuote,
+    version: BEAT_QUOTE_POLICY_VERSION,
+    text: BEAT_QUOTE_OLDER_QUOTE_TEXT,
+  }),
+  toRequiredPolicyVersion({
+    slug: BEAT_QUOTE_POLICY_SLUGS.groupBuy,
+    version: BEAT_QUOTE_POLICY_VERSION,
+    text: BEAT_QUOTE_GROUP_BUY_TEXT,
+  }),
+  toRequiredPolicyVersion({
+    slug: BEAT_QUOTE_POLICY_SLUGS.onlineListing,
+    version: BEAT_QUOTE_POLICY_VERSION,
+    text: BEAT_QUOTE_ONLINE_LISTING_TEXT,
   }),
 ];
 
