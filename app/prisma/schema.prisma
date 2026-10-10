@@ -3720,3 +3720,199 @@ model CustomJewelryProjectUpload {
   @@index([projectId])
   @@map("custom_jewelry_project_upload")
 }
+
+// ===========================================================================
+// SLICE 10 — "Let Us Beat Your Quote!"
+//
+// Authoritative sources, in precedence order:
+//   1. docs/LET-US-BEAT-YOUR-QUOTE-AMENDMENT.md  (owner-locked 2026-09-13)
+//   2. docs/LET-US-BEAT-YOUR-QUOTE.md            (owner-locked)
+//
+// THE AMENDMENT CONTROLS AND INVERTS THE ORIGINAL'S HEADLINE RULE: an active
+// online listing and a competing Group Buy are REVIEW-ONLY, with no guaranteed
+// match-or-beat and no 10%-off fallback. Only a verified custom quote at most
+// 7 calendar days old carries the guarantee.
+// ===========================================================================
+
+enum BeatQuoteSubmissionKind {
+  custom_quote
+  online_listing
+  competing_group_buy
+
+  @@map("beat_quote_submission_kind")
+}
+
+/// `pending` is the initial state and is deliberately NOT guarantee-eligible —
+/// treating "not yet checked" as acceptable is how an unverifiable quote earns
+/// a $100 benefit.
+enum BeatQuoteVerificationOutcome {
+  pending
+  verified
+  rejected
+
+  @@map("beat_quote_verification_outcome")
+}
+
+enum BeatQuoteTreatment {
+  guarantee
+  review_only
+
+  @@map("beat_quote_treatment")
+}
+
+enum BeatQuoteSubmissionStatus {
+  submitted
+  in_review
+  /// An offer at or below the competitor price. For a guarantee submission this
+  /// FULFILS the guarantee and owes no fallback (amendment section 4 case 5).
+  offer_made
+  /// CaratForUs cannot match or beat. For a guarantee submission this is the
+  /// state that owes a fallback (amendment section 4 case 6).
+  declined_cannot_beat
+  /// Not a qualifying submission at all — fabricated, altered, unverifiable,
+  /// non-comparable. Owes nothing.
+  rejected
+  customer_accepted
+  closed
+
+  @@map("beat_quote_submission_status")
+}
+
+model BeatQuoteSubmission {
+  id String @id @default(uuid()) @db.Uuid
+
+  submissionReference String @unique @map("submission_reference")
+
+  /// The authenticated Shopify customer WHEN there is one. Nullable: the spec
+  /// asks for the account id "if available", and an acquisition feature must
+  /// not require an account to use.
+  customerRef String? @map("customer_ref")
+
+  firstName String  @map("first_name")
+  lastName  String  @map("last_name")
+  email     String
+  phone     String?
+
+  kind BeatQuoteSubmissionKind
+
+  /// FROZEN AT INTAKE, all four. A quote does not become ineligible because
+  /// review took four days — deriving `treatment` at read time would let a
+  /// submission lose the guarantee while sitting in a queue, i.e. the
+  /// customer's position changing because of our latency.
+  ///
+  /// `@db.Date`, not a timestamp: the rule is stated in CALENDAR days, which
+  /// are a property of a place rather than of an instant.
+  quoteIssuedOn        DateTime? @map("quote_issued_on") @db.Date
+  submittedOn          DateTime  @map("submitted_on") @db.Date
+  quoteAgeCalendarDays Int?      @map("quote_age_calendar_days")
+  treatment            BeatQuoteTreatment
+
+  competitorSellerName String? @map("competitor_seller_name")
+  competitorWebsite    String? @map("competitor_website")
+  /// STORED AS TEXT, NEVER FETCHED SERVER-SIDE — a server that retrieves a
+  /// customer-supplied URL is an SSRF primitive. Staff open it in a browser.
+  listingUrl String? @map("listing_url")
+
+  /// Integer minor units + currency, never a float. Overseas sellers are
+  /// explicitly in scope, so the currency is not assumed.
+  competitorPriceMinorUnits BigInt? @map("competitor_price_minor_units")
+  competitorPriceCurrency   String? @map("competitor_price_currency") @db.Char(3)
+
+  /// The like-for-like package as submitted. Evidence for a human, not a
+  /// structured schema to validate — the spec lists many possible attributes
+  /// and leaves sufficiency to the reviewer.
+  specifications String?
+
+  /// Competitor SERVICE terms. Explicitly NOT terms CaratForUs promises to
+  /// match. Nullable because every question supports "I don't know".
+  competitorTimeline     String? @map("competitor_timeline")
+  competitorReturnPolicy String? @map("competitor_return_policy")
+  competitorWarranty     String? @map("competitor_warranty")
+
+  status       BeatQuoteSubmissionStatus    @default(submitted)
+  verification BeatQuoteVerificationOutcome @default(pending)
+
+  /// CaratForUs's OWN verification evidence. The spec is explicit that
+  /// "customer-provided screenshots alone do not establish eligibility".
+  verificationEvidence String?   @map("verification_evidence")
+  verifiedAt           DateTime? @map("verified_at") @db.Timestamptz(6)
+  verifiedByActorRef   String?   @map("verified_by_actor_ref")
+
+  offeredPriceMinorUnits BigInt?   @map("offered_price_minor_units")
+  offeredPriceCurrency   String?   @map("offered_price_currency") @db.Char(3)
+  offerTermsShown        String?   @map("offer_terms_shown")
+  decisionReason         String?   @map("decision_reason")
+  decidedAt              DateTime? @map("decided_at") @db.Timestamptz(6)
+  decidedByActorRef      String?   @map("decided_by_actor_ref")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  /// At most one — UNIQUE on the benefit side IS the duplicate-issuance rule.
+  fallbackBenefit BeatQuoteFallbackBenefit?
+
+  @@index([customerRef])
+  @@index([status])
+  @@index([treatment])
+  @@map("beat_quote_submission")
+}
+
+/// The 10%-off, 100-dollar-cap, 90-day fallback benefit (amendment section 3).
+///
+/// NOT APPEND-ONLY, and that is considered: this row has a legitimate
+/// lifecycle — `redeemedAt` moves from NULL to a timestamp exactly once, and a
+/// benefit can be revoked. Append-only would make redemption impossible;
+/// unguarded would make UN-redeeming possible. A trigger permits only the
+/// transitions policy allows and refuses un-redeeming, re-pointing a redemption
+/// at another order, and editing the frozen terms.
+model BeatQuoteFallbackBenefit {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// UNIQUE — amendment section 3: "Duplicate/retried issuance must not create
+  /// multiple fallback benefits from the same qualifying outcome." The index is
+  /// what makes that true; a check in the issuing code is enforced by whoever
+  /// remembers to call it.
+  submissionId String              @unique @map("submission_id") @db.Uuid
+  submission   BeatQuoteSubmission @relation(fields: [submissionId], references: [id])
+
+  /// What the customer quotes to redeem. Unguessable — CSPRNG bytes, never a
+  /// sequence.
+  benefitCode String @unique @map("benefit_code")
+
+  /// NOT NULL, unlike the submission's: non-transferable is meaningless
+  /// without an identity to bind to.
+  customerRef String @map("customer_ref")
+
+  /// FROZEN AT ISSUANCE. If the benefit later becomes 15% or a larger cap,
+  /// every already-issued benefit must still be worth exactly what its holder
+  /// was promised — reading today's constant at redemption would silently
+  /// restate a customer's benefit months after the fact.
+  percent               Int    @db.SmallInt
+  maxDiscountMinorUnits BigInt @map("max_discount_minor_units")
+  currency              String @db.Char(3)
+
+  issuedAt DateTime @default(now()) @map("issued_at") @db.Timestamptz(6)
+  /// Stored, not derived, for the same reason: a change to the validity period
+  /// must not retroactively expire or extend what is already out there.
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  /// SINGLE USE. NULL until spent; set exactly once, enforced by trigger.
+  redeemedAt DateTime? @map("redeemed_at") @db.Timestamptz(6)
+  /// The redemption order. UNIQUE where present — one order cannot spend two
+  /// benefits.
+  redemptionOrderRef           String? @unique @map("redemption_order_ref")
+  redemptionDiscountMinorUnits BigInt? @map("redemption_discount_minor_units")
+
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revokedReason String?   @map("revoked_reason")
+
+  /// Any manual override, with its reason.
+  overrideReason     String? @map("override_reason")
+  overrideByActorRef String? @map("override_by_actor_ref")
+
+  issuedByActorType ActorType @map("issued_by_actor_type")
+  issuedByActorRef  String?   @map("issued_by_actor_ref")
+
+  @@index([customerRef])
+  @@map("beat_quote_fallback_benefit")
+}
