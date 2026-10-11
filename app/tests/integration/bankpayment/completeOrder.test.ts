@@ -48,6 +48,13 @@ function fakePort(orderGid = "gid://shopify/Order/999") {
     // The fallback-benefit redemption path. Refused rather than stubbed
     // permissively: no Bank Payment, deposit or admin flow should ever create a
     // redemption draft order, so a call here is a defect worth failing on.
+    // The Custom Jewelry final-purchase path. Refused rather than stubbed
+    // permissively: no Bank Payment, Group Buy, redemption or deposit flow
+    // should ever create a custom jewelry draft order, so a call here is a
+    // defect worth failing on.
+    async createCustomJewelryDraftOrder(): Promise<never> {
+      throw new Error("createCustomJewelryDraftOrder is not expected in this test");
+    },
     async createRedemptionDraftOrder(): Promise<never> {
       throw new Error("createRedemptionDraftOrder is not expected in this test");
     },

@@ -170,6 +170,13 @@ function cancellingPort(options: { fail?: boolean; confirmDifferentId?: string }
         cancelledDraftOrderGid: options.confirmDifferentId ?? input.draftOrderGid,
       };
     },
+    // The Custom Jewelry final-purchase path. Refused rather than stubbed
+    // permissively: no Bank Payment, Group Buy, redemption or deposit flow
+    // should ever create a custom jewelry draft order, so a call here is a
+    // defect worth failing on.
+    async createCustomJewelryDraftOrder(): Promise<never> {
+      throw new Error("createCustomJewelryDraftOrder is not expected in this test");
+    },
     async createRedemptionDraftOrder(): Promise<never> {
       throw new Error("not expected");
     },

@@ -290,6 +290,13 @@ function recordingPort(options: { fail?: boolean } = {}): DraftOrderPort & {
   const calls: CreateRedemptionDraftOrderInput[] = [];
   return {
     calls,
+    // The Custom Jewelry final-purchase path. Refused rather than stubbed
+    // permissively: no Bank Payment, Group Buy, redemption or deposit flow
+    // should ever create a custom jewelry draft order, so a call here is a
+    // defect worth failing on.
+    async createCustomJewelryDraftOrder(): Promise<never> {
+      throw new Error("createCustomJewelryDraftOrder is not expected in this test");
+    },
     async createRedemptionDraftOrder(input: CreateRedemptionDraftOrderInput): Promise<CreatedDraftOrder> {
       calls.push(input);
       if (options.fail) throw new Error("Shopify said no");

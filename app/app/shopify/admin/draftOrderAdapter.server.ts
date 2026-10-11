@@ -369,6 +369,73 @@ export interface CreateRedemptionDraftOrderInput {
   tags?: readonly string[];
 }
 
+/**
+ * A Custom Jewelry final purchase.
+ *
+ * ============================================================================
+ * WHY THIS IS A THIRD METHOD AND NOT A FLAG ON AN EXISTING ONE
+ * ============================================================================
+ * It needs a combination none of the others has:
+ *
+ *   `createDraftOrder`          variant lines + payment terms, no discount
+ *   `createServiceDraftOrder`   one custom line, no discount, no payment terms
+ *   `createRedemptionDraftOrder` variant lines + a fixed discount, no terms
+ *   THIS                        one custom line + a fixed discount, and
+ *                               payment terms on the bank basis only
+ *
+ * Widening any of the three to cover this would make its own contract a matrix
+ * a future reader has to solve before trusting it — and two of the three are
+ * live-proven money paths whose narrowness is the reason they are trustworthy.
+ *
+ * ============================================================================
+ * THE GROSS PRICE GOES ON THE LINE. THE CREDITS COME OFF AS A DISCOUNT.
+ * ============================================================================
+ * Owner requirement: "Never lose the gross approved price simply because only
+ * the balance is collected at final checkout." So Shopify is told the piece
+ * costs the full approved amount and that a fixed sum is deducted — rather than
+ * a line priced at the balance, which would record the sale at the wrong
+ * figure in the one system the customer and an accountant both look at.
+ *
+ * SHOPIFY HAS NO "CREDIT" PRIMITIVE for a draft order; `appliedDiscount` is the
+ * only mechanism, and it is singular. So the deposit credit and any Let Us Beat
+ * Your Quote benefit are summed into one discount whose TITLE names each
+ * component, and our own `custom_jewelry_final_purchase` row keeps them in
+ * separate columns. That split is deliberate: the authoritative accounting is
+ * ours, and Shopify carries a faithful customer-facing summary of it.
+ */
+export interface CreateCustomJewelryDraftOrderInput {
+  /**
+   * REQUIRED. Without `customerId` Shopify matches or CREATES a customer from
+   * the email — a different record from the authenticated one. See
+   * `CreateDraftOrderInput.customerGid`: that exact defect attached every Group
+   * Buy Bank Payment order to the wrong person.
+   */
+  customerGid: string;
+  email: string;
+  shippingAddress: DraftOrderShippingAddressInput;
+  /** What the customer sees as the line's name on the invoice. */
+  title: string;
+  /** The GROSS approved price for the piece. Never the balance. */
+  grossPrice: Money;
+  /**
+   * The deposit credit plus any benefit, already summed by the caller. Zero is
+   * legitimate — a project with no deposit and no benefit.
+   */
+  totalCredit: Money;
+  /** Names each component of the credit, for the invoice. */
+  creditTitle: string;
+  /**
+   * Which basis. `bank_payment` attaches "Due on receipt" payment terms so the
+   * resulting order stays UNPAID until an admin verifies the transfer (§22);
+   * `card` attaches none, so the order becomes paid exactly when the customer
+   * pays through Shopify's checkout.
+   */
+  paymentBasis: "card" | "bank_payment";
+  customAttributes?: readonly DraftOrderLineItemAttributeInput[];
+  note?: string;
+  tags?: readonly string[];
+}
+
 export interface CreatedDraftOrder {
   draftOrderGid: string;
   /** Null when Shopify has not (yet) generated one for this draft order. */
@@ -426,6 +493,13 @@ export interface DraftOrderPort {
    * further discount codes at checkout. Both are read back before this returns.
    */
   createRedemptionDraftOrder(input: CreateRedemptionDraftOrderInput): Promise<CreatedDraftOrder>;
+
+  /**
+   * `draftOrderCreate` for a Custom Jewelry final purchase: ONE CUSTOM LINE at
+   * the gross approved price, less an exact fixed discount for the deposit
+   * credit and any benefit, with payment terms only on the Bank Payment basis.
+   */
+  createCustomJewelryDraftOrder(input: CreateCustomJewelryDraftOrderInput): Promise<CreatedDraftOrder>;
 
   /** `draftOrderInvoiceSend`. */
   sendInvoice(input: SendDraftOrderInvoiceInput): Promise<{ invoiceSentAt: Date }>;
@@ -1074,6 +1148,232 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
       throw new AdminApiError("draftOrderCreate", [
         `sent allowDiscountCodesInCheckout:false but Shopify echoed ${String(draftOrder.allowDiscountCodesInCheckout)}; ` +
           `the fallback benefit is not stackable and must not be combinable at checkout`,
+      ]);
+    }
+
+    return { draftOrderGid: draftOrder.id, invoiceUrl: draftOrder.invoiceUrl };
+  }
+
+  /**
+   * A Custom Jewelry final purchase: one custom line at the gross approved
+   * price, less an exact fixed credit.
+   *
+   * ============================================================================
+   * THE PRICE FIELD IS `originalUnitPriceWithCurrency`, AND THAT MATTERS
+   * ============================================================================
+   * A custom line has no `variantId`, so it has no catalogue price to override.
+   * `priceOverride` — correct for every variant line in this file — is ignored
+   * without one. Shopify's own description is explicit that
+   * `originalUnitPriceWithCurrency` is "for custom line items" and is "ignored
+   * when variantId is provided".
+   *
+   * THAT DISTINCTION ALREADY COST ONE LIVE DEFECT in this adapter: it first
+   * sent `originalUnitPrice` on variant lines, Shopify silently ignored the
+   * field, and every line was charged the catalogue price. No unit test could
+   * catch it — a mocked client echoes back whatever it is handed. The custom
+   * field is live-verified by `tests/live/slice9.depositInvoicePriceField.ts`,
+   * which created a real draft order and read it back in a SEPARATE query.
+   *
+   * ============================================================================
+   * PAYMENT TERMS ON THE BANK BASIS ONLY, AND THAT IS §22
+   * ============================================================================
+   * A Bank Payment order must complete UNPAID: the money moves outside Shopify
+   * and a human verifies it. Completing a draft with no payment terms produced
+   * an order Shopify marked PAID — a live defect this adapter already hit —
+   * which asserts a receipt nobody has seen. "Due on receipt" is the honest
+   * term: owed now, not yet arrived.
+   *
+   * A card purchase is the opposite case for the opposite reason. It is paid
+   * THROUGH Shopify's checkout, so the order should become paid exactly when
+   * the customer pays, which is what happens with no terms attached.
+   *
+   * ============================================================================
+   * EVERY FIGURE IS READ BACK
+   * ============================================================================
+   * The line price, the stored discount amount, its FIXED_AMOUNT type, and
+   * `allowDiscountCodesInCheckout:false`. A write-only field is a promise
+   * nobody checks, and this method writes four of them.
+   */
+  async createCustomJewelryDraftOrder(input: CreateCustomJewelryDraftOrderInput): Promise<CreatedDraftOrder> {
+    const currency = input.grossPrice.currency;
+    if (input.totalCredit.currency !== currency) {
+      throw new CurrencyMismatchError(currency, input.totalCredit.currency);
+    }
+    if (input.grossPrice.amountMinorUnits <= 0n) {
+      throw new AdminApiError("draftOrderCreate", [
+        `refusing to invoice a custom jewelry piece at ${input.grossPrice.amountMinorUnits} minor units`,
+      ]);
+    }
+    if (input.totalCredit.amountMinorUnits < 0n) {
+      throw new AdminApiError("draftOrderCreate", ["a credit cannot be negative"]);
+    }
+    if (input.totalCredit.amountMinorUnits > input.grossPrice.amountMinorUnits) {
+      // A credit larger than the price would make the balance negative, which
+      // the purchase record's own CHECK also refuses. Caught here because this
+      // is the last point before Shopify is told something incoherent.
+      throw new AdminApiError("draftOrderCreate", [
+        `the credit ${input.totalCredit.amountMinorUnits} exceeds the gross price ${input.grossPrice.amountMinorUnits}`,
+      ]);
+    }
+
+    const grossDecimalString = minorUnitsToDecimalString(input.grossPrice.amountMinorUnits);
+    const creditDecimalString = minorUnitsToDecimalString(input.totalCredit.amountMinorUnits);
+    // The required `Float!` — see `createRedemptionDraftOrder` for why this is
+    // parsed from an exact decimal string and then verified by round-trip
+    // rather than computed.
+    const creditFloat = Number(creditDecimalString);
+    if (!Number.isFinite(creditFloat) || creditFloat.toFixed(2) !== creditDecimalString) {
+      throw new AdminApiError("draftOrderCreate", [
+        `the credit ${creditDecimalString} does not survive conversion to the Float the API requires ` +
+          `(got ${creditFloat}); refusing to send an amount that may not be exact`,
+      ]);
+    }
+
+    const variables = {
+      input: {
+        customerId: input.customerGid,
+        email: input.email,
+        shippingAddress: {
+          firstName: input.shippingAddress.firstName,
+          lastName: input.shippingAddress.lastName,
+          address1: input.shippingAddress.address1,
+          address2: input.shippingAddress.address2,
+          city: input.shippingAddress.city,
+          provinceCode: input.shippingAddress.provinceCode,
+          zip: input.shippingAddress.zip,
+          countryCode: input.shippingAddress.countryCode,
+          phone: input.shippingAddress.phone,
+        },
+        lineItems: [
+          {
+            // No `variantId` — this IS the custom line.
+            title: input.title,
+            quantity: 1,
+            originalUnitPriceWithCurrency: { amount: grossDecimalString, currencyCode: currency },
+            ...(input.customAttributes && input.customAttributes.length > 0
+              ? { customAttributes: input.customAttributes.map((a) => ({ key: a.key, value: a.value })) }
+              : {}),
+          },
+        ],
+        // Explicit nil shipping (D19): shipping and insurance are already
+        // priced into the approved price, so a second charge bills them twice.
+        shippingLine: {
+          title: ZERO_SHIPPING_LINE_TITLE,
+          price: minorUnitsToDecimalString(Money.zero(currency).amountMinorUnits),
+        },
+        // THE CREDIT. Sent only when there is one — an `appliedDiscount` of
+        // zero would render a £0.00 discount line on the customer's invoice,
+        // which invites the question "why is there a discount of nothing?".
+        ...(input.totalCredit.amountMinorUnits > 0n
+          ? {
+              appliedDiscount: {
+                valueType: "FIXED_AMOUNT",
+                value: creditFloat,
+                amountWithCurrency: { amount: creditDecimalString, currencyCode: currency },
+                title: input.creditTitle,
+                description: input.creditTitle,
+              },
+            }
+          : {}),
+        // The credit is not a promotion to be combined with. A customer typing
+        // a code into this checkout would reduce an approved custom price.
+        allowDiscountCodesInCheckout: false,
+        // §22: bank orders complete UNPAID. Card orders become paid on payment.
+        ...(input.paymentBasis === "bank_payment"
+          ? { paymentTerms: { paymentTermsTemplateId: DUE_ON_RECEIPT_TEMPLATE_GID } }
+          : {}),
+        note: input.note,
+        tags: input.tags ? [...input.tags] : undefined,
+      },
+    };
+
+    const payload = await this.runDraftOrderMutation<{
+      draftOrder?: {
+        id: string;
+        invoiceUrl: string | null;
+        allowDiscountCodesInCheckout?: boolean | null;
+        appliedDiscount?: {
+          valueType: string;
+          amountSet?: { shopMoney?: { amount: string; currencyCode: string } | null } | null;
+        } | null;
+        lineItems?: { nodes?: { quantity: number; originalUnitPrice: string; variant?: { id: string } | null }[] };
+      } | null;
+      userErrors?: { field?: string[] | null; message: string }[];
+    }>("draftOrderCreate", CREATE_REDEMPTION_DRAFT_ORDER_MUTATION, variables, "draftOrderCreate");
+
+    const draftOrder = payload.draftOrder;
+    if (!draftOrder) {
+      throw new AdminApiError("draftOrderCreate", ["response carried no userErrors but also no draftOrder"]);
+    }
+
+    // STEP 5 — the echo check. The line first: one custom line, at the GROSS
+    // price, with no variant attached.
+    const returnedLines = draftOrder.lineItems?.nodes ?? [];
+    if (returnedLines.length !== 1) {
+      throw new AdminApiError("draftOrderCreate", [
+        `sent 1 custom line item but the response echoed ${returnedLines.length}`,
+      ]);
+    }
+    const returned = returnedLines[0]!;
+    if (returned.quantity !== 1) {
+      throw new AdminApiError("draftOrderCreate", [`sent quantity 1 but Shopify echoed ${returned.quantity}`]);
+    }
+    if (returned.originalUnitPrice !== grossDecimalString) {
+      throw new AdminApiError("draftOrderCreate", [
+        `custom line price mismatch — sent ${grossDecimalString} but Shopify echoed ${returned.originalUnitPrice}. ` +
+          `The gross approved price must reach Shopify exactly.`,
+      ]);
+    }
+    if (returned.variant?.id) {
+      // A custom line acquiring a variant would mean Shopify priced it from a
+      // catalogue entry rather than from what we sent.
+      throw new AdminApiError("draftOrderCreate", [
+        `sent a custom line with no variant but Shopify echoed variant ${returned.variant.id}`,
+      ]);
+    }
+
+    // THE CREDIT, when one was sent. An ignored `appliedDiscount` would invoice
+    // the customer the full price having already taken their $49 — charging
+    // them twice for the deposit.
+    if (input.totalCredit.amountMinorUnits > 0n) {
+      const applied = draftOrder.appliedDiscount;
+      if (!applied) {
+        throw new AdminApiError("draftOrderCreate", [
+          `sent a ${creditDecimalString} ${currency} credit but the draft order came back with none; the ` +
+            `customer would be invoiced the full price having already paid their deposit`,
+        ]);
+      }
+      if (applied.valueType !== "FIXED_AMOUNT") {
+        throw new AdminApiError("draftOrderCreate", [
+          `sent valueType FIXED_AMOUNT but Shopify stored ${applied.valueType}`,
+        ]);
+      }
+      const storedAmount = applied.amountSet?.shopMoney;
+      if (!storedAmount) {
+        throw new AdminApiError("draftOrderCreate", [
+          "the draft order's applied credit carried no amountSet to verify against",
+        ]);
+      }
+      // String comparison: both are decimal strings, and comparing as numbers
+      // would reintroduce the float this method works to avoid.
+      if (storedAmount.amount !== creditDecimalString) {
+        throw new AdminApiError("draftOrderCreate", [
+          `credit mismatch — sent ${creditDecimalString} but Shopify stored ${storedAmount.amount}`,
+        ]);
+      }
+      if (storedAmount.currencyCode !== currency) {
+        throw new AdminApiError("draftOrderCreate", [
+          `credit currency mismatch — sent ${currency} but Shopify stored ${storedAmount.currencyCode}`,
+        ]);
+      }
+    }
+
+    // `Boolean!` on the output type, so `undefined` means the field was not
+    // returned at all — itself a failure, not a false.
+    if (draftOrder.allowDiscountCodesInCheckout !== false) {
+      throw new AdminApiError("draftOrderCreate", [
+        `sent allowDiscountCodesInCheckout:false but Shopify echoed ${String(draftOrder.allowDiscountCodesInCheckout)}; ` +
+          `a code typed at this checkout would reduce an approved custom price`,
       ]);
     }
 
