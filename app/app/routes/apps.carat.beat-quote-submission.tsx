@@ -5,6 +5,7 @@ import { prisma } from "~/db/client.server";
 import { createAcknowledgment } from "~/db/repositories/acknowledgmentRepository.server";
 import {
   createBeatQuoteSubmission,
+  isBeatQuoteSubmissionIdCollision,
   toBeatQuoteSubmissionConfirmation,
 } from "~/db/repositories/beatQuoteSubmissionRepository.server";
 import { getLatestPolicyVersion } from "~/db/repositories/policyVersionRepository.server";
@@ -273,7 +274,20 @@ export async function action({ request }: ActionFunctionArgs) {
   // ONE TRANSACTION. A submission without its acknowledgments is not a valid
   // submission, and three acknowledgment rows pointing at a submission that
   // failed to write are orphans in an append-only table.
-  const result = await prisma.$transaction(async (tx) => {
+  // CONVERGENCE LIVES OUT HERE, OUTSIDE THE TRANSACTION.
+  //
+  // Two requests for the same submissionId can both pass the existence read
+  // inside their transactions; the primary key decides it. The loser cannot
+  // recover in place — Postgres poisons an aborted transaction, so any query
+  // after the failed INSERT returns 25P02 rather than the row it was looking
+  // for. So the P2002 is caught here, after the transaction has ended, and the
+  // winner's submission is read with a clean connection.
+  //
+  // The loser writes NO acknowledgments: the winner already wrote three, and a
+  // second set would imply the customer agreed twice.
+  let result;
+  try {
+    result = await prisma.$transaction(async (tx) => {
     const { submission, created } = await createBeatQuoteSubmission(
       {
         id: body.submissionId,
@@ -346,8 +360,17 @@ export async function action({ request }: ActionFunctionArgs) {
       tx
     );
 
-    return { submission, created };
-  });
+      return { submission, created };
+    });
+  } catch (error) {
+    if (!isBeatQuoteSubmissionIdCollision(error)) throw error;
+    // The winner's row, read on a CLEAN connection. See the comment above.
+    logger.info("beat_quote_submission.concurrent_duplicate", { submissionId: body.submissionId });
+    result = {
+      submission: await prisma.beatQuoteSubmission.findUniqueOrThrow({ where: { id: body.submissionId } }),
+      created: false,
+    };
+  }
 
   logger.info("beat_quote_submission.received", {
     submissionReference: result.submission.submissionReference,

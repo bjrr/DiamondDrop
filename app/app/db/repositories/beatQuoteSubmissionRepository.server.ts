@@ -112,6 +112,24 @@ export class BeatQuoteReferenceCollisionError extends Error {
  * the tampering this feature must not permit. A repeat returns what exists,
  * untouched, and the caller compares nothing: there is no "update" path into a
  * submission's eligibility at all.
+ *
+ * ============================================================================
+ * ONE ATTEMPT, AND ANY UNIQUE VIOLATION IS RETHROWN
+ * ============================================================================
+ * There is no retry loop here, and that is forced rather than chosen. This
+ * function runs inside the caller's transaction, and in Postgres a failed
+ * statement POISONS that transaction: every subsequent query returns 25P02,
+ * "current transaction is aborted, commands ignored until end of transaction
+ * block". So neither recovery that looks reasonable actually works in here —
+ * re-reading the winner's row after an id collision, and re-rolling a
+ * colliding reference, both fail with 25P02 rather than succeeding.
+ *
+ * That is not a theory: the concurrency test for this path failed with exactly
+ * that error, which is why the loop that used to be here is gone.
+ *
+ * So both cases rethrow, and the caller converges OUTSIDE its transaction
+ * where a read can succeed. A reference collision — 32^8, about one in 10^12 —
+ * surfaces as an error whose retry simply draws a different reference.
  */
 export async function createBeatQuoteSubmission(
   input: CreateBeatQuoteSubmissionInput,
@@ -120,8 +138,8 @@ export async function createBeatQuoteSubmission(
   const existing = await tx.beatQuoteSubmission.findUnique({ where: { id: input.id } });
   if (existing) return { submission: existing, created: false };
 
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    try {
+  {
+    {
       const submission = await tx.beatQuoteSubmission.create({
         data: {
           id: input.id,
@@ -150,22 +168,23 @@ export async function createBeatQuoteSubmission(
         },
       });
       return { submission, created: true };
-    } catch (error) {
-      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") throw error;
-
-      const target = (error.meta as { target?: string[] | string } | undefined)?.target;
-      const fields = Array.isArray(target) ? target.join(",") : String(target ?? "");
-
-      // The ID collided: a concurrent request for the same submission won.
-      // Return THEIR row — that is convergence, not an error.
-      if (fields.includes("id") || fields.includes("pkey")) {
-        const winner = await tx.beatQuoteSubmission.findUnique({ where: { id: input.id } });
-        if (winner) return { submission: winner, created: false };
-      }
-      // Otherwise the generated reference collided; try another.
     }
   }
-  throw new BeatQuoteReferenceCollisionError(5);
+}
+
+/**
+ * Is this error the submission-id uniqueness violation — i.e. a concurrent
+ * request for the same submission got there first?
+ *
+ * Exported because convergence belongs to the CALLER, outside the transaction
+ * this repository may be running in. Matched on the Prisma error code and the
+ * violated target rather than on message text, which is not a stable contract.
+ */
+export function isBeatQuoteSubmissionIdCollision(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return false;
+  const target = (error.meta as { target?: string[] | string } | undefined)?.target;
+  const fields = Array.isArray(target) ? target.join(",") : String(target ?? "");
+  return fields.includes("id") || fields.includes("pkey");
 }
 
 export interface BeatQuoteSubmissionConfirmation {
