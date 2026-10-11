@@ -93,6 +93,26 @@ const EXEMPT_UI_ACTION_ROUTES: Readonly<Record<string, string>> = {
     "Origin and is same-origin by construction, unlike an App Proxy, webhook or " +
     "cron caller. If this route ever accepts a POST from anywhere but its own " +
     "rendered form, this exemption stops being true and must be re-argued.",
+  "app.beat-quote.$id.tsx":
+    "the staff Let Us Beat Your Quote review surface (Slice 10). Same argument as " +
+    "app.bank-payments.$id.tsx, not _index.tsx: this route IS a real production " +
+    "mutation, and a money-moving one — it records the verification verdict a $100 " +
+    "benefit rests on, records the match-or-beat decision, and issues the benefit " +
+    "itself. It stands on the same load-bearing leg alone: Shopify Admin iframes " +
+    "this route at the app's own URL, so a form inside it posts with the app's own " +
+    "Origin and is same-origin by construction, unlike an App Proxy, webhook or " +
+    "cron caller. " +
+    "Note what a forged POST could NOT do even if that leg failed. It could not " +
+    "grant eligibility: treatment is frozen at intake and no form here can edit it, " +
+    "and the schema refuses treatment='guarantee' outside a custom quote inside the " +
+    "7-day window. It could not re-verify: a verdict is written once, conditional on " +
+    "'pending' in the WHERE clause. It could not double-issue: UNIQUE on " +
+    "submission_id is the duplicate-issuance rule. What it COULD do is record a " +
+    "verdict or a decision attributed to the signed-in reviewer, which is why the " +
+    "same-origin argument still has to hold — the blast radius is smaller than its " +
+    "siblings' but it is not nil, and it is not the reason for the exemption. " +
+    "If this route ever accepts a POST from anywhere but its own rendered form, this " +
+    "exemption stops being true and must be re-argued.",
   "app.custom-jewelry.$id.tsx":
     "the staff Custom Jewelry project surface (Slice 9). Same argument as " +
     "app.bank-payments.$id.tsx, not _index.tsx: this route IS a real production " +

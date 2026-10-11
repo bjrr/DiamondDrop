@@ -257,3 +257,118 @@ export async function createFallbackBenefit(
   }
   throw new Error("could not generate a unique benefit code in 5 attempts");
 }
+
+export interface BeatQuoteStaffListRow {
+  readonly id: string;
+  readonly submissionReference: string;
+  readonly kind: string;
+  readonly treatment: string;
+  readonly verification: string;
+  readonly status: string;
+  readonly customerName: string;
+  readonly email: string;
+  readonly hasAccount: boolean;
+  readonly quoteAgeCalendarDays: number | null;
+  readonly submittedAt: Date;
+  readonly competitorPriceMinorUnits: bigint | null;
+  readonly competitorPriceCurrency: string | null;
+  readonly benefitIssuedAt: Date | null;
+}
+
+export interface SearchBeatQuoteSubmissionsInput {
+  /** Matches the submission reference or the customer's email, case-insensitively. */
+  readonly query?: string;
+  readonly status?: BeatQuoteSubmissionStatus | readonly BeatQuoteSubmissionStatus[];
+  readonly page?: number;
+}
+
+const PAGE_SIZE = 25;
+
+/**
+ * The staff triage list.
+ *
+ * AN EXPLICIT `select` ALLOWLIST, never a spread. The row carries reviewer
+ * identities, internal verification evidence and a decision reason; a spread
+ * would start surfacing any of those on a list screen the moment a column was
+ * added.
+ *
+ * `specifications` and `verificationEvidence` are deliberately ABSENT: both are
+ * long free text that makes a list unreadable, and the detail page is where
+ * they belong.
+ *
+ * `hasAccount` rather than the raw `customerRef`. What a triaging reviewer
+ * needs to know is whether a benefit COULD be issued — issuance fails closed
+ * for an anonymous submission because the benefit is non-transferable — and
+ * that is a yes/no, not a gid to copy around.
+ */
+export async function searchBeatQuoteSubmissionsForStaff(
+  input: SearchBeatQuoteSubmissionsInput = {}
+): Promise<{ rows: BeatQuoteStaffListRow[]; totalCount: number; pageSize: number }> {
+  const page = input.page && input.page > 0 ? input.page : 1;
+
+  const where: Prisma.BeatQuoteSubmissionWhereInput = {
+    ...(input.query
+      ? {
+          OR: [
+            { submissionReference: { contains: input.query, mode: "insensitive" } },
+            { email: { contains: input.query, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+    // Normalised to an `in` filter either way: `Array.isArray` does not narrow
+    // a `readonly T[]` union usefully, and one shape is simpler than two.
+    ...(input.status
+      ? { status: { in: Array.isArray(input.status) ? [...input.status] : [input.status] } }
+      : {}),
+  };
+
+  const [rows, totalCount] = await Promise.all([
+    prisma.beatQuoteSubmission.findMany({
+      where,
+      // Oldest first: a triage queue is worked front to back, and the
+      // submission waiting longest is the one a customer is waiting on.
+      orderBy: { submittedAt: "asc" },
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+      select: {
+        id: true,
+        submissionReference: true,
+        kind: true,
+        treatment: true,
+        verification: true,
+        status: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        customerRef: true,
+        quoteAgeCalendarDays: true,
+        submittedAt: true,
+        competitorPriceMinorUnits: true,
+        competitorPriceCurrency: true,
+        fallbackBenefit: { select: { issuedAt: true } },
+      },
+    }),
+    prisma.beatQuoteSubmission.count({ where }),
+  ]);
+
+  return {
+    rows: rows.map((row) => ({
+      id: row.id,
+      submissionReference: row.submissionReference,
+      kind: row.kind,
+      treatment: row.treatment,
+      verification: row.verification,
+      status: row.status,
+      customerName: `${row.firstName} ${row.lastName}`,
+      email: row.email,
+      hasAccount: row.customerRef !== null,
+      quoteAgeCalendarDays: row.quoteAgeCalendarDays,
+      submittedAt: row.submittedAt,
+      competitorPriceMinorUnits: row.competitorPriceMinorUnits,
+      competitorPriceCurrency: row.competitorPriceCurrency,
+      benefitIssuedAt: row.fallbackBenefit?.issuedAt ?? null,
+    })),
+    totalCount,
+    pageSize: PAGE_SIZE,
+  };
+}
