@@ -78,6 +78,13 @@ const orderPaidPayloadSchema = z.object({
     .array(z.object({ code: z.string().optional(), type: z.string().optional() }).passthrough())
     .nullable()
     .optional(),
+  /**
+   * When the money actually moved. The benefit's expiry is judged against this
+   * rather than against this delivery's arrival — see `orderPaidAt` on
+   * `VerifyAndCompleteInput`.
+   */
+  processed_at: z.string().nullable().optional(),
+  created_at: z.string().nullable().optional(),
   customer: z
     .object({ admin_graphql_api_id: z.string().nullable().optional() })
     .nullable()
@@ -158,6 +165,17 @@ function variantGidFrom(raw: string | number | null | undefined): string | null 
  * FAILS CLOSED ON AN UNRECOGNISED VARIANT. A line we cannot classify is not
  * evidence that it is eligible — and a redemption order should only ever
  * contain variants this app priced.
+ *
+ * MUST BE REVISITED WHEN CUSTOM JEWELRY REDEMPTION IS WIRED. Today the only
+ * thing that creates a redemption order is `apps.carat.beat-quote-redeem.tsx`,
+ * which builds variant lines exclusively, so "no identifiable variants" really
+ * does mean something is wrong. A Custom Jewelry redemption would carry a
+ * CUSTOM line with no `variant_id` at all — Shopify's own shape for a line with
+ * no catalogue entry — and this function would reject a perfectly legitimate
+ * order. The fix is not to loosen the check: it is to classify by the intent's
+ * own `surface`, which already distinguishes the two. Left as it stands rather
+ * than pre-built, because a branch for a flow that does not exist yet is a
+ * branch nothing tests.
  */
 async function containsExcludedMerchandise(
   variantGids: readonly string[]
@@ -300,6 +318,23 @@ export async function handleBeatQuoteRedemptionOrderPaidWebhook(
     return;
   }
 
+  // WHEN THE CUSTOMER PAID, not when this delivery arrived. Unreadable is an
+  // anomaly rather than a fallback to `now`: substituting the current time
+  // would silently reintroduce the exact bug `orderPaidAt` exists to prevent,
+  // and a paid order with no readable timestamp is strange enough to look at.
+  // Same treatment, same field, as the deposit handler.
+  const paidAtRaw = payload.processed_at ?? payload.created_at ?? null;
+  const orderPaidAt = paidAtRaw ? new Date(paidAtRaw) : null;
+  if (!orderPaidAt || Number.isNaN(orderPaidAt.getTime())) {
+    logger.error("beat_quote_redemption_order.unreadable_paid_at", { orderGid, intentId });
+    await recordAnomaly(
+      orderGid,
+      `order for redemption intent ${intentId} carried no readable processed_at/created_at timestamp, ` +
+        `so the benefit's expiry cannot be judged against when it was paid`
+    );
+    return;
+  }
+
   const variantGids = (payload.line_items ?? [])
     .map((line) => variantGidFrom(line.variant_id))
     .filter((gid): gid is string => gid !== null);
@@ -320,6 +355,7 @@ export async function handleBeatQuoteRedemptionOrderPaidWebhook(
     observedCurrency: payload.currency?.trim().toUpperCase() ?? "",
     otherPromotionOnOrder,
     containsExcludedMerchandise: excluded.excluded,
+    orderPaidAt,
     now: new Date(),
   });
 

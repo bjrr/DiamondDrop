@@ -320,6 +320,7 @@ async function complete(intentId: string, _code: string, overrides: Record<strin
     observedCurrency: intent.currency,
     otherPromotionOnOrder: false,
     containsExcludedMerchandise: false,
+    orderPaidAt: DURING,
     now: DURING,
     ...overrides,
   });
@@ -357,6 +358,7 @@ describe("order-time verification", () => {
         observedCurrency: intent.currency,
         otherPromotionOnOrder: false,
         containsExcludedMerchandise: false,
+        orderPaidAt: DURING,
         now: DURING,
       });
 
@@ -384,6 +386,7 @@ describe("order-time verification", () => {
         observedCurrency: intent.currency,
         otherPromotionOnOrder: false,
         containsExcludedMerchandise: false,
+        orderPaidAt: DURING,
         now: DURING,
       });
 
@@ -419,8 +422,8 @@ describe("any mismatch fails closed to STAFF REVIEW, never to redeemed", () => {
       /another promotional discount/i,
     ],
     [
-      "the benefit expired before the order completed",
-      { now: new Date("2027-06-01T00:00:00.000Z") },
+      "the order was PAID after the benefit expired",
+      { orderPaidAt: new Date("2027-06-01T00:00:00.000Z") },
       /expired/i,
     ],
   ])("%s", async (_label, overrides, pattern) => {
@@ -512,5 +515,66 @@ describe("the reserved calculation is immutable", () => {
     await expect(
       prisma.$executeRaw`DELETE FROM "beat_quote_redemption_intent" WHERE "id" = ${r.intent.id}::uuid`
     ).rejects.toThrow(/append-only/i);
+  });
+});
+
+describe("expiry is judged against WHEN THE CUSTOMER PAID", () => {
+  it("COMPLETES an order paid in time whose webhook arrives after expiry", async () => {
+    // THE BUG THIS EXISTS FOR. Verification originally compared the expiry
+    // against `now` — webhook arrival — so a customer who paid inside the
+    // window had their legitimate redemption failed to staff review because
+    // Shopify retried the delivery. Fail-closed meant nobody lost money, but
+    // it blamed the customer for our latency.
+    const b = await benefit();
+    const r = await reserve(b.benefitCode);
+    if (r.outcome !== "reserved") throw new Error("expected a reservation");
+    const intent = await prisma.beatQuoteRedemptionIntent.findUniqueOrThrow({ where: { id: r.intent.id } });
+
+    const result = await verifyAndCompleteBeatQuoteRedemption({
+      intentId: r.intent.id,
+      orderGid: `gid://shopify/Order/${uniq()}`,
+      orderCustomerRef: intent.customerRef,
+      observedDiscountMinorUnits: intent.discountMinorUnits,
+      observedCurrency: intent.currency,
+      otherPromotionOnOrder: false,
+      containsExcludedMerchandise: false,
+      // Paid comfortably inside the window...
+      orderPaidAt: DURING,
+      // ...and processed by us long after it closed.
+      now: new Date("2027-06-01T00:00:00.000Z"),
+    });
+
+    expect(result.outcome).toBe("completed");
+    const after = await prisma.beatQuoteFallbackBenefit.findUniqueOrThrow({ where: { id: b.id } });
+    expect(after.redeemedAt).not.toBeNull();
+  });
+
+  it("still REFUSES an order paid after expiry, however promptly it is delivered", async () => {
+    // The other direction, so the fix above cannot have simply removed the
+    // check: a checkout that sat past the expiry must not complete.
+    const b = await benefit();
+    const r = await reserve(b.benefitCode);
+    if (r.outcome !== "reserved") throw new Error("expected a reservation");
+    const intent = await prisma.beatQuoteRedemptionIntent.findUniqueOrThrow({ where: { id: r.intent.id } });
+    const paidLate = new Date("2027-06-01T00:00:00.000Z");
+
+    const result = await verifyAndCompleteBeatQuoteRedemption({
+      intentId: r.intent.id,
+      orderGid: `gid://shopify/Order/${uniq()}`,
+      orderCustomerRef: intent.customerRef,
+      observedDiscountMinorUnits: intent.discountMinorUnits,
+      observedCurrency: intent.currency,
+      otherPromotionOnOrder: false,
+      containsExcludedMerchandise: false,
+      orderPaidAt: paidLate,
+      // Delivered the instant it was paid; only the PAYMENT is late.
+      now: paidLate,
+    });
+
+    expect(result.outcome).toBe("failed_review");
+    if (result.outcome === "failed_review") expect(result.reason).toMatch(/expired/i);
+    expect(
+      (await prisma.beatQuoteFallbackBenefit.findUniqueOrThrow({ where: { id: b.id } })).redeemedAt
+    ).toBeNull();
   });
 });

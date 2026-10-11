@@ -217,6 +217,17 @@ export interface VerifyAndCompleteInput {
   readonly otherPromotionOnOrder: boolean;
   /** True when the order contains Group Buy or Luxury Steals merchandise. */
   readonly containsExcludedMerchandise: boolean;
+  /**
+   * When the customer actually PAID, from Shopify's own `processed_at`.
+   *
+   * SEPARATE FROM `now`, AND THE DISTINCTION IS THE CUSTOMER'S MONEY. The
+   * benefit's expiry is judged against this, never against webhook arrival: a
+   * customer who paid inside the window whose delivery is retried or delayed
+   * past it has done nothing wrong, and failing their redemption to staff
+   * review would blame them for our latency. `now` still stamps `completedAt`,
+   * because that genuinely is when we recorded it.
+   */
+  readonly orderPaidAt: Date;
   readonly now: Date;
 }
 
@@ -287,10 +298,14 @@ export async function verifyAndCompleteBeatQuoteRedemption(
   if (input.otherPromotionOnOrder) {
     mismatches.push("the order carries another promotional discount and stacking was not authorized");
   }
-  // The benefit's own expiry, checked against the ORDER's arrival rather than
-  // the reservation's: a checkout that sat past the expiry must not complete.
-  if (input.now.getTime() >= intent.benefitExpiresAt.getTime()) {
-    mismatches.push(`the benefit expired at ${intent.benefitExpiresAt.toISOString()} before the order completed`);
+  // The benefit's own expiry, checked against WHEN THE CUSTOMER PAID — not
+  // against the reservation (a checkout that sat past the expiry must not
+  // complete) and not against webhook arrival (see `orderPaidAt`: a delayed
+  // delivery is our problem, not theirs).
+  if (input.orderPaidAt.getTime() >= intent.benefitExpiresAt.getTime()) {
+    mismatches.push(
+      `the benefit expired at ${intent.benefitExpiresAt.toISOString()} before the order was paid at ${input.orderPaidAt.toISOString()}`
+    );
   }
 
   if (mismatches.length > 0) {

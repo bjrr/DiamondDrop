@@ -801,9 +801,15 @@ function paidOrderPayload(options: {
   currency?: string;
   discountCodes?: { code: string }[];
   tags?: string;
+  /** When the money moved. Defaults to now; `null` omits it entirely. */
+  processedAt?: string | null;
 }): Record<string, unknown> {
   return {
     admin_graphql_api_id: options.orderGid,
+    // The benefit's expiry is judged against THIS, not against delivery time.
+    ...(options.processedAt === null
+      ? {}
+      : { processed_at: options.processedAt ?? new Date().toISOString() }),
     tags: options.tags ?? `${BEAT_QUOTE_REDEMPTION_ORDER_TAG_PREFIX}${options.intentId}`,
     currency: options.currency ?? "USD",
     current_total_discounts: options.discounts ?? decimalOf(options.reservedDiscountMinorUnits ?? 0n),
@@ -1098,5 +1104,92 @@ describe("any mismatch fails closed to STAFF REVIEW", () => {
     );
     const after = await prisma.beatQuoteRedemptionIntent.findUniqueOrThrow({ where: { id: intent.id } });
     expect(after.status).toBe("failed_review");
+  });
+});
+
+describe("the handler reads when the order was PAID", () => {
+  it("fails closed when the order carries no readable payment timestamp", async () => {
+    // Falling back to `now` would silently reintroduce the bug `orderPaidAt`
+    // exists to prevent — judging a benefit's expiry by when Shopify happened
+    // to deliver the webhook. A paid order with no timestamp is strange enough
+    // to look at instead.
+    const { benefit: b, variant, intent } = await reservedRedemption();
+    const orderGid = `gid://shopify/Order/${uniq()}`;
+
+    await handleBeatQuoteRedemptionOrderPaidWebhook(
+      orderPaidEvent(
+        paidOrderPayload({
+          orderGid,
+          intentId: intent.id,
+          numericVariantId: variant.numericVariantId,
+          reservedDiscountMinorUnits: intent.discountMinorUnits,
+          processedAt: null,
+        })
+      ),
+      { adminGraphql: fakeAdmin(new Map([[intent.draftOrderGid!, orderGid]])) }
+    );
+
+    // Nothing written: still reserved, benefit untouched.
+    const after = await prisma.beatQuoteRedemptionIntent.findUniqueOrThrow({ where: { id: intent.id } });
+    expect(after.status).toBe("reserved");
+    expect(
+      (await prisma.beatQuoteFallbackBenefit.findUniqueOrThrow({ where: { id: b.id } })).redeemedAt
+    ).toBeNull();
+    const anomalies = await prisma.auditEvent.findMany({
+      where: { entityType: "beat_quote_redemption", entityId: orderGid },
+    });
+    expect(anomalies[0]!.reason).toMatch(/no readable processed_at/);
+  });
+
+  it("completes an order PAID in time even when the delivery is late", async () => {
+    // End-to-end counterpart of the unit-level regression: the webhook runs
+    // against `new Date()` internally, so the only way this passes is if the
+    // expiry really is judged against `processed_at`.
+    const { benefit: b, variant, intent } = await reservedRedemption();
+    const orderGid = `gid://shopify/Order/${uniq()}`;
+
+    await handleBeatQuoteRedemptionOrderPaidWebhook(
+      orderPaidEvent(
+        paidOrderPayload({
+          orderGid,
+          intentId: intent.id,
+          numericVariantId: variant.numericVariantId,
+          reservedDiscountMinorUnits: intent.discountMinorUnits,
+          // Comfortably inside the 90-day window.
+          processedAt: new Date("2026-10-20T00:00:00.000Z").toISOString(),
+        })
+      ),
+      { adminGraphql: fakeAdmin(new Map([[intent.draftOrderGid!, orderGid]])) }
+    );
+
+    expect(
+      (await prisma.beatQuoteFallbackBenefit.findUniqueOrThrow({ where: { id: b.id } })).redeemedAt
+    ).not.toBeNull();
+  });
+
+  it("fails closed on an order PAID after the benefit expired", async () => {
+    const { benefit: b, variant, intent } = await reservedRedemption();
+    const orderGid = `gid://shopify/Order/${uniq()}`;
+
+    await handleBeatQuoteRedemptionOrderPaidWebhook(
+      orderPaidEvent(
+        paidOrderPayload({
+          orderGid,
+          intentId: intent.id,
+          numericVariantId: variant.numericVariantId,
+          reservedDiscountMinorUnits: intent.discountMinorUnits,
+          // Well past the 90 days from the 2026-10-10 issue date.
+          processedAt: new Date("2027-06-01T00:00:00.000Z").toISOString(),
+        })
+      ),
+      { adminGraphql: fakeAdmin(new Map([[intent.draftOrderGid!, orderGid]])) }
+    );
+
+    const after = await prisma.beatQuoteRedemptionIntent.findUniqueOrThrow({ where: { id: intent.id } });
+    expect(after.status).toBe("failed_review");
+    expect(after.reviewReason).toMatch(/expired/i);
+    expect(
+      (await prisma.beatQuoteFallbackBenefit.findUniqueOrThrow({ where: { id: b.id } })).redeemedAt
+    ).toBeNull();
   });
 });
