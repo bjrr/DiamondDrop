@@ -3923,6 +3923,94 @@ model BeatQuoteFallbackBenefit {
   issuedByActorType ActorType @map("issued_by_actor_type")
   issuedByActorRef  String?   @map("issued_by_actor_ref")
 
+  /// Reservations and the one completed redemption. Partial UNIQUE indexes on
+  /// the intent side allow at most one reserved and one completed per benefit.
+  redemptionIntents BeatQuoteRedemptionIntent[]
+
   @@index([customerRef])
   @@map("beat_quote_fallback_benefit")
+}
+
+enum BeatQuoteRedemptionStatus {
+  /// A draft order is being or has been created for this benefit. The benefit
+  /// is unusable elsewhere but not yet spent.
+  reserved
+  /// A real order paid. The benefit is spent.
+  completed
+  /// Abandoned or failed. The benefit is usable again.
+  released
+  /// Order-time verification disagreed with the reserved calculation. A human
+  /// must look before anything is called redeemed — a mismatch is either our
+  /// bug or someone's tampering, and both deserve a person.
+  failed_review
+
+  @@map("beat_quote_redemption_status")
+}
+
+/// ONLY THE ELIGIBLE SURFACES EXIST HERE. Group Buy and Luxury Steals are
+/// excluded by the locked policy, so they are not members: a redemption against
+/// one is unrepresentable rather than refused by a check somebody has to
+/// remember to write.
+enum BeatQuoteRedemptionSurfaceKind {
+  buy_now
+  custom_jewelry
+
+  @@map("beat_quote_redemption_surface")
+}
+
+/// The reservation gap between calculating a fallback discount and the customer
+/// paying.
+///
+/// Marking the benefit redeemed when the draft order is created would consume
+/// it on an abandoned checkout; marking it only at payment would let two
+/// simultaneous checkouts both carry the discount. So the gap gets its own row
+/// with its own lifecycle, and partial UNIQUE indexes (one `reserved`, one
+/// `completed` per benefit) are what make concurrent attempts converge.
+model BeatQuoteRedemptionIntent {
+  id String @id @default(uuid()) @db.Uuid
+
+  benefitId String                   @map("benefit_id") @db.Uuid
+  benefit   BeatQuoteFallbackBenefit @relation(fields: [benefitId], references: [id])
+
+  /// The AUTHENTICATED customer attempting redemption, compared against the
+  /// benefit's own `customerRef` by the reserving code. The benefit is
+  /// non-transferable and a browser-supplied relationship is never trusted.
+  customerRef String @map("customer_ref")
+
+  surface BeatQuoteRedemptionSurfaceKind
+
+  /// MERCHANDISE ONLY — excludes tax, shipping, duties, tips and any
+  /// non-merchandise charge, and excludes Group Buy and Luxury Steals lines
+  /// entirely. A percentage of a total that includes tax is a bigger benefit
+  /// than the one promised.
+  eligibleSubtotalMinorUnits BigInt @map("eligible_subtotal_minor_units")
+  /// min(10% of the subtotal, the benefit's own cap).
+  discountMinorUnits         BigInt @map("discount_minor_units")
+  currency                   String @db.Char(3)
+
+  /// COPIED FROM THE BENEFIT AT RESERVATION, not read back later. A CHECK can
+  /// only reference its own row, so the cap has to live here for the database
+  /// to enforce it — and if the benefit's terms were ever corrected, this
+  /// intent must still be judged against what it was created under.
+  benefitMaxDiscountMinorUnits BigInt   @map("benefit_max_discount_minor_units")
+  benefitExpiresAt             DateTime @map("benefit_expires_at") @db.Timestamptz(6)
+
+  /// A frozen snapshot of the lines the discount was calculated from.
+  /// Evidence, not a working copy: order-time verification needs to know what
+  /// we priced, and a cart is not a stable thing to point at.
+  eligibleLines Json @map("eligible_lines")
+
+  draftOrderGid String? @unique @map("draft_order_gid")
+  orderGid      String? @unique @map("order_gid")
+
+  status        BeatQuoteRedemptionStatus @default(reserved)
+  reservedAt    DateTime                  @default(now()) @map("reserved_at") @db.Timestamptz(6)
+  completedAt   DateTime?                 @map("completed_at") @db.Timestamptz(6)
+  releasedAt    DateTime?                 @map("released_at") @db.Timestamptz(6)
+  releaseReason String?                   @map("release_reason")
+  reviewReason  String?                   @map("review_reason")
+
+  @@index([status])
+  @@index([customerRef])
+  @@map("beat_quote_redemption_intent")
 }

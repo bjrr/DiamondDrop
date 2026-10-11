@@ -44,6 +44,12 @@ function call(fn: typeof intakeAction, request: Request) {
 
 function fakeDraftOrders(): DraftOrderPort {
   return {
+    // The fallback-benefit redemption path. Refused rather than stubbed
+    // permissively: no Bank Payment, deposit or admin flow should ever create a
+    // redemption draft order, so a call here is a defect worth failing on.
+    async createRedemptionDraftOrder(): Promise<never> {
+      throw new Error("createRedemptionDraftOrder is not expected in this test");
+    },
     async createServiceDraftOrder(_input: CreateServiceDraftOrderInput): Promise<CreatedDraftOrder> {
       return { draftOrderGid: `gid://shopify/DraftOrder/${randomUUID()}`, invoiceUrl: null };
     },

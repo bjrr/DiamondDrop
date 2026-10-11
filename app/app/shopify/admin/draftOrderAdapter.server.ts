@@ -94,6 +94,49 @@ const COMPLETE_DRAFT_ORDER_MUTATION = `#graphql
     }
   }`;
 
+/**
+ * A SEPARATE create mutation for a redemption draft order, rather than fields
+ * added to CREATE_DRAFT_ORDER_MUTATION above.
+ *
+ * That one serves Bank Payment Checkout: money-critical, live-proven, and
+ * carrying the scars that made it so. Widening its response shape to carry a
+ * discount every Bank Payment order will never have would put the two paths'
+ * echo checks in one place, where a change for one can only be reasoned about
+ * by checking it does not break the other. These two mutations have nothing to
+ * say to each other, so they are two mutations.
+ *
+ * `allowDiscountCodesInCheckout` and `appliedDiscount` are both READ BACK, not
+ * merely sent — see `createRedemptionDraftOrder`.
+ */
+const CREATE_REDEMPTION_DRAFT_ORDER_MUTATION = `#graphql
+  mutation CaratCreateRedemptionDraftOrder($input: DraftOrderInput!) {
+    draftOrderCreate(input: $input) {
+      draftOrder {
+        id
+        invoiceUrl
+        # Boolean! on the output type, so this cannot come back null and be
+        # mistaken for "false". Verified by introspection, 2026-10-10.
+        allowDiscountCodesInCheckout
+        appliedDiscount {
+          valueType
+          # amountSet, NOT value: the value field is a Float! on both the input
+          # and the output, and money is never compared as a float here.
+          # amountSet is a MoneyBag, i.e. a decimal string, which compares
+          # exactly.
+          amountSet { shopMoney { amount currencyCode } }
+        }
+        lineItems(first: 50) {
+          nodes {
+            quantity
+            originalUnitPrice
+            variant { id }
+          }
+        }
+      }
+      userErrors { field message }
+    }
+  }`;
+
 const CANCEL_DRAFT_ORDER_MUTATION = `#graphql
   mutation CaratCancelDraftOrder($input: DraftOrderDeleteInput!) {
     draftOrderDelete(input: $input) {
@@ -275,6 +318,57 @@ export interface CreateServiceDraftOrderInput {
   tags?: readonly string[];
 }
 
+/**
+ * A draft order carrying the Let Us Beat Your Quote fallback benefit as an
+ * EXACT FIXED AMOUNT (owner decision, 2026-10-10).
+ *
+ * ============================================================================
+ * WHY NOT A SHOPIFY DISCOUNT CODE — the owner's decision, and the reason
+ * ============================================================================
+ * A generic 10%-off code would compute its own number from whatever Shopify
+ * considers discountable. That is not the benefit that was promised: the
+ * amendment caps it at $100, limits it to eligible merchandise, and excludes
+ * Group Buy lines, Luxury Steals, tax, shipping, duties and tips. A percentage
+ * Shopify evaluates for itself gets all of that wrong in the customer's
+ * favour, silently, on every order. A code is also bearer-usable — it can be
+ * shared, and the benefit is non-transferable and single-use.
+ *
+ * So the amount is calculated server-side (`domain/beatyourquote/
+ * redemptionCalculation.ts`), reserved against the benefit
+ * (`jobs/beatyourquote/redeemFallbackBenefit.server.ts`), and sent here as a
+ * figure Shopify does not get a vote on.
+ */
+export interface CreateRedemptionDraftOrderInput {
+  /**
+   * REQUIRED. Without `customerId` Shopify matches or CREATES a customer from
+   * the email — a different record from the authenticated one. See
+   * `CreateDraftOrderInput.customerGid`: that exact defect attached every Group
+   * Buy Bank Payment order to the wrong person.
+   *
+   * It matters doubly here. The benefit is non-transferable, and order-time
+   * verification compares the ORDER's customer against the reserving customer.
+   * An order attached to an email-derived twin would fail that comparison and
+   * send a legitimate redemption to staff review.
+   */
+  customerGid: string;
+  email: string;
+  shippingAddress: DraftOrderShippingAddressInput;
+  lineItems: readonly DraftOrderLineItemInput[];
+  /**
+   * The EXACT discount, already calculated and reserved. This adapter does not
+   * compute a percentage, apply a cap, or decide what is eligible — all three
+   * happened before it was called, and all three are the substance of the
+   * policy.
+   */
+  discount: Money;
+  /** Shown to the customer on the invoice as the discount's name. */
+  discountTitle: string;
+  /** The reservation this draft order belongs to, for cross-reference from the Shopify admin. */
+  redemptionIntentId: string;
+  note?: string;
+  tags?: readonly string[];
+}
+
 export interface CreatedDraftOrder {
   draftOrderGid: string;
   /** Null when Shopify has not (yet) generated one for this draft order. */
@@ -326,6 +420,12 @@ export interface DraftOrderPort {
    * already cost one live defect.
    */
   createServiceDraftOrder(input: CreateServiceDraftOrderInput): Promise<CreatedDraftOrder>;
+
+  /**
+   * `draftOrderCreate` carrying an exact fixed-amount discount and REFUSING
+   * further discount codes at checkout. Both are read back before this returns.
+   */
+  createRedemptionDraftOrder(input: CreateRedemptionDraftOrderInput): Promise<CreatedDraftOrder>;
 
   /** `draftOrderInvoiceSend`. */
   sendInvoice(input: SendDraftOrderInvoiceInput): Promise<{ invoiceSentAt: Date }>;
@@ -723,6 +823,261 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
       draftOrderGid: draftOrder.id,
       invoiceUrl: draftOrder.invoiceUrl,
     };
+  }
+
+  /**
+   * A draft order carrying the fallback benefit as an exact fixed amount.
+   *
+   * ============================================================================
+   * THE DISCOUNT AMOUNT CROSSES A `Float!`, AND THAT IS HANDLED, NOT IGNORED
+   * ============================================================================
+   * `DraftOrderAppliedDiscountInput.value` is a `Float!` — required, and a
+   * float, which CLAUDE.md rule 6 forbids for money. It cannot simply be
+   * omitted. Two things make that safe rather than merely unavoidable:
+   *
+   *   1. NO ARITHMETIC IS DONE IN FLOATING POINT. The amount arrives as integer
+   *      minor units, is rendered to a decimal string by the same function the
+   *      live-proven price path uses, and only then parsed to a Number for this
+   *      one field. The float is a transport format, not a calculation.
+   *   2. THE PARSE IS CHECKED, NOT ASSUMED. The Number is rendered back to a
+   *      decimal string and compared to the original; a mismatch throws before
+   *      anything is sent. Every 2-decimal amount this business will ever
+   *      discount round-trips a double exactly, so this guard should never
+   *      fire — which is the point of asserting it rather than reasoning about
+   *      it in a comment.
+   *
+   * `amountWithCurrency` (a `MoneyInput`, so a decimal string with an explicit
+   * currency) is sent ALONGSIDE it. Both fields exist on the input type and
+   * could in principle disagree; sending both from one source string means they
+   * cannot, and the echo check below reads back `amountSet` — a MoneyBag, not a
+   * float — to confirm which figure Shopify actually stored.
+   *
+   * ============================================================================
+   * `allowDiscountCodesInCheckout: false` IS A POLICY CONTROL, NOT A SETTING
+   * ============================================================================
+   * Amendment §3 makes the benefit non-stackable unless CaratForUs expressly
+   * authorizes a combination. `quoteRedemption` enforces that on OUR side by
+   * refusing to calculate on top of another promotion — but that only governs
+   * what we put on the order. Left at Shopify's default, the customer could
+   * type a code into checkout afterwards and stack it anyway.
+   *
+   * It is READ BACK for the same reason the line prices are. A write-only flag
+   * is a promise nobody checks, and `draftOrderAdapter`'s whole history is one
+   * field that Shopify silently ignored.
+   *
+   * NOT YET LIVE-VERIFIED END TO END. The mutation's shape is confirmed against
+   * caratforus-dev by `tests/live/slice10.redemptionDiscountSchemaIntrospection.ts`
+   * (2026-10-10, all checks passed): `appliedDiscount`,
+   * `allowDiscountCodesInCheckout`, `FIXED_AMOUNT`, and the readability of
+   * `amountSet`/`allowDiscountCodesInCheckout` for the echo check. Introspection
+   * proves the fields exist and are legal to send; it does not prove Shopify
+   * honours them at runtime. The echo check below is what proves that, on every
+   * real call.
+   */
+  async createRedemptionDraftOrder(input: CreateRedemptionDraftOrderInput): Promise<CreatedDraftOrder> {
+    if (input.lineItems.length === 0) {
+      throw new AdminApiError("draftOrderCreate", ["cannot create a redemption draft order with zero line items"]);
+    }
+    if (input.lineItems.length > MAX_VERIFIABLE_LINE_ITEMS) {
+      throw new AdminApiError("draftOrderCreate", [
+        `cannot verify more than ${MAX_VERIFIABLE_LINE_ITEMS} line items; received ${input.lineItems.length}`,
+      ]);
+    }
+    if (input.discount.amountMinorUnits <= 0n) {
+      // A zero discount would spend the customer's single-use benefit on
+      // nothing. `quoteRedemption` already refuses this; refused again here
+      // because this adapter must not depend on its caller having done so.
+      throw new AdminApiError("draftOrderCreate", [
+        `refusing to create a redemption draft order for a discount of ${input.discount.amountMinorUnits} minor units`,
+      ]);
+    }
+
+    const seenVariantGids = new Set<string>();
+    for (const line of input.lineItems) {
+      if (seenVariantGids.has(line.shopifyVariantGid)) {
+        throw new AdminApiError("draftOrderCreate", [
+          `variant ${line.shopifyVariantGid} appears on more than one line item; ` +
+            "coalesce duplicate variants into one line before calling this adapter",
+        ]);
+      }
+      seenVariantGids.add(line.shopifyVariantGid);
+    }
+
+    const currency = input.lineItems[0]!.unitPrice.currency;
+    for (const line of input.lineItems) {
+      if (line.unitPrice.currency !== currency) {
+        throw new CurrencyMismatchError(currency, line.unitPrice.currency);
+      }
+    }
+    if (input.discount.currency !== currency) {
+      throw new CurrencyMismatchError(currency, input.discount.currency);
+    }
+
+    const discountDecimalString = minorUnitsToDecimalString(input.discount.amountMinorUnits);
+    // The checked parse. See the method comment: the schema requires a Float,
+    // so the conversion is verified rather than trusted.
+    const discountFloat = Number(discountDecimalString);
+    if (!Number.isFinite(discountFloat) || discountFloat.toFixed(2) !== discountDecimalString) {
+      throw new AdminApiError("draftOrderCreate", [
+        `the discount ${discountDecimalString} does not survive conversion to the Float the API requires ` +
+          `(got ${discountFloat}); refusing to send a discount amount that may not be exact`,
+      ]);
+    }
+
+    const sentPriceByVariantGid = new Map<string, string>();
+    const lineItemsVariables = input.lineItems.map((line) => {
+      const priceDecimalString = minorUnitsToDecimalString(line.unitPrice.amountMinorUnits);
+      sentPriceByVariantGid.set(line.shopifyVariantGid, priceDecimalString);
+      return {
+        variantId: line.shopifyVariantGid,
+        quantity: line.quantity,
+        ...(line.customAttributes && line.customAttributes.length > 0
+          ? { customAttributes: line.customAttributes.map((a) => ({ key: a.key, value: a.value })) }
+          : {}),
+        // `priceOverride` for a variant line — see `createDraftOrder`'s comment
+        // for why this is not `originalUnitPrice`.
+        priceOverride: { amount: priceDecimalString, currencyCode: currency },
+      };
+    });
+
+    const variables = {
+      input: {
+        customerId: input.customerGid,
+        email: input.email,
+        shippingAddress: {
+          firstName: input.shippingAddress.firstName,
+          lastName: input.shippingAddress.lastName,
+          address1: input.shippingAddress.address1,
+          address2: input.shippingAddress.address2,
+          city: input.shippingAddress.city,
+          provinceCode: input.shippingAddress.provinceCode,
+          zip: input.shippingAddress.zip,
+          countryCode: input.shippingAddress.countryCode,
+          phone: input.shippingAddress.phone,
+        },
+        lineItems: lineItemsVariables,
+        // Explicit nil shipping, same reasoning as `createDraftOrder` (D19):
+        // shipping is already priced into the landed cost behind each line's
+        // unit price, so a second shipping charge would bill it twice.
+        shippingLine: {
+          title: ZERO_SHIPPING_LINE_TITLE,
+          price: minorUnitsToDecimalString(Money.zero(currency).amountMinorUnits),
+        },
+        // THE BENEFIT. FIXED_AMOUNT, not PERCENTAGE — the cap and the
+        // merchandise-only exclusions mean a percentage Shopify evaluates for
+        // itself is a different number from the one promised.
+        appliedDiscount: {
+          valueType: "FIXED_AMOUNT",
+          value: discountFloat,
+          amountWithCurrency: { amount: discountDecimalString, currencyCode: currency },
+          title: input.discountTitle,
+          description: `Let Us Beat Your Quote fallback benefit (redemption ${input.redemptionIntentId})`,
+        },
+        // Amendment §3's non-stacking promise, enforced at Shopify's checkout
+        // rather than only in our own arithmetic.
+        allowDiscountCodesInCheckout: false,
+        // NO `reserveInventoryUntil`, and no payment terms: a redemption is
+        // paid through Shopify's own checkout, so the order becomes paid
+        // exactly when the customer pays — the opposite choice from Bank
+        // Payment, for the opposite reason. See `createServiceDraftOrder`.
+        note: input.note,
+        tags: input.tags ? [...input.tags] : undefined,
+      },
+    };
+
+    const payload = await this.runDraftOrderMutation<{
+      draftOrder?: {
+        id: string;
+        invoiceUrl: string | null;
+        allowDiscountCodesInCheckout?: boolean | null;
+        appliedDiscount?: {
+          valueType: string;
+          amountSet?: { shopMoney?: { amount: string; currencyCode: string } | null } | null;
+        } | null;
+        lineItems?: { nodes?: { quantity: number; originalUnitPrice: string; variant?: { id: string } | null }[] };
+      } | null;
+      userErrors?: { field?: string[] | null; message: string }[];
+    }>("draftOrderCreate", CREATE_REDEMPTION_DRAFT_ORDER_MUTATION, variables, "draftOrderCreate");
+
+    const draftOrder = payload.draftOrder;
+    if (!draftOrder) {
+      throw new AdminApiError("draftOrderCreate", ["response carried no userErrors but also no draftOrder"]);
+    }
+
+    // STEP 5 — the echo check. Lines first, same discipline as
+    // `createDraftOrder`: matched by variant gid, never by position.
+    const returnedLines = draftOrder.lineItems?.nodes ?? [];
+    if (returnedLines.length !== input.lineItems.length) {
+      throw new AdminApiError("draftOrderCreate", [
+        `sent ${input.lineItems.length} line item(s) but the response echoed ${returnedLines.length}`,
+      ]);
+    }
+    for (const [variantGid, sentPrice] of sentPriceByVariantGid) {
+      const returned = returnedLines.find((line) => line.variant?.id === variantGid);
+      if (!returned) {
+        throw new AdminApiError("draftOrderCreate", [
+          `sent a line for variant ${variantGid} but it was not echoed back in the response`,
+        ]);
+      }
+      const expectedQuantity = input.lineItems.find((l) => l.shopifyVariantGid === variantGid)!.quantity;
+      if (returned.quantity !== expectedQuantity) {
+        throw new AdminApiError("draftOrderCreate", [
+          `variant ${variantGid}: sent quantity ${expectedQuantity} but Shopify echoed ${returned.quantity}`,
+        ]);
+      }
+      if (returned.originalUnitPrice !== sentPrice) {
+        throw new AdminApiError("draftOrderCreate", [
+          `variant ${variantGid}: price mismatch — sent ${sentPrice} but Shopify echoed ${returned.originalUnitPrice}`,
+        ]);
+      }
+    }
+
+    // THE DISCOUNT ITSELF. An ignored `appliedDiscount` would produce a draft
+    // order at full price that our database records as a redeemed benefit —
+    // the customer pays everything and loses the benefit.
+    const applied = draftOrder.appliedDiscount;
+    if (!applied) {
+      throw new AdminApiError("draftOrderCreate", [
+        `sent a ${discountDecimalString} ${currency} fixed-amount discount but the draft order came back with none`,
+      ]);
+    }
+    if (applied.valueType !== "FIXED_AMOUNT") {
+      throw new AdminApiError("draftOrderCreate", [
+        `sent valueType FIXED_AMOUNT but Shopify stored ${applied.valueType}; a percentage would compute its own figure`,
+      ]);
+    }
+    const storedAmount = applied.amountSet?.shopMoney;
+    if (!storedAmount) {
+      throw new AdminApiError("draftOrderCreate", [
+        "the draft order's applied discount carried no amountSet to verify against",
+      ]);
+    }
+    // String comparison, not numeric: the sent and stored amounts are both
+    // decimal strings, and comparing them as numbers would reintroduce the
+    // float this method works to avoid.
+    if (storedAmount.amount !== discountDecimalString) {
+      throw new AdminApiError("draftOrderCreate", [
+        `discount mismatch — sent ${discountDecimalString} but Shopify stored ${storedAmount.amount}. ` +
+          `A redemption for the wrong amount must never be invoiced.`,
+      ]);
+    }
+    if (storedAmount.currencyCode !== currency) {
+      throw new AdminApiError("draftOrderCreate", [
+        `discount currency mismatch — sent ${currency} but Shopify stored ${storedAmount.currencyCode}`,
+      ]);
+    }
+
+    // THE NON-STACKING PROMISE. `Boolean!` on the output type, so `undefined`
+    // here means the field was not returned at all — which is itself a
+    // failure, not a false.
+    if (draftOrder.allowDiscountCodesInCheckout !== false) {
+      throw new AdminApiError("draftOrderCreate", [
+        `sent allowDiscountCodesInCheckout:false but Shopify echoed ${String(draftOrder.allowDiscountCodesInCheckout)}; ` +
+          `the fallback benefit is not stackable and must not be combinable at checkout`,
+      ]);
+    }
+
+    return { draftOrderGid: draftOrder.id, invoiceUrl: draftOrder.invoiceUrl };
   }
 
   async sendInvoice(input: SendDraftOrderInvoiceInput): Promise<{ invoiceSentAt: Date }> {

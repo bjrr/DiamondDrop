@@ -96,6 +96,42 @@ const ALLOW_LIST = [
     pattern: "Number(",
     reason: "basis-point integer for an INTEGER column; the tolerance decision is made on the exact decimal first",
   },
+  {
+    // THE SCHEMA FORCES THIS ONE, and that is the whole justification.
+    // `DraftOrderAppliedDiscountInput.value` is a `Float!` — required and
+    // non-null — confirmed by live introspection against caratforus-dev
+    // (tests/live/slice10.redemptionDiscountSchemaIntrospection.ts, 2026-10-10).
+    // There is no string variant of that field to send instead, so a redemption
+    // discount cannot reach Shopify without crossing a float exactly once.
+    //
+    // WHAT MAKES IT SAFE RATHER THAN MERELY UNAVOIDABLE:
+    //   - No arithmetic happens in floating point. The amount arrives as
+    //     integer minor units and is rendered to a decimal string by
+    //     `minorUnitsToDecimalString`; `Number(...)` is a parse of that string
+    //     at the transport edge, nothing more.
+    //   - The parse is CHECKED. The resulting number is rendered back with
+    //     `.toFixed(2)` and compared to the original string; a mismatch throws
+    //     before the mutation is sent. That is the only `.toFixed(` here, and
+    //     it exists to police the `Number(`, not to round anything.
+    //   - The authoritative figure travels beside it as
+    //     `amountWithCurrency` (a MoneyInput: decimal string + currency), and
+    //     the echo check reads the stored amount back as a MoneyBag decimal
+    //     string and compares it exactly. No money comparison in this file is
+    //     made on a float.
+    //   - `draftOrderRedemption.test.ts` sweeps all 100 cent values through the
+    //     round-trip guard, so the claim that 2-decimal amounts survive the
+    //     conversion is tested rather than asserted in prose.
+    path: "app/shopify/admin/draftOrderAdapter.server.ts",
+    pattern: "Number(",
+    reason:
+      "DraftOrderAppliedDiscountInput.value is a required Float! (live-introspected); parsed from an exact decimal string at the transport edge and verified by round-trip, never used for arithmetic or comparison",
+  },
+  {
+    path: "app/shopify/admin/draftOrderAdapter.server.ts",
+    pattern: ".toFixed(",
+    reason:
+      "the round-trip guard that polices the forced Float above — renders the parsed Number back and refuses a mismatch; it rounds nothing",
+  },
 ];
 
 /**
