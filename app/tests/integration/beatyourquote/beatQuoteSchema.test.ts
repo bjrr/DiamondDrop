@@ -44,6 +44,8 @@ async function submission(
             ? new Date("2026-10-02T00:00:00.000Z")
             : null,
       submittedOn: new Date("2026-10-09T00:00:00.000Z"),
+      submittedAt: new Date("2026-10-09T18:30:00.000Z"),
+      calendarZone: "America/New_York",
       quoteAgeCalendarDays:
         overrides.quoteAgeCalendarDays !== undefined ? overrides.quoteAgeCalendarDays : isCustom ? 7 : null,
       treatment: overrides.treatment ?? (isCustom ? "guarantee" : "review_only"),
@@ -89,6 +91,8 @@ describe("amendment §1: only a custom quote can carry the guarantee", () => {
           email: `x-${uniq()}@example.com`,
           kind: "online_listing",
           submittedOn: new Date("2026-10-09T00:00:00.000Z"),
+      submittedAt: new Date("2026-10-09T18:30:00.000Z"),
+      calendarZone: "America/New_York",
           treatment: "guarantee",
         },
       })
@@ -105,6 +109,8 @@ describe("amendment §1: only a custom quote can carry the guarantee", () => {
           email: `x-${uniq()}@example.com`,
           kind: "competing_group_buy",
           submittedOn: new Date("2026-10-09T00:00:00.000Z"),
+      submittedAt: new Date("2026-10-09T18:30:00.000Z"),
+      calendarZone: "America/New_York",
           treatment: "guarantee",
         },
       })

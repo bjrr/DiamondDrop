@@ -19,7 +19,9 @@ import {
 import { deriveIntakeTreatment } from "~/domain/beatyourquote/eligibility";
 import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
+import { businessCalendarDate, resolveStoreTimezone } from "~/shopify/admin/shopTimezone.server";
 import { verifyAppProxySignature } from "~/shopify/proxy";
+import { unauthenticated } from "~/shopify.server";
 
 /**
  * POST /apps/carat/beat-quote-submission — the "Let Us Beat Your Quote!"
@@ -58,10 +60,12 @@ import { verifyAppProxySignature } from "~/shopify/proxy";
  * ============================================================================
  * ELIGIBILITY IS FROZEN HERE, ONCE
  * ============================================================================
- * `submittedOn` is derived from the server clock in a FIXED zone (see
- * `submissionCalendarDate`) and stored, along with the quote's own date and the
- * computed age. Nothing downstream recomputes eligibility from `now()`: a quote
- * must not age out because review took four days.
+ * Three facts are stored, each answering a different question: the submission
+ * INSTANT in UTC, the BUSINESS-CALENDAR date the 7-day rule was applied to, and
+ * the IANA zone that date was derived in. Nothing downstream recomputes
+ * eligibility from `now()` — a quote must not age out because review took four
+ * days — and storing the zone means a future store-timezone change cannot
+ * reinterpret a submission judged under the old one.
  *
  * ============================================================================
  * INTAKE ISSUES NO BENEFIT, EVER
@@ -137,39 +141,6 @@ function normalizeCustomerGid(rawId: string): string {
   return rawId.startsWith("gid://") ? rawId : `gid://shopify/Customer/${rawId}`;
 }
 
-/**
- * The submission's calendar date, in a FIXED zone.
- *
- * ============================================================================
- * THE ZONE IS A POLICY DECISION, SO IT IS MADE ONCE AND VISIBLY
- * ============================================================================
- * The 7-day rule is stated in calendar days, and a calendar day depends on
- * where you stand. Reading the server's local zone would make the Day 7 / Day 8
- * boundary depend on the host's configuration — a deploy to a different region
- * could change who qualifies.
- *
- * `America/New_York` is used: CaratForUs is a US business, and a US-Eastern
- * calendar day is the one its staff and most of its customers share. The
- * alternative, UTC, shifts the boundary earlier for every US customer — a quote
- * submitted at 8pm Eastern on the 8th is already the 9th in UTC, which would
- * cost a customer a day of their window.
- *
- * Flagged as an interpretation rather than hidden: it is the conservative,
- * customer-favourable choice among the defensible ones, and a change would move
- * a real eligibility boundary.
- */
-export const BEAT_QUOTE_CALENDAR_ZONE = "America/New_York";
-
-export function submissionCalendarDate(now: Date): string {
-  // `en-CA` yields YYYY-MM-DD, which is the format the domain layer requires.
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: BEAT_QUOTE_CALENDAR_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
-}
-
 /** A `YYYY-MM-DD` string as a `DATE` column value, at UTC midnight. */
 function asDateColumn(calendarDate: string): Date {
   return new Date(`${calendarDate}T00:00:00.000Z`);
@@ -225,7 +196,44 @@ export async function action({ request }: ActionFunctionArgs) {
   // DERIVE. Nothing below reads anything the request could have influenced
   // beyond the kind and the quote's own date.
   // ---------------------------------------------------------------------------
-  const submittedOn = submissionCalendarDate(new Date());
+  // ---------------------------------------------------------------------------
+  // THE BUSINESS CALENDAR, RESOLVED FROM THE STORE — never hard-coded.
+  //
+  // Which zone decides the 7-day boundary is a business fact: it determines
+  // whether a quote submitted late in the evening counts as today or tomorrow,
+  // and therefore whether a customer receives a guaranteed match-or-beat plus a
+  // $100 benefit or a discretionary review. An earlier version of this route
+  // hard-coded America/New_York. It happened to match the store's real setting,
+  // which is exactly the problem — a constant that is right by luck is
+  // indistinguishable from one that is right by design.
+  //
+  // REFUSES RATHER THAN GUESSING. If the zone cannot be resolved there is no
+  // safe default: assuming one would silently move a real eligibility boundary.
+  // The resolver memoizes per process, so this is not a Shopify round trip per
+  // submission.
+  // ---------------------------------------------------------------------------
+  const shopDomain = url.searchParams.get("shop");
+  if (!shopDomain) {
+    // A verified App Proxy request always carries it; its absence is a real
+    // anomaly rather than something to work around.
+    return badRequest("the request carried no shop parameter");
+  }
+
+  const submittedAt = new Date();
+  let calendarZone: string;
+  try {
+    calendarZone = await resolveStoreTimezone(shopDomain, async () => {
+      const { admin } = await unauthenticated.admin(shopDomain);
+      return admin;
+    });
+  } catch (error) {
+    logger.error("beat_quote_submission.timezone_unresolved", {
+      errorName: error instanceof Error ? error.name : "unknown",
+    });
+    return Response.json({ error: "business_calendar_unavailable" }, { status: 503 });
+  }
+
+  const submittedOn = businessCalendarDate(submittedAt, calendarZone);
   let derived;
   try {
     derived = deriveIntakeTreatment({
@@ -280,6 +288,11 @@ export async function action({ request }: ActionFunctionArgs) {
         quoteAgeCalendarDays: derived.quoteAgeInCalendarDays,
         quoteIssuedOn: body.quoteIssuedOn ? asDateColumn(body.quoteIssuedOn) : null,
         submittedOn: asDateColumn(submittedOn),
+        // The instant, and WHICH calendar the date above came from. Stored so a
+        // future store-timezone change cannot reinterpret this submission's
+        // eligibility.
+        submittedAt,
+        calendarZone,
         competitorSellerName: body.competitorSellerName ?? null,
         competitorWebsite: body.competitorWebsite ?? null,
         listingUrl: body.listingUrl ?? null,

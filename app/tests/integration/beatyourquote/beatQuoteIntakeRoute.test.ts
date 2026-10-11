@@ -1,6 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
 
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { prisma } from "~/db/client.server";
 import {
@@ -11,7 +11,11 @@ import {
   BEAT_QUOTE_RECENT_QUOTE_TEXT,
   BEAT_QUOTE_WHAT_WE_MATCH_TEXT,
 } from "~/domain/beatyourquote/acknowledgmentText";
-import { action as intakeAction, submissionCalendarDate } from "~/routes/apps.carat.beat-quote-submission";
+import { action as intakeAction } from "~/routes/apps.carat.beat-quote-submission";
+import {
+  __setStoreTimezoneOverrideForTests,
+  businessCalendarDate,
+} from "~/shopify/admin/shopTimezone.server";
 
 /**
  * The intake route, against real Postgres.
@@ -29,10 +33,21 @@ const CUSTOMER = "551717";
 let seq = 0;
 const uniq = () => `${Date.now() % 900_000}-${++seq}`;
 
-/** Today, in the same fixed zone the route uses. Using the route's own helper
- *  rather than re-deriving it: a test that computed the date differently would
- *  drift from the boundary it is meant to pin. */
-const TODAY = submissionCalendarDate(new Date());
+/**
+ * The store's real configured zone, pinned for these tests.
+ *
+ * Set as an OVERRIDE rather than letting the route resolve it from Shopify:
+ * the integration environment has no Admin session, and a test that depended
+ * on one would be testing Shopify's availability. The override also makes the
+ * boundary cases below possible at all — they need a KNOWN zone to compute
+ * 23:59 and 00:00 against.
+ */
+const BUSINESS_ZONE = "America/New_York";
+beforeAll(() => __setStoreTimezoneOverrideForTests(BUSINESS_ZONE));
+afterAll(() => __setStoreTimezoneOverrideForTests(null));
+
+/** Today in the business calendar, derived the same way the route derives it. */
+const TODAY = businessCalendarDate(new Date(), BUSINESS_ZONE);
 
 function daysBefore(n: number): string {
   const ms = Date.parse(`${TODAY}T00:00:00.000Z`) - n * 86_400_000;

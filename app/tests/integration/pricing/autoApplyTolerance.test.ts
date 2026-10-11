@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
+
+import { afterEach, describe, expect, it } from "vitest";
 
 import { prisma } from "~/db/client.server";
 import { resolveActivePricingProfile } from "~/db/repositories/pricingProfileRepository.server";
@@ -31,6 +33,82 @@ import { runPriceRecalculation } from "~/jobs/pricing/runRecalculation.server";
 
 const ASOF = new Date("2026-09-18T12:00:00Z");
 
+/**
+ * ============================================================================
+ * THESE RUNS ARE SCOPED TO THIS FILE'S OWN VARIANT, AND THAT IS A FIX
+ * ============================================================================
+ * Every job call below used to run UNSCOPED, which sweeps every active variant
+ * in the shared integration database. Two real consequences:
+ *
+ *   CORRECTNESS. The assertions iterate every intent the run produced, so they
+ *   asserted a property of the WHOLE database rather than of this file's
+ *   fixture. One already-priced variant left active by another file turns
+ *   "first price for this variant" into "change of N bps" and the anchor
+ *   non-null. Scoping the QUERY by runId did not help, because those other
+ *   variants genuinely were part of the run.
+ *
+ *   DURATION. Measured on a clean local run, 2026-10-10: two of these tests
+ *   took 42.4s and 42.1s against a 45s budget — 94% of it — with cost growing
+ *   as the suite grows rather than with anything they assert. Under concurrent
+ *   load they crossed the line and timed out. Raising the budget would have
+ *   hidden a test whose cost is proportional to the rest of the suite.
+ *
+ * So each call passes `variantIds`. The production invariant is unchanged — a
+ * first-ever price still routes to a human, nothing is ever marked synced, the
+ * anchor never advances — it is simply measured against a fixture this file
+ * owns.
+ *
+ * `priceableVariant` mirrors `autoPublishWiring.test.ts`'s helper: the same
+ * gold/GOLD_14K/india combination resolvable from globally seeded cost data,
+ * with no bands and no stones so the engine takes the single-price path.
+ */
+const createdVariantIds: string[] = [];
+
+afterEach(async () => {
+  if (createdVariantIds.length === 0) return;
+  // ARCHIVED, not deleted. `price_calculation` is append-only so rows
+  // referencing this variant cannot be removed — and archiving is what takes
+  // it out of `where: { status: "active" }` for files that run later, which is
+  // the courtesy this file was not previously extending to others.
+  await prisma.masterVariant.updateMany({
+    where: { id: { in: createdVariantIds } },
+    data: { status: "archived" },
+  });
+  createdVariantIds.length = 0;
+});
+
+async function priceableVariant() {
+  const suffix = randomUUID().slice(0, 8);
+  const product = await prisma.masterProduct.create({
+    data: {
+      name: `auto-apply-tolerance fixture ${suffix}`,
+      category: "ring",
+      sizeAxis: "none",
+      allowedSizeMin: "0",
+      allowedSizeMax: "0",
+      sizeIncrement: "1",
+      baseSize: "0",
+      offeredMetals: ["gold"],
+      status: "active",
+      shopifyProductGid: `gid://shopify/Product/${suffix}`,
+    },
+  });
+  const variant = await prisma.masterVariant.create({
+    data: {
+      masterProductId: product.id,
+      metal: "gold",
+      purity: "GOLD_14K",
+      baseWeightGrams: "3.0000",
+      weightPerFullSizeGrams: "0.0000",
+      status: "active",
+      laborSource: "india",
+      shopifyVariantGid: `gid://shopify/ProductVariant/${suffix}`,
+    },
+  });
+  createdVariantIds.push(variant.id);
+  return variant;
+}
+
 describe("D14 — the auto-apply tolerance the job actually resolves", () => {
   it("the ACTIVE profile carries the owner's 200 bps", async () => {
     // Resolved the way the job resolves it, NOT read by version. A later
@@ -62,14 +140,18 @@ describe("D14 — the auto-apply tolerance the job actually resolves", () => {
     // A tolerance governs how far a price may MOVE. With no prior published
     // price there is nothing to measure against, so a first price is always a
     // human decision — that is independent of the number being 200 or 20000.
-    const run = await runPriceRecalculation({ asOf: ASOF });
-    expect(run.computed).toBeGreaterThan(0);
+    const variant = await priceableVariant();
+    const run = await runPriceRecalculation({ asOf: ASOF, variantIds: [variant.id] });
+    expect(run.computed).toBe(1);
 
     const intents = await prisma.priceSyncIntent.findMany({
       where: { priceCalculation: { runId: run.runId } },
     });
 
-    expect(intents.length).toBeGreaterThan(0);
+    // Exactly one, because the run was scoped to one variant. `toHaveLength(1)`
+    // rather than `toBeGreaterThan(0)`: the weaker assertion is what let an
+    // unscoped run look correct while actually measuring the whole database.
+    expect(intents).toHaveLength(1);
     for (const intent of intents) {
       expect(intent.status).toBe("pending_approval");
       expect(intent.reason).toMatch(/first price for this variant/);
@@ -91,13 +173,17 @@ describe("D14 — the auto-apply tolerance the job actually resolves", () => {
     // variants THESE TWO CALLS priced. Scoped to their own runIds, not a
     // database-wide count, which would otherwise depend on what unrelated
     // fixtures elsewhere in the shared integration database happen to contain.
-    const first = await runPriceRecalculation({ asOf: ASOF });
-    const second = await runPriceRecalculation({ asOf: new Date("2026-09-19T12:00:00Z") });
+    const variant = await priceableVariant();
+    const first = await runPriceRecalculation({ asOf: ASOF, variantIds: [variant.id] });
+    const second = await runPriceRecalculation({
+      asOf: new Date("2026-09-19T12:00:00Z"),
+      variantIds: [variant.id],
+    });
 
     const intents = await prisma.priceSyncIntent.findMany({
       where: { priceCalculation: { runId: { in: [first.runId, second.runId] } } },
     });
-    expect(intents.length).toBeGreaterThan(0);
+    expect(intents).toHaveLength(2);
     for (const intent of intents) {
       expect(intent.status).not.toBe("synced");
       expect(intent.syncedAt).toBeNull();
@@ -110,14 +196,18 @@ describe("D14 — the auto-apply tolerance the job actually resolves", () => {
     // "first price". If this ever starts failing, the anchor has begun moving
     // without a sync — which is the defect that made every price look
     // "unchanged, synced" earlier in this slice.
-    await runPriceRecalculation({ asOf: ASOF });
-    const second = await runPriceRecalculation({ asOf: new Date("2026-09-19T12:00:00Z") });
+    const variant = await priceableVariant();
+    await runPriceRecalculation({ asOf: ASOF, variantIds: [variant.id] });
+    const second = await runPriceRecalculation({
+      asOf: new Date("2026-09-19T12:00:00Z"),
+      variantIds: [variant.id],
+    });
 
     const intents = await prisma.priceSyncIntent.findMany({
       where: { priceCalculation: { runId: second.runId } },
     });
 
-    expect(intents.length).toBeGreaterThan(0);
+    expect(intents).toHaveLength(1);
     for (const intent of intents) {
       expect(intent.previousBankPaymentPriceMinorUnits).toBeNull();
       expect(intent.deltaBps).toBeNull();

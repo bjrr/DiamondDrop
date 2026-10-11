@@ -3803,7 +3803,17 @@ model BeatQuoteSubmission {
   /// `@db.Date`, not a timestamp: the rule is stated in CALENDAR days, which
   /// are a property of a place rather than of an instant.
   quoteIssuedOn        DateTime? @map("quote_issued_on") @db.Date
+  /// The BUSINESS-CALENDAR date the 7-day rule was applied to, derived in
+  /// `calendarZone`. Frozen.
   submittedOn          DateTime  @map("submitted_on") @db.Date
+  /// The submission INSTANT in UTC — true regardless of anybody's calendar.
+  /// Kept alongside the date because the two answer different questions.
+  submittedAt          DateTime  @map("submitted_at") @db.Timestamptz(6)
+  /// WHICH calendar `submittedOn` was derived in, so the derivation is
+  /// reproducible. Resolved from Shopify's `shop.ianaTimezone`, never
+  /// hard-coded — stored so a future store-timezone change cannot reinterpret
+  /// historical eligibility.
+  calendarZone         String    @map("calendar_zone")
   quoteAgeCalendarDays Int?      @map("quote_age_calendar_days")
   treatment            BeatQuoteTreatment
 

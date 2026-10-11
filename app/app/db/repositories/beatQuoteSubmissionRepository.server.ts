@@ -51,7 +51,12 @@ export interface CreateBeatQuoteSubmissionInput {
   readonly treatment: BeatQuoteTreatment;
   /** `YYYY-MM-DD`; null for kinds with no age rule. */
   readonly quoteIssuedOn: Date | null;
+  /** The business-calendar date the window was measured against. */
   readonly submittedOn: Date;
+  /** The instant, in UTC. */
+  readonly submittedAt: Date;
+  /** The IANA zone `submittedOn` was derived in. Resolved, never assumed. */
+  readonly calendarZone: string;
   readonly quoteAgeCalendarDays: number | null;
 
   readonly competitorSellerName: string | null;
@@ -130,6 +135,8 @@ export async function createBeatQuoteSubmission(
           treatment: input.treatment,
           quoteIssuedOn: input.quoteIssuedOn,
           submittedOn: input.submittedOn,
+          submittedAt: input.submittedAt,
+          calendarZone: input.calendarZone,
           quoteAgeCalendarDays: input.quoteAgeCalendarDays,
           competitorSellerName: input.competitorSellerName,
           competitorWebsite: input.competitorWebsite,
