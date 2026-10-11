@@ -154,7 +154,13 @@ function buildOrderViewModel(order: BankPaymentOrderDetail, availability: readon
       eligibleAtQuoteTime: line.eligibleAtQuoteTime,
       chargedUnitPriceMinorUnits: line.chargedUnitPriceMinorUnits.toString(),
       currency: line.currency,
-      availability: availabilityStatus(availabilityByVariant.get(line.masterVariantId) ?? null),
+      // A CUSTOM LINE HAS NO INVENTORY TO CHECK. It is made to order, so
+      // "available for sale" is not a question Shopify can answer about it —
+      // and showing an availability warning beside an approved custom piece
+      // would read as a problem with an order that has none.
+      availability: availabilityStatus(
+        line.masterVariantId === null ? null : availabilityByVariant.get(line.masterVariantId) ?? null
+      ),
     })),
     comparison: comparison
       ? {

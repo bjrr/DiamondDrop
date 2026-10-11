@@ -109,10 +109,20 @@ function formatVerifierActorRef(input: { shop: string; verifiedByShopifyUserId: 
 
 export interface BankPaymentOrderLineView {
   readonly id: string;
-  readonly masterVariantId: string;
+  /**
+   * NULL on a CUSTOM line — a Custom Jewelry piece priced by an approved
+   * package rather than by the pricing engine. The verification screen shows
+   * such a line by its description and its approval package, because there is
+   * no catalogue product to name.
+   */
+  readonly masterVariantId: string | null;
   readonly shopifyVariantGid: string | null;
   readonly productTitle: string;
   readonly variantLabel: string;
+  /** Set on a custom line only — what the customer sees on the invoice. */
+  readonly customLineDescription: string | null;
+  /** Set on a custom line only — the approved package this price came from. */
+  readonly customJewelryApprovalPackageId: string | null;
   readonly quantity: number;
   readonly eligibleAtQuoteTime: boolean;
   readonly quotedBankPaymentPriceMinorUnits: bigint;
@@ -188,9 +198,14 @@ export async function loadBankPaymentOrderForVerification(id: string): Promise<B
     lines: order.lines.map((line) => ({
       id: line.id,
       masterVariantId: line.masterVariantId,
-      shopifyVariantGid: line.masterVariant.shopifyVariantGid,
-      productTitle: line.masterVariant.masterProduct.name,
-      variantLabel: describeVariant(line.masterVariant),
+      // A CUSTOM LINE HAS NO VARIANT TO DESCRIBE. Rather than a blank row, it
+      // is labelled from its own description — the words the customer saw on
+      // the invoice — so a verifying admin reads what was actually sold.
+      shopifyVariantGid: line.masterVariant?.shopifyVariantGid ?? null,
+      productTitle: line.masterVariant?.masterProduct.name ?? (line.customLineDescription ?? "Custom Jewelry"),
+      variantLabel: line.masterVariant ? describeVariant(line.masterVariant) : "Made to order",
+      customLineDescription: line.customLineDescription,
+      customJewelryApprovalPackageId: line.customJewelryApprovalPackageId,
       quantity: line.quantity,
       eligibleAtQuoteTime: line.eligibleAtQuoteTime,
       quotedBankPaymentPriceMinorUnits: line.quotedBankPaymentPriceMinorUnits,
@@ -202,7 +217,8 @@ export async function loadBankPaymentOrderForVerification(id: string): Promise<B
 }
 
 export interface LineAvailability {
-  readonly masterVariantId: string;
+  /** NULL on a custom line, which has no catalogue variant to check. */
+  readonly masterVariantId: string | null;
   readonly shopifyVariantGid: string | null;
   /**
    * `null` means "could not be confirmed" (no gid on file, or Shopify's
@@ -223,7 +239,7 @@ export interface LineAvailability {
  */
 export async function checkLinesAvailability(
   admin: AdminGraphqlClient,
-  lines: readonly { masterVariantId: string; shopifyVariantGid: string | null }[]
+  lines: readonly { masterVariantId: string | null; shopifyVariantGid: string | null }[]
 ): Promise<LineAvailability[]> {
   const gids = lines
     .map((line) => line.shopifyVariantGid)

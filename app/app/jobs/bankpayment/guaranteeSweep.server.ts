@@ -114,7 +114,13 @@ interface OpenOrderForSweep {
   quotedAt: Date;
   guaranteeExpiresAt: Date;
   verifiedAt: Date | null;
-  lines: readonly { masterVariantId: string; quotedBankPaymentPriceMinorUnits: bigint }[];
+  /**
+   * `masterVariantId` is NULL on a CUSTOM line — a Custom Jewelry piece priced
+   * by an approved package rather than by the pricing engine. See
+   * `processOneOrder` for why those lines are excluded from the price-drift
+   * comparison rather than given a synthetic price.
+   */
+  lines: readonly { masterVariantId: string | null; quotedBankPaymentPriceMinorUnits: bigint }[];
 }
 
 type OrderOutcome = "kept" | "cancelled" | "flagged";
@@ -209,13 +215,37 @@ async function processOneOrder(
   recordCancellationEmail: typeof recordCancellationEmailOutcome,
   resolveFirstName: (draftOrderGid: string) => Promise<string | null>
 ): Promise<OrderOutcome> {
-  const uniqueVariantIds = [...new Set(order.lines.map((line) => line.masterVariantId))];
+  // ==========================================================================
+  // CUSTOM LINES ARE EXCLUDED FROM THE PRICE-DRIFT COMPARISON, AND THAT IS
+  // CORRECT RATHER THAN CONVENIENT
+  // ==========================================================================
+  // This sweep implements §22: after 24 hours an unpaid Bank Payment order
+  // stays open only while its price is unchanged, and any change cancels it.
+  // "Changed" means the PRICING ENGINE recalculated the variant — metal moved,
+  // a cost input changed, a profile was revised.
+  //
+  // A Custom Jewelry line has no variant and no engine calculation. Its price
+  // is frozen on an immutable approval package the customer already approved,
+  // and nothing can recalculate it: a design or price change there is a NEW
+  // approval version the customer must approve again, which is a new purchase
+  // rather than a drifted one.
+  //
+  // So there is no price to compare, and a custom line can never be the reason
+  // an order is cancelled. The alternative — inventing a "current price" for it
+  // — would either always match (pointless) or spuriously cancel a customer's
+  // approved custom order, which is the worse of the two by a long way.
+  const variantLines = order.lines.filter(
+    (line): line is { masterVariantId: string; quotedBankPaymentPriceMinorUnits: bigint } =>
+      line.masterVariantId !== null
+  );
+
+  const uniqueVariantIds = [...new Set(variantLines.map((line) => line.masterVariantId))];
   const factsByVariant = new Map<string, VariantPriceFacts>();
   for (const variantId of uniqueVariantIds) {
     factsByVariant.set(variantId, await gatherFacts(variantId, order.quotedAt));
   }
 
-  const decisionLines: GuaranteeDecisionLine[] = order.lines.map((line) => ({
+  const decisionLines: GuaranteeDecisionLine[] = variantLines.map((line) => ({
     masterVariantId: line.masterVariantId,
     quotedBankPaymentPriceMinorUnits: line.quotedBankPaymentPriceMinorUnits,
     // Populated for every id above — never undefined here.

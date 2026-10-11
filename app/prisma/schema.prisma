@@ -767,8 +767,10 @@ model RingSizeBand {
 /// linear model at the given size.
 model VariantWeightOverride {
   id              String        @id @default(uuid()) @db.Uuid
-  masterVariantId String        @map("master_variant_id") @db.Uuid
-  masterVariant   MasterVariant @relation(fields: [masterVariantId], references: [id])
+  /// NULL on a CUSTOM line — a Custom Jewelry piece has no catalogue variant.
+  /// A CHECK enforces that a line is either a variant line or a custom one.
+  masterVariantId String?        @map("master_variant_id") @db.Uuid
+  masterVariant   MasterVariant? @relation(fields: [masterVariantId], references: [id])
   size            Decimal       @db.Decimal(6, 2)
   weightGrams     Decimal       @map("weight_grams") @db.Decimal(10, 4)
   reason          String?
@@ -1628,14 +1630,26 @@ model BankPaymentOrderLine {
   bankPaymentOrderId String           @map("bank_payment_order_id") @db.Uuid
   bankPaymentOrder   BankPaymentOrder @relation(fields: [bankPaymentOrderId], references: [id], onDelete: Cascade)
 
-  masterVariantId String        @map("master_variant_id") @db.Uuid
-  masterVariant   MasterVariant @relation(fields: [masterVariantId], references: [id])
+  /// NULL on a CUSTOM line — a Custom Jewelry piece has no catalogue variant.
+  /// A CHECK enforces that a line is either a variant line or a custom one,
+  /// never both and never neither.
+  masterVariantId String?        @map("master_variant_id") @db.Uuid
+  masterVariant   MasterVariant? @relation(fields: [masterVariantId], references: [id])
 
   /// The calculation this quote was derived from (test 18: "quote stored per
   /// line with the rule and profile that produced it") -- reproducibility,
   /// exactly like `PriceOverride.priceCalculationId`.
-  priceCalculationId String           @map("price_calculation_id") @db.Uuid
-  priceCalculation   PriceCalculation @relation(fields: [priceCalculationId], references: [id])
+  /// NULL on a CUSTOM line — a custom piece is priced by a human on an
+  /// approval package, not by the pricing engine.
+  priceCalculationId String?           @map("price_calculation_id") @db.Uuid
+  priceCalculation   PriceCalculation? @relation(fields: [priceCalculationId], references: [id])
+
+  /// What the customer sees on the invoice for a custom line, and the approved
+  /// package it was priced from — the audit trail from a verified payment back
+  /// to the exact design the customer approved.
+  customLineDescription          String?                       @map("custom_line_description")
+  customJewelryApprovalPackageId String?                       @map("custom_jewelry_approval_package_id") @db.Uuid
+  customJewelryApprovalPackage   CustomJewelryApprovalPackage? @relation(fields: [customJewelryApprovalPackageId], references: [id])
 
   quantity Int
 
@@ -4186,6 +4200,8 @@ model CustomJewelryApprovalPackage {
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
   finalPurchase CustomJewelryFinalPurchase?
+  /// Bank Payment lines priced from this package. Back-relation only.
+  bankPaymentOrderLines BankPaymentOrderLine[]
 
   @@unique([projectId, version])
   @@index([status])
