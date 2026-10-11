@@ -16,6 +16,14 @@ import {
   CUSTOM_JEWELRY_DEPOSIT_POLICY_VERSION,
 } from "~/domain/customjewelry/designDepositAcknowledgmentText";
 import {
+  CUSTOM_JEWELRY_FINAL_APPROVAL_ACKNOWLEDGMENT_TEXT,
+  CUSTOM_JEWELRY_FINAL_APPROVAL_POLICY_SLUG,
+  CUSTOM_JEWELRY_FINAL_APPROVAL_POLICY_VERSION,
+  CUSTOM_JEWELRY_FINAL_SALE_POLICY_SLUG,
+  CUSTOM_JEWELRY_FINAL_SALE_POLICY_VERSION,
+  CUSTOM_JEWELRY_FINAL_SALE_TEXT,
+} from "~/domain/customjewelry/finalApprovalCopy";
+import {
   GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_POLICY_SLUG,
   GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_POLICY_VERSION,
   GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_TEXT,
@@ -202,6 +210,23 @@ export const REQUIRED_POLICY_VERSIONS: readonly RequiredPolicyVersion[] = [
     slug: BEAT_QUOTE_POLICY_SLUGS.onlineListing,
     version: BEAT_QUOTE_POLICY_VERSION,
     text: BEAT_QUOTE_ONLINE_LISTING_TEXT,
+  }),
+  // Custom Jewelry final approval. Registered here so `/health` reports a
+  // missing row the moment a deploy finishes rather than at the first
+  // customer's approval click — the Luxury Steals outage this registry exists
+  // to prevent was exactly that failure.
+  toRequiredPolicyVersion({
+    slug: CUSTOM_JEWELRY_FINAL_APPROVAL_POLICY_SLUG,
+    version: CUSTOM_JEWELRY_FINAL_APPROVAL_POLICY_VERSION,
+    text: CUSTOM_JEWELRY_FINAL_APPROVAL_ACKNOWLEDGMENT_TEXT,
+  }),
+  // The final-sale copy is a SEPARATE version, because the approval package
+  // preserves it separately — the term could be revised without changing what
+  // the customer certifies.
+  toRequiredPolicyVersion({
+    slug: CUSTOM_JEWELRY_FINAL_SALE_POLICY_SLUG,
+    version: CUSTOM_JEWELRY_FINAL_SALE_POLICY_VERSION,
+    text: CUSTOM_JEWELRY_FINAL_SALE_TEXT,
   }),
 ];
 

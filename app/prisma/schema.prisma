@@ -155,6 +155,10 @@ model Acknowledgment {
   /// Slice 9 back-relation only — required by Prisma for the NOT NULL FK on
   /// `CustomJewelryDepositAcceptance.acknowledgmentId`. Adds no column here.
   customJewelryDepositAcceptances     CustomJewelryDepositAcceptance[]
+  /// Final-approval back-relation only — required by Prisma for the nullable
+  /// FK on `CustomJewelryApprovalPackage.approvalAcknowledgmentId`. Adds no
+  /// column here.
+  customJewelryApprovalPackages       CustomJewelryApprovalPackage[]
 
   @@index([policyVersionId])
   @@index([customerRef])
@@ -1604,6 +1608,11 @@ model BankPaymentOrder {
   /// if the customer applied one. At most one — the benefit is single-use, and
   /// a UNIQUE index on the other side enforces it.
   beatQuoteRedemption BeatQuoteRedemptionIntent?
+
+  /// The Custom Jewelry final purchase this order collects the balance for, if
+  /// it is one. Bank Payment Custom Jewelry reuses this same machinery rather
+  /// than a second money system.
+  customJewelryFinalPurchase CustomJewelryFinalPurchase?
 
   @@index([status])
   @@index([customerGid])
@@ -3515,6 +3524,13 @@ model CustomJewelryProject {
   /// the route checking first. Modelled as an optional to-one.
   depositAcceptance CustomJewelryDepositAcceptance?
 
+  /// Every approval package ever issued for this project, including superseded
+  /// ones. HISTORY, not a working set: a superseded version is the evidence of
+  /// what was offered before the design changed, and the final-sale exception
+  /// for "material failure to match the approved design" is decided against it.
+  approvalPackages CustomJewelryApprovalPackage[]
+  finalPurchases   CustomJewelryFinalPurchase[]
+
   @@index([customerRef])
   @@index([status])
   @@map("custom_jewelry_project")
@@ -3647,6 +3663,11 @@ model CustomJewelryDepositPayment {
   /// Shopify's own timestamp for the payment, not our clock.
   paidAt     DateTime @map("paid_at") @db.Timestamptz(6)
   recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+
+  /// The approval package this deposit was credited against, if any. AT MOST
+  /// ONE — the same $49 cannot be credited twice, and the UNIQUE index on the
+  /// other side is what enforces it.
+  creditedToApprovalPackage CustomJewelryApprovalPackage?
 
   @@map("custom_jewelry_deposit_payment")
 }
@@ -4062,4 +4083,195 @@ enum BeatQuoteRedemptionPaymentBasis {
   bank_payment
 
   @@map("beat_quote_redemption_payment_basis")
+}
+
+/// An immutable, versioned snapshot of exactly what a Custom Jewelry customer
+/// was shown and approved.
+///
+/// ============================================================================
+/// WHY A SNAPSHOT AND NOT COLUMNS ON THE PROJECT
+/// ============================================================================
+/// A Custom Jewelry purchase is final sale with four named exceptions, and one
+/// of them is "material failure to match the approved design/specifications".
+/// That exception is only decidable if the approved design is recoverable
+/// exactly as it stood when the customer clicked approve — so specs cannot live
+/// on the project, where the next revision would overwrite them and the
+/// evidence for a claim would quietly become the current design instead.
+///
+/// A design change issues version N+1 and supersedes N. It never edits N, and
+/// a trigger refuses every field if anything tries.
+model CustomJewelryApprovalPackage {
+  id String @id @default(uuid()) @db.Uuid
+
+  projectId String               @map("project_id") @db.Uuid
+  project   CustomJewelryProject @relation(fields: [projectId], references: [id])
+
+  /// Monotonic per project from 1. Never reused: the number is how a
+  /// customer's approval and a later claim both name the same design.
+  version Int
+
+  status CustomJewelryApprovalPackageStatus @default(issued)
+
+  /// The specification, frozen. NULL means "does not apply" — a pendant has no
+  /// ring size — which the display renders as absence rather than as blank.
+  metalType            String  @map("metal_type")
+  metalColor           String  @map("metal_color")
+  centerStone          Json?   @map("center_stone")
+  accentStones         Json?   @map("accent_stones")
+  dimensions           String?
+  ringSize             String? @map("ring_size")
+  engraving            String?
+  constructionNotes    String? @map("construction_notes")
+  agreedCustomizations Json?   @map("agreed_customizations")
+
+  /// CAD, renderings and final design images as REFERENCES, not bytes — the
+  /// objects live in private R2 exactly as `CustomJewelryProjectUpload` records
+  /// them. Frozen, so a later re-render cannot change what the customer saw.
+  mediaReferences Json @map("media_references")
+
+  /// Production/timeline information that is ACTUALLY APPROVED — free text a
+  /// human writes per project. Nullable because "no timeline agreed yet" is an
+  /// honest state, and deliberately not templated: the owner forbade
+  /// unsupported turnaround promises, and a default sentence is how one appears.
+  approvedTimelineText String? @map("approved_timeline_text")
+
+  currency String @db.Char(3)
+  /// The authoritative underlying figure.
+  bankPaymentPriceMinorUnits BigInt @map("bank_payment_price_minor_units")
+  /// Derived upward from it under docs/BANK-CARD-PRICING.md, frozen here.
+  regularCardPriceMinorUnits BigInt @map("regular_card_price_minor_units")
+
+  /// The $49 already paid, and the credit it buys. A CREDIT, not a discount:
+  /// the gross price stands and this reduces what is collected.
+  depositPaidMinorUnits   BigInt @map("deposit_paid_minor_units")
+  depositCreditMinorUnits BigInt @map("deposit_credit_minor_units")
+
+  /// WHICH deposit payment. A UNIQUE index on this is what makes "the same
+  /// deposit cannot be credited twice" enforceable rather than aspirational.
+  depositPaymentId String?                      @unique @map("deposit_payment_id") @db.Uuid
+  depositPayment   CustomJewelryDepositPayment? @relation(fields: [depositPaymentId], references: [id])
+
+  /// Balance on each basis. Stored, not computed on read, so a CHECK can
+  /// enforce that it equals price minus credit and never goes negative.
+  bankPaymentBalanceDueMinorUnits BigInt @map("bank_payment_balance_due_minor_units")
+  regularCardBalanceDueMinorUnits BigInt @map("regular_card_balance_due_minor_units")
+
+  /// Three separate versions because the owner asked for the final-sale copy
+  /// version and the acknowledgment version as distinct items. They move
+  /// independently; one field covering both would make either change look like
+  /// the other.
+  finalSaleCopyVersion                Int @map("final_sale_copy_version")
+  warrantyCopyVersion                 Int @map("warranty_copy_version")
+  approvalAcknowledgmentPolicyVersion Int @map("approval_acknowledgment_policy_version")
+
+  issuedAt         DateTime @default(now()) @map("issued_at") @db.Timestamptz(6)
+  issuedByActorRef String   @map("issued_by_actor_ref")
+
+  /// The AUTHENTICATED Shopify customer who approved, recorded here rather than
+  /// only on the acknowledgment because the frozen package must preserve it.
+  approvedAt            DateTime? @map("approved_at") @db.Timestamptz(6)
+  approvedByCustomerRef String?   @map("approved_by_customer_ref")
+
+  /// The evidence row carrying the exact acknowledgment text, version and
+  /// timestamp. An approval with no acknowledgment behind it is not an approval,
+  /// and a CHECK refuses one.
+  approvalAcknowledgmentId String?         @map("approval_acknowledgment_id") @db.Uuid
+  approvalAcknowledgment   Acknowledgment? @relation(fields: [approvalAcknowledgmentId], references: [id])
+
+  supersededAt        DateTime? @map("superseded_at") @db.Timestamptz(6)
+  supersededByVersion Int?      @map("superseded_by_version")
+  supersededReason    String?   @map("superseded_reason")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  finalPurchase CustomJewelryFinalPurchase?
+
+  @@unique([projectId, version])
+  @@index([status])
+  @@map("custom_jewelry_approval_package")
+}
+
+/// What was sold and what was collected.
+///
+/// THE GROSS APPROVED PRICE IS PRESERVED even though only the balance is
+/// charged, because the deposit is a credit against the price rather than a
+/// discount to it. Margin, warranty reserve, refund economics and the
+/// final-sale exceptions all reason about what the piece actually sold for.
+///
+/// One purchase per approval package — which is what makes a retried creation
+/// idempotent rather than duplicated.
+model CustomJewelryFinalPurchase {
+  id String @id @default(uuid()) @db.Uuid
+
+  projectId String               @map("project_id") @db.Uuid
+  project   CustomJewelryProject @relation(fields: [projectId], references: [id])
+
+  approvalPackageId String                       @unique @map("approval_package_id") @db.Uuid
+  approvalPackage   CustomJewelryApprovalPackage @relation(fields: [approvalPackageId], references: [id])
+
+  paymentBasis CustomJewelryPurchaseBasis  @map("payment_basis")
+  status       CustomJewelryPurchaseStatus @default(awaiting_payment)
+
+  currency String @db.Char(3)
+
+  /// Never lost just because only the balance is collected.
+  grossApprovedPriceMinorUnits BigInt @map("gross_approved_price_minor_units")
+  depositCreditMinorUnits      BigInt @map("deposit_credit_minor_units")
+  /// Copied so the purchase record is self-contained evidence — a reader should
+  /// not have to join three tables to answer what was collected and why.
+  depositPaymentReference String? @map("deposit_payment_reference")
+  /// The Let Us Beat Your Quote benefit, if one was redeemed. SEPARATE from the
+  /// deposit credit: one is a promotional benefit, the other is the customer's
+  /// own money returning to them, and conflating them would make the deposit
+  /// look like a discount.
+  benefitDiscountMinorUnits BigInt @default(0) @map("benefit_discount_minor_units")
+  balanceDueMinorUnits      BigInt @map("balance_due_minor_units")
+
+  /// The payable object, in whichever of the two EXISTING money systems
+  /// applies. Exactly one is set, and a CHECK enforces it against the basis.
+  bankPaymentOrderId String?           @unique @map("bank_payment_order_id") @db.Uuid
+  bankPaymentOrder   BankPaymentOrder? @relation(fields: [bankPaymentOrderId], references: [id])
+
+  shopifyDraftOrderGid String? @unique @map("shopify_draft_order_gid")
+  shopifyOrderGid      String? @unique @map("shopify_order_gid")
+
+  paidAt             DateTime? @map("paid_at") @db.Timestamptz(6)
+  cancelledAt        DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  cancellationReason String?   @map("cancellation_reason")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status])
+  @@map("custom_jewelry_final_purchase")
+}
+
+enum CustomJewelryApprovalPackageStatus {
+  /// Issued to the customer and awaiting their decision.
+  issued
+  /// The customer approved THIS version. Terminal.
+  approved
+  /// A later version replaced it before the customer approved. Terminal.
+  superseded
+
+  @@map("custom_jewelry_approval_package_status")
+}
+
+enum CustomJewelryPurchaseBasis {
+  card
+  bank_payment
+
+  @@map("custom_jewelry_purchase_basis")
+}
+
+enum CustomJewelryPurchaseStatus {
+  /// The payable object exists; nothing has been collected.
+  awaiting_payment
+  /// Money received and, for Bank Payment, verified by a human.
+  paid
+  /// Cancelled before payment.
+  cancelled
+
+  @@map("custom_jewelry_purchase_status")
 }
