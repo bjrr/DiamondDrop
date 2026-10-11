@@ -93,6 +93,7 @@ async function intent(options: {
       benefitId: b.id,
       customerRef: CUSTOMER,
       surface: "buy_now",
+      paymentBasis: "card",
       eligibleSubtotalMinorUnits: 50_000n,
       discountMinorUnits: 5_000n,
       currency: "USD",

@@ -95,6 +95,7 @@ function reserve(code: string, overrides: Record<string, unknown> = {}) {
     benefitCode: code,
     customerRef: CUSTOMER,
     surface: "buy_now",
+    paymentBasis: "card",
     lines: [line({ unitPrice: usd(50_000n) })],
     otherPromotionApplied: false,
     stackingExpresslyAuthorized: false,
@@ -181,9 +182,9 @@ describe("surfaces — amendment §3", () => {
     await expect(
       prisma.$executeRaw`
         INSERT INTO "beat_quote_redemption_intent"
-          ("id","benefit_id","customer_ref","surface","eligible_subtotal_minor_units","discount_minor_units",
+          ("id","benefit_id","customer_ref","surface","payment_basis","eligible_subtotal_minor_units","discount_minor_units",
            "currency","benefit_max_discount_minor_units","benefit_expires_at","eligible_lines")
-        VALUES (gen_random_uuid(), ${b.id}::uuid, ${CUSTOMER}, 'group_buy', 50000, 5000, 'USD', 10000, now(), '[]'::jsonb)`
+        VALUES (gen_random_uuid(), ${b.id}::uuid, ${CUSTOMER}, 'group_buy', 'card', 50000, 5000, 'USD', 10000, now(), '[]'::jsonb)`
     ).rejects.toThrow();
   });
 });
@@ -491,9 +492,9 @@ describe("the reserved calculation is immutable", () => {
     await expect(
       prisma.$executeRaw`
         INSERT INTO "beat_quote_redemption_intent"
-          ("id","benefit_id","customer_ref","surface","eligible_subtotal_minor_units","discount_minor_units",
+          ("id","benefit_id","customer_ref","surface","payment_basis","eligible_subtotal_minor_units","discount_minor_units",
            "currency","benefit_max_discount_minor_units","benefit_expires_at","eligible_lines")
-        VALUES (gen_random_uuid(), ${b.id}::uuid, ${CUSTOMER}, 'buy_now', 500000, 10001, 'USD', 10000, now(), '[]'::jsonb)`
+        VALUES (gen_random_uuid(), ${b.id}::uuid, ${CUSTOMER}, 'buy_now', 'card', 500000, 10001, 'USD', 10000, now(), '[]'::jsonb)`
     ).rejects.toThrow(/amounts_sane/i);
   });
 
@@ -502,9 +503,9 @@ describe("the reserved calculation is immutable", () => {
     await expect(
       prisma.$executeRaw`
         INSERT INTO "beat_quote_redemption_intent"
-          ("id","benefit_id","customer_ref","surface","eligible_subtotal_minor_units","discount_minor_units",
+          ("id","benefit_id","customer_ref","surface","payment_basis","eligible_subtotal_minor_units","discount_minor_units",
            "currency","benefit_max_discount_minor_units","benefit_expires_at","eligible_lines")
-        VALUES (gen_random_uuid(), ${b.id}::uuid, ${CUSTOMER}, 'buy_now', 500, 1000, 'USD', 10000, now(), '[]'::jsonb)`
+        VALUES (gen_random_uuid(), ${b.id}::uuid, ${CUSTOMER}, 'buy_now', 'card', 500, 1000, 'USD', 10000, now(), '[]'::jsonb)`
     ).rejects.toThrow(/amounts_sane/i);
   });
 

@@ -1600,6 +1600,11 @@ model BankPaymentOrder {
 
   lines BankPaymentOrderLine[]
 
+  /// The Let Us Beat Your Quote fallback benefit reserved against this order,
+  /// if the customer applied one. At most one — the benefit is single-use, and
+  /// a UNIQUE index on the other side enforces it.
+  beatQuoteRedemption BeatQuoteRedemptionIntent?
+
   @@index([status])
   @@index([customerGid])
   @@map("bank_payment_order")
@@ -3979,6 +3984,22 @@ model BeatQuoteRedemptionIntent {
 
   surface BeatQuoteRedemptionSurfaceKind
 
+  /// Which payment basis the customer CHOSE, and therefore which merchandise
+  /// subtotal the benefit was calculated from (owner decision 2026-10-11).
+  /// Frozen with the rest of the calculation: a discount means nothing without
+  /// the subtotal it came from.
+  ///
+  /// Bank Payment Price is the underlying payment-basis price, not a
+  /// promotional discount, so a bank-basis redemption is NOT the prohibited
+  /// stacking of amendment §3.
+  paymentBasis BeatQuoteRedemptionPaymentBasis @map("payment_basis")
+
+  /// The bank payment order whose MANUALLY VERIFIED funds will redeem this
+  /// benefit. Null for card redemptions, and null in the moment between
+  /// reserving and attaching for bank ones. Write-once.
+  bankPaymentOrderId String?           @unique @map("bank_payment_order_id") @db.Uuid
+  bankPaymentOrder   BankPaymentOrder? @relation(fields: [bankPaymentOrderId], references: [id])
+
   /// MERCHANDISE ONLY — excludes tax, shipping, duties, tips and any
   /// non-merchandise charge, and excludes Group Buy and Luxury Steals lines
   /// entirely. A percentage of a total that includes tax is a bigger benefit
@@ -4010,7 +4031,35 @@ model BeatQuoteRedemptionIntent {
   releaseReason String?                   @map("release_reason")
   reviewReason  String?                   @map("review_reason")
 
+  /// Who released it, and what Shopify object they proved unpayable first.
+  /// Stored beside the release rather than only in an audit event: a release
+  /// whose Shopify reference nobody recorded cannot be checked afterwards.
+  releasedByActorRef String? @map("released_by_actor_ref")
+  releaseShopifyRef  String? @map("release_shopify_ref")
+
+  /// Set when money arrived against an order whose reservation had ALREADY been
+  /// released. The status stays `released` on purpose — resurrecting it would
+  /// be the silent consumption the owner forbade — and a person reconciles the
+  /// order and the payment.
+  reconciliationRequiredAt DateTime? @map("reconciliation_required_at") @db.Timestamptz(6)
+  reconciliationReason     String?   @map("reconciliation_reason")
+
   @@index([status])
   @@index([customerRef])
   @@map("beat_quote_redemption_intent")
+}
+
+/// Which merchandise subtotal a redemption was calculated from.
+///
+/// The owner allows the fallback benefit on either basis and requires the
+/// calculation to follow the basis the customer selected. Recorded rather than
+/// derived, because the owner also forbade comparing the two behind the scenes
+/// and silently choosing one.
+enum BeatQuoteRedemptionPaymentBasis {
+  /// 10% of the eligible Regular/Card merchandise subtotal.
+  card
+  /// 10% of the eligible Bank Payment merchandise subtotal.
+  bank_payment
+
+  @@map("beat_quote_redemption_payment_basis")
 }

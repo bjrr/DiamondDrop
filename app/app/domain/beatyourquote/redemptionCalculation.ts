@@ -129,12 +129,56 @@ export function computeEligibleSubtotal(lines: readonly RedemptionLineInput[]): 
   };
 }
 
+/**
+ * Which merchandise subtotal the benefit is calculated from (owner decision
+ * 2026-10-11).
+ *
+ * ============================================================================
+ * THE BANK BASIS IS NOT A PROMOTION, AND THAT IS THE WHOLE POINT
+ * ============================================================================
+ * The owner allows the fallback benefit on either basis:
+ *
+ *   card          10% of the eligible Regular/Card merchandise subtotal
+ *   bank_payment  10% of the eligible Bank Payment merchandise subtotal
+ *
+ * both capped at the benefit's own maximum.
+ *
+ * Bank Payment Price is the AUTHORITATIVE UNDERLYING selling price (CLAUDE.md
+ * rule 11), with the Card price derived upward from it — so choosing Bank
+ * Payment is choosing a payment basis, not accepting a promotional discount.
+ * Using the benefit there is therefore not the prohibited stacking of amendment
+ * §3, and nothing in this module may set `otherPromotionApplied` or mark a line
+ * `already_discounted` on account of the basis.
+ */
+export type RedemptionPaymentBasis = "card" | "bank_payment";
+
 export interface RedemptionQuoteInput {
+  /**
+   * The lines, already priced ON THE CHOSEN BASIS by the caller.
+   *
+   * THIS FUNCTION DOES NOT PICK A PRICE. `unitPrice` is whichever basis the
+   * customer selected, resolved server-side from the published calculation.
+   * Passing the basis separately is what lets the result say which one it was,
+   * so a stored discount can be audited against the subtotal it came from.
+   */
   readonly lines: readonly RedemptionLineInput[];
   readonly surface: BeatQuoteRedemptionSurface;
+  /**
+   * The basis the customer CHOSE. Required, not defaulted: the owner forbade
+   * comparing the two behind the scenes and silently selecting one, and a
+   * default is exactly that decision made invisibly.
+   */
+  readonly paymentBasis: RedemptionPaymentBasis;
   /** The benefit's OWN frozen cap, not today's constant. */
   readonly benefitMaxDiscount: Money;
-  /** True when another promotional discount is already applied to this purchase. */
+  /**
+   * True when another PROMOTIONAL discount is already applied to this purchase.
+   *
+   * CHOOSING BANK PAYMENT IS NOT ONE. See `RedemptionPaymentBasis`: the bank
+   * price is the underlying payment-basis price. A caller that sets this
+   * because the cart is in bank mode has misread the policy, and the test suite
+   * pins the distinction.
+   */
   readonly otherPromotionApplied: boolean;
   /** Amendment §3's "unless CaratForUs expressly authorizes the combination". */
   readonly stackingExpresslyAuthorized: boolean;
@@ -143,6 +187,8 @@ export interface RedemptionQuoteInput {
 export interface RedemptionQuote {
   readonly eligibleSubtotal: Money;
   readonly discount: Money;
+  /** Echoed back so a caller persists the basis the figures were computed on, never a guess. */
+  readonly paymentBasis: RedemptionPaymentBasis;
   readonly includedLines: readonly RedemptionLineInput[];
   readonly excludedLines: readonly { readonly line: RedemptionLineInput; readonly reason: IneligibleLineReason }[];
 }
@@ -202,6 +248,7 @@ export function quoteRedemption(input: RedemptionQuoteInput): RedemptionQuote {
   return {
     eligibleSubtotal: subtotal,
     discount: Money.fromMinorUnits(capped, BEAT_QUOTE_FALLBACK_CURRENCY),
+    paymentBasis: input.paymentBasis,
     includedLines,
     excludedLines,
   };

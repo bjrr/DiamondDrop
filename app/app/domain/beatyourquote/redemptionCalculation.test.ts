@@ -27,6 +27,7 @@ function quote(lines: readonly RedemptionLineInput[], overrides: Record<string, 
   return quoteRedemption({
     lines,
     surface: "buy_now",
+    paymentBasis: "card",
     benefitMaxDiscount: CAP,
     otherPromotionApplied: false,
     stackingExpresslyAuthorized: false,
@@ -216,5 +217,101 @@ describe("computeEligibleSubtotal on its own", () => {
     ]);
     expect(result.includedLines.map((l) => l.reference)).toEqual(["a"]);
     expect(result.excludedLines.map((e) => e.line.reference)).toEqual(["b"]);
+  });
+});
+
+describe("the payment basis — owner decision 2026-10-11", () => {
+  it("calculates the BANK benefit from the bank subtotal", () => {
+    // $476.20 of bank-priced merchandise -> $47.62.
+    const result = quote([line({ unitPrice: usd(47_620n) })], { paymentBasis: "bank_payment" });
+    expect(result.discount.amountMinorUnits).toBe(4_762n);
+    expect(result.eligibleSubtotal.amountMinorUnits).toBe(47_620n);
+    // Echoed back so a caller stores the figures and the basis as one fact.
+    expect(result.paymentBasis).toBe("bank_payment");
+  });
+
+  it("calculates the CARD benefit from the card subtotal", () => {
+    // The same product's card price is higher — the card price is derived
+    // upward from the bank price — so the same cart yields a bigger benefit on
+    // card. That is the arithmetic working, not a loophole: the customer is
+    // paying more to begin with.
+    const result = quote([line({ unitPrice: usd(50_000n) })], { paymentBasis: "card" });
+    expect(result.discount.amountMinorUnits).toBe(5_000n);
+    expect(result.paymentBasis).toBe("card");
+  });
+
+  it("gives a SMALLER benefit on the bank basis for the same goods", () => {
+    // Worth pinning as a property rather than two separate numbers: 10% of a
+    // lower base is less. A customer choosing bank gets the lower underlying
+    // price AND a smaller benefit, which is why the owner forbade us from
+    // picking for them — the better deal depends on the cart.
+    const bank = quote([line({ unitPrice: usd(47_620n) })], { paymentBasis: "bank_payment" });
+    const card = quote([line({ unitPrice: usd(50_000n) })], { paymentBasis: "card" });
+    expect(bank.discount.amountMinorUnits).toBeLessThan(card.discount.amountMinorUnits);
+  });
+
+  it("CAPS BOTH BASES at the benefit's maximum", () => {
+    // $100 is $100 whichever basis got you there.
+    const bank = quote([line({ unitPrice: usd(500_000n) })], { paymentBasis: "bank_payment" });
+    const card = quote([line({ unitPrice: usd(525_000n) })], { paymentBasis: "card" });
+    expect(bank.discount.amountMinorUnits).toBe(BEAT_QUOTE_FALLBACK_MAX_DISCOUNT_MINOR_UNITS);
+    expect(card.discount.amountMinorUnits).toBe(BEAT_QUOTE_FALLBACK_MAX_DISCOUNT_MINOR_UNITS);
+  });
+
+  it("sweeps the cap across both bases", () => {
+    for (const paymentBasis of ["card", "bank_payment"] as const) {
+      for (let dollars = 1; dollars <= 20_000; dollars += 311) {
+        const result = quote([line({ unitPrice: usd(BigInt(dollars) * 100n) })], { paymentBasis });
+        expect(result.discount.amountMinorUnits, `${paymentBasis} $${dollars}`).toBeLessThanOrEqual(
+          BEAT_QUOTE_FALLBACK_MAX_DISCOUNT_MINOR_UNITS
+        );
+      }
+    }
+  });
+
+  it("the BANK BASIS IS NOT A PROMOTION — it does not trip the stacking refusal", () => {
+    // The distinction the owner stated: Bank Payment Price is the underlying
+    // payment-basis price, not a promotional discount, so a bank redemption is
+    // not the prohibited stacking of amendment §3.
+    //
+    // This is the test that would fail if somebody ever "fixed" the bank path
+    // by setting otherPromotionApplied, or marked bank-priced lines
+    // `already_discounted`.
+    const result = quote([line({ unitPrice: usd(47_620n) })], {
+      paymentBasis: "bank_payment",
+      otherPromotionApplied: false,
+    });
+    expect(result.discount.amountMinorUnits).toBe(4_762n);
+  });
+
+  it("still refuses a REAL promotion on the bank basis", () => {
+    // The other direction, so the rule above is not read as "bank disables
+    // stacking checks". An actual promotional discount still blocks.
+    expect(() =>
+      quote([line()], { paymentBasis: "bank_payment", otherPromotionApplied: true })
+    ).toThrow(/stacking has not been expressly authorized/i);
+  });
+
+  it("rounds DOWN on the bank basis too", () => {
+    // $19.99 of bank-priced merchandise -> $1.99, not $2.00.
+    expect(
+      quote([line({ unitPrice: usd(1_999n) })], { paymentBasis: "bank_payment" }).discount.amountMinorUnits
+    ).toBe(199n);
+  });
+
+  it("applies the exclusions identically on both bases", () => {
+    // A Luxury Steal is excluded whether the customer is paying by card or by
+    // bank. The basis changes the price, never the eligibility.
+    for (const paymentBasis of ["card", "bank_payment"] as const) {
+      const result = quote(
+        [
+          line({ reference: "ok", unitPrice: usd(20_000n) }),
+          line({ reference: "steal", unitPrice: usd(400_000n), ineligibleBecause: "luxury_steal" }),
+        ],
+        { paymentBasis }
+      );
+      expect(result.eligibleSubtotal.amountMinorUnits, paymentBasis).toBe(20_000n);
+      expect(result.discount.amountMinorUnits, paymentBasis).toBe(2_000n);
+    }
   });
 });

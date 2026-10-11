@@ -10,6 +10,7 @@ import {
 import type {
   IneligibleLineReason,
   RedemptionLineInput,
+  RedemptionPaymentBasis,
 } from "~/domain/beatyourquote/redemptionCalculation";
 import { normalizeShopifyVariantGid } from "~/domain/cart/shopifyVariantId";
 import { Money } from "~/domain/money/money";
@@ -70,22 +71,37 @@ import { BEAT_QUOTE_REDEMPTION_ORDER_TAG_PREFIX } from "~/shopify/webhooks/beatQ
  * to be attributable to the customer it was issued to.
  *
  * ============================================================================
- * PRICED AT THE REGULAR/CARD PRICE — A FLAGGED ASSUMPTION, NOT A DECISION
+ * THE CUSTOMER CHOOSES THE PAYMENT BASIS. WE DO NOT CHOOSE FOR THEM.
  * ============================================================================
- * A redemption completes through Shopify's own checkout, so the lines are
- * priced at the Regular/Card Price and the discount comes off that. Bank
- * Payment redemption is NOT implemented here, and the omission is deliberate
- * rather than overlooked: a Bank Payment order must complete unpaid, with
- * payment terms, manual fund verification, the 24-hour guarantee and the
- * inactivation sweep — a materially different flow from a paid card checkout,
- * and one whose interaction with a single-use benefit (what happens to the
- * benefit when an unpaid Bank Payment redemption is cancelled?) is a product
- * question nobody has answered.
+ * Owner decision 2026-10-11: the benefit may be used on either basis, and is
+ * calculated from the eligible merchandise subtotal ON THE BASIS CHOSEN —
+ * 10% of the Card subtotal for a card checkout, 10% of the Bank Payment
+ * subtotal for a bank one, both capped at the benefit's own maximum.
  *
- * WORTH THE OWNER'S ATTENTION: a customer may be better off paying by bank at
- * the lower Bank Payment Price than taking 10% off the Card Price, and this
- * route currently offers no way to compare the two. That is a real
- * customer-fairness question, not a technical gap.
+ * `paymentBasis` is therefore REQUIRED in the request and has no default. That
+ * is the owner's instruction made structural: "do not compare Card-vs-Bank
+ * behind the scenes and silently choose one." A default would be precisely that
+ * comparison, made invisibly, in our favour or theirs depending on the cart.
+ *
+ * It is not a price claim. Both figures come from the same published
+ * calculation — the Bank Payment Price is the authoritative underlying one and
+ * the Card price is derived upward from it — so the field selects between two
+ * server-side facts, exactly as `shopifyVariantId` selects between products.
+ *
+ * AND CHOOSING BANK PAYMENT IS NOT STACKING. The bank price is the underlying
+ * payment-basis price, not a promotional discount, so `otherPromotionApplied`
+ * stays false on both paths. See `RedemptionPaymentBasis`.
+ *
+ * ============================================================================
+ * THIS ROUTE SERVES THE CARD PATH'S CHECKOUT ONLY
+ * ============================================================================
+ * It creates a Draft Order the customer pays through Shopify, which is how a
+ * CARD redemption completes. A bank-basis redemption cannot complete that way —
+ * §22 requires the order to stay unpaid until a human verifies the transfer —
+ * so the bank path reserves through `bankPaymentRedemption.server.ts` from the
+ * Bank Payment checkout, and is redeemed by that verification rather than by a
+ * webhook. Both paths share this module's calculation and the same single
+ * active hold per benefit, which is what stops a customer holding one of each.
  */
 
 const MAX_REQUEST_LINES = 50;
@@ -125,6 +141,19 @@ const redemptionRequestSchema = z
     email: z.string().trim().email().max(320),
     shippingAddress: shippingAddressRequestSchema,
     lines: z.array(redemptionLineRequestSchema).min(1).max(MAX_REQUEST_LINES),
+    /**
+     * THE ONE THING THE CUSTOMER DECIDES THAT CHANGES THE MONEY, and it is
+     * here precisely because the owner forbade deciding it for them: "do not
+     * compare Card-vs-Bank behind the scenes and silently choose one."
+     *
+     * This is not a price claim and not an eligibility claim — it is a choice
+     * of payment path, the same category as which variant and how many. The
+     * PRICES for that path are still resolved server-side from the published
+     * calculation; all this field selects is which of the two published
+     * figures applies. There is no default, so a request that omits it is a
+     * 400 rather than a silent card quote.
+     */
+    paymentBasis: z.enum(["card", "bank_payment"]),
   })
   .strict();
 
@@ -251,7 +280,8 @@ interface ResolvedLine {
  * order they thought included it.
  */
 async function resolveLines(
-  requestLines: readonly { shopifyVariantId: string; quantity: number }[]
+  requestLines: readonly { shopifyVariantId: string; quantity: number }[],
+  paymentBasis: RedemptionPaymentBasis
 ): Promise<
   | { readonly ok: true; readonly lines: readonly ResolvedLine[] }
   | { readonly ok: false; readonly unresolvable: readonly { shopifyVariantId: string; reason: string }[] }
@@ -308,9 +338,17 @@ async function resolveLines(
     lines.push({
       shopifyVariantGid: gid,
       quantity: requestLine.quantity,
-      // THE REGULAR/CARD PRICE. See the module comment: a redemption is a card
-      // checkout, so the benefit comes off the card price.
-      unitPrice: Money.fromMinorUnits(published.price.regularCardPriceMinorUnits, published.price.currency),
+      // THE PRICE FOR THE BASIS THE CUSTOMER CHOSE (owner decision
+      // 2026-10-11). Both figures come from the same published calculation —
+      // the Bank Payment Price is the authoritative underlying one and the
+      // Card price is derived upward from it — so this selects between two
+      // server-side facts rather than accepting one from the request.
+      unitPrice: Money.fromMinorUnits(
+        paymentBasis === "bank_payment"
+          ? published.price.bankPaymentPriceMinorUnits
+          : published.price.regularCardPriceMinorUnits,
+        published.price.currency
+      ),
       ineligibleBecause,
     });
   }
@@ -348,7 +386,32 @@ export async function action({ request }: ActionFunctionArgs) {
   if (!parsed.success) {
     return badRequest("body does not match the benefit redemption request contract");
   }
-  const { benefitCode, email, shippingAddress, lines: requestLines } = parsed.data;
+  const { benefitCode, email, shippingAddress, lines: requestLines, paymentBasis } = parsed.data;
+
+  // ==========================================================================
+  // THIS ENDPOINT IS THE CARD PATH. A BANK BASIS HERE IS REFUSED, LOUDLY.
+  // ==========================================================================
+  // The draft order created below is payable through Shopify's own checkout.
+  // Pricing its lines at the Bank Payment Price and then letting the customer
+  // pay by card would hand them the lower underlying price with none of what
+  // earns it — no transfer, no manual verification of funds, no §22 guarantee
+  // window. That is not a discount, it is a mispriced sale.
+  //
+  // So the field is REQUIRED and then checked against the endpoint. A
+  // storefront that believes it is doing a bank redemption but posts here gets
+  // a clear refusal naming where to go, rather than a silent card charge at
+  // bank prices. Accepting the field and ignoring it would be the worst of the
+  // three options; omitting it would make the disagreement invisible.
+  if (paymentBasis !== "card") {
+    logger.warn("beat_quote_redeem.wrong_endpoint_for_basis", { paymentBasis, customerGid });
+    return Response.json(
+      {
+        error: "wrong_payment_basis_for_endpoint",
+        reason: `this endpoint creates card-payable redemption checkouts; ${paymentBasis} redemption runs through Bank Payment checkout`,
+      },
+      { status: 400 }
+    );
+  }
 
   // DUPLICATE VARIANTS REFUSED, NOT COALESCED. The adapter refuses them too,
   // but discovering it there would mean discovering it after the benefit was
@@ -363,7 +426,7 @@ export async function action({ request }: ActionFunctionArgs) {
     seen.add(gid);
   }
 
-  const resolved = await resolveLines(requestLines);
+  const resolved = await resolveLines(requestLines, paymentBasis);
   if (!resolved.ok) {
     // Refused rather than silently dropped: dropping a line would shrink the
     // eligible subtotal, and the discount with it.
@@ -401,6 +464,9 @@ export async function action({ request }: ActionFunctionArgs) {
     // `containsExcludedMerchandise` in the order handler assumes variant lines
     // today (see its own comment).
     surface: "buy_now",
+    // Carried through verbatim: the lines above were priced on exactly this
+    // basis, so the stored discount and the subtotal it came from agree.
+    paymentBasis,
     lines: redemptionLines,
     // A FACT ABOUT WHAT WE BUILD, not a claim the client makes. The draft
     // order created below carries this benefit and no other discount, and is

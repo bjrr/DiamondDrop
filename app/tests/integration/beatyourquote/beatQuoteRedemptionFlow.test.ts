@@ -335,10 +335,12 @@ async function withPort<T>(
 
 function redeemBody(
   benefitCode: string,
-  lines: { shopifyVariantId: string; quantity: number }[]
+  lines: { shopifyVariantId: string; quantity: number }[],
+  paymentBasis: "card" | "bank_payment" = "card"
 ): Record<string, unknown> {
   return {
     benefitCode,
+    paymentBasis,
     email: "ada@example.com",
     shippingAddress: {
       firstName: "Ada",

@@ -11,6 +11,7 @@ import {
   quoteRedemption,
   RedemptionCalculationError,
   type RedemptionLineInput,
+  type RedemptionPaymentBasis,
 } from "~/domain/beatyourquote/redemptionCalculation";
 import { Money } from "~/domain/money/money";
 import { logger } from "~/lib/logger.server";
@@ -59,8 +60,20 @@ export interface ReserveRedemptionInput {
   /** The AUTHENTICATED Shopify customer. Never from a request body. */
   readonly customerRef: string;
   readonly surface: BeatQuoteRedemptionSurface;
-  /** The authoritative lines, already classified by the caller. */
+  /**
+   * The basis the customer chose, and the basis `lines` are priced on.
+   *
+   * THE CALLER RESOLVES BOTH TOGETHER. Passing card prices with
+   * `paymentBasis: "bank_payment"` would record a bank redemption audited
+   * against a card subtotal, so the two always come from one decision.
+   */
+  readonly paymentBasis: RedemptionPaymentBasis;
+  /** The authoritative lines, already classified and priced by the caller. */
   readonly lines: readonly RedemptionLineInput[];
+  /**
+   * Another PROMOTIONAL discount. Choosing Bank Payment is not one — the bank
+   * price is the underlying payment-basis price, not a promotion.
+   */
   readonly otherPromotionApplied: boolean;
   readonly stackingExpresslyAuthorized: boolean;
   readonly now: Date;
@@ -110,6 +123,7 @@ export async function reserveBeatQuoteRedemption(
     quote = quoteRedemption({
       lines: input.lines,
       surface: input.surface,
+      paymentBasis: input.paymentBasis,
       benefitMaxDiscount: Money.fromMinorUnits(benefit.maxDiscountMinorUnits, benefit.currency),
       otherPromotionApplied: input.otherPromotionApplied,
       stackingExpresslyAuthorized: input.stackingExpresslyAuthorized,
@@ -129,6 +143,9 @@ export async function reserveBeatQuoteRedemption(
         // Narrowed by `evaluateFallbackRedeemability` above, which refuses the
         // ineligible surfaces — and the database enum has no members for them.
         surface: input.surface as "buy_now" | "custom_jewelry",
+        // From the quote, not from the input: the figures and the basis they
+        // were computed on are stored as one fact.
+        paymentBasis: quote.paymentBasis,
         eligibleSubtotalMinorUnits: quote.eligibleSubtotal.amountMinorUnits,
         discountMinorUnits: quote.discount.amountMinorUnits,
         currency: quote.discount.currency,
