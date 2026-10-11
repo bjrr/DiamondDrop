@@ -383,8 +383,23 @@ export async function action({ request }: ActionFunctionArgs) {
     // THE AUTHENTICATED CUSTOMER. Not a body field, and not negotiable.
     customerRef: customerGid,
     // Fixed, not taken from the request: this endpoint creates regular Buy Now
-    // redemption orders and nothing else. Custom Jewelry redemption runs
-    // against an approved project's own purchase, not through here.
+    // redemption orders and nothing else.
+    //
+    // CUSTOM JEWELRY REDEMPTION IS NOT BUILT, AND IS BLOCKED RATHER THAN
+    // FORGOTTEN. The amendment makes the benefit eligible there, the surface
+    // enum has a `custom_jewelry` member, and `quoteRedemption` accepts it with
+    // tests to prove it — the seam is in place. What does not exist is the
+    // thing it would attach to: nothing in this app transitions a
+    // `CustomJewelryProject` past `deposit_charged`, so there is no approval,
+    // no final purchase and no price to take 10% off. Slice 9 stopped at the
+    // deposit.
+    //
+    // Building a redemption path against an imagined purchase flow would mean
+    // inventing both ends and testing neither, so it waits for the real one.
+    // When it arrives, note that it will NOT come through this route: its lines
+    // are a custom quote, not catalogue variants, and
+    // `containsExcludedMerchandise` in the order handler assumes variant lines
+    // today (see its own comment).
     surface: "buy_now",
     lines: redemptionLines,
     // A FACT ABOUT WHAT WE BUILD, not a claim the client makes. The draft
