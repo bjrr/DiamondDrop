@@ -478,3 +478,40 @@ export async function listRedemptionsNeedingAttention(
     needsDecision: row.status === "failed_review",
   }));
 }
+
+/**
+ * Whether a redemption hold belongs to a given submission, and is still active.
+ *
+ * ============================================================================
+ * THE ID LOCATES THE ROW. IT DOES NOT AUTHORISE ACTING ON IT.
+ * ============================================================================
+ * The staff detail route is keyed on a SUBMISSION; its release form posts a
+ * REDEMPTION INTENT id. Those are different objects, so without this check a
+ * staff member viewing one submission could release a hold on another by
+ * editing a hidden field — freeing someone else's benefit while their
+ * discounted checkout is still payable.
+ *
+ * Extracted from the route rather than inlined because this is the whole of
+ * the authorisation, and authorisation that can only be tested through an
+ * authenticated Shopify session is authorisation nobody tests.
+ *
+ * ACTIVE ONLY. A completed or released hold is history; returning one would
+ * let the route offer a release the service then correctly refuses, which
+ * turns a clear "not yours" into a confusing "already done".
+ */
+export async function findReleasableHoldForSubmission(input: {
+  readonly submissionId: string;
+  readonly redemptionIntentId: string;
+}): Promise<{ id: string; status: string } | null> {
+  return prisma.beatQuoteRedemptionIntent.findFirst({
+    // The join IS the check: the intent's benefit must belong to this
+    // submission. A `findUnique` on the id followed by a comparison would be
+    // the same thing written so it can be forgotten.
+    where: {
+      id: input.redemptionIntentId,
+      benefit: { submissionId: input.submissionId },
+      status: { in: ["reserved", "failed_review"] },
+    },
+    select: { id: true, status: true },
+  });
+}

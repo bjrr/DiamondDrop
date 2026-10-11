@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import { prisma } from "~/db/client.server";
+import { findReleasableHoldForSubmission } from "~/db/repositories/beatQuoteReviewRepository.server";
 import { fallbackExpiresAt } from "~/domain/beatyourquote/fallbackBenefit";
 import type { RedemptionLineInput } from "~/domain/beatyourquote/redemptionCalculation";
 import { Money } from "~/domain/money/money";
@@ -73,7 +74,7 @@ async function benefit(overrides: { expiresAt?: Date } = {}) {
       decisionReason: "below floor",
     },
   });
-  return prisma.beatQuoteFallbackBenefit.create({
+  const created = await prisma.beatQuoteFallbackBenefit.create({
     data: {
       submissionId: submission.id,
       benefitCode: `BQ10-BK-${uniq()}`,
@@ -87,6 +88,7 @@ async function benefit(overrides: { expiresAt?: Date } = {}) {
       issuedByActorRef: "staff:reviewer",
     },
   });
+  return Object.assign(created, { submissionId: submission.id });
 }
 
 /** A bank payment order row, minimal but real. */
@@ -793,5 +795,76 @@ describe("staff release — Shopify first, database second", () => {
   it("refuses an intent that does not exist", async () => {
     const result = await release(randomUUID(), cancellingPort());
     expect(result).toMatchObject({ outcome: "refused", refusal: "intent_not_found" });
+  });
+});
+
+describe("a hold belongs to exactly one submission", () => {
+  it("REFUSES a hold from a DIFFERENT submission", async () => {
+    // The staff detail route is keyed on a submission; its release form posts
+    // an intent id. Without this check a staff member viewing one submission
+    // could release someone else's hold by editing a hidden field — freeing a
+    // benefit while its discounted checkout is still payable.
+    const mine = await benefit();
+    const theirs = await benefit();
+    const theirHold = await reserve(theirs.benefitCode);
+    if (theirHold.outcome !== "reserved") throw new Error("expected a reservation");
+
+    const found = await findReleasableHoldForSubmission({
+      submissionId: mine.submissionId,
+      redemptionIntentId: theirHold.intent.id,
+    });
+    expect(found).toBeNull();
+  });
+
+  it("FINDS a hold that does belong to the submission", async () => {
+    const b = await benefit();
+    const hold = await reserve(b.benefitCode);
+    if (hold.outcome !== "reserved") throw new Error("expected a reservation");
+
+    const found = await findReleasableHoldForSubmission({
+      submissionId: b.submissionId,
+      redemptionIntentId: hold.intent.id,
+    });
+    expect(found?.id).toBe(hold.intent.id);
+    expect(found?.status).toBe("reserved");
+  });
+
+  it("FINDS a hold under review — that is what the control is for", async () => {
+    const { benefit: b, intentId, bankPaymentOrderId } = await reservedBankRedemption();
+    await cancel(bankPaymentOrderId, "uncertain");
+
+    const found = await findReleasableHoldForSubmission({
+      submissionId: b.submissionId,
+      redemptionIntentId: intentId,
+    });
+    expect(found?.status).toBe("failed_review");
+  });
+
+  it.each(["completed", "released"] as const)("does NOT find a %s hold", async (finalStatus) => {
+    // Offering a release beside a finished redemption invites a click the
+    // service correctly refuses, turning a clear "not yours" into a confusing
+    // "already done".
+    const { benefit: b, intentId, bankPaymentOrderId } = await reservedBankRedemption();
+    if (finalStatus === "completed") {
+      await verify(bankPaymentOrderId);
+    } else {
+      await cancel(bankPaymentOrderId, "confirmed_not_received");
+    }
+
+    const found = await findReleasableHoldForSubmission({
+      submissionId: b.submissionId,
+      redemptionIntentId: intentId,
+    });
+    expect(found).toBeNull();
+  });
+
+  it("refuses an id that is not a redemption intent at all", async () => {
+    const b = await benefit();
+    expect(
+      await findReleasableHoldForSubmission({
+        submissionId: b.submissionId,
+        redemptionIntentId: randomUUID(),
+      })
+    ).toBeNull();
   });
 });

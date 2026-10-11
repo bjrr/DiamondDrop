@@ -8,12 +8,15 @@ import {
   BeatQuoteAlreadyVerifiedError,
   BeatQuoteDecisionIncoherentError,
   BeatQuoteSubmissionNotFoundError,
+  findReleasableHoldForSubmission,
   recordDecision,
   recordVerification,
 } from "~/db/repositories/beatQuoteReviewRepository.server";
 import { issueBeatQuoteFallbackBenefit } from "~/jobs/beatyourquote/issueFallbackBenefit.server";
+import { staffReleaseRedemptionHold } from "~/jobs/beatyourquote/staffReleaseRedemption.server";
 import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
+import { ShopifyDraftOrderAdapter } from "~/shopify/admin/draftOrderAdapter.server";
 import { authenticate } from "~/shopify.server";
 
 /**
@@ -84,6 +87,18 @@ export interface BeatQuoteBenefitView {
   readonly revokedReason: string | null;
 }
 
+/** An active redemption hold — the only kind the release control is offered for. */
+export interface ReleasableHoldView {
+  readonly intentId: string;
+  readonly status: string;
+  readonly paymentBasis: string;
+  readonly discount: string;
+  readonly reservedAt: string;
+  readonly draftOrderGid: string | null;
+  readonly bankPaymentOrderId: string | null;
+  readonly reviewReason: string | null;
+}
+
 export interface BeatQuoteDetailView {
   readonly id: string;
   readonly submissionReference: string;
@@ -125,6 +140,16 @@ export interface BeatQuoteDetailView {
   readonly acknowledgments: readonly BeatQuoteAcknowledgmentView[];
   readonly benefit: BeatQuoteBenefitView | null;
 
+  /**
+   * Redemption holds on this submission’s benefit that a person can act on.
+   *
+   * Only ACTIVE ones. A completed or released redemption is history, and
+   * offering a Release control beside it would invite a click that the service
+   * correctly refuses — a control that exists only to say no is worse than no
+   * control.
+   */
+  readonly releasableHolds: readonly ReleasableHoldView[];
+
   /** Derived gates for the three controls. */
   readonly canVerify: boolean;
   readonly canDecide: boolean;
@@ -161,7 +186,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
   const row = await prisma.beatQuoteSubmission.findUnique({
     where: { id },
-    include: { fallbackBenefit: true },
+    include: {
+      fallbackBenefit: { include: { redemptionIntents: { orderBy: { reservedAt: "asc" } } } },
+    },
   });
 
   const acknowledgments = row
@@ -240,6 +267,22 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
               revokedReason: row.fallbackBenefit.revokedReason,
             }
           : null,
+
+        // ACTIVE HOLDS ONLY — `reserved` and `failed_review` are the two states in
+        // which the benefit is held and its fate undecided. Those are exactly
+        // the rows the release control exists for.
+        releasableHolds: (row.fallbackBenefit?.redemptionIntents ?? [])
+          .filter((hold) => hold.status === "reserved" || hold.status === "failed_review")
+          .map((hold) => ({
+            intentId: hold.id,
+            status: hold.status,
+            paymentBasis: hold.paymentBasis,
+            discount: formatMinorUnits(hold.discountMinorUnits, hold.currency),
+            reservedAt: hold.reservedAt.toISOString(),
+            draftOrderGid: hold.draftOrderGid,
+            bankPaymentOrderId: hold.bankPaymentOrderId,
+            reviewReason: hold.reviewReason,
+          })),
 
         canVerify: row.verification === "pending",
         canDecide: row.verification === "verified" && row.status !== "closed",
@@ -367,6 +410,81 @@ export async function action({ request, params }: ActionFunctionArgs) {
           } satisfies ActionData;
         case "submission_not_found":
           return { error: "Submission not found." } satisfies ActionData;
+      }
+    }
+
+    if (intent === "release_redemption") {
+      // ======================================================================
+      // THE AUTHORIZATION CHECK THAT MUST NOT BE SKIPPED
+      // ======================================================================
+      // This route is keyed on a SUBMISSION. The form posts a REDEMPTION
+      // INTENT id, which is a different object — so without this check a staff
+      // member looking at one submission could release a hold belonging to
+      // another by editing a hidden field. Same class of defect as trusting an
+      // order tag: the id locates the row, it does not authorise acting on it.
+      const redemptionIntentId = String(formData.get("redemptionIntentId") ?? "").trim();
+      if (redemptionIntentId === "") {
+        return { error: "Which redemption hold? None was named." } satisfies ActionData;
+      }
+      const owned = await findReleasableHoldForSubmission({
+        submissionId: id,
+        redemptionIntentId,
+      });
+      if (!owned) {
+        logger.warn("beat_quote_admin.release_foreign_intent_refused", {
+          submissionId: id,
+          redemptionIntentId,
+          actor: staffActorRef,
+        });
+        // Deliberately not "that belongs to another submission": the same
+        // reasoning as the redemption route's refusals, so this cannot be used
+        // to confirm an id exists.
+        return { error: "That redemption hold does not belong to this submission." } satisfies ActionData;
+      }
+
+      // NOT PRE-CHECKED, AND NOT INFERRED FROM A STATUS. The staff member is
+      // asserting a fact about money — that none arrived — and CLAUDE.md
+      // forbids pre-checking or silently inferring a material acknowledgment.
+      // An unpaid-looking order is not confirmation: a transfer can be in
+      // flight or received and unreconciled.
+      const paymentConfirmedNotReceived = formData.get("paymentConfirmedNotReceived") === "yes";
+
+      const { admin } = await authenticate.admin(request);
+      const result = await staffReleaseRedemptionHold({
+        intentId: redemptionIntentId,
+        reason: String(formData.get("releaseReason") ?? ""),
+        actorRef: staffActorRef,
+        paymentConfirmedNotReceived,
+        // Built here, inside the branch that needs it — the deposit handler's
+        // live 500 came from constructing an Admin client on a path that did
+        // not.
+        draftOrderPort: new ShopifyDraftOrderAdapter(admin),
+        now,
+      });
+
+      switch (result.outcome) {
+        case "released":
+          logger.info("beat_quote_admin.redemption_released", {
+            submissionId: id,
+            redemptionIntentId,
+            actor: staffActorRef,
+            shopifyRef: result.shopifyRef,
+          });
+          return {
+            notice:
+              `Hold released. The discounted checkout was confirmed unpayable first (${result.shopifyRef}). ` +
+              (result.benefitExpiredWhileReserved
+                ? `NOTE: the benefit expired on ${result.benefitExpiresAt.toISOString().slice(0, 10)} while it was reserved, ` +
+                  `so it is available again but will refuse a new redemption. Releasing does not extend it.`
+                : `The benefit is usable again until ${result.benefitExpiresAt.toISOString().slice(0, 10)} — its original expiry, unchanged.`),
+          } satisfies ActionData;
+        case "already_released":
+          return { notice: "That hold was already released. Nothing changed." } satisfies ActionData;
+        case "refused":
+          // Each refusal means something different and actionable. The Shopify
+          // one especially must not read as a generic error: the hold is KEPT
+          // because the checkout may still be payable.
+          return { error: result.detail } satisfies ActionData;
       }
     }
 
@@ -643,7 +761,105 @@ export default function BeatQuoteDetailPage() {
               </>
             ) : null}
           </dl>
-        ) : s.benefitBlockedReason ? (
+        ) : null}
+
+        {/*
+          ======================================================================
+          THE RELEASE CONTROL — OFFERED ONLY FOR AN ACTIVE HOLD
+          ======================================================================
+          Releasing is not cleanup. It makes a benefit available again, and the
+          discounted Shopify checkout has to be proven incapable of completing
+          FIRST — otherwise a customer with the invoice in their inbox could pay
+          it later and take the benefit twice.
+
+          The copy says that out loud rather than hiding it behind a button
+          label, because the person clicking is the last check on it.
+        */}
+        {s.releasableHolds.length > 0 ? (
+          <section aria-labelledby="holds-heading" style={{ marginTop: "1.5rem" }}>
+            <h3 id="holds-heading">Active redemption holds</h3>
+            {s.releasableHolds.map((hold) => (
+              <Form
+                method="post"
+                key={hold.intentId}
+                style={{ border: "1px solid", padding: "1rem", marginBottom: "1rem" }}
+              >
+                <input type="hidden" name="intent" value="release_redemption" />
+                {/*
+                  Verified server-side against THIS submission before anything
+                  is released — the route is keyed on a submission and this is a
+                  different object, so the id locates the row without
+                  authorising action on it.
+                */}
+                <input type="hidden" name="redemptionIntentId" value={hold.intentId} />
+
+                <dl>
+                  <dt>State</dt>
+                  <dd>
+                    {hold.status}
+                    {hold.status === "failed_review" ? " — waiting on a decision" : ""}
+                  </dd>
+                  <dt>Basis</dt>
+                  <dd>{hold.paymentBasis === "bank_payment" ? "Bank Payment" : "Card"}</dd>
+                  <dt>Benefit held</dt>
+                  <dd>{hold.discount}</dd>
+                  <dt>Reserved</dt>
+                  <dd>{hold.reservedAt}</dd>
+                  <dt>Payable object</dt>
+                  <dd>
+                    {hold.draftOrderGid ??
+                      (hold.bankPaymentOrderId
+                        ? `bank payment order ${hold.bankPaymentOrderId}`
+                        : "none — this hold never reached checkout creation")}
+                  </dd>
+                  {hold.reviewReason ? (
+                    <>
+                      <dt>Why it needs a person</dt>
+                      <dd>{hold.reviewReason}</dd>
+                    </>
+                  ) : null}
+                </dl>
+
+                <p>
+                  Releasing cancels the discounted checkout in Shopify first and only then frees the
+                  benefit. If Shopify does not confirm the cancellation, the benefit stays held — it must
+                  not become available while that checkout could still be paid.
+                </p>
+
+                <label htmlFor={`reason-${hold.intentId}`}>Why are you releasing this hold?</label>
+                <br />
+                <textarea
+                  id={`reason-${hold.intentId}`}
+                  name="releaseReason"
+                  rows={3}
+                  cols={60}
+                  required
+                />
+                <br />
+
+                {/*
+                  NOT PRE-CHECKED. The staff member is asserting a fact about
+                  money, and `CLAUDE.md` forbids pre-checking or silently
+                  inferring a material acknowledgment. An order that merely
+                  looks unpaid is not confirmation: a transfer can be in flight,
+                  or received and not yet reconciled.
+                */}
+                <label>
+                  <input type="checkbox" name="paymentConfirmedNotReceived" value="yes" required />{" "}
+                  I have confirmed no payment was received for this order. Received, verified, partial or
+                  uncertain payments all block a release.
+                </label>
+                <br />
+
+                <button type="submit" disabled={submitting}>
+                  {submitting ? "Releasing…" : "Release this hold"}
+                </button>
+              </Form>
+            ))}
+          </section>
+        ) : null}
+
+        {s.benefit ? null : s.benefitBlockedReason ? (
           <p role="alert" style={{ fontWeight: 600 }}>
             {s.benefitBlockedReason}
           </p>
