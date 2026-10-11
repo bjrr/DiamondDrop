@@ -4,9 +4,19 @@ import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { Form, Link, useLoaderData, useRouteError } from "react-router";
 
 import {
+  listRedemptionsNeedingAttention,
   searchBeatQuoteSubmissionsForStaff,
+  STALE_RESERVATION_HOURS,
   type BeatQuoteStaffListRow,
 } from "~/db/repositories/beatQuoteReviewRepository.server";
+// NOTE ON THAT IMPORT: everything taken from it is used ONLY inside `loader`,
+// and `STALE_RESERVATION_HOURS` reaches the component through loader data
+// rather than being referenced directly below. React Router strips server code
+// from `loader`, `action`, `middleware` and `headers` — and from nothing else —
+// so a server-only VALUE referenced in the default-export component pulls the
+// whole repository, and Prisma with it, into the client bundle. That is not a
+// style point: the build refuses it outright, which is how this comment came
+// to be written.
 import { getEnv } from "~/lib/env.server";
 import { authenticate } from "~/shopify.server";
 
@@ -82,6 +92,20 @@ interface ListRowView {
   readonly owed: boolean;
 }
 
+interface RedemptionRowView {
+  readonly intentId: string;
+  readonly benefitCode: string;
+  readonly submissionId: string;
+  readonly submissionReference: string;
+  readonly status: string;
+  readonly discount: string;
+  readonly reservedAt: string;
+  readonly orderGid: string | null;
+  readonly reviewReason: string | null;
+  readonly needsDecision: boolean;
+  readonly nextAction: string;
+}
+
 interface LoaderData {
   apiKey: string;
   shop: string;
@@ -91,6 +115,10 @@ interface LoaderData {
   page: number;
   pageSize: number;
   loadError: string | null;
+  redemptions: readonly RedemptionRowView[];
+  redemptionLoadError: string | null;
+  /** Carried in the payload, not imported by the component — see the note on the import above. */
+  staleReservationHours: number;
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -139,6 +167,34 @@ export async function loader({ request }: LoaderFunctionArgs) {
     loadError = error instanceof Error ? error.message : "Could not load submissions.";
   }
 
+  // LOADED INDEPENDENTLY OF THE SEARCH, AND OF ITS SUCCESS. A redemption that
+  // failed order-time verification is the most urgent thing on this screen, and
+  // it must not disappear because a reviewer typed a search term or because the
+  // submission query errored. Its own failure is caught separately for the same
+  // reason, in the other direction.
+  let redemptions: RedemptionRowView[] = [];
+  let redemptionLoadError: string | null = null;
+  try {
+    redemptions = (await listRedemptionsNeedingAttention()).map((row) => ({
+      intentId: row.intentId,
+      benefitCode: row.benefitCode,
+      submissionId: row.submissionId,
+      submissionReference: row.submissionReference,
+      status: row.status,
+      discount: formatMinorUnits(row.discountMinorUnits, row.currency),
+      reservedAt: row.reservedAt.toISOString().slice(0, 16).replace("T", " "),
+      orderGid: row.orderGid,
+      reviewReason: row.reviewReason,
+      needsDecision: row.needsDecision,
+      nextAction: row.needsDecision
+        ? "DECIDE: a paid order disagreed with what we reserved"
+        : "Stale hold — release it so the customer can try again",
+    }));
+  } catch (error) {
+    redemptionLoadError =
+      error instanceof Error ? error.message : "Could not load redemptions needing attention.";
+  }
+
   return {
     apiKey: getEnv().SHOPIFY_API_KEY ?? "",
     shop: session.shop,
@@ -148,15 +204,30 @@ export async function loader({ request }: LoaderFunctionArgs) {
     page,
     pageSize,
     loadError,
+    redemptions,
+    redemptionLoadError,
+    staleReservationHours: STALE_RESERVATION_HOURS,
   } satisfies LoaderData;
 }
 
 export default function BeatQuoteIndexPage() {
-  const { apiKey, query, rows, totalCount, page, pageSize, loadError } = useLoaderData<LoaderData>();
+  const {
+    apiKey,
+    query,
+    rows,
+    totalCount,
+    page,
+    pageSize,
+    loadError,
+    redemptions,
+    redemptionLoadError,
+    staleReservationHours,
+  } = useLoaderData<LoaderData>();
   // No division and no rounding helper — this repo bans those, and
   // `app.rma._index.tsx` sidesteps the same problem the same way.
   const hasNextPage = page * pageSize < totalCount;
   const owedCount = rows.filter((row) => row.owed).length;
+  const decisionCount = redemptions.filter((row) => row.needsDecision).length;
 
   return (
     <AppProvider apiKey={apiKey}>
@@ -167,6 +238,76 @@ export default function BeatQuoteIndexPage() {
           <p role="alert" style={{ fontWeight: 600 }}>
             {owedCount} submission(s) on this page are owed the 10%-off benefit and have not been issued one.
           </p>
+        ) : null}
+
+        {/*
+          ABOVE THE SUBMISSION QUEUE, DELIBERATELY. A redemption that failed
+          order-time verification is a real paid order whose discount does not
+          match what we promised — either our bug or someone's tampering. It
+          outranks every triage item below it, and verification failing closed
+          to staff review only means anything if staff actually see it.
+        */}
+        {redemptionLoadError ? (
+          <p role="alert" style={{ fontWeight: 600 }}>
+            Could not load redemptions needing attention: {redemptionLoadError}
+          </p>
+        ) : null}
+
+        {redemptions.length > 0 ? (
+          <section aria-labelledby="redemptions-heading" style={{ marginBottom: "2rem" }}>
+            <h2 id="redemptions-heading" style={{ marginBottom: "0.25rem" }}>
+              Benefit redemptions needing attention
+            </h2>
+            {decisionCount > 0 ? (
+              <p role="alert" style={{ fontWeight: 600 }}>
+                {decisionCount} redemption(s) failed order-time verification. The benefit is neither spent nor
+                returned until someone decides.
+              </p>
+            ) : null}
+            <p>
+              Reservations older than {staleReservationHours} hours are listed too: the benefit stays unusable
+              until released, so the customer cannot start a new checkout.
+            </p>
+            <table style={{ borderCollapse: "collapse", width: "100%" }}>
+              <caption style={{ captionSide: "bottom", textAlign: "left", paddingTop: "0.5rem" }}>
+                Redemptions in failed_review, and reservations held longer than {staleReservationHours} hours.
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col" style={{ textAlign: "left" }}>Submission</th>
+                  <th scope="col" style={{ textAlign: "left" }}>Benefit</th>
+                  <th scope="col" style={{ textAlign: "left" }}>State</th>
+                  <th scope="col" style={{ textAlign: "left" }}>Discount</th>
+                  <th scope="col" style={{ textAlign: "left" }}>Reserved</th>
+                  <th scope="col" style={{ textAlign: "left" }}>Next action</th>
+                  <th scope="col" style={{ textAlign: "left" }}>Why</th>
+                </tr>
+              </thead>
+              <tbody>
+                {redemptions.map((row) => (
+                  <tr key={row.intentId}>
+                    <td>
+                      {/* The SUBMISSION id — the detail page is keyed on the
+                          submission, not on the redemption intent. */}
+                      <Link to={`/app/beat-quote/${row.submissionId}`}>{row.submissionReference}</Link>
+                    </td>
+                    <td>{row.benefitCode}</td>
+                    <td>{row.status}</td>
+                    <td>{row.discount}</td>
+                    <td>{row.reservedAt}</td>
+                    <td style={row.needsDecision ? { fontWeight: 600 } : undefined}>{row.nextAction}</td>
+                    {/*
+                      The reason is shown in full rather than truncated: it is
+                      the whole content of the decision, and a reviewer who has
+                      to click through to read why an order was rejected will
+                      read it less carefully.
+                    */}
+                    <td>{row.reviewReason ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
         ) : null}
 
         <Form method="get">

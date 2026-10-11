@@ -372,3 +372,109 @@ export async function searchBeatQuoteSubmissionsForStaff(
     pageSize: PAGE_SIZE,
   };
 }
+
+/**
+ * How long a reservation may sit before staff should look at it.
+ *
+ * NOT A POLICY DEADLINE and deliberately not called one. Nothing expires a
+ * reservation automatically — the benefit stays unusable until someone releases
+ * it or the customer pays — so this threshold only decides when the queue
+ * starts asking for attention. Two hours is long enough that a customer
+ * finishing a normal checkout is never flagged, and short enough that a
+ * benefit is not quietly locked for a day.
+ */
+export const STALE_RESERVATION_HOURS = 2;
+
+export interface RedemptionAttentionRow {
+  readonly intentId: string;
+  readonly benefitCode: string;
+  /** The SUBMISSION this benefit came from — what the staff detail page is keyed on. */
+  readonly submissionId: string;
+  readonly submissionReference: string;
+  readonly customerRef: string;
+  readonly status: string;
+  readonly discountMinorUnits: bigint;
+  readonly currency: string;
+  readonly reservedAt: Date;
+  readonly orderGid: string | null;
+  readonly draftOrderGid: string | null;
+  /** Why verification failed, for `failed_review` rows. */
+  readonly reviewReason: string | null;
+  /** True when a person must decide, as opposed to merely release a stale hold. */
+  readonly needsDecision: boolean;
+}
+
+/**
+ * Redemptions a human has to deal with.
+ *
+ * ============================================================================
+ * WHY THIS EXISTS AT ALL
+ * ============================================================================
+ * Order-time verification fails CLOSED to `failed_review` rather than marking a
+ * benefit redeemed or releasing it, because a discount that does not match what
+ * we reserved is either our bug or someone's tampering and neither is safe to
+ * resolve automatically. That is only a real safeguard if somebody sees it.
+ * A fail-closed state nobody can find is a silent failure with extra steps.
+ *
+ * TWO DIFFERENT JOBS, RETURNED TOGETHER AND DISTINGUISHED BY `needsDecision`:
+ *
+ *   `failed_review`  a paid order disagreed with the reservation. A person must
+ *                    decide what actually happened. Always surfaced.
+ *   stale `reserved` a checkout that was started and apparently abandoned. The
+ *                    benefit is unusable until released, so the customer cannot
+ *                    try again — a smaller problem, but one with a customer
+ *                    waiting on the other end.
+ *
+ * `completed` and `released` are absent: both are finished, and a queue that
+ * lists finished work is a queue nobody reads.
+ */
+export async function listRedemptionsNeedingAttention(
+  now: Date = new Date()
+): Promise<RedemptionAttentionRow[]> {
+  const staleBefore = new Date(now.getTime() - STALE_RESERVATION_HOURS * 60 * 60 * 1000);
+
+  const rows = await prisma.beatQuoteRedemptionIntent.findMany({
+    where: {
+      OR: [
+        { status: "failed_review" },
+        { status: "reserved", reservedAt: { lt: staleBefore } },
+      ],
+    },
+    // Oldest first, same reasoning as the submission queue: the one waiting
+    // longest has a customer waiting longest.
+    orderBy: { reservedAt: "asc" },
+    select: {
+      id: true,
+      status: true,
+      customerRef: true,
+      discountMinorUnits: true,
+      currency: true,
+      reservedAt: true,
+      orderGid: true,
+      draftOrderGid: true,
+      reviewReason: true,
+      benefit: {
+        select: {
+          benefitCode: true,
+          submission: { select: { id: true, submissionReference: true } },
+        },
+      },
+    },
+  });
+
+  return rows.map((row) => ({
+    intentId: row.id,
+    benefitCode: row.benefit.benefitCode,
+    submissionId: row.benefit.submission.id,
+    submissionReference: row.benefit.submission.submissionReference,
+    customerRef: row.customerRef,
+    status: row.status,
+    discountMinorUnits: row.discountMinorUnits,
+    currency: row.currency,
+    reservedAt: row.reservedAt,
+    orderGid: row.orderGid,
+    draftOrderGid: row.draftOrderGid,
+    reviewReason: row.reviewReason,
+    needsDecision: row.status === "failed_review",
+  }));
+}
