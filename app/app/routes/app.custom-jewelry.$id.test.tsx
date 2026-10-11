@@ -88,18 +88,41 @@ function decodeEntities(html: string): string {
     .replace(/&#39;/g, "'");
 }
 
-function render(project: ProjectView | null): string {
+function render(
+  project: ProjectView | null,
+  final: { approvalPackages?: unknown[]; purchase?: unknown } = {}
+): string {
+  const approvalPackages = final.approvalPackages ?? [];
+  const purchase = final.purchase ?? null;
   const router = createMemoryRouter(
     [
       {
         id: ROUTE_ID,
         path: "/app/custom-jewelry/:id",
         Component: CustomJewelryProjectPage,
-        loader: () => ({ apiKey: "test-key", shop: "caratforus-dev.myshopify.com", project }),
+        loader: () => ({ apiKey: "test-key", shop: "caratforus-dev.myshopify.com", project, approvalPackages, purchase }),
       },
     ],
     { initialEntries: ["/app/custom-jewelry/11111111-1111-1111-1111-111111111111"], hydrationData: {
-      loaderData: { [ROUTE_ID]: { apiKey: "test-key", shop: "caratforus-dev.myshopify.com", project } },
+      loaderData: {
+        [ROUTE_ID]: {
+          apiKey: "test-key",
+          shop: "caratforus-dev.myshopify.com",
+          project,
+          // THE LOADER ALWAYS RETURNS THESE, so the fixture supplies them
+          // rather than the component defaulting. A `?? []` in the component
+          // would hide a genuinely missing field, which is the opposite of
+          // what this file exists to catch — it supplies loader RESULTS
+          // precisely so the render is tested against what the loader really
+          // produces.
+          //
+          // The final-approval surface has its own dedicated cases below; this
+          // empty pair is the "no package issued yet" state every existing
+          // test here is written against.
+          approvalPackages,
+          purchase,
+        },
+      },
     } }
   );
   return decodeEntities(renderToStaticMarkup(<RouterProvider router={router} />));
@@ -197,5 +220,192 @@ describe("an anonymous enquiry reads as normal, not broken", () => {
 describe("a missing project", () => {
   it("renders a plain message rather than throwing", () => {
     expect(render(null)).toContain("Project not found");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The final approval and purchase surface.
+// ---------------------------------------------------------------------------
+
+const ISSUED_PACKAGE = {
+  id: "aaaaaaaa-1111-1111-1111-111111111111",
+  version: 1,
+  status: "issued",
+  issuedAt: "2026-11-01T12:00:00.000Z",
+  issuedByActorRef: "staff:42",
+  approvedAt: null,
+  approvedByCustomerRef: null,
+  supersededByVersion: null,
+  supersededReason: null,
+  bankPaymentPrice: "5000.00 USD",
+  regularCardPrice: "5175.00 USD",
+  depositCredit: "49.00 USD",
+  bankPaymentBalanceDue: "4951.00 USD",
+  regularCardBalanceDue: "5126.00 USD",
+  acknowledgmentPolicyVersion: 1,
+  finalSaleCopyVersion: 1,
+  summary: "white platinum, size 6.5",
+};
+
+const APPROVED_PACKAGE = {
+  ...ISSUED_PACKAGE,
+  status: "approved",
+  approvedAt: "2026-11-02T09:00:00.000Z",
+  approvedByCustomerRef: "gid://shopify/Customer/123",
+};
+
+const SUPERSEDED_PACKAGE = {
+  ...ISSUED_PACKAGE,
+  id: "aaaaaaaa-0000-0000-0000-000000000000",
+  status: "superseded",
+  supersededByVersion: 2,
+  supersededReason: "customer changed the metal",
+  summary: "yellow gold, size 7",
+};
+
+describe("the issue-package form appears only when it would work", () => {
+  it("is PRESENT when no package has been approved", () => {
+    const html = render(ACCEPTED, { approvalPackages: [ISSUED_PACKAGE] });
+    expect(html).toContain("issue_approval_package");
+    expect(html).toContain("Issue approval package");
+  });
+
+  it("is ABSENT once the customer has approved a version", () => {
+    // Staff must not silently replace what a customer approved — the trigger
+    // refuses it, and offering a form that cannot work is its own defect.
+    const html = render(ACCEPTED, { approvalPackages: [APPROVED_PACKAGE] });
+    expect(html).not.toContain("issue_approval_package");
+    expect(html).toContain("commercial conversation, not a re-issue");
+  });
+
+  it("asks for the BANK price and says the card price is derived", () => {
+    // A typed card price would be a second pricing engine with a human in it.
+    const html = render(ACCEPTED, { approvalPackages: [] });
+    expect(html).toContain("bankPaymentPrice");
+    expect(html).toContain("Bank Payment Price");
+    expect(html).toMatch(/Regular\/Card Price is derived/i);
+    // And there is NO field for it.
+    expect(html).not.toContain('name="regularCardPrice"');
+  });
+
+  it("offers NO field for the deposit credit", () => {
+    // It is read from the recorded payment, so the credit always points at a
+    // transaction that actually happened.
+    const html = render(ACCEPTED, { approvalPackages: [] });
+    expect(html).not.toContain('name="depositCredit"');
+    expect(html).toMatch(/read from the recorded payment/i);
+  });
+
+  it("gives the timeline field NO default", () => {
+    // The owner forbade unsupported turnaround promises; a templated sentence
+    // is exactly how one would appear.
+    const html = render(ACCEPTED, { approvalPackages: [] });
+    expect(html).toContain("approvedTimelineText");
+    expect(html).toMatch(/only what has actually been agreed/i);
+    // EMPTY BETWEEN THE TAGS, asserted positively. The obvious negative
+    // version — `>\S` after the opening tag — matches the `<` of
+    // `</textarea>`, so it is true of every empty textarea ever rendered and
+    // proves nothing. That is how the first version of this assertion
+    // "passed".
+    expect(html).toMatch(/name="approvedTimelineText"[^>]*><\/textarea>/);
+  });
+
+  it("asks WHY a revision replaces the current version, but only when one exists", () => {
+    expect(render(ACCEPTED, { approvalPackages: [ISSUED_PACKAGE] })).toContain("supersedesReason");
+    expect(render(ACCEPTED, { approvalPackages: [] })).not.toContain("supersedesReason");
+  });
+});
+
+describe("the approval history", () => {
+  it("shows SUPERSEDED versions, not only the current one", () => {
+    // A superseded version is the evidence of what was offered before the
+    // design changed, and a claim about the approved design is decided against
+    // it.
+    const html = render(ACCEPTED, { approvalPackages: [ISSUED_PACKAGE, SUPERSEDED_PACKAGE] });
+    expect(html).toContain("white platinum, size 6.5");
+    expect(html).toContain("yellow gold, size 7");
+    expect(html).toContain("superseded");
+    expect(html).toContain("customer changed the metal");
+  });
+
+  it("shows BOTH price bases and both balances", () => {
+    const html = render(ACCEPTED, { approvalPackages: [ISSUED_PACKAGE] });
+    expect(html).toContain("5000.00 USD");
+    expect(html).toContain("5175.00 USD");
+    expect(html).toContain("4951.00 USD");
+    expect(html).toContain("5126.00 USD");
+  });
+
+  it("shows whether the customer approved, and the copy versions they saw", () => {
+    const html = render(ACCEPTED, { approvalPackages: [APPROVED_PACKAGE] });
+    expect(html).toContain("2026-11-02 09:00");
+    expect(html).toMatch(/ack v1/);
+    expect(html).toMatch(/final-sale v1/);
+  });
+
+  it("says plainly when nothing has been issued", () => {
+    const html = render(ACCEPTED, { approvalPackages: [] });
+    expect(html).toContain("No approval package has been issued");
+  });
+});
+
+describe("the purchase panel", () => {
+  const PURCHASE = {
+    id: "bbbbbbbb-1111-1111-1111-111111111111",
+    paymentBasis: "bank_payment",
+    status: "awaiting_payment",
+    grossApprovedPrice: "5000.00 USD",
+    depositCredit: "49.00 USD",
+    depositPaymentReference: "gid://shopify/Order/dep-1",
+    benefitDiscount: "100.00 USD",
+    balanceDue: "4851.00 USD",
+    bankPaymentOrderId: "cccccccc-1111-1111-1111-111111111111",
+    shopifyDraftOrderGid: null,
+    shopifyOrderGid: null,
+    paidAt: null,
+    bankOrderStatus: "open",
+    bankOrderVerifiedAt: null,
+  };
+
+  it("shows the GROSS price, the credits separately, and the balance", () => {
+    // The deposit is a credit against the price, not a discount to it — so the
+    // price is what the piece sold for and the balance is merely what was
+    // collected. Showing only the balance would lose that.
+    const html = render(ACCEPTED, { approvalPackages: [APPROVED_PACKAGE], purchase: PURCHASE });
+    expect(html).toContain("Approved price (gross)");
+    expect(html).toContain("5000.00 USD");
+    expect(html).toContain("Design Deposit credit");
+    expect(html).toContain("gid://shopify/Order/dep-1");
+    expect(html).toContain("Let Us Beat Your Quote benefit");
+    expect(html).toContain("100.00 USD");
+    expect(html).toContain("4851.00 USD");
+  });
+
+  it("FLAGS funds verified while the purchase still awaits payment", () => {
+    // The urgent anomaly: the customer has paid and nothing downstream knows.
+    const html = render(ACCEPTED, {
+      approvalPackages: [APPROVED_PACKAGE],
+      purchase: { ...PURCHASE, bankOrderVerifiedAt: "2026-11-05T10:00:00.000Z" },
+    });
+    expect(html).toMatch(/customer has paid and nothing downstream knows/i);
+  });
+
+  it("FLAGS a cancelled bank order", () => {
+    const html = render(ACCEPTED, {
+      approvalPackages: [APPROVED_PACKAGE],
+      purchase: { ...PURCHASE, bankOrderStatus: "cancelled" },
+    });
+    expect(html).toMatch(/balance will not arrive/i);
+  });
+
+  it("does NOT flag a healthy awaiting-payment purchase", () => {
+    const html = render(ACCEPTED, { approvalPackages: [APPROVED_PACKAGE], purchase: PURCHASE });
+    expect(html).not.toMatch(/nothing downstream knows/i);
+    expect(html).not.toMatch(/will not arrive/i);
+  });
+
+  it("is absent when no purchase exists", () => {
+    const html = render(ACCEPTED, { approvalPackages: [APPROVED_PACKAGE] });
+    expect(html).not.toContain("Approved price (gross)");
   });
 });

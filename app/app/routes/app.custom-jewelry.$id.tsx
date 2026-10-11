@@ -8,6 +8,12 @@ import {
   CUSTOM_JEWELRY_DEPOSIT_ACKNOWLEDGMENT_TEXT,
   CUSTOM_JEWELRY_DEPOSIT_AFFIRMATIVE_ACTION_LABEL,
 } from "~/domain/customjewelry/designDepositAcknowledgmentText";
+import { issueApprovalPackage } from "~/db/repositories/customJewelryApprovalRepository.server";
+import { loadProjectApprovalHistory } from "~/db/repositories/customJewelryStaffRepository.server";
+import { MoneyDecimal } from "~/domain/money/decimal";
+import { Money } from "~/domain/money/money";
+import { deriveRegularCardPrice } from "~/domain/pricing/regularCardPrice";
+import type { RegularCardPriceRuleId } from "~/domain/pricing/types";
 import { issueCustomJewelryDepositInvoice } from "~/jobs/customjewelry/issueDepositInvoice.server";
 import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
@@ -131,10 +137,56 @@ function resolveStaffActorRef(session: Awaited<ReturnType<typeof authenticate.ad
 // Loader
 // ---------------------------------------------------------------------------
 
+/** One approval package, as staff read it. Money as strings — never a JSON number. */
+export interface ApprovalPackageRow {
+  readonly id: string;
+  readonly version: number;
+  readonly status: string;
+  readonly issuedAt: string;
+  readonly issuedByActorRef: string;
+  readonly approvedAt: string | null;
+  readonly approvedByCustomerRef: string | null;
+  readonly supersededByVersion: number | null;
+  readonly supersededReason: string | null;
+  readonly bankPaymentPrice: string;
+  readonly regularCardPrice: string;
+  readonly depositCredit: string;
+  readonly bankPaymentBalanceDue: string;
+  readonly regularCardBalanceDue: string;
+  readonly acknowledgmentPolicyVersion: number;
+  readonly finalSaleCopyVersion: number;
+  readonly summary: string;
+}
+
+export interface FinalPurchaseRow {
+  readonly id: string;
+  readonly paymentBasis: string;
+  readonly status: string;
+  readonly grossApprovedPrice: string;
+  readonly depositCredit: string;
+  readonly depositPaymentReference: string | null;
+  readonly benefitDiscount: string;
+  readonly balanceDue: string;
+  readonly bankPaymentOrderId: string | null;
+  readonly shopifyDraftOrderGid: string | null;
+  readonly shopifyOrderGid: string | null;
+  readonly paidAt: string | null;
+  readonly bankOrderStatus: string | null;
+  readonly bankOrderVerifiedAt: string | null;
+}
+
 interface LoaderData {
   apiKey: string;
   shop: string;
   project: ProjectView | null;
+  /**
+   * Every package ever issued, newest first — INCLUDING superseded ones. A
+   * superseded version is the evidence of what was offered before the design
+   * changed, and the final-sale exception for "material failure to match the
+   * approved design" is decided against exactly those rows.
+   */
+  approvalPackages: readonly ApprovalPackageRow[];
+  purchase: FinalPurchaseRow | null;
 }
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
@@ -240,7 +292,60 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       }
     : null;
 
-  return { apiKey: getEnv().SHOPIFY_API_KEY ?? "", shop: session.shop, project } satisfies LoaderData;
+  const history = row ? await loadProjectApprovalHistory(row.id) : { packages: [], purchase: null };
+
+  return {
+    apiKey: getEnv().SHOPIFY_API_KEY ?? "",
+    shop: session.shop,
+    project,
+    approvalPackages: history.packages.map((pkg) => ({
+      id: pkg.id,
+      version: pkg.version,
+      status: pkg.status,
+      issuedAt: pkg.issuedAt.toISOString(),
+      issuedByActorRef: pkg.issuedByActorRef,
+      approvedAt: pkg.approvedAt?.toISOString() ?? null,
+      approvedByCustomerRef: pkg.approvedByCustomerRef,
+      supersededByVersion: pkg.supersededByVersion,
+      supersededReason: pkg.supersededReason,
+      bankPaymentPrice: formatMinorUnits(pkg.bankPaymentPriceMinorUnits, pkg.currency),
+      regularCardPrice: formatMinorUnits(pkg.regularCardPriceMinorUnits, pkg.currency),
+      depositCredit: formatMinorUnits(pkg.depositCreditMinorUnits, pkg.currency),
+      bankPaymentBalanceDue: formatMinorUnits(pkg.bankPaymentBalanceDueMinorUnits, pkg.currency),
+      regularCardBalanceDue: formatMinorUnits(pkg.regularCardBalanceDueMinorUnits, pkg.currency),
+      acknowledgmentPolicyVersion: pkg.approvalAcknowledgmentPolicyVersion,
+      finalSaleCopyVersion: pkg.finalSaleCopyVersion,
+      // Enough of the spec to tell versions apart at a glance, which is what a
+      // list of them is for. The full spec lives on the package itself.
+      summary: [pkg.metalColor, pkg.metalType, pkg.ringSize ? `size ${pkg.ringSize}` : null, pkg.engraving ? `engraved "${pkg.engraving}"` : null]
+        .filter((part): part is string => part !== null && part !== "")
+        .join(", "),
+    })),
+    purchase: history.purchase
+      ? {
+          id: history.purchase.id,
+          paymentBasis: history.purchase.paymentBasis,
+          status: history.purchase.status,
+          grossApprovedPrice: formatMinorUnits(
+            history.purchase.grossApprovedPriceMinorUnits,
+            history.purchase.currency
+          ),
+          depositCredit: formatMinorUnits(history.purchase.depositCreditMinorUnits, history.purchase.currency),
+          depositPaymentReference: history.purchase.depositPaymentReference,
+          benefitDiscount: formatMinorUnits(
+            history.purchase.benefitDiscountMinorUnits,
+            history.purchase.currency
+          ),
+          balanceDue: formatMinorUnits(history.purchase.balanceDueMinorUnits, history.purchase.currency),
+          bankPaymentOrderId: history.purchase.bankPaymentOrderId,
+          shopifyDraftOrderGid: history.purchase.shopifyDraftOrderGid,
+          shopifyOrderGid: history.purchase.shopifyOrderGid,
+          paidAt: history.purchase.paidAt?.toISOString() ?? null,
+          bankOrderStatus: history.purchase.bankOrderStatus,
+          bankOrderVerifiedAt: history.purchase.bankOrderVerifiedAt?.toISOString() ?? null,
+        }
+      : null,
+  } satisfies LoaderData;
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +355,170 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 interface ActionData {
   error?: string;
   notice?: string;
+}
+
+/**
+ * Issuing a final approval package.
+ *
+ * ============================================================================
+ * STAFF TYPE THE BANK PRICE. THEY NEVER TYPE THE CARD PRICE.
+ * ============================================================================
+ * The Bank Payment Price is the authoritative underlying figure and the
+ * Regular/Card Price is DERIVED from it by the locked tiered rule
+ * (`CLAUDE.md` rules 11-12, `docs/BANK-CARD-PRICING.md`). A typed card price
+ * would be a second pricing engine with a human in it — and the one case it
+ * would get wrong is the one nobody notices: a card price a few dollars under
+ * the correct tier, on a single bespoke piece, forever.
+ *
+ * THEY NEVER TYPE THE DEPOSIT CREDIT EITHER. `issueApprovalPackage` reads it
+ * from the recorded payment, so the credit always points at a transaction that
+ * actually happened.
+ *
+ * The timeline is free text with NO default. The owner forbade unsupported
+ * turnaround promises, and a templated sentence here is precisely how one
+ * would appear — so an empty field means "nothing agreed", which is honest.
+ */
+async function issueApprovalPackageAction(input: {
+  projectId: string;
+  staffActorRef: string;
+  formData: FormData;
+}): Promise<ActionData> {
+  const text = (name: string): string | undefined => {
+    const value = String(input.formData.get(name) ?? "").trim();
+    return value === "" ? undefined : value;
+  };
+
+  const metalType = text("metalType");
+  const metalColor = text("metalColor");
+  if (!metalType || !metalColor) {
+    return { error: "Metal type and colour are required — they are part of what the customer approves." };
+  }
+
+  // MONEY FROM A FORM, PARSED AS AN EXACT DECIMAL. Never `Number()`, never a
+  // float: `parseMoneyInput` is the one place this repo converts typed money,
+  // and it refuses anything it cannot represent exactly.
+  const bankPriceRaw = String(input.formData.get("bankPaymentPrice") ?? "").trim();
+  let bankPaymentPrice;
+  try {
+    bankPaymentPrice = parseStaffMoneyInput(bankPriceRaw, "USD");
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "The Bank Payment Price could not be read." };
+  }
+
+  // THE CARD PRICE, DERIVED. The profile carries the locked rule and its rate;
+  // reading the ACTIVE profile here is correct because a new package is being
+  // priced now, unlike a historical calculation which carries its own.
+  const profile = await prisma.pricingProfile.findFirst({
+    where: { code: "buy_now", isPlaceholder: false },
+    orderBy: { version: "desc" },
+  });
+  if (!profile) {
+    return {
+      error:
+        "No active Buy Now pricing profile is provisioned, so the Regular/Card Price cannot be derived. " +
+        "This is a configuration problem, not a data-entry one.",
+    };
+  }
+  const derived = deriveRegularCardPrice(
+    bankPaymentPrice.amountMinorUnits,
+    new MoneyDecimal(profile.fixedCardUpliftRate.toString()),
+    profile.regularCardPriceRuleId as RegularCardPriceRuleId
+  );
+
+  let mediaReferences: unknown;
+  try {
+    mediaReferences = JSON.parse(String(input.formData.get("mediaReferences") ?? "[]"));
+  } catch {
+    return { error: "The CAD/media references are not valid JSON." };
+  }
+
+  const optionalJson = (name: string): unknown | undefined => {
+    const raw = text(name);
+    if (raw === undefined) return undefined;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      throw new Error(`${name} is not valid JSON.`);
+    }
+  };
+
+  let centerStone: unknown | undefined;
+  let accentStones: unknown | undefined;
+  let agreedCustomizations: unknown | undefined;
+  try {
+    centerStone = optionalJson("centerStone");
+    accentStones = optionalJson("accentStones");
+    agreedCustomizations = optionalJson("agreedCustomizations");
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "A JSON field could not be read." };
+  }
+
+  const result = await issueApprovalPackage({
+    projectId: input.projectId,
+    spec: {
+      metalType,
+      metalColor,
+      ...(centerStone !== undefined ? { centerStone: centerStone as never } : {}),
+      ...(accentStones !== undefined ? { accentStones: accentStones as never } : {}),
+      dimensions: text("dimensions"),
+      ringSize: text("ringSize"),
+      engraving: text("engraving"),
+      constructionNotes: text("constructionNotes"),
+      ...(agreedCustomizations !== undefined
+        ? { agreedCustomizations: agreedCustomizations as never }
+        : {}),
+      mediaReferences: mediaReferences as never,
+      approvedTimelineText: text("approvedTimelineText"),
+    },
+    bankPaymentPrice,
+    regularCardPrice: Money.fromMinorUnits(derived.regularCardPriceMinorUnits, "USD"),
+    issuedByActorRef: input.staffActorRef,
+    supersedesReason: text("supersedesReason"),
+    now: new Date(),
+  });
+
+  if (result.outcome === "already_approved") {
+    // STAFF CANNOT SILENTLY REPLACE WHAT A CUSTOMER APPROVED. The trigger
+    // refuses it too; this is the readable version of the same rule.
+    return {
+      error:
+        `The customer already approved version ${result.approvedVersion}. A change now is a commercial ` +
+        `conversation, not a re-issue — the approved package is what the final-sale terms rest on.`,
+    };
+  }
+
+  logger.info("custom_jewelry_admin.approval_package_issued", {
+    projectId: input.projectId,
+    version: result.package.version,
+    actor: input.staffActorRef,
+  });
+  return {
+    notice:
+      `Approval package version ${result.package.version} issued` +
+      (result.supersededVersion !== null ? `, superseding version ${result.supersededVersion}` : "") +
+      `. Card price derived as ${derived.regularCardPriceMinorUnits} minor units from the Bank Payment ` +
+      `Price you entered. Send the customer their approval link when ready.`,
+  };
+}
+
+/**
+ * Typed money to exact minor units.
+ *
+ * NO FLOAT, ANYWHERE. A staff member types "5175.00"; this reads it as a
+ * decimal string and converts by integer arithmetic. `Number("5175.00") * 100`
+ * is the obvious version and is wrong for values this repo will certainly see.
+ */
+function parseStaffMoneyInput(raw: string, currency: string): Money {
+  const cleaned = raw.replace(/[$,\s]/g, "");
+  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) {
+    throw new Error(
+      `"${raw}" is not a price. Enter a plain amount such as 5175 or 5175.00 — no currency symbol needed.`
+    );
+  }
+  const [whole, fraction = ""] = cleaned.split(".");
+  const minorUnits = BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, "0"));
+  if (minorUnits <= 0n) throw new Error("The Bank Payment Price must be greater than zero.");
+  return Money.fromMinorUnits(minorUnits, currency);
 }
 
 export async function action({ request, params }: ActionFunctionArgs) {
@@ -269,6 +538,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
   const formData = await request.formData();
   const intent = formData.get("intent");
+
+  if (intent === "issue_approval_package") {
+    return issueApprovalPackageAction({ projectId: id, staffActorRef, formData });
+  }
 
   if (intent !== "issue_deposit_invoice") {
     return { error: "Unrecognised action." } satisfies ActionData;
@@ -311,7 +584,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 // ---------------------------------------------------------------------------
 
 export default function CustomJewelryProjectPage() {
-  const { apiKey, shop, project } = useLoaderData<LoaderData>();
+  const { apiKey, shop, project, approvalPackages, purchase } = useLoaderData<LoaderData>();
   const actionData = useActionData<ActionData>();
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
@@ -442,6 +715,224 @@ export default function CustomJewelryProjectPage() {
               <blockquote style={{ whiteSpace: "pre-wrap" }}>{CUSTOM_JEWELRY_DEPOSIT_ACKNOWLEDGMENT_TEXT}</blockquote>
               <p>Affirmative action label: {CUSTOM_JEWELRY_DEPOSIT_AFFIRMATIVE_ACTION_LABEL}</p>
             </details>
+
+            {/* ==========================================================
+                FINAL APPROVAL AND PURCHASE
+                ==========================================================
+                The purchase comes FIRST when one exists, because "has this
+                been paid for" is the question a staff member opening a
+                purchased project is actually asking. */}
+            <h2>Final approval and purchase</h2>
+
+            {purchase ? (
+              <section aria-labelledby="purchase-heading">
+                <h3 id="purchase-heading">Purchase</h3>
+                <dl>
+                  <dt>Basis</dt>
+                  <dd>{purchase.paymentBasis === "bank_payment" ? "Bank Payment" : "Card"}</dd>
+                  <dt>State</dt>
+                  <dd>
+                    {purchase.status}
+                    {/* THE ANOMALY THAT MATTERS MOST, named in place rather
+                        than left for a queue: the money arrived and our
+                        record did not catch up. */}
+                    {purchase.status === "awaiting_payment" && purchase.bankOrderVerifiedAt ? (
+                      <strong role="alert">
+                        {" "}
+                        — funds were verified at {purchase.bankOrderVerifiedAt} but this purchase is still
+                        awaiting payment. The customer has paid and nothing downstream knows.
+                      </strong>
+                    ) : null}
+                    {purchase.status === "awaiting_payment" && purchase.bankOrderStatus === "cancelled" ? (
+                      <strong role="alert"> — the bank payment order was cancelled; the balance will not arrive.</strong>
+                    ) : null}
+                  </dd>
+                  {/* THE GROSS PRICE FIRST. The deposit is a credit against it,
+                      not a discount to it, so the price is what the piece sold
+                      for and the balance is merely what was collected. */}
+                  <dt>Approved price (gross)</dt>
+                  <dd>{purchase.grossApprovedPrice}</dd>
+                  <dt>Design Deposit credit</dt>
+                  <dd>
+                    {purchase.depositCredit}
+                    {purchase.depositPaymentReference ? ` (paid on ${purchase.depositPaymentReference})` : ""}
+                  </dd>
+                  <dt>Let Us Beat Your Quote benefit</dt>
+                  <dd>{purchase.benefitDiscount}</dd>
+                  <dt>Balance due</dt>
+                  <dd>
+                    <strong>{purchase.balanceDue}</strong>
+                  </dd>
+                  <dt>Paid</dt>
+                  <dd>{purchase.paidAt ?? "Not yet"}</dd>
+                  <dt>Shopify</dt>
+                  <dd>
+                    {purchase.shopifyOrderGid ??
+                      purchase.shopifyDraftOrderGid ??
+                      (purchase.bankPaymentOrderId
+                        ? `bank payment order ${purchase.bankPaymentOrderId}`
+                        : "none recorded")}
+                  </dd>
+                </dl>
+              </section>
+            ) : null}
+
+            {approvalPackages.length === 0 ? (
+              <p>No approval package has been issued for this project yet.</p>
+            ) : (
+              <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                <caption style={{ captionSide: "bottom", textAlign: "left", paddingTop: "0.5rem" }}>
+                  Every version ever issued, newest first. Superseded versions are kept: they are the
+                  evidence of what was offered before the design changed, and a claim about the approved
+                  design is decided against them.
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col" style={{ textAlign: "left" }}>Version</th>
+                    <th scope="col" style={{ textAlign: "left" }}>State</th>
+                    <th scope="col" style={{ textAlign: "left" }}>Summary</th>
+                    <th scope="col" style={{ textAlign: "left" }}>Bank price</th>
+                    <th scope="col" style={{ textAlign: "left" }}>Card price</th>
+                    <th scope="col" style={{ textAlign: "left" }}>Deposit credit</th>
+                    <th scope="col" style={{ textAlign: "left" }}>Balance (bank / card)</th>
+                    <th scope="col" style={{ textAlign: "left" }}>Issued</th>
+                    <th scope="col" style={{ textAlign: "left" }}>Customer approved</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {approvalPackages.map((pkg) => (
+                    <tr key={pkg.id}>
+                      <td>v{pkg.version}</td>
+                      <td>
+                        {pkg.status}
+                        {pkg.supersededByVersion !== null ? ` (by v${pkg.supersededByVersion})` : ""}
+                        {/* WHY it was replaced, in full. Without it the table
+                            records that a design changed but not what the
+                            customer asked for — which is the part a later
+                            conversation actually needs. */}
+                        {pkg.supersededReason !== null ? (
+                          <>
+                            <br />
+                            <small>{pkg.supersededReason}</small>
+                          </>
+                        ) : null}
+                      </td>
+                      <td>{pkg.summary}</td>
+                      <td>{pkg.bankPaymentPrice}</td>
+                      <td>{pkg.regularCardPrice}</td>
+                      <td>{pkg.depositCredit}</td>
+                      <td>
+                        {pkg.bankPaymentBalanceDue} / {pkg.regularCardBalanceDue}
+                      </td>
+                      <td>
+                        {pkg.issuedAt.slice(0, 16).replace("T", " ")} by {pkg.issuedByActorRef}
+                      </td>
+                      <td style={pkg.approvedAt ? { fontWeight: 600 } : undefined}>
+                        {pkg.approvedAt
+                          ? `${pkg.approvedAt.slice(0, 16).replace("T", " ")} (ack v${pkg.acknowledgmentPolicyVersion}, final-sale v${pkg.finalSaleCopyVersion})`
+                          : "Not yet"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            {/* ==========================================================
+                ISSUE A PACKAGE
+                ==========================================================
+                Hidden once the customer has approved one. Staff must not
+                silently replace what a customer approved — the trigger refuses
+                it, and offering a form that cannot work is its own defect. */}
+            {approvalPackages.some((pkg) => pkg.status === "approved") ? (
+              <p>
+                The customer has approved a version. A change now is a commercial conversation, not a
+                re-issue — the approved package is what the final-sale terms rest on.
+              </p>
+            ) : (
+              <Form method="post">
+                <input type="hidden" name="intent" value="issue_approval_package" />
+                <h3>Issue a final approval package</h3>
+                <p>
+                  Enter the <strong>Bank Payment Price</strong> only. The Regular/Card Price is derived
+                  from it by the locked tiered rule — typing it would be a second pricing engine. The
+                  Design Deposit credit is read from the recorded payment and is never entered here.
+                </p>
+
+                <label htmlFor="bankPaymentPrice">Bank Payment Price (USD)</label>
+                <br />
+                <input id="bankPaymentPrice" name="bankPaymentPrice" required inputMode="decimal" />
+                <br />
+
+                <label htmlFor="metalType">Metal type</label>
+                <br />
+                <input id="metalType" name="metalType" required />
+                <br />
+                <label htmlFor="metalColor">Metal colour</label>
+                <br />
+                <input id="metalColor" name="metalColor" required />
+                <br />
+
+                <label htmlFor="centerStone">Centre stone (JSON, blank if none)</label>
+                <br />
+                <textarea id="centerStone" name="centerStone" rows={2} cols={60} />
+                <br />
+                <label htmlFor="accentStones">Accent/side stones (JSON, blank if none)</label>
+                <br />
+                <textarea id="accentStones" name="accentStones" rows={2} cols={60} />
+                <br />
+
+                <label htmlFor="dimensions">Dimensions</label>
+                <br />
+                <input id="dimensions" name="dimensions" />
+                <br />
+                <label htmlFor="ringSize">Ring size (blank if not applicable)</label>
+                <br />
+                <input id="ringSize" name="ringSize" />
+                <br />
+                <label htmlFor="engraving">Engraving (blank if none)</label>
+                <br />
+                <input id="engraving" name="engraving" />
+                <br />
+                <label htmlFor="constructionNotes">Construction notes</label>
+                <br />
+                <textarea id="constructionNotes" name="constructionNotes" rows={2} cols={60} />
+                <br />
+                <label htmlFor="agreedCustomizations">Agreed customizations (JSON, blank if none)</label>
+                <br />
+                <textarea id="agreedCustomizations" name="agreedCustomizations" rows={2} cols={60} />
+                <br />
+
+                <label htmlFor="mediaReferences">CAD / rendering / image references (JSON array)</label>
+                <br />
+                <textarea id="mediaReferences" name="mediaReferences" rows={3} cols={60} defaultValue="[]" />
+                <br />
+
+                {/* NO DEFAULT, AND THE LABEL SAYS WHY. The owner forbade
+                    unsupported turnaround promises; a templated sentence here
+                    is exactly how one would appear. */}
+                <label htmlFor="approvedTimelineText">
+                  Production/timeline information — only what has actually been agreed. Leave blank if
+                  nothing has.
+                </label>
+                <br />
+                <textarea id="approvedTimelineText" name="approvedTimelineText" rows={2} cols={60} />
+                <br />
+
+                {approvalPackages.length > 0 ? (
+                  <>
+                    <label htmlFor="supersedesReason">Why does this replace the current version?</label>
+                    <br />
+                    <input id="supersedesReason" name="supersedesReason" />
+                    <br />
+                  </>
+                ) : null}
+
+                <button type="submit" disabled={submitting}>
+                  {submitting ? "Issuing…" : "Issue approval package"}
+                </button>
+              </Form>
+            )}
 
             <p style={{ marginTop: "2rem", fontSize: "0.9rem" }}>Shop: {shop}</p>
           </>
