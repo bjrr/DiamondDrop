@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import { prisma } from "~/db/client.server";
+import { TEST_FIXTURE_CAMPAIGN_CODE_PREFIX } from "~/domain/groupbuy/testFixtureCampaign";
 import { loader } from "~/routes/apps.carat.group-buy.$code";
 import { openGroupBuyCampaign } from "~/jobs/groupbuy/openCampaign.server";
 import { closeGroupBuyCampaign, recordUnitEvent } from "~/jobs/groupbuy/unitLedger.server";
@@ -339,7 +340,7 @@ describe("the theme passes Shopify variant ids, not ours", () => {
  */
 describe("a live-gate fixture campaign is refused on the public surface", () => {
   it("returns not_found for a zz-live-gate- campaign that is genuinely open", async () => {
-    const { code } = await openCampaign({ units: 1, codePrefix: "zz-live-gate-" });
+    const { code } = await openCampaign({ units: 1, codePrefix: TEST_FIXTURE_CAMPAIGN_CODE_PREFIX });
 
     const response = await call(code);
     expect(response.status).toBe(404);
@@ -348,7 +349,7 @@ describe("a live-gate fixture campaign is refused on the public surface", () => 
   });
 
   it("gives the SAME response as an unknown code, so probing learns nothing", async () => {
-    const { code } = await openCampaign({ units: 1, codePrefix: "zz-live-gate-" });
+    const { code } = await openCampaign({ units: 1, codePrefix: TEST_FIXTURE_CAMPAIGN_CODE_PREFIX });
 
     const fixture = await call(code);
     const unknown = await call(`no-such-campaign-${Date.now()}`);

@@ -34,6 +34,8 @@
  */
 import "dotenv/config";
 
+import { TEST_FIXTURE_CAMPAIGN_CODE_PREFIX } from "~/domain/groupbuy/testFixtureCampaign";
+
 const TEST_VARIANT_GID = process.env.CARAT_LIVE_GATE_VARIANT_GID ?? "";
 
 /**
@@ -70,8 +72,14 @@ async function main() {
 
   // A stable, obviously-synthetic code. Prefixed `zz-` so it sorts last in any
   // admin list a human scans, and names itself as a gate fixture.
+  //
+  // THE PREFIX COMES FROM THE CONSTANT, never typed here. This line CREATES
+  // the campaign, so a divergence between the literal and the constant would
+  // mint a campaign that every production filter treats as real business —
+  // on a live store, permanently, since campaigns carrying units cannot be
+  // deleted. Enforced by `campaignVisibilityFence.test.ts`.
   const stamp = String(Date.now());
-  const code = `zz-live-gate-${stamp}`;
+  const code = `${TEST_FIXTURE_CAMPAIGN_CODE_PREFIX}${stamp}`;
 
   console.log("Group Buy live-gate fixture\n");
 

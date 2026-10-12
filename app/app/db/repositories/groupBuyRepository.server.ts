@@ -8,6 +8,7 @@ import type {
 import {
   EXCLUDE_ARCHIVED_CAMPAIGNS,
   EXCLUDE_TEST_FIXTURE_CAMPAIGNS,
+  PUBLIC_PAST_GROUP_BUY_CAMPAIGNS,
   STAFF_ARCHIVED_ONLY,
 } from "~/domain/groupbuy/campaignVisibility";
 import { validateTierSet, type TierDefinition } from "~/domain/groupbuy/tiers";
@@ -943,4 +944,102 @@ export async function deleteGroupBuyCampaign(campaignId: string, deletedBy: stri
     });
     await tx.groupBuyCampaign.delete({ where: { id: campaignId } });
   });
+}
+
+// ---------------------------------------------------------------------------
+// PUBLIC PAST GROUP BUYS ARCHIVE (Slice 13)
+//
+// README: "Maintain a public Past Group Buys archive preserving actual final
+// unit count and historical starting/final unlocked price. Homepage may show
+// the five most recent."
+// ---------------------------------------------------------------------------
+
+/** One closed campaign's frozen inputs, as the archive builder needs them. */
+export interface PastGroupBuyCampaignRow {
+  readonly code: string;
+  readonly name: string;
+  readonly currency: string;
+  readonly closedAt: Date | null;
+  readonly finalQualifyingUnits: number | null;
+  readonly finalTierNumber: number | null;
+  readonly tiers: readonly { tierNumber: number; minQualifyingUnits: number; priceMultiplier: string }[];
+  readonly frozenVariantBasesMinorUnits: readonly bigint[];
+  /** Null when the campaign has no frozen pricing profile — unpriceable, and the caller must omit it. */
+  readonly frozenProfile: {
+    readonly fixedCardUpliftRate: string;
+    readonly regularCardPriceRuleId: string;
+    readonly roundingRuleId: string;
+    readonly priceEndingRuleId: string;
+  } | null;
+}
+
+/**
+ * Closed campaigns for the PUBLIC archive, newest first.
+ *
+ * THE FILTER IS `PUBLIC_PAST_GROUP_BUY_CAMPAIGNS`, imported, not written here.
+ * It encodes a distinction that is easy to get backwards and owner-locked:
+ * fixtures are excluded ALWAYS, and `archivedAt` is deliberately NOT consulted
+ * — staff tidying their dashboard must not erase public history. See
+ * campaignVisibility.ts, which explains both directions of the mistake.
+ *
+ * READS THE FROZEN PROFILE, NOT THE CURRENT ONE. A campaign that closed under
+ * the superseded fixed-5% card rule must still be quoted under it forever;
+ * joining today's profile would silently restate history. Same reasoning as
+ * the live progress route, and the reason
+ * `frozenRuleVersioning.test.ts` exists.
+ */
+export async function listPastGroupBuyCampaigns(limit: number): Promise<PastGroupBuyCampaignRow[]> {
+  const rows = await prisma.groupBuyCampaign.findMany({
+    where: PUBLIC_PAST_GROUP_BUY_CAMPAIGNS,
+    orderBy: { closedAt: "desc" },
+    take: limit,
+    select: {
+      code: true,
+      name: true,
+      currency: true,
+      closedAt: true,
+      finalQualifyingUnits: true,
+      finalTierNumber: true,
+      tiers: {
+        orderBy: { tierNumber: "asc" },
+        select: { tierNumber: true, minQualifyingUnits: true, priceMultiplier: true },
+      },
+      // ONLY the frozen base price. Not the master variant id, not the
+      // product, not the Shopify linkage — the archive states what a campaign
+      // cost, and nothing here should be able to leak into a public response
+      // merely because it was convenient to select.
+      variants: { select: { frozenBaseBankPaymentPriceMinorUnits: true } },
+      pricingProfile: {
+        select: {
+          fixedCardUpliftRate: true,
+          regularCardPriceRuleId: true,
+          roundingRuleId: true,
+          priceEndingRuleId: true,
+        },
+      },
+    },
+  });
+
+  return rows.map((row) => ({
+    code: row.code,
+    name: row.name,
+    currency: row.currency,
+    closedAt: row.closedAt,
+    finalQualifyingUnits: row.finalQualifyingUnits,
+    finalTierNumber: row.finalTierNumber,
+    tiers: row.tiers.map((t) => ({
+      tierNumber: t.tierNumber,
+      minQualifyingUnits: t.minQualifyingUnits,
+      priceMultiplier: t.priceMultiplier.toString(),
+    })),
+    frozenVariantBasesMinorUnits: row.variants.map((v) => v.frozenBaseBankPaymentPriceMinorUnits),
+    frozenProfile: row.pricingProfile
+      ? {
+          fixedCardUpliftRate: row.pricingProfile.fixedCardUpliftRate.toString(),
+          regularCardPriceRuleId: row.pricingProfile.regularCardPriceRuleId,
+          roundingRuleId: row.pricingProfile.roundingRuleId,
+          priceEndingRuleId: row.pricingProfile.priceEndingRuleId,
+        }
+      : null,
+  }));
 }

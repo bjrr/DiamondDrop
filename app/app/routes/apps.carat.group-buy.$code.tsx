@@ -2,13 +2,14 @@ import type { LoaderFunctionArgs } from "react-router";
 
 import { prisma } from "~/db/client.server";
 import { buildCampaignProgress, type DualPrice } from "~/domain/groupbuy/campaignProgress";
+import {
+  campaignTierDualPrices,
+  dualPriceFrom,
+  type FrozenCampaignPricingRules,
+} from "~/domain/groupbuy/campaignTierPricing";
 import { isTestFixtureCampaignCode } from "~/domain/groupbuy/testFixtureCampaign";
 import type { TierDefinition } from "~/domain/groupbuy/tiers";
-import { tierBankPaymentPriceExact } from "~/domain/groupbuy/tiers";
 import { MoneyDecimal } from "~/domain/money/decimal";
-import { Money } from "~/domain/money/money";
-import { deriveRegularCardPrice } from "~/domain/pricing/regularCardPrice";
-import { applyPriceEnding } from "~/domain/pricing/priceEnding";
 import type {
   PriceEndingRuleId,
   RegularCardPriceRuleId,
@@ -155,55 +156,31 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     : null;
   if (!frozenProfile) return notFound();
 
-  const fixedUpliftRate = new MoneyDecimal(frozenProfile.fixedCardUpliftRate.toString());
-  const cardRuleId = frozenProfile.regularCardPriceRuleId as RegularCardPriceRuleId;
-
-  /**
-   * Bank payment price first, Regular/Card Price derived from it — the same
-   * order and the same versioned rule the Buy Now engine uses.
-   *
-   * THE TIER IS SELECTED PER PRICE, NOT PER CAMPAIGN. Each tier's group price
-   * goes through the rule separately, so a campaign whose tiers straddle a
-   * tier-table boundary gets the correct rate at each one. A $1,020 tier-1
-   * price takes 4.0% and a $918 tier-2 price takes 4.5% — deriving both from
-   * one rate chosen off the campaign base would overcharge or undercharge the
-   * other. The rule reads the price it is handed; this just hands it each one.
-   */
-  const dual = (bankPaymentMinorUnits: bigint): DualPrice => ({
-    bankPaymentMinorUnits,
-    regularCardMinorUnits: deriveRegularCardPrice(
-      bankPaymentMinorUnits,
-      fixedUpliftRate,
-      cardRuleId
-    ).regularCardPriceMinorUnits,
-  });
-
-  // Every tier's price for THIS variant, rounded exactly as a customer would be
-  // charged — through the same registries the engine uses, not a local rounding.
-  //
   // EVERY RULE COMES FROM THE FROZEN PROFILE, none is written in here. These
   // were hardcoded to today's ids, which is invisible while only one set is in
   // use and wrong the moment a profile changes a rounding or price-ending rule:
   // a campaign frozen under the old rules would be quoted under the new ones,
   // and the storefront would disagree with both the freeze and the refund.
-  const roundingRuleId = frozenProfile.roundingRuleId as RoundingRuleId;
-  const priceEndingRuleId = frozenProfile.priceEndingRuleId as PriceEndingRuleId;
+  const frozenRules: FrozenCampaignPricingRules = {
+    currency: campaign.currency,
+    fixedCardUpliftRate: new MoneyDecimal(frozenProfile.fixedCardUpliftRate.toString()),
+    regularCardPriceRuleId: frozenProfile.regularCardPriceRuleId as RegularCardPriceRuleId,
+    roundingRuleId: frozenProfile.roundingRuleId as RoundingRuleId,
+    priceEndingRuleId: frozenProfile.priceEndingRuleId as PriceEndingRuleId,
+  };
 
-  const tierPrices: Record<number, DualPrice> = {};
-  for (const tier of tiers) {
-    const exactBankPayment = tierBankPaymentPriceExact(
-      new MoneyDecimal(selected.frozenBaseBankPaymentPriceMinorUnits.toString()),
-      tier
-    );
-    const rounded = Money.fromDecimalMinorUnits(
-      exactBankPayment,
-      campaign.currency,
-      roundingRuleId
-    );
-    tierPrices[tier.tierNumber] = dual(
-      applyPriceEnding(rounded.amountMinorUnits, priceEndingRuleId)
-    );
-  }
+  /** Under the campaign's frozen card rule. See campaignTierPricing.ts. */
+  const dual = (bankPaymentMinorUnits: bigint): DualPrice =>
+    dualPriceFrom(bankPaymentMinorUnits, frozenRules.fixedCardUpliftRate, frozenRules.regularCardPriceRuleId);
+
+  // Every tier's price for THIS variant. Shared with the public Past Group
+  // Buys archive, which must quote a closed campaign exactly as this quoted it
+  // while open — a second copy of the derivation is how those two drift apart.
+  const tierPrices = campaignTierDualPrices(
+    selected.frozenBaseBankPaymentPriceMinorUnits,
+    tiers,
+    frozenRules
+  );
 
   // The Buy Now comparison price is the LATEST computed one for this variant,
   // not the campaign's frozen base. Those diverge as costs move, and the
@@ -227,14 +204,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   // the difference. The frozen rule governs what the CAMPAIGN quotes; it has no
   // claim over a price computed outside it.
   const buyNowCard = latestBuyNow
-    ? (buyNowBank: bigint): DualPrice => ({
-        bankPaymentMinorUnits: buyNowBank,
-        regularCardMinorUnits: deriveRegularCardPrice(
+    ? (buyNowBank: bigint): DualPrice =>
+        dualPriceFrom(
           buyNowBank,
           new MoneyDecimal(latestBuyNow.pricingProfile.fixedCardUpliftRate.toString()),
           latestBuyNow.pricingProfile.regularCardPriceRuleId as RegularCardPriceRuleId
-        ).regularCardPriceMinorUnits,
-      })
+        )
     : dual;
 
   const { total: qualifyingUnitsSold } = await getQualifyingUnits(campaign.id);

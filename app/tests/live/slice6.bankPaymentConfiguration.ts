@@ -52,6 +52,8 @@
 import "dotenv/config";
 import { createHmac } from "node:crypto";
 
+import { isTestFixtureCampaignCode } from "~/domain/groupbuy/testFixtureCampaign";
+
 const SHOP = process.env.SHOPIFY_SHOP_DOMAIN!;
 const SECRET = process.env.SHOPIFY_API_SECRET!;
 const APP_URL = process.env.CARAT_LIVE_GATE_APP_URL ?? "https://caratforus.fly.dev";
@@ -128,7 +130,10 @@ async function main() {
   ] as const) {
     if (!value) throw new Error(`${name} must be set`);
   }
-  if (!CAMPAIGN_CODE.startsWith("zz-live-gate-")) {
+  // THE SHARED PREDICATE, not a retyped prefix — this guard is the only thing
+  // stopping a gate that records a REAL, non-withdrawable unit from doing so
+  // against a customer campaign.
+  if (!isTestFixtureCampaignCode(CAMPAIGN_CODE)) {
     throw new Error(
       `Refusing to run against campaign "${CAMPAIGN_CODE}": this gate records a REAL, non-withdrawable ` +
         `qualifying unit, so it only runs against a purpose-built zz-live-gate- campaign.`

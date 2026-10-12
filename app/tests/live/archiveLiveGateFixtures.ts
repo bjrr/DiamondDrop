@@ -26,6 +26,7 @@ async function main() {
     "~/db/repositories/groupBuyRepository.server"
   );
   const { TEST_FIXTURE_CAMPAIGN_CODE_PREFIX } = await import("~/domain/groupbuy/testFixtureCampaign");
+  const { EXCLUDE_ARCHIVED_CAMPAIGNS } = await import("~/domain/groupbuy/campaignVisibility");
 
   const fixtures = await prisma.groupBuyCampaign.findMany({
     where: { code: { startsWith: TEST_FIXTURE_CAMPAIGN_CODE_PREFIX } },
@@ -52,7 +53,12 @@ async function main() {
   }
 
   const remaining = await prisma.groupBuyCampaign.count({
-    where: { code: { startsWith: TEST_FIXTURE_CAMPAIGN_CODE_PREFIX }, archivedAt: null },
+    where: {
+      code: { startsWith: TEST_FIXTURE_CAMPAIGN_CODE_PREFIX },
+      // The shared fragment, not a retyped condition — see
+      // campaignVisibilityFence.test.ts.
+      ...EXCLUDE_ARCHIVED_CAMPAIGNS,
+    },
   });
   console.log(`\nUnarchived fixtures remaining: ${remaining}`);
   if (remaining !== 0) process.exitCode = 1;

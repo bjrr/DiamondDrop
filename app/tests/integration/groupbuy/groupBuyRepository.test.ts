@@ -26,6 +26,7 @@ import {
   saveGroupBuyCampaignOptionsUpload,
 } from "~/db/repositories/groupBuyRepository.server";
 import { validateGroupBuyCampaignOptions } from "~/domain/groupbuy/campaignOptions";
+import { TEST_FIXTURE_CAMPAIGN_CODE_PREFIX } from "~/domain/groupbuy/testFixtureCampaign";
 import { InvalidTierSetError, type TierDefinition } from "~/domain/groupbuy/tiers";
 import { openGroupBuyCampaign } from "~/jobs/groupbuy/openCampaign.server";
 
@@ -452,7 +453,7 @@ describe("getFrozenGroupBuyCampaignOptions — the configuration PINNED at open"
  */
 describe("the staff campaign list segregates live-gate fixtures", () => {
   it("omits a zz-live-gate- campaign by default", async () => {
-    const fixtureCode = `zz-live-gate-${uniq()}`;
+    const fixtureCode = `${TEST_FIXTURE_CAMPAIGN_CODE_PREFIX}${uniq()}`;
     await createGroupBuyCampaign({
       code: fixtureCode,
       name: "fixture",
@@ -466,7 +467,7 @@ describe("the staff campaign list segregates live-gate fixtures", () => {
   });
 
   it("returns it when asked explicitly — findable, not hidden", async () => {
-    const fixtureCode = `zz-live-gate-${uniq()}`;
+    const fixtureCode = `${TEST_FIXTURE_CAMPAIGN_CODE_PREFIX}${uniq()}`;
     await createGroupBuyCampaign({
       code: fixtureCode,
       name: "fixture",
@@ -831,7 +832,7 @@ describe("the staff list separates operational from archived without losing eith
 
   it("the Archived view still excludes fixtures — not a place test data hides in plain sight", async () => {
     const fixture = await createGroupBuyCampaign({
-      code: `zz-live-gate-${uniq()}`,
+      code: `${TEST_FIXTURE_CAMPAIGN_CODE_PREFIX}${uniq()}`,
       name: "fixture",
       currency: "USD",
       createdBy: "integration-test",
