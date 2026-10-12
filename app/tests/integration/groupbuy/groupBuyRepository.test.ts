@@ -16,6 +16,9 @@ import {
   archiveGroupBuyCampaign,
   unarchiveGroupBuyCampaign,
   describeGroupBuyCampaignHistory,
+  deleteGroupBuyCampaign,
+  GroupBuyCampaignHasHistoryError,
+  GroupBuyCampaignNotDeletableStatusError,
   GroupBuyCampaignArchiveReasonRequiredError,
   listMasterVariantsForGroupBuySelection,
   removeGroupBuyCampaignEligibleVariant,
@@ -561,12 +564,58 @@ describe("campaign archiving is an annotation with a mandatory reason", () => {
   it("is reversible", async () => {
     const campaign = await draftCampaign();
     await archiveGroupBuyCampaign({ campaignId: campaign.id, archivedBy: "staff:ada", reason: "mistake" });
-    await unarchiveGroupBuyCampaign(campaign.id);
+    await unarchiveGroupBuyCampaign(campaign.id, "staff:grace");
 
     const row = await prisma.groupBuyCampaign.findUniqueOrThrow({ where: { id: campaign.id } });
     expect(row.archivedAt).toBeNull();
     expect(row.archivedBy).toBeNull();
     expect(row.archiveReason).toBeNull();
+  });
+
+  it("AUDITS BOTH DIRECTIONS — unarchiving nulls all three columns, so the event is the only record", async () => {
+    const campaign = await draftCampaign();
+    await archiveGroupBuyCampaign({
+      campaignId: campaign.id,
+      archivedBy: "staff:ada",
+      reason: "superseded by spring campaign",
+    });
+    await unarchiveGroupBuyCampaign(campaign.id, "staff:grace");
+
+    const events = await prisma.auditEvent.findMany({
+      where: { entityType: "group_buy_campaign", entityId: campaign.id },
+      orderBy: { createdAt: "asc" },
+    });
+    const actions = events.map((e) => e.action);
+    expect(actions).toContain("groupbuy.campaign_archived");
+    expect(actions).toContain("groupbuy.campaign_unarchived");
+
+    const archivedEvent = events.find((e) => e.action === "groupbuy.campaign_archived")!;
+    expect(archivedEvent.actorRef).toBe("staff:ada");
+    expect(archivedEvent.reason).toBe("superseded by spring campaign");
+
+    // THE POINT OF THIS TEST. The row now says nothing about ever having been
+    // archived; without this `before` payload the reason that was overruled,
+    // and who overruled it, would be gone entirely.
+    const unarchivedEvent = events.find((e) => e.action === "groupbuy.campaign_unarchived")!;
+    expect(unarchivedEvent.actorRef).toBe("staff:grace");
+    expect(unarchivedEvent.before).toMatchObject({
+      archivedBy: "staff:ada",
+      archiveReason: "superseded by spring campaign",
+    });
+  });
+
+  it("REFUSES an unarchive with no actor", async () => {
+    const campaign = await draftCampaign();
+    await archiveGroupBuyCampaign({ campaignId: campaign.id, archivedBy: "staff:ada", reason: "mistake" });
+    await expect(unarchiveGroupBuyCampaign(campaign.id, "   ")).rejects.toBeInstanceOf(
+      GroupBuyCampaignArchiveReasonRequiredError
+    );
+
+    // AND NOTHING MOVED. A refused unarchive that still cleared the columns
+    // would be the worst of both outcomes.
+    const row = await prisma.groupBuyCampaign.findUniqueOrThrow({ where: { id: campaign.id } });
+    expect(row.archivedAt).not.toBeNull();
+    expect(row.archiveReason).toBe("mistake");
   });
 });
 
@@ -607,6 +656,114 @@ describe("a campaign carrying historical evidence cannot be deleted", () => {
 
     expect(await prisma.groupBuyCampaign.count({ where: { id: campaignId } })).toBe(1);
     expect(await prisma.groupBuyUnitEvent.count({ where: { campaignId } })).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * `deleteGroupBuyCampaign` — the repository path staff actually reach, whose
+ * job is to REFUSE legibly. The database trigger above is the guarantee; this
+ * is the sentence a human reads.
+ */
+describe("deleting an empty draft, and refusing everything else", () => {
+  it("deletes a draft that never became anything, tiers and all", async () => {
+    const campaign = await createGroupBuyCampaign({
+      code: `gb-del-ok-${uniq()}`,
+      name: "created by mistake",
+      currency: "USD",
+      createdBy: "integration-test",
+      tiers: TIERS,
+    });
+
+    await deleteGroupBuyCampaign(campaign.id, "staff:ada");
+
+    expect(await prisma.groupBuyCampaign.count({ where: { id: campaign.id } })).toBe(0);
+    // The cascade reached the configuration rows — the frozen-child guard
+    // allows a cascade from an absent parent (migration 20261005020000).
+    expect(await prisma.groupBuyCampaignTier.count({ where: { campaignId: campaign.id } })).toBe(0);
+  });
+
+  it("LEAVES AN AUDIT EVENT BEHIND, because there is no row left to join to", async () => {
+    const campaign = await createGroupBuyCampaign({
+      code: `gb-del-audit-${uniq()}`,
+      name: "mistake",
+      currency: "USD",
+      createdBy: "integration-test",
+      tiers: TIERS,
+    });
+    await deleteGroupBuyCampaign(campaign.id, "staff:ada");
+
+    const events = await prisma.auditEvent.findMany({
+      where: { entityType: "group_buy_campaign", entityId: campaign.id },
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]!.action).toBe("groupbuy.campaign_deleted");
+    expect(events[0]!.actorRef).toBe("staff:ada");
+    // The identity of the thing that no longer exists.
+    expect(events[0]!.before).toMatchObject({ code: campaign.code, name: "mistake", status: "draft" });
+  });
+
+  it("REFUSES a campaign with history, and the error NAMES the history", async () => {
+    const { campaignId } = await seedCampaignWithUnits();
+    const rejection = deleteGroupBuyCampaign(campaignId, "staff:ada");
+    await expect(rejection).rejects.toBeInstanceOf(GroupBuyCampaignHasHistoryError);
+    await expect(rejection).rejects.toThrow(/qualifying unit event/);
+    // And it points at the action that IS correct.
+    await expect(rejection).rejects.toThrow(/Archive the campaign instead/);
+
+    expect(await prisma.groupBuyCampaign.count({ where: { id: campaignId } })).toBe(1);
+  });
+
+  it("writes NO audit event for a refused deletion — nothing happened", async () => {
+    const { campaignId } = await seedCampaignWithUnits();
+    await expect(deleteGroupBuyCampaign(campaignId, "staff:ada")).rejects.toThrow();
+
+    const deletedEvents = await prisma.auditEvent.count({
+      where: { entityType: "group_buy_campaign", entityId: campaignId, action: "groupbuy.campaign_deleted" },
+    });
+    expect(deletedEvents).toBe(0);
+  });
+
+  it("REFUSES an OPEN campaign that nobody has bought from — real, and a history check alone would allow it", async () => {
+    // NOT A CONTRIVED CASE. A campaign opened to customers that has taken no
+    // orders yet has genuinely zero dependent rows, so `hasHistory` is false
+    // and only the STATUS check stands between it and deletion. It is also
+    // the case most likely to tempt someone ("nothing happened, just remove
+    // it") — but it was offered to customers at a frozen price, and that is
+    // itself a fact worth keeping.
+    //
+    // Opened through the real path, because `group_buy_campaign_open_is_frozen`
+    // rightly refuses an open campaign without its frozen pricing.
+    const campaign = await createGroupBuyCampaign({
+      code: `gb-del-open-${uniq()}`,
+      name: "opened",
+      currency: "USD",
+      createdBy: "integration-test",
+      tiers: TIERS,
+    });
+    const variant = await eligibleVariant();
+    await addGroupBuyCampaignEligibleVariant(campaign.id, variant.id);
+    await openGroupBuyCampaign({ campaignId: campaign.id, openedBy: "staff:1", asOf: ASOF });
+
+    expect((await describeGroupBuyCampaignHistory(campaign.id)).hasHistory).toBe(false);
+
+    const rejection = deleteGroupBuyCampaign(campaign.id, "staff:ada");
+    await expect(rejection).rejects.toBeInstanceOf(GroupBuyCampaignNotDeletableStatusError);
+    await expect(rejection).rejects.toThrow(/Only a draft/);
+    expect(await prisma.groupBuyCampaign.count({ where: { id: campaign.id } })).toBe(1);
+  });
+
+  it("REFUSES a deletion that cannot be attributed to anyone", async () => {
+    const campaign = await createGroupBuyCampaign({
+      code: `gb-del-anon-${uniq()}`,
+      name: "mistake",
+      currency: "USD",
+      createdBy: "integration-test",
+      tiers: TIERS,
+    });
+    await expect(deleteGroupBuyCampaign(campaign.id, "  ")).rejects.toBeInstanceOf(
+      GroupBuyCampaignArchiveReasonRequiredError
+    );
+    expect(await prisma.groupBuyCampaign.count({ where: { id: campaign.id } })).toBe(1);
   });
 });
 

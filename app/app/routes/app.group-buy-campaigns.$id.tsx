@@ -1,13 +1,19 @@
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { Form, Link, useActionData, useLoaderData, useNavigation, useRouteError } from "react-router";
+import { Form, Link, redirect, useActionData, useLoaderData, useNavigation, useRouteError } from "react-router";
 import type { CSSProperties, ReactNode } from "react";
 
 import {
   GroupBuyCampaignNotDraftForConfigurationError,
   GroupBuyCampaignNotFoundError,
   addGroupBuyCampaignEligibleVariant,
+  archiveGroupBuyCampaign,
+  deleteGroupBuyCampaign,
+  describeGroupBuyCampaignHistory,
+  GroupBuyCampaignArchiveReasonRequiredError,
+  GroupBuyCampaignHasHistoryError,
+  GroupBuyCampaignNotDeletableStatusError,
   getFrozenGroupBuyCampaignOptions,
   getGroupBuyCampaignForStaff,
   getGroupBuyCampaignTierPublishStatus,
@@ -17,7 +23,9 @@ import {
   removeGroupBuyCampaignEligibleVariant,
   replaceGroupBuyCampaignTiers,
   saveGroupBuyCampaignOptionsUpload,
+  unarchiveGroupBuyCampaign,
   type GroupBuyCampaignForStaff,
+  type GroupBuyCampaignHistorySummary,
   type GroupBuyCampaignTierPublishStatus,
   type GroupBuyCandidateProductRow,
   type GroupBuyCampaignOptionsUpload,
@@ -170,6 +178,19 @@ interface CampaignView {
   readonly unsafeOverrideBy: string | null;
   readonly unsafeOverrideReason: string | null;
   readonly unsafeOverrideAt: string | null;
+  /** The internal staff archive annotation. All three move together or none do. */
+  readonly archivedAt: string | null;
+  readonly archivedBy: string | null;
+  readonly archiveReason: string | null;
+  /**
+   * What history this campaign carries, named. Drives whether deletion is
+   * offered at all, and lets the page say WHICH records exist rather than
+   * presenting a button that fails.
+   */
+  readonly history: {
+    readonly describedParts: readonly string[];
+    readonly hasHistory: boolean;
+  };
   readonly tiers: readonly TierView[];
   readonly variants: readonly EligibleVariantView[];
   readonly tierPublish: TierPublishView | null;
@@ -324,7 +345,8 @@ function formatMoney(minorUnits: string, currency: string): string {
 function buildCampaignView(
   campaign: GroupBuyCampaignForStaff,
   identities: readonly GroupBuyVariantIdentity[],
-  tierPublish: GroupBuyCampaignTierPublishStatus | null
+  tierPublish: GroupBuyCampaignTierPublishStatus | null,
+  history: GroupBuyCampaignHistorySummary
 ): CampaignView {
   const identityById = new Map(identities.map((i) => [i.masterVariantId, i] as const));
   const isDraft = campaign.status === "draft";
@@ -344,6 +366,10 @@ function buildCampaignView(
     unsafeOverrideBy: campaign.unsafeOverrideBy,
     unsafeOverrideReason: campaign.unsafeOverrideReason,
     unsafeOverrideAt: campaign.unsafeOverrideAt ? campaign.unsafeOverrideAt.toISOString() : null,
+    archivedAt: campaign.archivedAt ? campaign.archivedAt.toISOString() : null,
+    archivedBy: campaign.archivedBy,
+    archiveReason: campaign.archiveReason,
+    history: { describedParts: history.describedParts, hasHistory: history.hasHistory },
     tiers: [...campaign.tiers]
       .sort((a, b) => a.tierNumber - b.tierNumber)
       .map((tier) => {
@@ -568,10 +594,15 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         ])
       : [[], []];
 
+  // Counted on every load so the archive/delete panel can NAME what exists.
+  // Cheap (five COUNTs) and the alternative is a delete button whose
+  // availability is guessed from `status` and then refused by the database.
+  const history = await describeGroupBuyCampaignHistory(id);
+
   return {
     apiKey: getEnv().SHOPIFY_API_KEY ?? "",
     shop: session.shop,
-    campaign: buildCampaignView(campaign, identities, tierPublish),
+    campaign: buildCampaignView(campaign, identities, tierPublish, history),
     candidateVariants,
     optionsUpload: serializeOptionsUpload(optionsUpload, !isDraft),
     refunds,
@@ -724,6 +755,54 @@ export async function action({ request, params }: ActionFunctionArgs) {
           openedWithOverride: result.openedWithOverride,
         });
         return Response.json(ok());
+      }
+
+      // ====================================================================
+      // ARCHIVE / UNARCHIVE / DELETE (archive-lifecycle design, owner-locked
+      // 2026-10-05)
+      // ====================================================================
+      // Three deliberately different levels of ceremony, matching how hard
+      // each is to undo: archiving needs a reason, unarchiving needs only a
+      // press, deleting needs the campaign to have nothing to lose.
+      case "archive_campaign": {
+        const reason = stringField(formData, "archiveReason").trim();
+        if (reason === "") {
+          return Response.json(
+            fail(
+              "A reason is required to archive a campaign. It answers 'why is this hidden' a year from now, " +
+                "when whoever hid it is unavailable."
+            ),
+            { status: 400 }
+          );
+        }
+        await archiveGroupBuyCampaign({ campaignId: id, archivedBy: staffActorRef, reason });
+        logger.info("group_buy_campaigns.archived_via_admin", { campaignId: id, archivedBy: staffActorRef });
+        return Response.json(ok());
+      }
+
+      case "unarchive_campaign": {
+        await unarchiveGroupBuyCampaign(id, staffActorRef);
+        logger.info("group_buy_campaigns.unarchived_via_admin", { campaignId: id, unarchivedBy: staffActorRef });
+        return Response.json(ok());
+      }
+
+      case "delete_campaign": {
+        // IRREVERSIBLE, so it asks for the campaign's own code to be typed
+        // back. Not security — the database enforces that — but a deliberate
+        // speed bump on the one action in this file that cannot be undone.
+        const typed = stringField(formData, "confirmCode").trim();
+        const expected = stringField(formData, "expectedCode").trim();
+        if (typed !== expected || expected === "") {
+          return Response.json(
+            fail(`Type the campaign code "${expected}" exactly to confirm deletion.`),
+            { status: 400 }
+          );
+        }
+        await deleteGroupBuyCampaign(id, staffActorRef);
+        logger.warn("group_buy_campaigns.deleted_via_admin", { campaignId: id, deletedBy: staffActorRef });
+        // The campaign no longer exists, so there is no detail page to return
+        // to. The list is the only honest destination.
+        return redirect("/app/group-buy-campaigns");
       }
 
       case "resync_tier_price": {
@@ -975,6 +1054,34 @@ export async function action({ request, params }: ActionFunctionArgs) {
   } catch (error) {
     if (error instanceof GroupBuyCampaignNotFoundError) {
       return Response.json(fail("That Group Buy campaign no longer exists."), { status: 404 });
+    }
+    // The refusal NAMES what exists ("3 qualifying unit events, 1 refund"),
+    // which is the whole point of the pre-check — see
+    // `deleteGroupBuyCampaign`'s own comment.
+    if (error instanceof GroupBuyCampaignHasHistoryError) {
+      return Response.json(fail(error.message), { status: 409 });
+    }
+    if (error instanceof GroupBuyCampaignNotDeletableStatusError) {
+      return Response.json(fail(error.message), { status: 409 });
+    }
+    if (error instanceof GroupBuyCampaignArchiveReasonRequiredError) {
+      return Response.json(fail(error.message), { status: 400 });
+    }
+    // THE DATABASE REFUSED IT, not the pre-check above. Reaching here means
+    // the two disagreed — a kind of history the pre-check does not count yet
+    // — so the trigger's own message is the accurate one and is passed
+    // through verbatim rather than restated. This branch should be
+    // unreachable; its existence is the point.
+    if (error instanceof Error && /carries historical evidence and cannot be deleted/.test(error.message)) {
+      logger.error("group_buy_campaigns.delete_refused_by_database", { campaignId: id, message: error.message });
+      return Response.json(
+        fail(
+          "The database refused this deletion because the campaign carries history the pre-check did not " +
+            "account for. This is the safe outcome. Details: " +
+            error.message
+        ),
+        { status: 409 }
+      );
     }
     if (error instanceof GroupBuyCampaignNotDraftForConfigurationError) {
       return Response.json(fail(error.message), { status: 409 });
@@ -1797,10 +1904,141 @@ export default function GroupBuyCampaignDetailPage() {
                 )}
               </section>
             ) : null}
+
+            <ArchivePanel campaign={campaign} busy={busy} />
           </>
         )}
       </main>
     </AppProvider>
+  );
+}
+
+/**
+ * Archive, unarchive, delete — in increasing order of how hard each is to
+ * undo, and deliberately last on the page.
+ *
+ * ============================================================================
+ * ARCHIVING IS NOT DELETING, AND THE PANEL HAS TO SAY SO
+ * ============================================================================
+ * The locked design calls archiving an ANNOTATION: nothing is removed, no
+ * status changes, every record stays queryable. Staff reaching for "archive"
+ * usually mean "get this off my list", and if the screen does not tell them
+ * the evidence survives, the two actions blur together — which is exactly how
+ * someone deletes history believing they tidied a dashboard.
+ *
+ * SO THE PUBLIC CONSEQUENCE IS STATED TOO. Archiving does NOT remove a closed
+ * campaign from the customer-facing Past Group Buys history — see
+ * campaignVisibility.ts, where that distinction is owner-locked. A staff
+ * member who archives a real campaign expecting it to vanish from the
+ * storefront would otherwise be wrong and never find out.
+ */
+function ArchivePanel({ campaign, busy }: { campaign: CampaignView; busy: boolean }) {
+  const archived = campaign.archivedAt !== null;
+  // Deletion is offered only when it can actually succeed. The database would
+  // refuse anything else; presenting a button that cannot work teaches staff
+  // that the controls on this page are unreliable.
+  const deletable = campaign.status === "draft" && !campaign.history.hasHistory;
+
+  return (
+    <section style={sectionStyle}>
+      <h2 style={{ fontSize: "1rem", margin: "0 0 0.5rem" }}>Archive and deletion</h2>
+
+      {archived ? (
+        <>
+          <p style={{ margin: "0 0 0.5rem" }}>
+            <strong>Archived</strong> {new Date(campaign.archivedAt!).toLocaleString()} by{" "}
+            {campaign.archivedBy ?? "(unrecorded)"}.
+          </p>
+          <p style={{ margin: "0 0 0.5rem", fontStyle: "italic" }}>Reason: {campaign.archiveReason}</p>
+          <p style={{ margin: "0 0 0.75rem", color: "#555" }}>
+            It is hidden from the default campaign list and from operational totals. Every order, qualifying
+            unit, acknowledgment, settlement and audit record is unchanged and still queryable.
+          </p>
+          <Form method="post">
+            <input type="hidden" name="intent" value="unarchive_campaign" />
+            <button type="submit" disabled={busy}>
+              Restore to the operational list
+            </button>
+          </Form>
+        </>
+      ) : (
+        <>
+          <p style={{ margin: "0 0 0.5rem", color: "#555" }}>
+            Archiving hides this campaign from the default staff list and from operational totals. It does
+            not delete anything, does not change the campaign status, and does not remove a closed campaign
+            from the customer-facing Past Group Buys history.
+          </p>
+          <Form method="post">
+            <input type="hidden" name="intent" value="archive_campaign" />
+            <label style={{ display: "block", marginBottom: "0.5rem" }}>
+              Reason (required)
+              <input
+                type="text"
+                name="archiveReason"
+                required
+                style={{ display: "block", width: "100%", maxWidth: "40rem", marginTop: "0.25rem" }}
+                placeholder="e.g. superseded by campaign spring-2027; retained for evidence"
+              />
+            </label>
+            <button type="submit" disabled={busy}>
+              Archive campaign
+            </button>
+          </Form>
+        </>
+      )}
+
+      <hr style={{ margin: "1.25rem 0", border: "none", borderTop: "1px solid #ddd" }} />
+
+      {deletable ? (
+        <div style={{ border: "2px solid #b00", padding: "0.75rem" }}>
+          <h3 style={{ fontSize: "0.95rem", margin: "0 0 0.25rem", color: "#b00" }}>
+            Delete this draft permanently
+          </h3>
+          <p style={{ margin: "0 0 0.5rem" }}>
+            This draft has no orders, qualifying units, acknowledgments, cancellation checks, settlements or
+            refunds, so there is no history to lose. Deletion cannot be undone.
+          </p>
+          <Form method="post">
+            <input type="hidden" name="intent" value="delete_campaign" />
+            <input type="hidden" name="expectedCode" value={campaign.code} />
+            <label style={{ display: "block", marginBottom: "0.5rem" }}>
+              Type <strong>{campaign.code}</strong> to confirm
+              <input
+                type="text"
+                name="confirmCode"
+                required
+                autoComplete="off"
+                style={{ display: "block", width: "100%", maxWidth: "20rem", marginTop: "0.25rem" }}
+              />
+            </label>
+            <button type="submit" disabled={busy}>
+              Delete campaign permanently
+            </button>
+          </Form>
+        </div>
+      ) : (
+        <p style={{ margin: 0, color: "#555" }}>
+          {/* NAMES WHAT EXISTS. "Deletion unavailable" tells staff nothing;
+              this tells them which records are in the way, and the same
+              sentence the server would return if they tried anyway.
+
+              BOTH REASONS WHEN BOTH APPLY. A closed campaign carrying orders
+              fails on status AND on history, and a closed campaign is the
+              most likely thing someone tries to delete — telling them only
+              "it is closed" would leave them thinking a status change is all
+              that stands in the way. */}
+          <strong>Deletion is not available for this campaign.</strong>{" "}
+          {campaign.status !== "draft"
+            ? `It is "${campaign.status}" — a campaign that was opened was offered to customers at a frozen price, which is itself worth keeping. `
+            : ""}
+          {campaign.history.hasHistory
+            ? `It carries ${campaign.history.describedParts.join(", ")}. That history is evidence. `
+            : ""}
+          Archive the campaign instead — archiving hides it from operational views while leaving every record
+          queryable.
+        </p>
+      )}
+    </section>
   );
 }
 

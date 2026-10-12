@@ -726,9 +726,25 @@ export async function archiveGroupBuyCampaign(input: ArchiveGroupBuyCampaignInpu
   const by = input.archivedBy?.trim() ?? "";
   if (reason.length === 0 || by.length === 0) throw new GroupBuyCampaignArchiveReasonRequiredError();
 
-  await prisma.groupBuyCampaign.update({
-    where: { id: input.campaignId },
-    data: { archivedAt: input.archivedAt ?? new Date(), archivedBy: by, archiveReason: reason },
+  const archivedAt = input.archivedAt ?? new Date();
+  // ONE TRANSACTION. An archive without its audit event, or an audit event
+  // for an archive that did not happen, are both worse than neither.
+  await prisma.$transaction(async (tx) => {
+    await tx.groupBuyCampaign.update({
+      where: { id: input.campaignId },
+      data: { archivedAt, archivedBy: by, archiveReason: reason },
+    });
+    await tx.auditEvent.create({
+      data: {
+        actorType: "staff",
+        actorRef: by,
+        action: "groupbuy.campaign_archived",
+        entityType: "group_buy_campaign",
+        entityId: input.campaignId,
+        after: { archivedAt: archivedAt.toISOString(), archivedBy: by },
+        reason,
+      },
+    });
   });
 }
 
@@ -737,11 +753,42 @@ export async function archiveGroupBuyCampaign(input: ArchiveGroupBuyCampaignInpu
  * decision, and a reversible action needs far less ceremony than an
  * irreversible one. Deletion, by contrast, is not reversible and is guarded in
  * the database.
+ *
+ * TAKES AN ACTOR ANYWAY, and writes an audit event carrying the annotation it
+ * is about to erase. Unarchiving nulls all three columns, so WITHOUT this the
+ * act leaves no trace anywhere: the row ends up indistinguishable from one
+ * that was never archived, and the question "who un-hid this, and what reason
+ * did they overrule" becomes unanswerable. Less ceremony than archiving, not
+ * none.
  */
-export async function unarchiveGroupBuyCampaign(campaignId: string): Promise<void> {
-  await prisma.groupBuyCampaign.update({
-    where: { id: campaignId },
-    data: { archivedAt: null, archivedBy: null, archiveReason: null },
+export async function unarchiveGroupBuyCampaign(campaignId: string, unarchivedBy: string): Promise<void> {
+  const by = unarchivedBy?.trim() ?? "";
+  if (by.length === 0) throw new GroupBuyCampaignArchiveReasonRequiredError();
+
+  await prisma.$transaction(async (tx) => {
+    const before = await tx.groupBuyCampaign.findUniqueOrThrow({
+      where: { id: campaignId },
+      select: { archivedAt: true, archivedBy: true, archiveReason: true },
+    });
+    await tx.groupBuyCampaign.update({
+      where: { id: campaignId },
+      data: { archivedAt: null, archivedBy: null, archiveReason: null },
+    });
+    await tx.auditEvent.create({
+      data: {
+        actorType: "staff",
+        actorRef: by,
+        action: "groupbuy.campaign_unarchived",
+        entityType: "group_buy_campaign",
+        entityId: campaignId,
+        // The erased annotation, preserved here and nowhere else.
+        before: {
+          archivedAt: before.archivedAt?.toISOString() ?? null,
+          archivedBy: before.archivedBy,
+          archiveReason: before.archiveReason,
+        },
+      },
+    });
   });
 }
 
@@ -805,4 +852,95 @@ export async function describeGroupBuyCampaignHistory(
     describedParts,
     hasHistory: describedParts.length > 0,
   };
+}
+
+/**
+ * Deletion was refused because the campaign carries history. Names WHAT
+ * exists, so a human can decide what to do (archive it instead, almost
+ * always) rather than reading "deletion failed".
+ */
+export class GroupBuyCampaignHasHistoryError extends Error {
+  constructor(
+    readonly campaignId: string,
+    readonly summary: GroupBuyCampaignHistorySummary
+  ) {
+    super(
+      `This Group Buy campaign cannot be deleted: it carries ${summary.describedParts.join(", ")}. ` +
+        `That history is evidence and deletion would destroy it. Archive the campaign instead — ` +
+        `archiving hides it from operational views while leaving every record queryable.`
+    );
+    this.name = "GroupBuyCampaignHasHistoryError";
+  }
+}
+
+/** Deletion was refused because the campaign is not a draft. */
+export class GroupBuyCampaignNotDeletableStatusError extends Error {
+  constructor(
+    readonly campaignId: string,
+    readonly status: string
+  ) {
+    super(
+      `Only a draft Group Buy campaign may be deleted; this one is "${status}". A campaign that has ` +
+        `been opened was offered to customers at a frozen price, which is itself a fact worth keeping. ` +
+        `Archive it instead.`
+    );
+    this.name = "GroupBuyCampaignNotDeletableStatusError";
+  }
+}
+
+/**
+ * Deletes a campaign that never became anything — the one case deletion
+ * exists for, per the archive-lifecycle design: a draft created by mistake,
+ * before it touched anything.
+ *
+ * ============================================================================
+ * THIS IS THE SECOND LINE OF DEFENCE, NOT THE FIRST
+ * ============================================================================
+ * `group_buy_campaign_no_delete_with_history` is a BEFORE DELETE trigger that
+ * counts the dependent rows in the database itself, and it is the real
+ * enforcement: it cannot be bypassed by a future repository function, an admin
+ * script, or a migration written in a hurry. The checks here exist so staff
+ * get a sentence naming what exists instead of a raw constraint violation.
+ *
+ * Which means the order matters. The pre-check runs first for the MESSAGE; the
+ * trigger runs regardless for the GUARANTEE. If the two ever disagree — a new
+ * kind of history the pre-check does not count yet — the trigger wins and the
+ * delete is refused, which is the correct direction to be wrong in.
+ *
+ * THE AUDIT EVENT IS WRITTEN BEFORE THE DELETE, inside the same transaction.
+ * `audit_event` has no foreign key to the campaign, so the record survives the
+ * row it describes — which is the only reason a deleted campaign is
+ * accountable at all.
+ */
+export async function deleteGroupBuyCampaign(campaignId: string, deletedBy: string): Promise<void> {
+  const by = deletedBy?.trim() ?? "";
+  if (by.length === 0) throw new GroupBuyCampaignArchiveReasonRequiredError();
+
+  const campaign = await prisma.groupBuyCampaign.findUniqueOrThrow({
+    where: { id: campaignId },
+    select: { code: true, name: true, status: true },
+  });
+  if (campaign.status !== "draft") {
+    throw new GroupBuyCampaignNotDeletableStatusError(campaignId, campaign.status);
+  }
+
+  const summary = await describeGroupBuyCampaignHistory(campaignId);
+  if (summary.hasHistory) throw new GroupBuyCampaignHasHistoryError(campaignId, summary);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.auditEvent.create({
+      data: {
+        actorType: "staff",
+        actorRef: by,
+        action: "groupbuy.campaign_deleted",
+        entityType: "group_buy_campaign",
+        entityId: campaignId,
+        // Everything identifying the campaign, because in a moment there will
+        // be nothing left to join to.
+        before: { code: campaign.code, name: campaign.name, status: campaign.status },
+        reason: "empty draft deleted by staff; carried no orders, units, acknowledgments or settlements",
+      },
+    });
+    await tx.groupBuyCampaign.delete({ where: { id: campaignId } });
+  });
 }

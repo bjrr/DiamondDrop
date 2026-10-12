@@ -55,6 +55,10 @@ interface CampaignFixture {
   unsafeOverrideBy: string | null;
   unsafeOverrideReason: string | null;
   unsafeOverrideAt: string | null;
+  archivedAt: string | null;
+  archivedBy: string | null;
+  archiveReason: string | null;
+  history: { describedParts: readonly string[]; hasHistory: boolean };
   tiers: TierFixture[];
   variants: VariantFixture[];
   tierPublish: { tierNumber: number; qualifyingUnits: number; published: boolean } | null;
@@ -77,6 +81,11 @@ const DRAFT_CAMPAIGN: CampaignFixture = {
   unsafeOverrideBy: null,
   unsafeOverrideReason: null,
   unsafeOverrideAt: null,
+  archivedAt: null,
+  archivedBy: null,
+  archiveReason: null,
+  // An empty draft: nothing to lose, so deletion is genuinely available.
+  history: { describedParts: [], hasHistory: false },
   tiers: [
     { tierNumber: 1, minQualifyingUnits: 1, priceMultiplier: "1.000000", percentOff: "0.0000" },
     { tierNumber: 2, minQualifyingUnits: 10, priceMultiplier: "0.900000", percentOff: "10.0000" },
@@ -508,5 +517,102 @@ describe("open-campaign safety failures", () => {
     expect(html).not.toMatch(/name="overrideConfirmed"/);
     expect(html).not.toMatch(/name="overrideReason"/);
     expect(html).not.toMatch(/I am authorized to open this/);
+  });
+});
+
+/**
+ * The archive / delete panel.
+ *
+ * THE FAILURE THIS GUARDS AGAINST IS A HUMAN ONE: staff reaching for
+ * "archive" meaning "make this go away", and the screen not telling them what
+ * actually happens. So most of these assert the page's WORDS, not its
+ * plumbing — specifically that it says evidence survives, and that archiving
+ * does not take a closed campaign off the customer-facing Past Group Buys
+ * history (campaignVisibility.ts, owner-locked 2026-10-05).
+ */
+describe("archive and deletion panel", () => {
+  const ARCHIVED: CampaignFixture = {
+    ...CLOSED_CAMPAIGN,
+    archivedAt: "2026-10-06T09:30:00.000Z",
+    archivedBy: "staff:ada",
+    archiveReason: "superseded by the spring campaign",
+    history: { describedParts: ["14 qualifying unit event(s)", "2 refund(s)"], hasHistory: true },
+  };
+
+  it("offers archiving with a REQUIRED reason", () => {
+    const html = renderPage(DRAFT_CAMPAIGN);
+    expect(html).toMatch(/name="intent" value="archive_campaign"/);
+    expect(html).toMatch(/name="archiveReason"[^>]*required/);
+  });
+
+  it("says plainly that archiving deletes nothing", () => {
+    const text = textOf(renderPage(DRAFT_CAMPAIGN));
+    expect(text).toMatch(/does not delete anything/i);
+    expect(text).toMatch(/does not change the campaign status/i);
+  });
+
+  it("warns that archiving does NOT remove a closed campaign from public Past Group Buys", () => {
+    // The one consequence a staff member would otherwise get wrong and never
+    // find out about.
+    const text = textOf(renderPage(DRAFT_CAMPAIGN));
+    expect(text).toMatch(/does not remove a closed campaign from the customer-facing Past Group Buys/i);
+  });
+
+  it("shows who archived it, when, and why — and that the evidence is intact", () => {
+    const text = textOf(renderPage(ARCHIVED));
+    expect(text).toMatch(/staff:ada/);
+    expect(text).toMatch(/superseded by the spring campaign/);
+    expect(text).toMatch(/unchanged and still queryable/i);
+  });
+
+  it("offers restore for an archived campaign, and does not re-offer archiving", () => {
+    const html = renderPage(ARCHIVED);
+    expect(html).toMatch(/name="intent" value="unarchive_campaign"/);
+    expect(html).not.toMatch(/name="intent" value="archive_campaign"/);
+  });
+
+  it("offers deletion for an empty draft, behind typing the campaign code", () => {
+    const html = renderPage(DRAFT_CAMPAIGN);
+    expect(html).toMatch(/name="intent" value="delete_campaign"/);
+    expect(html).toMatch(/name="confirmCode"/);
+    // The expected code travels with the form so the server compares against
+    // the campaign being viewed, not against whatever was typed.
+    expect(html).toMatch(/name="expectedCode" value="gb-summer-rings"/);
+  });
+
+  it("does NOT offer deletion for a campaign carrying history, and NAMES the history", () => {
+    const html = renderPage(ARCHIVED);
+    expect(html).not.toMatch(/name="intent" value="delete_campaign"/);
+    const text = textOf(html);
+    expect(text).toMatch(/Deletion is not available/i);
+    expect(text).toMatch(/14 qualifying unit event\(s\), 2 refund\(s\)/);
+    // BOTH REASONS, because this campaign fails on both. Saying only "it is
+    // closed" would imply a status change is all that stands in the way.
+    expect(text).toMatch(/It is "closed"/);
+    expect(text).toMatch(/Archive the campaign instead/i);
+  });
+
+  it("names history for a DRAFT that acquired some — the draft-only delete path is not a free pass", () => {
+    const text = textOf(
+      renderPage({
+        ...DRAFT_CAMPAIGN,
+        history: { describedParts: ["1 acknowledgment(s)"], hasHistory: true },
+      })
+    );
+    expect(text).toMatch(/1 acknowledgment\(s\)/);
+    // And NOT the status sentence — this one really is still a draft.
+    expect(text).not.toMatch(/It is "draft"/);
+  });
+
+  it("does NOT offer deletion for an open campaign even with no history, and says why", () => {
+    // The tempting case: opened, nobody bought, "nothing happened". It was
+    // still offered to customers at a frozen price.
+    const html = renderPage({ ...OPEN_CAMPAIGN, history: { describedParts: [], hasHistory: false } });
+    expect(html).not.toMatch(/name="intent" value="delete_campaign"/);
+    expect(textOf(html)).toMatch(/offered to customers at a frozen price/i);
+  });
+
+  it("never leaks cost or margin data through the new panel", () => {
+    expect(renderPage(ARCHIVED).toLowerCase()).not.toMatch(NO_COST_MARGIN_LEAK);
   });
 });
