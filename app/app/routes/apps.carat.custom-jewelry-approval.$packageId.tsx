@@ -7,6 +7,7 @@ import {
   CUSTOM_JEWELRY_FINAL_APPROVAL_ACKNOWLEDGMENT_TEXT,
   CUSTOM_JEWELRY_FINAL_APPROVAL_AFFIRMATIVE_ACTION_LABEL,
   CUSTOM_JEWELRY_FINAL_APPROVAL_POLICY_SLUG,
+  CUSTOM_JEWELRY_FINAL_APPROVAL_SUBMIT_BUTTON_LABEL,
   CUSTOM_JEWELRY_FINAL_SALE_TEXT,
   CUSTOM_JEWELRY_SHIPPING_TEXT,
   CUSTOM_JEWELRY_WARRANTY_TEXT,
@@ -203,7 +204,17 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
          words or a button they never saw. */
       acknowledgment: {
         exactText: CUSTOM_JEWELRY_FINAL_APPROVAL_ACKNOWLEDGMENT_TEXT,
+        /* THE CHECKBOX LABEL. The customer TICKS this, and it is what the
+           acknowledgment row records — the unchecked thing they had to do
+           deliberately. */
         affirmativeActionLabel: CUSTOM_JEWELRY_FINAL_APPROVAL_AFFIRMATIVE_ACTION_LABEL,
+        /* THE SUBMIT BUTTON. A different string, and NOT evidence: pressing it
+           without the box ticked achieves nothing, because the action requires
+           the literal `true`. Carried so the theme imports the caption rather
+           than retyping it — a button whose words drift from the ones we think
+           it has is how a customer ends up describing an interface nobody can
+           reproduce. */
+        submitButtonLabel: CUSTOM_JEWELRY_FINAL_APPROVAL_SUBMIT_BUTTON_LABEL,
         policySlug: policy.slug,
         policyVersion: policy.version,
         /* NEVER PRE-CHECKED. The theme must render an unchecked control; this

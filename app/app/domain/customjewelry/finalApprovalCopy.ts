@@ -46,17 +46,22 @@ import { CUSTOM_JEWELRY_DEPOSIT_AMOUNT_MINOR_UNITS } from "./designDepositAcknow
  *                   list and nothing more.
  *
  * ============================================================================
- * FLAGGED FOR AN OWNER CONFIRMATION PASS
+ * THE ACKNOWLEDGMENT IS THE OWNER'S OWN WORDING (version 2, 2026-10-12)
  * ============================================================================
- * The substance of every sentence is the owner's or the README's. The
- * FIRST-PERSON RENDERING of the acknowledgment is mine, exactly as it was for
- * the Design Deposit — whose header carries the same flag and the same
- * reasoning. It is pinned and versioned, so a revision is a visible diff plus
- * a NEW policy version, never a silent edit.
+ * Version 1's first-person rendering was mine, flagged for confirmation. The
+ * owner reviewed it and supplied version 2 verbatim, along with the checkbox
+ * label and the submit-button caption. So this text is no longer a rendering
+ * awaiting sign-off — it is the approved wording, reproduced exactly.
  *
- * If the owner wants different words, that is a version 2 migration and a
- * constant bump. Nothing downstream reads these strings by any route other
- * than importing them, so the change lands in one place.
+ * VERSION 1 IS NOT EDITED AND NOT REMOVED. It is still in `policy_version` and
+ * still what existing approval packages point at. That is the entire purpose of
+ * versioning: an acknowledgment row references the version it was shown under,
+ * so changing v1 would retroactively alter what existing evidence claims a
+ * customer agreed to.
+ *
+ * A further wording change is version 3: a new migration plus a constant bump.
+ * Nothing downstream reads these strings by any route other than importing
+ * them, so the change lands in one place.
  *
  * ============================================================================
  * WHAT THIS MUST NOT ACQUIRE — and the tests reject each by name
@@ -150,8 +155,8 @@ export const CUSTOM_JEWELRY_DEPOSIT_CREDIT_TEXT =
 export const CUSTOM_JEWELRY_FINAL_APPROVAL_ACKNOWLEDGMENT_TEXT =
   "I have reviewed and approve the design, specifications, materials, dimensions and size where applicable, and " +
   "engraving where applicable, exactly as displayed on this page. " +
-  "I approve the final price shown and the credit of my $49 Design Deposit against it, and I understand I am paying " +
-  "the remaining balance. " +
+  "I approve the final price shown and the $49 Design Deposit credit applied to it, and I understand the amount " +
+  "due is the remaining balance after that credit. " +
   "I understand that once my final design and specifications are approved and the jewelry is purchased, my order is " +
   "final sale except for covered defects, incorrect specifications, shipping damage, or material failure to match the " +
   "approved design and specifications.";
@@ -170,14 +175,59 @@ export const CUSTOM_JEWELRY_FINAL_APPROVAL_ACKNOWLEDGMENT_TEXT =
 export const CUSTOM_JEWELRY_FINAL_APPROVAL_AFFIRMATIVE_ACTION_LABEL = "I Approve & Agree";
 
 /**
+ * The SUBMIT BUTTON caption, which is a different thing from the checkbox
+ * label above (owner decision, version 2).
+ *
+ * ============================================================================
+ * WHY TWO CONSTANTS, AND WHICH ONE IS THE EVIDENCE
+ * ============================================================================
+ * The customer does two things: they TICK a checkbox labelled "I Approve &
+ * Agree", then they PRESS a button that says "Approve Design & Continue to
+ * Purchase".
+ *
+ * `affirmativeActionLabel` on the acknowledgment record is the AFFIRMATIVE
+ * ACTION — the unchecked thing they had to do deliberately — which is the
+ * checkbox. The button is the submit; pressing it without the box ticked
+ * achieves nothing, because the route requires the literal `true`.
+ *
+ * So the checkbox label is what goes in the evidence, and this caption does
+ * not. It is pinned all the same, because the storefront must IMPORT it rather
+ * than retype it: a button whose words drift from the ones we think it has is
+ * how a customer ends up describing an interface nobody can reproduce.
+ *
+ * The caption also says where pressing it LEADS — "Continue to Purchase" —
+ * which matters because approval and purchase are deliberately separate steps.
+ * A button that just said "Approve" would leave the customer unsure whether
+ * they had committed to buying.
+ */
+export const CUSTOM_JEWELRY_FINAL_APPROVAL_SUBMIT_BUTTON_LABEL =
+  "Approve Design & Continue to Purchase";
+
+/**
  * The `policy_version.slug` this acknowledgment's evidence rows reference.
  * Shared by the provisioning migration and the capture route so both name the
  * same policy by construction rather than by coincidence.
  */
 export const CUSTOM_JEWELRY_FINAL_APPROVAL_POLICY_SLUG = "custom-jewelry-final-approval";
 
-/** Bump together with the text above, as a NEW version, on any approved wording change. */
-export const CUSTOM_JEWELRY_FINAL_APPROVAL_POLICY_VERSION = 1;
+/**
+ * Bump together with the text above, as a NEW version, on any approved wording
+ * change.
+ *
+ * VERSION 2 (owner decision 2026-10-12). Version 1 is NOT edited — it is still
+ * in the database and still what existing approval packages point at, which is
+ * the entire purpose of versioning: an acknowledgment row references the
+ * version it was shown under, so changing v1 would retroactively alter what
+ * existing evidence claims a customer agreed to.
+ *
+ * WHAT CHANGED, and it is the middle sentence only. v1 said "the credit of my
+ * $49 Design Deposit against it, and I understand I am paying the remaining
+ * balance"; v2 says "the $49 Design Deposit credit applied to it, and I
+ * understand the amount due is the remaining balance after that credit". The
+ * owner's wording names the credit as a thing applied to the price and states
+ * the amount due, which is clearer about what is actually being collected.
+ */
+export const CUSTOM_JEWELRY_FINAL_APPROVAL_POLICY_VERSION = 2;
 
 /**
  * The final-sale copy's own slug and version.

@@ -54,12 +54,24 @@
  * manual deletion rather than left silent.
  *
  * ============================================================================
- * NOT YET RUN — NEEDS THE OWNER'S GO-AHEAD
+ * WHAT IT FOUND ON ITS FIRST RUN (2026-10-12), owner-authorised
  * ============================================================================
- * It creates real objects on the dev store, so it is written and ready rather
- * than executed. Same posture as
- * `slice6.groupBuyRefundExecutionSchemaIntrospection.ts`, which was committed
- * stating plainly that it had not been run.
+ * A PRODUCTION DEFECT IN TWO ADAPTER METHODS, which is the entire argument for
+ * running it. Shopify normalises MoneyBag trailing zeros: send "149.00" and
+ * `appliedDiscount.amountSet.shopMoney.amount` comes back "149.0". Both
+ * `createCustomJewelryDraftOrder` and the already-committed
+ * `createRedemptionDraftOrder` compared that as a STRING, so they threw on
+ * draft orders Shopify had stored perfectly — the valueType was FIXED_AMOUNT,
+ * the value was right, and the order total came back at exactly the expected
+ * balance.
+ *
+ * Every unit test passed, because a fake echoes back whatever it is handed.
+ * Slice 10 redemption would have failed on its first real customer.
+ *
+ * It also exposed a defect in THIS gate: the throw happened AFTER Shopify
+ * created the order, so the id never reached the cleanup list and the cleanup
+ * reported success while a real draft order sat on the store. See the `finally`
+ * block for what that cost and how it is handled now.
  *
  * RUN: npx tsx tests/live/customJewelryFinalPurchaseDraftOrder.ts
  */
@@ -131,6 +143,28 @@ const READ_BACK_QUERY = `#graphql
       }
     }
   }`;
+
+/**
+ * A Shopify MoneyBag decimal string to integer minor units.
+ *
+ * THE FIRST RUN OF THIS GATE FAILED ON EXACTLY THIS. Shopify normalises
+ * trailing zeros: send "149.00", read back "149.0". The adapter compared those
+ * as strings and refused a correct draft order; so did this gate's own
+ * assertions, one line after I had written a comment warning about it for the
+ * TOTAL and then applied a string check to the DISCOUNT.
+ *
+ * A MoneyBag is composed by Shopify, so its formatting is Shopify's. Compare
+ * by value. A LINE PRICE is different — it is a value we sent, echoed back
+ * verbatim — and stays a string comparison, which is the strictest honest
+ * check for the field an ignored-price defect would corrupt.
+ */
+function moneyBagToMinorUnits(amount: string | undefined): bigint | null {
+  if (amount === undefined) return null;
+  const cleaned = amount.trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null;
+  const [whole, fraction = ""] = cleaned.split(".");
+  return BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, "0"));
+}
 
 interface ReadBack {
   id: string;
@@ -222,23 +256,22 @@ async function main() {
     // THE ASSERTION THIS GATE EXISTS FOR. An ignored appliedDiscount invoices
     // the full price having already taken the deposit and the benefit.
     //
-    // The TOTAL is compared by VALUE rather than as a string: Shopify composes
-    // it and its decimal formatting is Shopify's, not ours. The sibling gate
-    // learned that the hard way — it demanded "49.00" and failed on Shopify
-    // returning "49.0" while the price it existed to verify was correct.
-    const cardTotalMinorUnits =
-      cardTotal && /^\d+(\.\d{1,2})?$/.test(cardTotal.amount)
-        ? BigInt(cardTotal.amount.split(".")[0]!) * 100n +
-          BigInt((cardTotal.amount.split(".")[1] ?? "").padEnd(2, "0"))
-        : null;
+    // BOTH THE DISCOUNT AND THE TOTAL BY VALUE. Both are MoneyBags composed by
+    // Shopify, so both carry Shopify's formatting. The first version of this
+    // gate compared the TOTAL by value — having written exactly that comment —
+    // and then compared the DISCOUNT as a string one line later, which is what
+    // failed on run 1 against a correct order.
+    const cardTotalMinorUnits = moneyBagToMinorUnits(cardTotal?.amount);
+    const cardDiscountMinorUnits = moneyBagToMinorUnits(cardDiscount?.amount);
     check(
       "card-discount-persisted",
       cardRow.appliedDiscount?.valueType === "FIXED_AMOUNT" &&
-        cardDiscount?.amount === "149.00" &&
+        cardDiscountMinorUnits === CREDIT.amountMinorUnits &&
         cardDiscount?.currencyCode === "USD" &&
         cardTotalMinorUnits === EXPECTED_BALANCE_MINOR_UNITS,
       `valueType ${cardRow.appliedDiscount?.valueType ?? "MISSING"}, discount ` +
-        `${cardDiscount?.amount ?? "MISSING"} ${cardDiscount?.currencyCode ?? ""} (sent 149.00 USD), total ` +
+        `${cardDiscount?.amount ?? "MISSING"} ${cardDiscount?.currencyCode ?? ""} = ${cardDiscountMinorUnits ?? "unparseable"} ` +
+        `minor units (sent ${CREDIT.amountMinorUnits}), total ` +
         `${cardTotal?.amount ?? "MISSING"} = ${cardTotalMinorUnits ?? "unparseable"} minor units ` +
         `(expected ${EXPECTED_BALANCE_MINOR_UNITS} — the balance after a $49 deposit and a $100 benefit)`
     );
@@ -311,11 +344,14 @@ async function main() {
     // THE COMBINATION THIS GATE IS REALLY FOR: does the discount still hold
     // when payment terms are also attached? Nothing else in this codebase
     // sends both.
+    const bankDiscountMinorUnits = moneyBagToMinorUnits(bankDiscount?.amount);
     check(
       "bank-discount-persisted",
-      bankRow.appliedDiscount?.valueType === "FIXED_AMOUNT" && bankDiscount?.amount === "149.00",
+      bankRow.appliedDiscount?.valueType === "FIXED_AMOUNT" &&
+        bankDiscountMinorUnits === CREDIT.amountMinorUnits,
       `valueType ${bankRow.appliedDiscount?.valueType ?? "MISSING"}, discount ` +
-        `${bankDiscount?.amount ?? "MISSING"} — the discount must survive alongside payment terms, which no ` +
+        `${bankDiscount?.amount ?? "MISSING"} = ${bankDiscountMinorUnits ?? "unparseable"} minor units ` +
+        `(sent ${CREDIT.amountMinorUnits}) — the discount must survive alongside payment terms, which no ` +
         `other path in this codebase sends together`
     );
 
@@ -327,22 +363,77 @@ async function main() {
         `draft produces an order Shopify marks PAID, asserting a receipt nobody has seen`
     );
   } finally {
-    // CLEANUP IS AN ASSERTION, not a best effort. A surviving draft order on
-    // the dev store is a real artifact, so a failure to remove one is reported
-    // as a failure rather than swallowed.
+    // ======================================================================
+    // IDS FIRST, TAG SEARCH ONLY AS A SAFETY NET. BOTH ARE NEEDED.
+    // ======================================================================
+    // Two runs of this gate taught both halves of this.
+    //
+    // RUN 1 showed why ids alone are not enough: the adapter threw on its own
+    // echo check AFTER Shopify had created the draft order, so the id was
+    // never returned, never reached `created`, and the cleanup reported
+    // success while a real draft order sat on the store. I deleted it by hand.
+    //
+    // RUN 2 showed why the tag search alone is WORSE: it returned ZERO
+    // immediately after two orders had been created, because Shopify's
+    // draft-order search is indexed asynchronously. A tag-only cleanup
+    // therefore reports "nothing to clean" exactly when something needs
+    // cleaning, and both orders survived. I deleted those by hand too.
+    //
+    // So: delete every id we know, which is immediate and reliable, THEN
+    // search the tag for anything we never learned the id of. The union is
+    // what gets deleted, and a discrepancy is reported rather than smoothed
+    // over — a tagged order we did not create an id for means a method made
+    // something and then refused it.
+    const byId: string[] = [...created];
     const survivors: string[] = [];
-    for (const draftOrderGid of created) {
+    for (const draftOrderGid of byId) {
       try {
         await adapter.cancelDraftOrder({ draftOrderGid });
       } catch {
         survivors.push(draftOrderGid);
       }
     }
+
+    // The safety net. Subject to index lag, so it is a SECOND pass and never
+    // the only one.
+    const strays: string[] = [];
+    try {
+      const response = await admin.graphql(
+        `#graphql
+          query CaratLiveGateFindProbes {
+            draftOrders(first: 50, query: "tag:carat-live-gate-cj-final") { nodes { id } }
+          }`
+      );
+      const body = (await response.json()) as { data?: { draftOrders?: { nodes?: { id: string }[] } } };
+      for (const node of body.data?.draftOrders?.nodes ?? []) {
+        if (byId.includes(node.id)) continue;
+        strays.push(node.id);
+        try {
+          await adapter.cancelDraftOrder({ draftOrderGid: node.id });
+        } catch {
+          survivors.push(node.id);
+        }
+      }
+    } catch (error) {
+      console.log(
+        `  ----  the tag safety-net search failed: ` +
+          `${error instanceof Error ? error.message : String(error)}. Ids were still deleted.`
+      );
+    }
+
+    // CLEANUP IS AN ASSERTION, not a best effort. A surviving draft order on
+    // the dev store is a real artifact, so a failure to remove one is reported
+    // as a failure rather than swallowed.
     check(
       "cleanup",
       survivors.length === 0,
       survivors.length === 0
-        ? `deleted ${created.length} probe draft order(s)`
+        ? `deleted ${byId.length} probe draft order(s) by id` +
+            (strays.length > 0
+              ? ` plus ${strays.length} stray(s) found by tag — a method created something and then ` +
+                `refused it: ${strays.join(", ")}`
+              : ", and the tag search found no strays") +
+            `. Nothing payable remains: a draft order is unpaid by definition and these no longer exist.`
         : `COULD NOT DELETE ${survivors.join(", ")} — delete by hand (tagged carat-live-gate-cj-final)`
     );
   }

@@ -9,6 +9,7 @@ import {
   CUSTOM_JEWELRY_FINAL_APPROVAL_POLICY_VERSION,
   CUSTOM_JEWELRY_FINAL_SALE_POLICY_SLUG,
   CUSTOM_JEWELRY_FINAL_SALE_POLICY_VERSION,
+  CUSTOM_JEWELRY_FINAL_APPROVAL_SUBMIT_BUTTON_LABEL,
   CUSTOM_JEWELRY_FINAL_SALE_TEXT,
   CUSTOM_JEWELRY_FORBIDDEN_PROMISE_TERMS,
   CUSTOM_JEWELRY_SHIPPING_TEXT,
@@ -39,6 +40,7 @@ const ALL_CUSTOMER_FACING = [
   CUSTOM_JEWELRY_DEPOSIT_CREDIT_TEXT,
   CUSTOM_JEWELRY_FINAL_APPROVAL_ACKNOWLEDGMENT_TEXT,
   CUSTOM_JEWELRY_FINAL_APPROVAL_AFFIRMATIVE_ACTION_LABEL,
+  CUSTOM_JEWELRY_FINAL_APPROVAL_SUBMIT_BUTTON_LABEL,
 ] as const;
 
 describe("the pinned text", () => {
@@ -50,16 +52,31 @@ describe("the pinned text", () => {
     );
   });
 
-  it("is exactly the acknowledgment", () => {
+  it("is exactly the acknowledgment — the owner's version 2 wording", () => {
     expect(CUSTOM_JEWELRY_FINAL_APPROVAL_ACKNOWLEDGMENT_TEXT).toBe(
       "I have reviewed and approve the design, specifications, materials, dimensions and size where applicable, and " +
         "engraving where applicable, exactly as displayed on this page. " +
-        "I approve the final price shown and the credit of my $49 Design Deposit against it, and I understand I am paying " +
-        "the remaining balance. " +
+        "I approve the final price shown and the $49 Design Deposit credit applied to it, and I understand the amount " +
+        "due is the remaining balance after that credit. " +
         "I understand that once my final design and specifications are approved and the jewelry is purchased, my order is " +
         "final sale except for covered defects, incorrect specifications, shipping damage, or material failure to match the " +
         "approved design and specifications."
     );
+  });
+
+  it("states the amount due is the balance AFTER the credit", () => {
+    // The substance of what version 2 changed. v1 said "I am paying the
+    // remaining balance"; v2 names the credit as applied to the price and says
+    // what the amount due is. Pinned as its own case so the distinction is
+    // visible rather than buried in a 592-character string comparison.
+    expect(CUSTOM_JEWELRY_FINAL_APPROVAL_ACKNOWLEDGMENT_TEXT).toContain(
+      "$49 Design Deposit credit applied to it"
+    );
+    expect(CUSTOM_JEWELRY_FINAL_APPROVAL_ACKNOWLEDGMENT_TEXT).toContain(
+      "the amount due is the remaining balance after that credit"
+    );
+    // And the v1 phrasing is gone, so a revert would fail loudly.
+    expect(CUSTOM_JEWELRY_FINAL_APPROVAL_ACKNOWLEDGMENT_TEXT).not.toContain("I am paying");
   });
 
   it("is exactly the warranty and shipping statements", () => {
@@ -72,15 +89,37 @@ describe("the pinned text", () => {
     );
   });
 
-  it("is exactly the affirmative action label", () => {
-    // The storefront IMPORTS this as the button caption. If the two drifted,
-    // the evidence row would describe a button the customer never saw.
+  it("is exactly the checkbox label — the AFFIRMATIVE ACTION, and the evidence", () => {
+    // The customer TICKS this. It is what goes on the acknowledgment row,
+    // because it is the unchecked thing they had to do deliberately.
     expect(CUSTOM_JEWELRY_FINAL_APPROVAL_AFFIRMATIVE_ACTION_LABEL).toBe("I Approve & Agree");
+  });
+
+  it("is exactly the submit-button caption, which is a DIFFERENT string", () => {
+    // The customer PRESSES this. It is not evidence — pressing it without the
+    // box ticked achieves nothing, because the route requires the literal
+    // true — but it is pinned so the storefront imports it rather than
+    // retyping it.
+    expect(CUSTOM_JEWELRY_FINAL_APPROVAL_SUBMIT_BUTTON_LABEL).toBe(
+      "Approve Design & Continue to Purchase"
+    );
+    expect(CUSTOM_JEWELRY_FINAL_APPROVAL_SUBMIT_BUTTON_LABEL).not.toBe(
+      CUSTOM_JEWELRY_FINAL_APPROVAL_AFFIRMATIVE_ACTION_LABEL
+    );
+  });
+
+  it("the button caption says where it LEADS", () => {
+    // Approval and purchase are deliberately separate steps. A button saying
+    // only "Approve" would leave the customer unsure whether they had just
+    // committed to buying.
+    expect(CUSTOM_JEWELRY_FINAL_APPROVAL_SUBMIT_BUTTON_LABEL).toMatch(/continue to purchase/i);
   });
 
   it("names its policy slugs and versions", () => {
     expect(CUSTOM_JEWELRY_FINAL_APPROVAL_POLICY_SLUG).toBe("custom-jewelry-final-approval");
-    expect(CUSTOM_JEWELRY_FINAL_APPROVAL_POLICY_VERSION).toBe(1);
+    // VERSION 2 — the owner's wording. Version 1 remains in the database and
+    // remains what existing approval packages point at.
+    expect(CUSTOM_JEWELRY_FINAL_APPROVAL_POLICY_VERSION).toBe(2);
     // SEPARATE from the acknowledgment, because the package preserves them
     // separately and they can change independently.
     expect(CUSTOM_JEWELRY_FINAL_SALE_POLICY_SLUG).toBe("custom-jewelry-final-sale");
@@ -135,8 +174,15 @@ describe("the acknowledgment establishes everything the owner enumerated", () =>
     expect(CUSTOM_JEWELRY_FINAL_APPROVAL_ACKNOWLEDGMENT_TEXT).toContain("exactly as displayed on this page");
   });
 
-  it("says the customer pays the remaining balance", () => {
-    expect(CUSTOM_JEWELRY_FINAL_APPROVAL_ACKNOWLEDGMENT_TEXT).toContain("paying the remaining balance");
+  it("states what the amount due is", () => {
+    // The SUBSTANCE survives the version 2 rewording: the customer must
+    // understand that what they owe is the balance, not the full price. v1
+    // said "I am paying the remaining balance"; v2 states the amount due is
+    // the balance after the credit. This asserts the meaning rather than the
+    // v1 phrasing, which is why it is written against "remaining balance"
+    // alone — the clause that both versions share.
+    expect(CUSTOM_JEWELRY_FINAL_APPROVAL_ACKNOWLEDGMENT_TEXT).toContain("remaining balance");
+    expect(CUSTOM_JEWELRY_FINAL_APPROVAL_ACKNOWLEDGMENT_TEXT).toMatch(/amount\s+due/i);
   });
 });
 

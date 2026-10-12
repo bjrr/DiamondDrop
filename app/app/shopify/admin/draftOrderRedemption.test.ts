@@ -180,7 +180,11 @@ describe("the echo check — every way the discount can come back wrong", () => 
       adapter(redemptionReply({ lines: OK_LINES, discountAmount: "5.00" })).createRedemptionDraftOrder(
         redemptionInput()
       )
-    ).rejects.toThrow(/discount mismatch — sent 50\.00 but Shopify stored 5\.00/);
+      // ASSERTED ON THE MINOR-UNIT FIGURES, not on the decimal strings. The
+      // comparison is by value now — Shopify normalises MoneyBag trailing
+      // zeros, so a string check refused correct draft orders — and the error
+      // reports both representations so a reader can see which is which.
+    ).rejects.toThrow(/discount mismatch[\s\S]*5000 minor units[\s\S]*500 minor units/);
   });
 
   it("REFUSES a response carrying no discount at all", async () => {
@@ -382,6 +386,58 @@ describe("the Float the schema forces on us", () => {
           redemptionInput({ discount: Money.fromMinorUnits(cents, "USD") })
         )
       ).resolves.toMatchObject({ draftOrderGid: "gid://shopify/DraftOrder/redeem-1" });
+    }
+  });
+});
+
+describe("Shopify's MoneyBag formatting is not a mismatch", () => {
+  /**
+   * ==========================================================================
+   * THE DEFECT A LIVE GATE FOUND, PINNED SO IT CANNOT RETURN
+   * ==========================================================================
+   * Shopify normalises MoneyBag trailing zeros: send "50.00" and
+   * `amountSet.shopMoney.amount` comes back "50.0". The echo check compared
+   * those as STRINGS, so it threw on a draft order Shopify had stored
+   * perfectly — the discount was FIXED_AMOUNT, the value was right, and the
+   * order total was exactly the expected balance.
+   *
+   * Every test in this file passed, because a fake echoes back whatever it is
+   * handed. Only the live gate could surface it, and it did on its first run.
+   *
+   * These cases are the fake doing what Shopify ACTUALLY does, rather than
+   * what is convenient.
+   */
+  it.each([
+    ["50.0", "a dropped trailing zero"],
+    ["50", "no decimal part at all"],
+    ["50.00", "the exact string we sent"],
+  ])("ACCEPTS %s — %s", async (storedAmount) => {
+    const { client } = fakeClient(redemptionReply({ lines: OK_LINES, discountAmount: storedAmount }));
+    await expect(
+      new ShopifyDraftOrderAdapter(client).createRedemptionDraftOrder(redemptionInput())
+    ).resolves.toMatchObject({ draftOrderGid: "gid://shopify/DraftOrder/redeem-1" });
+  });
+
+  it("still REFUSES a genuinely different value, however it is formatted", async () => {
+    // The fix must not become "accept anything that parses". $50.10 is not
+    // $50.00 whichever way Shopify writes it.
+    for (const wrong of ["50.1", "50.10", "5", "500.00"]) {
+      const { client } = fakeClient(redemptionReply({ lines: OK_LINES, discountAmount: wrong }));
+      await expect(
+        new ShopifyDraftOrderAdapter(client).createRedemptionDraftOrder(redemptionInput()),
+        `stored ${wrong}`
+      ).rejects.toThrow(/discount mismatch/);
+    }
+  });
+
+  it("REFUSES an amount it cannot read as a decimal", async () => {
+    // Not silently treated as zero or as a match.
+    for (const unreadable of ["", "fifty", "50.000", "1e2", "-50.00"]) {
+      const { client } = fakeClient(redemptionReply({ lines: OK_LINES, discountAmount: unreadable }));
+      await expect(
+        new ShopifyDraftOrderAdapter(client).createRedemptionDraftOrder(redemptionInput()),
+        `stored "${unreadable}"`
+      ).rejects.toThrow(/cannot read as a decimal|discount mismatch/);
     }
   });
 });

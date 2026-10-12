@@ -181,6 +181,42 @@ const ZERO_SHIPPING_LINE_TITLE = "Shipping (included in item price)";
 const MAX_VERIFIABLE_LINE_ITEMS = 50;
 
 /**
+ * A Shopify MoneyBag decimal string to integer minor units, or null if it is
+ * not a plain decimal amount.
+ *
+ * ============================================================================
+ * WHY A MONEYBAG AMOUNT CANNOT BE COMPARED AS A STRING
+ * ============================================================================
+ * A LIVE GATE CAUGHT THIS, and it was a production defect in two methods.
+ *
+ * `appliedDiscount.amountSet.shopMoney.amount` is composed by Shopify, and
+ * Shopify normalises trailing zeros: send "149.00" and it returns "149.0". The
+ * echo checks compared those as strings, so they REFUSED a draft order Shopify
+ * had stored perfectly — the discount was `FIXED_AMOUNT`, the value was 149,
+ * and the order total came back at exactly the expected balance.
+ *
+ * Every unit test passed, because a mocked client echoes back whatever it was
+ * handed. Only a real call could surface it, which is the entire argument for
+ * the live gate: `createRedemptionDraftOrder` had shipped with the same
+ * comparison and would have thrown on every live redemption.
+ *
+ * A LINE PRICE IS DIFFERENT, and still compared as a string. `originalUnitPrice`
+ * is a value we SENT, echoed back verbatim — the Slice 9 live gate confirmed it
+ * round-trips exactly as "49.00" — and string equality is the strictest check
+ * available for the field an ignored-price defect would corrupt. A MoneyBag is
+ * Shopify's own composition, so the strictest HONEST check is by value.
+ *
+ * Returns null rather than throwing so the caller can report the raw string it
+ * could not read, which is more useful than a parse error.
+ */
+function moneyBagAmountToMinorUnits(amount: string): bigint | null {
+  const cleaned = amount.trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return null;
+  const [whole, fraction = ""] = cleaned.split(".");
+  return BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, "0"));
+}
+
+/**
  * Shopify's built-in "Due on receipt" payment term. These templates are
  * platform-global rather than per-shop, so the id is stable across stores —
  * confirmed by querying `paymentTermsTemplates` on caratforus-dev, where
@@ -1126,12 +1162,22 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
         "the draft order's applied discount carried no amountSet to verify against",
       ]);
     }
-    // String comparison, not numeric: the sent and stored amounts are both
-    // decimal strings, and comparing them as numbers would reintroduce the
-    // float this method works to avoid.
-    if (storedAmount.amount !== discountDecimalString) {
+    // COMPARED BY VALUE IN INTEGER MINOR UNITS, not as a string and not as a
+    // float. Shopify normalises MoneyBag trailing zeros — send "50.00", get
+    // "50.0" — so a string comparison here refused draft orders Shopify had
+    // stored perfectly. A live gate caught it; see
+    // `moneyBagAmountToMinorUnits`. The comparison is still exact, because
+    // integer minor units are exact.
+    const storedDiscountMinorUnits = moneyBagAmountToMinorUnits(storedAmount.amount);
+    if (storedDiscountMinorUnits === null) {
       throw new AdminApiError("draftOrderCreate", [
-        `discount mismatch — sent ${discountDecimalString} but Shopify stored ${storedAmount.amount}. ` +
+        `Shopify returned a discount amount this adapter cannot read as a decimal: "${storedAmount.amount}"`,
+      ]);
+    }
+    if (storedDiscountMinorUnits !== input.discount.amountMinorUnits) {
+      throw new AdminApiError("draftOrderCreate", [
+        `discount mismatch — sent ${discountDecimalString} (${input.discount.amountMinorUnits} minor units) ` +
+          `but Shopify stored ${storedAmount.amount} (${storedDiscountMinorUnits} minor units). ` +
           `A redemption for the wrong amount must never be invoiced.`,
       ]);
     }
@@ -1354,11 +1400,22 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
           "the draft order's applied credit carried no amountSet to verify against",
         ]);
       }
-      // String comparison: both are decimal strings, and comparing as numbers
-      // would reintroduce the float this method works to avoid.
-      if (storedAmount.amount !== creditDecimalString) {
+      // BY VALUE IN INTEGER MINOR UNITS. This is the exact comparison the live
+      // gate failed on its first run: Shopify stored the credit correctly as
+      // 149 and returned "149.0", and a string comparison against "149.00"
+      // refused a perfectly good draft order. See
+      // `moneyBagAmountToMinorUnits`.
+      const storedCreditMinorUnits = moneyBagAmountToMinorUnits(storedAmount.amount);
+      if (storedCreditMinorUnits === null) {
         throw new AdminApiError("draftOrderCreate", [
-          `credit mismatch — sent ${creditDecimalString} but Shopify stored ${storedAmount.amount}`,
+          `Shopify returned a credit amount this adapter cannot read as a decimal: "${storedAmount.amount}"`,
+        ]);
+      }
+      if (storedCreditMinorUnits !== input.totalCredit.amountMinorUnits) {
+        throw new AdminApiError("draftOrderCreate", [
+          `credit mismatch — sent ${creditDecimalString} (${input.totalCredit.amountMinorUnits} minor units) ` +
+            `but Shopify stored ${storedAmount.amount} (${storedCreditMinorUnits} minor units). The customer ` +
+            `would be invoiced the wrong balance having already paid their deposit.`,
         ]);
       }
       if (storedAmount.currencyCode !== currency) {
