@@ -173,15 +173,19 @@ function readBackReply(
 /** $12.34 — the approved tier adjustment. */
 const APPROVED = 1_234n;
 
+/** The caller's key, verbatim — shaped exactly like `executeGroupBuyRefund`'s. */
+const IDEMPOTENCY_KEY = "groupbuy_refund_issue:cl9refund0001:2026-10-11T04:40:55.000Z";
+
 function refund(
   client: AdminGraphqlClient,
-  overrides: { totalAmountMinorUnits?: bigint; currency?: string } = {}
+  overrides: { totalAmountMinorUnits?: bigint; currency?: string; idempotencyKey?: string } = {}
 ) {
   return new ShopifyGroupBuyRefundExecutionAdapter(client).createTierAdjustmentRefund({
     orderGid: ORDER,
     lineItemGid: LINE,
     totalAmountMinorUnits: overrides.totalAmountMinorUnits ?? APPROVED,
     currency: overrides.currency ?? "USD",
+    idempotencyKey: overrides.idempotencyKey ?? IDEMPOTENCY_KEY,
   });
 }
 
@@ -266,6 +270,40 @@ describe("what it sends — a price adjustment, not a return", () => {
       readBack: readBackReply(),
     });
     expect(await refund(client)).toEqual({ reference: REFUND });
+  });
+});
+
+describe("@idempotent — Shopify's own no-double-refund guard", () => {
+  /**
+   * REQUIRED BY SHOPIFY as of API 2026-04: `refundCreate` without
+   * `@idempotent(key:)` is rejected outright. This slice's live gate found
+   * that the hard way, so these tests exist to keep it found — a future edit
+   * that drops the directive fails here rather than in production.
+   */
+  it("sends the directive, keyed by the CALLER's key verbatim", async () => {
+    const { client, calls } = fakeClient({
+      order: orderReply(),
+      mutation: mutationReply(),
+      readBack: readBackReply(),
+    });
+    await refund(client);
+
+    const mutation = calls.find((c) => c.document.includes("CaratGroupBuyTierAdjustmentRefund"))!;
+    expect(mutation.document).toContain("@idempotent(key: $idempotencyKey)");
+    // VERBATIM, not derived. A key this adapter invented per call would
+    // deduplicate nothing: the whole guarantee is that one approved
+    // settlement produces one key however many times it is attempted.
+    expect(mutation.variables?.idempotencyKey).toBe(IDEMPOTENCY_KEY);
+  });
+
+  it("REFUSES to refund at all without a key, rather than sending an undeduplicatable refund", async () => {
+    for (const key of ["", "   ", "\t\n"]) {
+      const { client, calls } = fakeClient({ order: orderReply() });
+      await expect(refund(client, { idempotencyKey: key })).rejects.toThrow(AdminApiError);
+      await expect(refund(client, { idempotencyKey: key })).rejects.toThrow(/idempotency key/i);
+      // Checked before the order is even loaded, so nothing was sent anywhere.
+      expect(calls).toHaveLength(0);
+    }
   });
 });
 

@@ -85,6 +85,28 @@ import { AdminApiError } from "./productClient.server";
  * `GroupBuyRefundEchoMismatchError`, which is NOT an `AdminApiError` and
  * therefore classifies as `in_doubt` — the refund stays `processing` and a
  * person reconciles it. Fails closed to staff review, as the owner requires.
+ *
+ * ============================================================================
+ * `@idempotent` — SHOPIFY ENFORCES NO-DOUBLE-REFUND TOO
+ * ============================================================================
+ * As of API version 2026-04 `refundCreate` REQUIRES the `@idempotent(key:)`
+ * directive; a call without one is rejected outright. Discovered by this
+ * slice's live gate failing against the real store, then confirmed from the
+ * schema's own directive and mutation descriptions.
+ *
+ * This is not an obstacle, it is the owner's requirement implemented by the
+ * payment system itself: "The same approved settlement must never refund
+ * twice." The key passed here is THE SAME STRING the caller recorded in our
+ * `idempotency_key` table, so one decision is enforced in two independent
+ * places — our database, and Shopify. If our row is lost, or a crash replays
+ * the job, or two staff click at once, Shopify still collapses the duplicate.
+ *
+ * WHICH MEANS THE KEY MUST BE STABLE FOR ONE ATTEMPT AND FRESH FOR A GENUINE
+ * RETRY — exactly the property `executeGroupBuyRefund` already maintains, by
+ * never re-transitioning an in-flight `processing` row (stable key) while
+ * deliberately re-walking a definitively `failed` one (new key). Deriving a
+ * key inside this adapter would destroy that: a per-call key deduplicates
+ * nothing.
  */
 
 export interface GroupBuyRefundExecutionPort {
@@ -94,6 +116,13 @@ export interface GroupBuyRefundExecutionPort {
     lineItemGid: string;
     totalAmountMinorUnits: bigint;
     currency: string;
+    /**
+     * SHOPIFY'S OWN DUPLICATE-REFUND GUARD, and deliberately the SAME string
+     * the caller recorded in our `idempotency_key` table — see this file's
+     * header section on `@idempotent`. The caller owns it because only the
+     * caller knows which approved settlement an attempt belongs to.
+     */
+    idempotencyKey: string;
   }): Promise<{ reference: string }>;
 }
 
@@ -172,8 +201,8 @@ const ORDER_REFUND_CONTEXT_QUERY = `#graphql
  * Shopify received the request, not that it persisted the result.
  */
 const REFUND_CREATE_MUTATION = `#graphql
-  mutation CaratGroupBuyTierAdjustmentRefund($input: RefundInput!) {
-    refundCreate(input: $input) {
+  mutation CaratGroupBuyTierAdjustmentRefund($input: RefundInput!, $idempotencyKey: String!) {
+    refundCreate(input: $input) @idempotent(key: $idempotencyKey) {
       refund {
         id
         totalRefundedSet { shopMoney { amount currencyCode } }
@@ -248,12 +277,24 @@ export class ShopifyGroupBuyRefundExecutionAdapter implements GroupBuyRefundExec
     lineItemGid: string;
     totalAmountMinorUnits: bigint;
     currency: string;
+    idempotencyKey: string;
   }): Promise<{ reference: string }> {
     // ========================================================================
     // EVERY REFUSAL IN THIS SECTION HAPPENS BEFORE THE MUTATION
     // ========================================================================
     // So they all throw `AdminApiError`, which classifies `failed` — correct,
     // because no money moved and a corrected attempt is safe.
+
+    // THE KEY IS CHECKED FIRST, BEFORE ANYTHING ELSE. Shopify rejects an empty
+    // or whitespace-only key outright, and this adapter would rather refuse a
+    // refund it cannot deduplicate than send one Shopify will not dedupe.
+    if (input.idempotencyKey.trim().length === 0) {
+      throw new AdminApiError("refundCreate", [
+        "refusing to refund without an idempotency key; Shopify requires a non-empty @idempotent key and " +
+          "a refund that cannot be deduplicated must not be attempted",
+      ]);
+    }
+
     if (input.totalAmountMinorUnits <= 0n) {
       throw new AdminApiError("refundCreate", [
         `refusing to refund ${input.totalAmountMinorUnits} minor units; a tier adjustment refund must be positive`,
@@ -295,6 +336,7 @@ export class ShopifyGroupBuyRefundExecutionAdapter implements GroupBuyRefundExec
     const amountDecimalString = minorUnitsToDecimalString(input.totalAmountMinorUnits);
 
     const variables = {
+      idempotencyKey: input.idempotencyKey,
       input: {
         orderId: input.orderGid,
         currency: input.currency.toUpperCase(),
@@ -578,7 +620,13 @@ function selectRefundableParent(transactions: readonly OrderTransactionNode[]): 
 
 /** Records calls and returns pre-seeded results. Tests only. */
 export class RecordingGroupBuyRefundExecutionPort implements GroupBuyRefundExecutionPort {
-  readonly calls: { orderGid: string; lineItemGid: string; totalAmountMinorUnits: bigint; currency: string }[] = [];
+  readonly calls: {
+    orderGid: string;
+    lineItemGid: string;
+    totalAmountMinorUnits: bigint;
+    currency: string;
+    idempotencyKey: string;
+  }[] = [];
 
   result: { reference: string } = { reference: "groupbuy-refund-fixture" };
   error: Error | null = null;
@@ -588,6 +636,7 @@ export class RecordingGroupBuyRefundExecutionPort implements GroupBuyRefundExecu
     lineItemGid: string;
     totalAmountMinorUnits: bigint;
     currency: string;
+    idempotencyKey: string;
   }): Promise<{ reference: string }> {
     this.calls.push(input);
     if (this.error) throw this.error;

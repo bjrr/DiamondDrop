@@ -188,6 +188,14 @@ export async function executeGroupBuyRefund(
           lineItemGid: refund.lineRef,
           totalAmountMinorUnits: refund.refundAmountMinorUnits,
           currency: refund.currency,
+          // THE SAME KEY, HANDED TO SHOPIFY. `refundCreate` requires
+          // `@idempotent(key:)` as of API 2026-04, so the no-double-refund rule
+          // is enforced by the payment system as well as by the row above.
+          // Reusing this exact string is the point: the stability analysis in
+          // `advanceApprovedGroupBuyRefundToProcessing`'s comment — stable
+          // while an attempt is in flight, fresh only after a definitive
+          // failure — is what makes Shopify's deduplication correct too.
+          idempotencyKey,
         }),
       classifyGroupBuyRefundExecutionError
     );
