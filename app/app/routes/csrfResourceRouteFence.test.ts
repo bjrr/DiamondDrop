@@ -84,6 +84,23 @@ const EXEMPT_UI_ACTION_ROUTES: Readonly<Record<string, string>> = {
     "which arrives from somewhere else. " +
     "If this route ever accepts a POST from anywhere but its own rendered form, " +
     "this exemption stops being true and must be re-argued.",
+  "app.group-buy-demand.tsx":
+    "the Group Buy demand worklist (Slice 13). Same argument as " +
+    "app.bank-payments.$id.tsx, not _index.tsx: this route IS a real production " +
+    "mutation, and stands on the same load-bearing leg alone — Shopify Admin " +
+    "iframes this route at the app's own URL, so a form inside it posts with the " +
+    "app's own Origin and is same-origin by construction, unlike an App Proxy, " +
+    "webhook or cron caller. " +
+    "Note how little a forged POST could achieve even if that leg failed. The " +
+    "ONLY mutation here sets `notified_at` on rows the attacker would have to " +
+    "already know the uuids of; it moves no money, sends no email, reveals " +
+    "nothing in the response, and cannot be reversed into a false 'not yet " +
+    "notified' state because the repository only ever sets that flag and never " +
+    "clears it. The worst outcome is that somebody who should have been told " +
+    "about a returning campaign is recorded as already told — an operational " +
+    "annoyance, attributed to whichever staff session was used. " +
+    "If this route ever gains an action that sends email, exports addresses, or " +
+    "deletes a signal, this exemption stops being true and must be re-argued.",
   "app.luxury-steals._index.tsx":
     "the Luxury Steal assignment admin surface (Slice 3 task 3-2b). Same argument " +
     "as app.bank-payments.$id.tsx, not _index.tsx: this route IS a real production " +

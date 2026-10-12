@@ -138,6 +138,9 @@ model Acknowledgment {
   /// mandatory, not optional). Adds no column here.
   warrantyClaimAccuracyCertifications WarrantyClaim[]                  @relation("WarrantyClaimAccuracyCertification")
   warrantyClaimCoverageNotEstablished WarrantyClaim[]                  @relation("WarrantyClaimCoverageNotEstablished")
+  /// Slice 13 back-relation only — required by Prisma for the NOT NULL FK on
+  /// `GroupBuyDemandSignal.acknowledgmentId`. Adds no column here.
+  groupBuyDemandSignals               GroupBuyDemandSignal[]
   /// Slice 4 M-rma-request back-relation only — required by Prisma for the
   /// NOT NULL FK on `RmaRequest.returnPolicyAcknowledgmentId` (criterion
   /// 180). Adds no column here.
@@ -766,15 +769,15 @@ model RingSizeBand {
 /// Exact finished-weight override (R8) — wins unconditionally over the
 /// linear model at the given size.
 model VariantWeightOverride {
-  id              String        @id @default(uuid()) @db.Uuid
+  id              String         @id @default(uuid()) @db.Uuid
   /// NULL on a CUSTOM line — a Custom Jewelry piece has no catalogue variant.
   /// A CHECK enforces that a line is either a variant line or a custom one.
   masterVariantId String?        @map("master_variant_id") @db.Uuid
   masterVariant   MasterVariant? @relation(fields: [masterVariantId], references: [id])
-  size            Decimal       @db.Decimal(6, 2)
-  weightGrams     Decimal       @map("weight_grams") @db.Decimal(10, 4)
+  size            Decimal        @db.Decimal(6, 2)
+  weightGrams     Decimal        @map("weight_grams") @db.Decimal(10, 4)
   reason          String?
-  createdAt       DateTime      @default(now()) @map("created_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
 
   @@unique([masterVariantId, size])
   @@map("variant_weight_override")
@@ -2779,11 +2782,11 @@ model WarrantyClaimUploadDestination {
   /// impossible, and there is no single table it could point at now that two
   /// purposes share this one. See the model comment above.
   /// NOT NULL since contract step A — see `purpose` above for why.
-  ownerId     String  @map("owner_id") @db.Uuid
+  ownerId     String @map("owner_id") @db.Uuid
   /// The authenticated identity this was issued to
   /// (`logged_in_customer_id`), NEVER a client-supplied field. Re-checked at
   /// consumption time, not merely at issuance.
-  customerRef String  @map("customer_ref")
+  customerRef String @map("customer_ref")
 
   kind        WarrantyClaimUploadKind @map("kind")
   contentType String                  @map("content_type")
@@ -3533,7 +3536,7 @@ model CustomJewelryProject {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  uploads CustomJewelryProjectUpload[]
+  uploads           CustomJewelryProjectUpload[]
   /// At most one — enforced by a UNIQUE index on the acceptance side, not by
   /// the route checking first. Modelled as an optional to-one.
   depositAcceptance CustomJewelryDepositAcceptance?
@@ -3842,26 +3845,26 @@ model BeatQuoteSubmission {
   ///
   /// `@db.Date`, not a timestamp: the rule is stated in CALENDAR days, which
   /// are a property of a place rather than of an instant.
-  quoteIssuedOn        DateTime? @map("quote_issued_on") @db.Date
+  quoteIssuedOn        DateTime?          @map("quote_issued_on") @db.Date
   /// The BUSINESS-CALENDAR date the 7-day rule was applied to, derived in
   /// `calendarZone`. Frozen.
-  submittedOn          DateTime  @map("submitted_on") @db.Date
+  submittedOn          DateTime           @map("submitted_on") @db.Date
   /// The submission INSTANT in UTC — true regardless of anybody's calendar.
   /// Kept alongside the date because the two answer different questions.
-  submittedAt          DateTime  @map("submitted_at") @db.Timestamptz(6)
+  submittedAt          DateTime           @map("submitted_at") @db.Timestamptz(6)
   /// WHICH calendar `submittedOn` was derived in, so the derivation is
   /// reproducible. Resolved from Shopify's `shop.ianaTimezone`, never
   /// hard-coded — stored so a future store-timezone change cannot reinterpret
   /// historical eligibility.
-  calendarZone         String    @map("calendar_zone")
-  quoteAgeCalendarDays Int?      @map("quote_age_calendar_days")
+  calendarZone         String             @map("calendar_zone")
+  quoteAgeCalendarDays Int?               @map("quote_age_calendar_days")
   treatment            BeatQuoteTreatment
 
   competitorSellerName String? @map("competitor_seller_name")
   competitorWebsite    String? @map("competitor_website")
   /// STORED AS TEXT, NEVER FETCHED SERVER-SIDE — a server that retrieves a
   /// customer-supplied URL is an SSRF primitive. Staff open it in a browser.
-  listingUrl String? @map("listing_url")
+  listingUrl           String? @map("listing_url")
 
   /// Integer minor units + currency, never a float. Overseas sellers are
   /// explicitly in scope, so the currency is not assumed.
@@ -3941,17 +3944,17 @@ model BeatQuoteFallbackBenefit {
   maxDiscountMinorUnits BigInt @map("max_discount_minor_units")
   currency              String @db.Char(3)
 
-  issuedAt DateTime @default(now()) @map("issued_at") @db.Timestamptz(6)
+  issuedAt  DateTime @default(now()) @map("issued_at") @db.Timestamptz(6)
   /// Stored, not derived, for the same reason: a change to the validity period
   /// must not retroactively expire or extend what is already out there.
   expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
 
   /// SINGLE USE. NULL until spent; set exactly once, enforced by trigger.
-  redeemedAt DateTime? @map("redeemed_at") @db.Timestamptz(6)
+  redeemedAt                   DateTime? @map("redeemed_at") @db.Timestamptz(6)
   /// The redemption order. UNIQUE where present — one order cannot spend two
   /// benefits.
-  redemptionOrderRef           String? @unique @map("redemption_order_ref")
-  redemptionDiscountMinorUnits BigInt? @map("redemption_discount_minor_units")
+  redemptionOrderRef           String?   @unique @map("redemption_order_ref")
+  redemptionDiscountMinorUnits BigInt?   @map("redemption_discount_minor_units")
 
   revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(6)
   revokedReason String?   @map("revoked_reason")
@@ -4149,7 +4152,7 @@ model CustomJewelryApprovalPackage {
   /// unsupported turnaround promises, and a default sentence is how one appears.
   approvedTimelineText String? @map("approved_timeline_text")
 
-  currency String @db.Char(3)
+  currency                   String @db.Char(3)
   /// The authoritative underlying figure.
   bankPaymentPriceMinorUnits BigInt @map("bank_payment_price_minor_units")
   /// Derived upward from it under docs/BANK-CARD-PRICING.md, frozen here.
@@ -4199,7 +4202,7 @@ model CustomJewelryApprovalPackage {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  finalPurchase CustomJewelryFinalPurchase?
+  finalPurchase         CustomJewelryFinalPurchase?
   /// Bank Payment lines priced from this package. Back-relation only.
   bankPaymentOrderLines BankPaymentOrderLine[]
 
@@ -4232,17 +4235,17 @@ model CustomJewelryFinalPurchase {
   currency String @db.Char(3)
 
   /// Never lost just because only the balance is collected.
-  grossApprovedPriceMinorUnits BigInt @map("gross_approved_price_minor_units")
-  depositCreditMinorUnits      BigInt @map("deposit_credit_minor_units")
+  grossApprovedPriceMinorUnits BigInt  @map("gross_approved_price_minor_units")
+  depositCreditMinorUnits      BigInt  @map("deposit_credit_minor_units")
   /// Copied so the purchase record is self-contained evidence — a reader should
   /// not have to join three tables to answer what was collected and why.
-  depositPaymentReference String? @map("deposit_payment_reference")
+  depositPaymentReference      String? @map("deposit_payment_reference")
   /// The Let Us Beat Your Quote benefit, if one was redeemed. SEPARATE from the
   /// deposit credit: one is a promotional benefit, the other is the customer's
   /// own money returning to them, and conflating them would make the deposit
   /// look like a discount.
-  benefitDiscountMinorUnits BigInt @default(0) @map("benefit_discount_minor_units")
-  balanceDueMinorUnits      BigInt @map("balance_due_minor_units")
+  benefitDiscountMinorUnits    BigInt  @default(0) @map("benefit_discount_minor_units")
+  balanceDueMinorUnits         BigInt  @map("balance_due_minor_units")
 
   /// The payable object, in whichever of the two EXISTING money systems
   /// applies. Exactly one is set, and a CHECK enforces it against the basis.
@@ -4290,4 +4293,69 @@ enum CustomJewelryPurchaseStatus {
   cancelled
 
   @@map("custom_jewelry_purchase_status")
+}
+
+// ---------------------------------------------------------------------------
+// SLICE 13 — DEMAND CAPTURE
+//
+// README: "Completed campaigns support low-friction Bring It Back / Notify Me
+// If It Returns interest capture. Also provide a simple Request a New Group
+// Buy form; do not turn either into a custom-design questionnaire."
+//
+// LOW FRICTION IS A REQUIREMENT, not a nicety — which is why this table holds
+// an email, an optional sentence, and nothing else. No name, no phone, no
+// address, no design brief. "Do not turn either into a questionnaire" is a
+// schema constraint as much as a UI one: a column that exists will eventually
+// be collected.
+//
+// VOTING IS POST-MVP and deliberately absent. These rows are interest, not
+// ballots; nothing here ranks or counts toward a decision.
+// ---------------------------------------------------------------------------
+
+enum GroupBuyDemandSignalKind {
+  /// "Notify me if it returns", against a specific past campaign.
+  bring_it_back
+  /// "Request a new Group Buy" — names no existing campaign.
+  new_campaign_request
+
+  @@map("group_buy_demand_signal_kind")
+}
+
+/// One customer's expression of interest. Mutable only in `notifiedAt` and the
+/// staff-fulfilment columns; the captured content itself is never rewritten.
+model GroupBuyDemandSignal {
+  id   String                   @id @default(uuid()) @db.Uuid
+  kind GroupBuyDemandSignalKind
+
+  /// Lowercased and trimmed before storage, so dedup actually dedupes and
+  /// "Ada@Example.com" cannot register twice. THE ONLY PII IN THIS TABLE.
+  email String
+
+  /// The past campaign being asked about. Required for `bring_it_back` and
+  /// forbidden for `new_campaign_request` (CHECK
+  /// `group_buy_demand_signal_kind_shape`) — a "bring it back" that names
+  /// nothing is unactionable, and a new-campaign request that names an
+  /// existing campaign is a bring-it-back wearing the wrong label.
+  campaignRef String? @map("campaign_ref")
+
+  /// What they asked for, in their words. Capped in the route; required for a
+  /// new-campaign request, since without it the row says nothing at all.
+  note String?
+
+  /// The disclosure/consent shown at capture, recorded as evidence like every
+  /// other acknowledgment in this system. NOT NULL: an email captured with no
+  /// record of what the person was told cannot be defended later.
+  acknowledgmentId String         @map("acknowledgment_id") @db.Uuid
+  acknowledgment   Acknowledgment @relation(fields: [acknowledgmentId], references: [id])
+
+  /// Set when staff actually notified this person. Null means outstanding;
+  /// this is the only reason the row is not append-only.
+  notifiedAt DateTime? @map("notified_at") @db.Timestamptz(6)
+  notifiedBy String?   @map("notified_by")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([kind, createdAt])
+  @@index([campaignRef])
+  @@map("group_buy_demand_signal")
 }
