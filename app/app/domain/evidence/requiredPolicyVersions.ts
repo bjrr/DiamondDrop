@@ -29,6 +29,14 @@ import {
   GROUP_BUY_CANCELLATION_ACKNOWLEDGMENT_TEXT,
 } from "~/domain/groupbuy/cancellationAcknowledgmentText";
 import {
+  BRING_IT_BACK_DISCLOSURE_TEXT,
+  BRING_IT_BACK_POLICY_SLUG,
+  BRING_IT_BACK_POLICY_VERSION,
+  NEW_CAMPAIGN_REQUEST_DISCLOSURE_TEXT,
+  NEW_CAMPAIGN_REQUEST_POLICY_SLUG,
+  NEW_CAMPAIGN_REQUEST_POLICY_VERSION,
+} from "~/domain/groupbuy/demandCaptureCopy";
+import {
   LUXURY_STEALS_ACKNOWLEDGMENT_POLICY_SLUG,
   LUXURY_STEALS_ACKNOWLEDGMENT_POLICY_VERSION,
   LUXURY_STEALS_ACKNOWLEDGMENT_TEXT,
@@ -227,6 +235,21 @@ export const REQUIRED_POLICY_VERSIONS: readonly RequiredPolicyVersion[] = [
     slug: CUSTOM_JEWELRY_FINAL_SALE_POLICY_SLUG,
     version: CUSTOM_JEWELRY_FINAL_SALE_POLICY_VERSION,
     text: CUSTOM_JEWELRY_FINAL_SALE_TEXT,
+  }),
+  // Slice 13 demand capture. REGISTERED EVEN THOUGH NOTHING HERE MOVES MONEY:
+  // the intake route fails closed with 503 when its policy row is absent, so
+  // without these entries a missing row would surface as customers quietly
+  // unable to ask to be notified — visible to nobody, since a 503 on an
+  // interest form produces no complaint and no alert.
+  toRequiredPolicyVersion({
+    slug: BRING_IT_BACK_POLICY_SLUG,
+    version: BRING_IT_BACK_POLICY_VERSION,
+    text: BRING_IT_BACK_DISCLOSURE_TEXT,
+  }),
+  toRequiredPolicyVersion({
+    slug: NEW_CAMPAIGN_REQUEST_POLICY_SLUG,
+    version: NEW_CAMPAIGN_REQUEST_POLICY_VERSION,
+    text: NEW_CAMPAIGN_REQUEST_DISCLOSURE_TEXT,
   }),
 ];
 

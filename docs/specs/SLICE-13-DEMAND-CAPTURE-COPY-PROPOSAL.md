@@ -1,12 +1,20 @@
 # Slice 13 — demand capture copy
 
-**Status: DRAFT, awaiting owner approval.** Nothing below is live. The intake
-route returns `503 copy_pending_approval` until these are approved and
-provisioned, so no customer can reach any of this wording today.
+**Status: APPROVED by the owner 2026-10-12, and live.** The two disclosures
+are provisioned by migration `20261012030000_group_buy_demand_capture_copy`;
+the labels and confirmation are in
+`app/app/domain/groupbuy/demandCaptureCopy.ts`.
+
+**The owner's structural decision: the submit button IS the affirmative
+action.** No consent tickbox. The disclosure is shown above the form and
+pressing the button is the act — README requires low-friction interest
+capture, and a tickbox is a step. The evidence is unaffected: each
+acknowledgment records the exact disclosure shown *and* the exact caption
+pressed, so a row can never describe words a customer did not see. The labels
+in §1.2 and §2.2 are therefore button captions.
 
 This resolves `STOREFRONT-COPY-PROPOSAL.md` §1.7, which recorded: *"In locked
-MVP1 scope, but it belongs to Slice 13 ... No copy drafted."* It is now Slice
-13, and everything except the words is built and tested.
+MVP1 scope, but it belongs to Slice 13 ... No copy drafted."*
 
 ---
 
@@ -82,29 +90,32 @@ campaign.
 
 ---
 
-## Open questions for the owner
+## Decisions
 
-1. **Is a tickbox required, or is the disclosure enough?** The implementation
-   supports either without change — the acknowledgment records the text shown
-   and the label pressed in both cases. A tickbox is more defensible for email
-   consent; a button alone is lower friction, which the README asks for. The
-   labels above are written as button captions, on the assumption that the
-   submit button IS the affirmative action. Say the word and they become
-   tickbox labels instead.
+1. **Tickbox or button — DECIDED: button.** The submit button is the
+   affirmative action; there is no consent tickbox. See the status note above.
 
-2. **Removal requests.** §1.1 says "you can ask us to remove it at any time".
-   There is no self-service removal in MVP1, so this is a promise staff fulfil
-   by hand. If you would rather not make it, the sentence comes out — but then
-   the disclosure says nothing about how someone stops hearing from us.
+2. **Removal requests — SHIPPED AS DRAFTED, and this is the one standing
+   commitment in here.** §1.1 says "you can ask us to remove it at any time".
+   There is no self-service removal in MVP1, so **staff fulfil this by hand**:
+   a request to be removed means deleting that person's
+   `group_buy_demand_signal` row. Nothing in the product does it for them, and
+   nothing reminds them. If that turns out to be more than you want to own,
+   the sentence comes out of a version 2 of the disclosure — but then nothing
+   tells someone how to stop hearing from us, which is worse.
 
-3. **Anything in §1.1 or §2.1 you want worded differently.** These are drafts,
-   not recommendations I am attached to.
+3. **Wording — approved as drafted.** §2.1 was not shown in the approval
+   prompt's preview, only §1.1 was; it is live as written above. A revision is
+   a new `policy_version`, not an edit, so say the word and it is one
+   migration.
 
 ---
 
-## What happens once approved
+## What shipped
 
-The two disclosures are provisioned by a versioned migration (exactly as the
-Custom Jewelry Version 2 acknowledgment was), the label constant is filled in,
-and the one test asserting the 503 changes to assert a 200. No other code
-changes.
+- `policy_version` rows for both slugs, version 1, by migration.
+- Both disclosures and both captions registered in
+  `requiredPolicyVersions.ts`, so `/health` reports a missing row at deploy
+  time rather than letting customers quietly hit a 503 nobody notices.
+- The intake route still fails closed on a missing row — reaching that now
+  means the migration has not run in that environment.

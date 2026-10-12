@@ -11,8 +11,12 @@ import {
 } from "~/db/repositories/groupBuyDemandSignalRepository.server";
 import { createPolicyVersion } from "~/db/repositories/policyVersionRepository.server";
 import {
+  BRING_IT_BACK_AFFIRMATIVE_ACTION_LABEL,
+  BRING_IT_BACK_DISCLOSURE_TEXT,
   BRING_IT_BACK_POLICY_SLUG,
-  DEMAND_CAPTURE_AFFIRMATIVE_ACTION_LABEL,
+  DEMAND_CAPTURE_CONFIRMATION_TEXT,
+  NEW_CAMPAIGN_REQUEST_AFFIRMATIVE_ACTION_LABEL,
+  NEW_CAMPAIGN_REQUEST_POLICY_SLUG,
 } from "~/domain/groupbuy/demandCaptureCopy";
 import type { DemandSignalSubmission } from "~/domain/groupbuy/demandSignal";
 import { action } from "~/routes/apps.carat.group-buy-interest";
@@ -52,19 +56,27 @@ function acknowledgmentInput(policyVersionId: string, campaignRef?: string) {
 }
 
 /**
- * A policy version to attach acknowledgments to. The TEXT here is a fixture —
- * the real disclosure is an owner decision (see demandCaptureCopy.ts).
+ * A policy version for the REPOSITORY-level tests to attach acknowledgments
+ * to. Those tests do not care what the disclosure says — only that the FK is
+ * satisfiable — so this deliberately uses its own slug.
  *
- * The version number is a counter rather than a random draw: `(slug, version)`
- * is UNIQUE, so a random number can collide and produce a flaky failure that
- * has nothing to do with what the test is asking.
+ * IT MUST NOT USE A REAL SLUG. The provisioning migration inserts version 1
+ * of both real disclosures, and `getLatestPolicyVersion` returns the HIGHEST
+ * version for a slug: a fixture writing version 2 under the real slug would
+ * both collide with the migration on version 1 and then SHADOW the approved
+ * text for every route test in this file, which would pass while asserting a
+ * fixture string instead of the words the owner approved.
+ *
+ * The version is a counter rather than a random draw, because (slug, version)
+ * is UNIQUE and a collision would be a flaky failure about nothing.
  */
+const FIXTURE_POLICY_SLUG = "zz-test-demand-capture-fixture";
 let policyVersionCounter = 0;
-async function policyVersion(slug: string) {
+async function policyVersion() {
   const text = `test disclosure ${uniq()}`;
   policyVersionCounter += 1;
   return createPolicyVersion({
-    slug,
+    slug: FIXTURE_POLICY_SLUG,
     version: policyVersionCounter,
     effectiveFrom: new Date(),
     text,
@@ -78,7 +90,7 @@ function bringItBack(email: string, campaignRef: string): DemandSignalSubmission
 
 describe("one person registers once per campaign", () => {
   it("records the first submission", async () => {
-    const policy = await policyVersion(BRING_IT_BACK_POLICY_SLUG);
+    const policy = await policyVersion();
     const email = emailFor("first");
     const campaignRef = `gb-dedup-${uniq()}`;
 
@@ -91,7 +103,7 @@ describe("one person registers once per campaign", () => {
   });
 
   it("treats a REPEAT as already_registered rather than an error", async () => {
-    const policy = await policyVersion(BRING_IT_BACK_POLICY_SLUG);
+    const policy = await policyVersion();
     const email = emailFor("repeat");
     const campaignRef = `gb-dedup-${uniq()}`;
     const submission = bringItBack(email, campaignRef);
@@ -113,7 +125,7 @@ describe("one person registers once per campaign", () => {
     // THE ASSERTION THIS FILE EXISTS FOR. Without one transaction around both
     // writes, every resubmission against this public endpoint would deposit
     // an evidence row for a submission that was never stored, permanently.
-    const policy = await policyVersion(BRING_IT_BACK_POLICY_SLUG);
+    const policy = await policyVersion();
     const email = emailFor("orphan");
     const campaignRef = `gb-orphan-${uniq()}`;
     const submission = bringItBack(email, campaignRef);
@@ -139,7 +151,7 @@ describe("one person registers once per campaign", () => {
   it("CONCURRENT submissions of the same address cannot both pass", async () => {
     // Why the unique index is the mechanism rather than a read-then-write:
     // on a public endpoint, simultaneous duplicates are ordinary traffic.
-    const policy = await policyVersion(BRING_IT_BACK_POLICY_SLUG);
+    const policy = await policyVersion();
     const email = emailFor("race");
     const campaignRef = `gb-race-${uniq()}`;
     const submission = bringItBack(email, campaignRef);
@@ -158,7 +170,7 @@ describe("one person registers once per campaign", () => {
   });
 
   it("the SAME person may register for DIFFERENT campaigns", async () => {
-    const policy = await policyVersion(BRING_IT_BACK_POLICY_SLUG);
+    const policy = await policyVersion();
     const email = emailFor("two-campaigns");
     const a = `gb-a-${uniq()}`;
     const b = `gb-b-${uniq()}`;
@@ -175,7 +187,7 @@ describe("one person registers once per campaign", () => {
   });
 
   it("the dedup index does NOT apply to new-campaign requests — two wishes are two requests", async () => {
-    const policy = await policyVersion(BRING_IT_BACK_POLICY_SLUG);
+    const policy = await policyVersion();
     const email = emailFor("two-wishes");
 
     for (const note of ["a wider band", "a different stone"]) {
@@ -191,7 +203,7 @@ describe("one person registers once per campaign", () => {
 
 describe("the database enforces the shapes, not just the route", () => {
   it("REFUSES a bring-it-back with no campaign", async () => {
-    const policy = await policyVersion(BRING_IT_BACK_POLICY_SLUG);
+    const policy = await policyVersion();
     const ack = await prisma.acknowledgment.create({
       data: {
         exactText: "x",
@@ -209,7 +221,7 @@ describe("the database enforces the shapes, not just the route", () => {
   });
 
   it("REFUSES a new-campaign request that names a campaign", async () => {
-    const policy = await policyVersion(BRING_IT_BACK_POLICY_SLUG);
+    const policy = await policyVersion();
     const ack = await prisma.acknowledgment.create({
       data: {
         exactText: "x",
@@ -227,7 +239,7 @@ describe("the database enforces the shapes, not just the route", () => {
   });
 
   it("REFUSES an unnormalised email — the dedup index depends on it", async () => {
-    const policy = await policyVersion(BRING_IT_BACK_POLICY_SLUG);
+    const policy = await policyVersion();
     const ack = await prisma.acknowledgment.create({
       data: {
         exactText: "x",
@@ -247,7 +259,7 @@ describe("the database enforces the shapes, not just the route", () => {
 
 describe("the staff view", () => {
   it("lists outstanding signals for a campaign and counts them", async () => {
-    const policy = await policyVersion(BRING_IT_BACK_POLICY_SLUG);
+    const policy = await policyVersion();
     const campaignRef = `gb-staff-${uniq()}`;
     const emails = [emailFor("s1"), emailFor("s2"), emailFor("s3")];
     for (const email of emails) {
@@ -263,7 +275,7 @@ describe("the staff view", () => {
   });
 
   it("marking notified is idempotent — nobody is told twice", async () => {
-    const policy = await policyVersion(BRING_IT_BACK_POLICY_SLUG);
+    const policy = await policyVersion();
     const campaignRef = `gb-notify-${uniq()}`;
     const recorded = await recordGroupBuyDemandSignal({
       submission: bringItBack(emailFor("n1"), campaignRef),
@@ -335,28 +347,79 @@ describe("the public intake route", () => {
     expect(body.problems).toContain("campaign_required");
   });
 
-  it("FAILS CLOSED while the customer-facing copy is unapproved", async () => {
-    // The label is `null` until the owner decides it (demandCaptureCopy.ts),
-    // so a well-formed submission is refused rather than captured against
-    // words nobody approved. When the label and policy row exist this test
-    // changes to assert a 200 — deliberately, as part of that decision.
-    expect(DEMAND_CAPTURE_AFFIRMATIVE_ACTION_LABEL).toBeNull();
+  it("CAPTURES a well-formed bring-it-back, now that the copy is approved", async () => {
+    const campaignRef = `gb-live-${uniq()}`;
+    const email = emailFor("live");
+    const response = await post({ kind: "bring_it_back", email, campaignRef });
 
-    const response = await post({
-      kind: "bring_it_back",
-      email: emailFor("pending"),
-      campaignRef: `gb-pending-${uniq()}`,
-    });
-    expect(response.status).toBe(503);
-    const body = (await response.json()) as { error: string };
-    expect(body.error).toBe("copy_pending_approval");
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { ok: boolean; message: string };
+    expect(body.ok).toBe(true);
+    expect(body.message).toBe(DEMAND_CAPTURE_CONFIRMATION_TEXT);
+
+    const row = await prisma.groupBuyDemandSignal.findFirstOrThrow({ where: { email, campaignRef } });
+    expect(row.kind).toBe("bring_it_back");
   });
 
-  it("captures NOTHING while copy is pending", async () => {
-    const campaignRef = `gb-nothing-${uniq()}`;
-    await post({ kind: "bring_it_back", email: emailFor("nothing"), campaignRef });
-    expect(await prisma.groupBuyDemandSignal.count({ where: { campaignRef } })).toBe(0);
-    expect(await prisma.acknowledgment.count({ where: { campaignRef } })).toBe(0);
+  it("records the EXACT disclosure and the EXACT button caption as evidence", async () => {
+    // The acknowledgment must name words the customer actually saw. The text
+    // comes from the versioned row (so a later revision does not restate what
+    // this person was told) and the caption from the copy module.
+    const campaignRef = `gb-evidence-${uniq()}`;
+    await post({ kind: "bring_it_back", email: emailFor("evidence"), campaignRef });
+
+    const ack = await prisma.acknowledgment.findFirstOrThrow({
+      where: { campaignRef },
+      include: { policyVersion: true },
+    });
+    expect(ack.policyVersion.slug).toBe(BRING_IT_BACK_POLICY_SLUG);
+    expect(ack.exactText).toBe(ack.policyVersion.text);
+    expect(ack.exactText).toBe(BRING_IT_BACK_DISCLOSURE_TEXT);
+    expect(ack.affirmativeActionLabel).toBe(BRING_IT_BACK_AFFIRMATIVE_ACTION_LABEL);
+  });
+
+  it("uses the OTHER kind's label and disclosure for a new-campaign request", async () => {
+    // A caption vague enough to cover both forms is the wording a customer
+    // later says they did not understand.
+    const email = emailFor("wish");
+    await post({ kind: "new_campaign_request", email, note: "a wider band in platinum" });
+
+    const row = await prisma.groupBuyDemandSignal.findFirstOrThrow({ where: { email } });
+    const ack = await prisma.acknowledgment.findFirstOrThrow({
+      where: { id: row.acknowledgmentId },
+      include: { policyVersion: true },
+    });
+    expect(ack.policyVersion.slug).toBe(NEW_CAMPAIGN_REQUEST_POLICY_SLUG);
+    expect(ack.affirmativeActionLabel).toBe(NEW_CAMPAIGN_REQUEST_AFFIRMATIVE_ACTION_LABEL);
+  });
+
+  it("answers a REPEAT identically — no oracle for whether an address is on file", async () => {
+    const campaignRef = `gb-oracle-${uniq()}`;
+    const email = emailFor("oracle");
+    const first = await post({ kind: "bring_it_back", email, campaignRef });
+    const second = await post({ kind: "bring_it_back", email, campaignRef });
+
+    expect(second.status).toBe(first.status);
+    expect(await second.text()).toBe(await first.text());
+    // And still only one row, with one acknowledgment.
+    expect(await prisma.groupBuyDemandSignal.count({ where: { email, campaignRef } })).toBe(1);
+    expect(await prisma.acknowledgment.count({ where: { campaignRef } })).toBe(1);
+  });
+
+  it("the approved copy promises no return, no date and no price", async () => {
+    // The misunderstanding most available to a reader, now that the public
+    // archive states each closed campaign's final price plainly.
+    expect(BRING_IT_BACK_DISCLOSURE_TEXT).toMatch(/can't promise it will/i);
+    expect(BRING_IT_BACK_DISCLOSURE_TEXT).toMatch(/priced from costs at the time it opens/i);
+    expect(BRING_IT_BACK_DISCLOSURE_TEXT).not.toMatch(/same price|will return|guarantee/i);
+  });
+
+  it("still FAILS CLOSED if the policy row is missing from this environment", async () => {
+    // Proven by asking for a kind whose slug has no row rather than by
+    // deleting one — policy_version is append-only, and a test that could
+    // remove a disclosure would be a worse thing to own than this gap.
+    const { getLatestPolicyVersion } = await import("~/db/repositories/policyVersionRepository.server");
+    expect(await getLatestPolicyVersion("group-buy-no-such-disclosure")).toBeNull();
   });
 
   it("validates BEFORE the copy gate, so a malformed submission still gets a useful answer", async () => {

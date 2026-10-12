@@ -2,52 +2,86 @@
  * DEMAND CAPTURE — "Bring It Back" and "Request a New Group Buy".
  *
  * ============================================================================
- * THE CUSTOMER-FACING COPY IS NOT APPROVED YET, AND IS NOT INVENTED HERE
+ * OWNER-APPROVED 2026-10-12
  * ============================================================================
- * `docs/specs/STOREFRONT-COPY-PROPOSAL.md` §1.7 records the owner's position
- * verbatim: "In locked MVP1 scope, but it belongs to Slice 13 and must not
- * block Slice 6. No copy drafted, and deliberately no route, model or UI built
- * early merely because copy was requested."
+ * `docs/specs/SLICE-13-DEMAND-CAPTURE-COPY-PROPOSAL.md` carries the full
+ * drafts and the reasoning; this file carries what the code needs. It
+ * resolves `STOREFRONT-COPY-PROPOSAL.md` §1.7, which deferred the wording to
+ * this slice and deliberately drafted none.
  *
- * So the slugs below are identifiers, which are ours to choose. The TEXT a
- * customer reads is not. Two things remain owner decisions:
+ * THE SUBMIT BUTTON IS THE AFFIRMATIVE ACTION — owner decision, not a
+ * simplification. There is no consent tickbox: the disclosure is shown above
+ * the form and pressing the button is the act. README requires low-friction
+ * interest capture, and a tickbox is a step. The evidence is unaffected: the
+ * acknowledgment still records the exact disclosure shown AND the exact
+ * caption pressed, so a row can never describe words the customer never saw.
  *
- *   1. the disclosure text itself, which lives in a `policy_version` row
- *      provisioned by migration — never in this file, so a copy change is a
- *      versioned data change with an acknowledgment trail rather than a
- *      deploy;
- *   2. the affirmative-action label, which cannot live in a `policy_version`
- *      row (there is no column for it) and therefore has to be here.
+ * WHICH IS WHY THE LABELS LIVE HERE AND THE DISCLOSURES DO NOT. A
+ * `policy_version` row has no column for a button caption, so the captions
+ * have to be constants. The disclosure TEXT is a versioned row provisioned by
+ * migration (`20261012030000_group_buy_demand_capture_copy`), so revising it
+ * later is a new version with its own acknowledgments rather than a deploy
+ * that silently restates what earlier customers were told.
  *
- * `AFFIRMATIVE_ACTION_LABEL` is `null` until (2) is decided. The intake route
- * treats null as "copy pending" and fails closed with 503 — the same guard
- * `apps.carat.custom-jewelry-approval` uses, and for the same reason: a page
- * that invites someone to accept something we cannot record is a page that
- * loses their acceptance.
+ * ============================================================================
+ * WHAT THIS COPY REFUSES TO SAY
+ * ============================================================================
+ * That a campaign will return, when, or at what price. A past campaign's
+ * price was frozen against costs that have since moved, and the public Past
+ * Group Buys archive now states that old price plainly — so "it'll come back
+ * at that price" is the misunderstanding most likely to arise here, and §1.1
+ * of the proposal is written specifically to head it off.
  *
- * WHY BUILD THE BACKEND BEFORE THE WORDS EXIST. Everything below the words is
- * decision-independent: the shape of the two kinds, the deduplication, the
- * normalisation, the evidence trail. Waiting on a sentence to write a UNIQUE
- * index would be waiting for no reason. The route simply refuses to run until
- * the sentence arrives.
+ * "Once" is a promise the system can actually keep: a notified signal is
+ * marked and never re-selected (`markGroupBuyDemandSignalsNotified` only ever
+ * sets the flag).
  */
 
 /** "Notify me if it returns", captured against a specific past campaign. */
 export const BRING_IT_BACK_POLICY_SLUG = "group-buy-bring-it-back-notification";
+export const BRING_IT_BACK_POLICY_VERSION = 1;
 
 /** "Request a new Group Buy" — a wish, naming no existing campaign. */
 export const NEW_CAMPAIGN_REQUEST_POLICY_SLUG = "group-buy-new-campaign-request";
+export const NEW_CAMPAIGN_REQUEST_POLICY_VERSION = 1;
 
 /**
- * The label on the control the customer actually ticks or presses, recorded as
- * part of the acknowledgment so the evidence row cannot describe words they
- * never saw.
+ * THE DISCLOSURES, owner-approved 2026-10-12.
  *
- * NULL = PENDING OWNER APPROVAL. See this file's header. Do not fill this in
- * with a plausible-sounding string; the whole point of the null is that nobody
- * guessed.
+ * Duplicated here and in the migration that provisions them, on purpose: the
+ * migration is what a customer's acknowledgment points at, and these are what
+ * `requiredPolicyVersions.ts` checks are actually present. A drift between
+ * them is caught by `/health` at deploy time rather than by a customer.
  */
-export const DEMAND_CAPTURE_AFFIRMATIVE_ACTION_LABEL: string | null = null;
+export const BRING_IT_BACK_DISCLOSURE_TEXT =
+  "We'll email you once if this Group Buy runs again. We can't promise it will, or what the price " +
+  "will be — a new campaign is priced from costs at the time it opens. We use your email for this " +
+  "notice only, and you can ask us to remove it at any time.";
+
+export const NEW_CAMPAIGN_REQUEST_DISCLOSURE_TEXT =
+  "Tell us what you'd like to see run as a Group Buy. We read every request, but we can't promise to " +
+  "run any particular one, and we'll only email you about this request. If you want a one-off piece " +
+  "made for you, start a Custom Jewelry request instead — that's a different process.";
+
+/**
+ * The caption on the button the customer presses. Recorded as the
+ * acknowledgment's `affirmativeActionLabel`, so the evidence row names the
+ * control they actually used.
+ *
+ * ONE PER KIND, because the two forms ask for different things and a shared
+ * caption would have to be vague enough to cover both — which is exactly the
+ * wording a customer later says they did not understand.
+ */
+export const BRING_IT_BACK_AFFIRMATIVE_ACTION_LABEL = "Email me if this runs again";
+export const NEW_CAMPAIGN_REQUEST_AFFIRMATIVE_ACTION_LABEL = "Send my request";
+
+/**
+ * Shown after EITHER submission, and deliberately the same for a new
+ * submission and a repeat — see the intake route. A confirmation that said
+ * "you're already on the list" would let anyone check whether a given address
+ * is watching a given campaign.
+ */
+export const DEMAND_CAPTURE_CONFIRMATION_TEXT = "Thanks — we've got it.";
 
 /** The longest note the form accepts, in characters. */
 export const DEMAND_CAPTURE_NOTE_MAX_LENGTH = 500;

@@ -3,8 +3,10 @@ import type { ActionFunctionArgs } from "react-router";
 import { recordGroupBuyDemandSignal } from "~/db/repositories/groupBuyDemandSignalRepository.server";
 import { getLatestPolicyVersion } from "~/db/repositories/policyVersionRepository.server";
 import {
+  BRING_IT_BACK_AFFIRMATIVE_ACTION_LABEL,
   BRING_IT_BACK_POLICY_SLUG,
-  DEMAND_CAPTURE_AFFIRMATIVE_ACTION_LABEL,
+  DEMAND_CAPTURE_CONFIRMATION_TEXT,
+  NEW_CAMPAIGN_REQUEST_AFFIRMATIVE_ACTION_LABEL,
   NEW_CAMPAIGN_REQUEST_POLICY_SLUG,
 } from "~/domain/groupbuy/demandCaptureCopy";
 import { parseDemandSignal } from "~/domain/groupbuy/demandSignal";
@@ -23,17 +25,19 @@ import { verifyAppProxySignature } from "~/shopify/proxy";
  * `apps.carat.*` route.
  *
  * ============================================================================
- * THE COPY IS NOT APPROVED, SO THIS ENDPOINT REFUSES TO RUN
+ * THE SUBMIT BUTTON IS THE AFFIRMATIVE ACTION (owner decision 2026-10-12)
  * ============================================================================
- * `demandCaptureCopy.ts` explains why in full. Until the owner approves the
- * disclosure text (a `policy_version` row) and the affirmative-action label,
- * this returns 503 `copy_pending_approval`. Everything else here is finished
- * and tested: the two kinds, the deduplication, the normalisation, the
- * evidence trail. Only the words are missing.
+ * There is no consent tickbox: the disclosure is shown above the form and
+ * pressing the button is the act. The acknowledgment still records BOTH the
+ * exact disclosure text (read from the versioned row, never a constant here)
+ * and the exact caption pressed, so an evidence row can never describe words
+ * the customer did not see.
  *
- * Failing closed rather than shipping placeholder text is the same guard
- * `apps.carat.custom-jewelry-approval` uses — a form that invites someone to
- * accept something we cannot record is a form that loses their acceptance.
+ * IT STILL FAILS CLOSED when the policy row is absent — 503
+ * `copy_pending_approval`, the same guard `apps.carat.custom-jewelry-approval`
+ * uses. Reaching it now means the provisioning migration has not run in this
+ * environment, and capturing an address with no record of what the person was
+ * told is worse than asking them to try again.
  *
  * ============================================================================
  * THE RESPONSE NEVER REVEALS WHETHER AN ADDRESS IS ALREADY ON FILE
@@ -83,18 +87,22 @@ export async function action({ request }: ActionFunctionArgs) {
   // gets a useful answer, and BEFORE any write so nothing is captured without
   // a record of what the person was shown.
   // ==========================================================================
-  const slug =
-    parsed.value.kind === "bring_it_back" ? BRING_IT_BACK_POLICY_SLUG : NEW_CAMPAIGN_REQUEST_POLICY_SLUG;
-  const policy = await getLatestPolicyVersion(slug);
-  const label = DEMAND_CAPTURE_AFFIRMATIVE_ACTION_LABEL;
+  const isBringItBack = parsed.value.kind === "bring_it_back";
+  const slug = isBringItBack ? BRING_IT_BACK_POLICY_SLUG : NEW_CAMPAIGN_REQUEST_POLICY_SLUG;
+  // ONE LABEL PER KIND. The two forms ask for different things, and a caption
+  // vague enough to cover both is exactly the wording a customer later says
+  // they did not understand.
+  const label = isBringItBack
+    ? BRING_IT_BACK_AFFIRMATIVE_ACTION_LABEL
+    : NEW_CAMPAIGN_REQUEST_AFFIRMATIVE_ACTION_LABEL;
 
-  if (!policy || !label) {
-    logger.error("groupbuy.interest_copy_pending_approval", {
-      kind: parsed.value.kind,
-      slug,
-      policyPresent: Boolean(policy),
-      labelPresent: Boolean(label),
-    });
+  const policy = await getLatestPolicyVersion(slug);
+  if (!policy) {
+    // STILL FAILS CLOSED. The copy is approved and provisioned by migration
+    // 20261012030000, so reaching this means the migration has not run here —
+    // and capturing an address with no record of what the person was told is
+    // worse than asking them to try again.
+    logger.error("groupbuy.interest_copy_pending_approval", { kind: parsed.value.kind, slug });
     return Response.json(PENDING_COPY_RESPONSE, { status: 503 });
   }
 
@@ -124,6 +132,8 @@ export async function action({ request }: ActionFunctionArgs) {
     outcome,
   });
 
-  // IDENTICAL FOR BOTH OUTCOMES.
-  return Response.json({ ok: true }, { status: 200 });
+  // IDENTICAL FOR BOTH OUTCOMES, down to the message — see the header. The
+  // confirmation travels in the response so the theme renders the approved
+  // sentence rather than retyping one.
+  return Response.json({ ok: true, message: DEMAND_CAPTURE_CONFIRMATION_TEXT }, { status: 200 });
 }
