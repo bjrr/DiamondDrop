@@ -18,6 +18,7 @@ import {
 import { idempotencyKeyRepository } from "~/db/repositories/idempotencyKeyRepository.server";
 import { AdminApiError } from "~/shopify/admin/productClient.server";
 import {
+  GroupBuyRefundEchoMismatchError,
   GroupBuyRefundExecutionNotImplementedError,
   type GroupBuyRefundExecutionPort,
 } from "~/shopify/admin/groupBuyRefundExecutionAdapter.server";
@@ -67,15 +68,34 @@ export class GroupBuyRefundIllegalStateError extends Error {
 /**
  * A definitive Shopify rejection (`AdminApiError`) proves the mutation did
  * not take effect — safe to classify `failed`. So does
- * `GroupBuyRefundExecutionNotImplementedError`: the production adapter
- * refuses BEFORE making any network call at all (see its own header), so
- * there is no ambiguity about whether Shopify saw the request — it
- * definitely did not, which is a "failed", not an "in_doubt" (an
- * "in_doubt" would wrongly suggest a real attempt reached Shopify and the
+ * `GroupBuyRefundExecutionNotImplementedError`: that path refuses BEFORE
+ * making any network call, so there is no ambiguity about whether Shopify saw
+ * the request — it definitely did not, which is a "failed", not an "in_doubt"
+ * (an "in_doubt" would wrongly suggest a real attempt reached Shopify and the
  * outcome was merely lost). Anything else stays the safe default, `in_doubt`.
+ *
+ * ============================================================================
+ * THE ECHO MISMATCH IS EXPLICITLY NOT RETRYABLE, AND THIS IS THE DOUBLE-REFUND
+ * GUARD
+ * ============================================================================
+ * `GroupBuyRefundEchoMismatchError` is thrown only AFTER Shopify accepted the
+ * refund — money has already moved. Classifying it `failed` would mark the
+ * refund failed and make it eligible for a SECOND execution, refunding the
+ * customer twice.
+ *
+ * It is not an `AdminApiError`, so the expression below already returns
+ * `in_doubt` for it. The explicit branch exists anyway: the safety depends on
+ * a type NOT being in a list, which is invisible to a reader and survives only
+ * by accident if someone later makes the adapter throw `AdminApiError`
+ * everywhere "for consistency". Named here, with the consequence written
+ * down, that change has to argue with this comment first.
  */
-const classifyGroupBuyRefundExecutionError: ClassifyIdempotentError = (error) =>
-  error instanceof AdminApiError || error instanceof GroupBuyRefundExecutionNotImplementedError ? "failed" : "in_doubt";
+const classifyGroupBuyRefundExecutionError: ClassifyIdempotentError = (error) => {
+  if (error instanceof GroupBuyRefundEchoMismatchError) return "in_doubt";
+  if (error instanceof AdminApiError) return "failed";
+  if (error instanceof GroupBuyRefundExecutionNotImplementedError) return "failed";
+  return "in_doubt";
+};
 
 export interface ExecuteGroupBuyRefundDeps {
   readonly port: GroupBuyRefundExecutionPort;

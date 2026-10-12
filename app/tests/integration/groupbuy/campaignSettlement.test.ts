@@ -25,7 +25,6 @@ import { openGroupBuyCampaign } from "~/jobs/groupbuy/openCampaign.server";
 import { AdminApiError } from "~/shopify/admin/productClient.server";
 import { RecordingGroupBuySettlementOrderLookupPort } from "~/shopify/admin/groupBuySettlementOrderLookupAdapter.server";
 import {
-  GroupBuyRefundExecutionNotImplementedError,
   RecordingGroupBuyRefundExecutionPort,
   ShopifyGroupBuyRefundExecutionAdapter,
 } from "~/shopify/admin/groupBuyRefundExecutionAdapter.server";
@@ -461,19 +460,121 @@ describe("executeGroupBuyRefund — idempotent execution", () => {
     expect(afterFailure.failureReason).toBeNull();
   });
 
-  it("the production adapter refuses every call (unverified mutation shape) and is classified a definitive failure, not in_doubt", async () => {
-    const refund = await approvedAndReleasedRefund();
-    const dummyClient = { graphql: async () => ({ json: async () => ({}) }) };
-    const port = new ShopifyGroupBuyRefundExecutionAdapter(dummyClient);
+  /** An order whose payment can be refunded, shaped as Shopify returns it. */
+  function orderContextReply(orderRef: string) {
+    return {
+      data: {
+        order: {
+          id: orderRef,
+          name: "#1",
+          test: true,
+          currencyCode: "USD",
+          totalRefundedSet: { shopMoney: { amount: "0.00", currencyCode: "USD" } },
+          transactions: [
+            {
+              id: "gid://shopify/OrderTransaction/1",
+              kind: "SALE",
+              status: "SUCCESS",
+              gateway: "bogus",
+              test: true,
+              amountSet: { shopMoney: { amount: "9999.00", currencyCode: "USD" } },
+              maximumRefundableV2: { amount: "9999.00", currencyCode: "USD" },
+            },
+          ],
+        },
+      },
+    };
+  }
 
-    await expect(executeGroupBuyRefund(refund.id, "staff", { port })).rejects.toThrow(
-      GroupBuyRefundExecutionNotImplementedError
-    );
+  it("the production adapter REALLY CALLS SHOPIFY now, and a definitive rejection is failed", async () => {
+    // This test used to assert the adapter refused every call. It no longer
+    // refuses: the mutation shape was resolved by live introspection on
+    // 2026-10-12 and the adapter executes. What is worth asserting instead is
+    // that a DEFINITIVE Shopify rejection still classifies as failed — safe
+    // to retry, because a rejected mutation moved no money.
+    const refund = await approvedAndReleasedRefund();
+    const rejectingClient = {
+      graphql: async (document: string) => ({
+        json: async () =>
+          document.includes("CaratGroupBuyRefundContext")
+            ? orderContextReply(refund.orderRef)
+            : {
+                data: {
+                  refundCreate: {
+                    refund: null,
+                    userErrors: [{ field: ["input"], message: "Refund amount is invalid" }],
+                  },
+                },
+              },
+      }),
+    };
+    const port = new ShopifyGroupBuyRefundExecutionAdapter(rejectingClient);
+
+    await expect(executeGroupBuyRefund(refund.id, "staff", { port })).rejects.toThrow(/Refund amount is invalid/);
 
     const afterFailure = await prisma.groupBuyRefund.findUniqueOrThrow({ where: { id: refund.id } });
-    // A DEFINITIVE failure (no network call was ever made), not in_doubt —
-    // safe to retry once a verified adapter replaces this stub.
     expect(afterFailure.status).toBe("failed");
+  });
+
+  it("AN ECHO MISMATCH LEAVES THE REFUND IN DOUBT, NEVER FAILED", async () => {
+    // THE DOUBLE-REFUND GUARD, asserted end to end rather than only in the
+    // adapter's own unit tests. Shopify ACCEPTED the refund and the read-back
+    // disagreed, so money has moved. Marking it failed would make it eligible
+    // for a second execution and refund the customer twice.
+    const refund = await approvedAndReleasedRefund();
+    const mismatchingClient = {
+      graphql: async (document: string) => ({
+        json: async () =>
+          document.includes("CaratGroupBuyRefundContext")
+            ? orderContextReply(refund.orderRef)
+            : document.includes("CaratGroupBuyTierAdjustmentRefund")
+              ? {
+                  data: {
+                    refundCreate: {
+                      refund: {
+                        id: "gid://shopify/Refund/1",
+                        totalRefundedSet: { shopMoney: { amount: "1.00" } },
+                      },
+                      userErrors: [],
+                    },
+                  },
+                }
+              : {
+                  // The read-back reports MERCHANDISE RETURNED — the exact
+                  // corruption this adapter exists to prevent.
+                  data: {
+                    refund: {
+                      id: "gid://shopify/Refund/1",
+                      order: { id: refund.orderRef },
+                      totalRefundedSet: { shopMoney: { amount: "1.00", currencyCode: "USD" } },
+                      refundLineItems: {
+                        nodes: [
+                          {
+                            quantity: 1,
+                            restocked: true,
+                            restockType: "RETURN",
+                            lineItem: { id: "gid://shopify/LineItem/1" },
+                          },
+                        ],
+                      },
+                      refundShippingLines: { nodes: [] },
+                      duties: [],
+                      transactions: { nodes: [] },
+                    },
+                  },
+                },
+      }),
+    };
+    const port = new ShopifyGroupBuyRefundExecutionAdapter(mismatchingClient);
+
+    await expect(executeGroupBuyRefund(refund.id, "staff", { port })).rejects.toThrow(/Do NOT retry/);
+
+    const after = await prisma.groupBuyRefund.findUniqueOrThrow({ where: { id: refund.id } });
+    // STILL PROCESSING — not failed, so nothing retries it; not issued,
+    // because we cannot prove what happened. A person reconciles it.
+    expect(after.status).toBe("processing");
+    expect(after.failureReason).toBeNull();
+    expect(after.issuedAt).toBeNull();
   });
 
   it("refuses to execute an unapproved refund, even if released for shipping", async () => {
