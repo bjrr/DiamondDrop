@@ -104,18 +104,29 @@ None of this is done by the app. Recorded here because `CLAUDE.md`'s release
 gate requires documenting metafields, metaobjects and manual setup when they
 change.
 
-### 4.1 🚦 LAUNCH BLOCKER — `support@caratforus.com`
+### 4.1 🚦 LAUNCH BLOCKER — the customer-service contact, both halves
 
-Owner decision 2026-10-12 publishes this address on the Contact page and in
-the FAQ. **It must be provisioned, receiving and monitored before that content
-goes live.** The owner was explicit that an unprovisioned address is a setup
-task to complete, not a reason to substitute a different one — so if it is not
-live, the content waits.
+The published address is **`orders@raywanjewelers.com`** (owner decision
+2026-10-12, correcting an earlier draft that invented
+`support@caratforus.com` — that address was never an owner decision and has
+been removed everywhere). **Changing it requires a new owner decision.**
 
-Also recorded as `SUPPORT_EMAIL` in `app/.env.example`, which is where a
-deployer looks for what an environment needs. No code reads it; an address
-printed on a public page that nobody owns is a silent failure, because the
-customer's mail simply goes nowhere and nothing bounces back to us.
+Two things must both be true before the Contact page or the FAQ go live:
+
+1. `orders@raywanjewelers.com` is an **actively monitored** mailbox;
+2. the website **Contact Us form routes into the same customer-service
+   process**.
+
+Both, not either. Publishing one watched channel beside one that is not is
+worse than publishing a single channel: the customer cannot tell which is
+which, picks the wrong one, and hears nothing back. An unprovisioned address
+is a setup task to complete, never a reason to substitute a different one.
+
+Also recorded as `CUSTOMER_SERVICE_EMAIL` in `app/.env.example`, which is
+where a deployer looks for what an environment needs. No code reads it; an
+address printed on a public page that nobody owns is a silent failure,
+because the customer's mail simply goes nowhere and nothing bounces back to
+us.
 
 ### 4.2 In Shopify Admin
 
@@ -128,21 +139,28 @@ customer's mail simply goes nowhere and nothing bounces back to us.
 - **Product metafield** of type "list of metaobject references" pointing at
   FAQ entries, for the contextual FAQs the README allows on product pages.
 
-### 4.3 Per-item delivery estimates — an obligation the FAQ creates
+### 4.3 Delivery estimates — NO schema work for MVP1
 
-Owner decision 1 states that a delivery estimate "will be shown on the
-product, campaign, or final approval page before purchase". Where an estimate
-applies, that surface must carry it:
+**Corrected 2026-10-12.** An earlier draft of the FAQ said an estimate "will
+be shown on the product, campaign, or final approval page before purchase".
+Nothing in the Buy Now or Group Buy schema enforces that, so the FAQ was
+committing the business to behaviour the product does not have.
 
-| Surface | Today |
+The owner's correction makes the sentence conditional — "*if* an estimated
+production or delivery timeframe is provided" — and rules explicitly that
+**no schema field is added for MVP1.**
+
+| Surface | MVP1 |
 |---|---|
-| Custom Jewelry final approval | **Already supported** — `approvedTimelineText` on the approval package, deliberately nullable, rendered as absence rather than a default |
-| Buy Now product page | No field. An estimate there is editorial content entered per product |
-| Group Buy campaign page | No field. Same |
+| Custom Jewelry approval | `approvedTimelineText`, unchanged. Nullable by design, rendered as absence rather than a default |
+| Buy Now product page | Editorial per product. No field, and none is being added |
+| Group Buy campaign page | Editorial per campaign, and the campaign's own stated terms control |
 
-No blanket SLA, ever (decision 1). If a system-held estimate is wanted for
-Buy Now or Group Buy later, that is a schema change and a separate decision —
-not something to approximate with a hard-coded string in a theme.
+No blanket SLA, ever. This is a resolution, not a deferral: the FAQ no longer
+claims the behaviour, so there is nothing left for a schema to enforce. A
+system-held estimate for Buy Now or Group Buy would be a new owner decision
+and a schema change — not something to approximate with a hard-coded string
+in a theme.
 
 ---
 

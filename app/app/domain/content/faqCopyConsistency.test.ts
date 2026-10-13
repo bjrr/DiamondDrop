@@ -112,8 +112,21 @@ describe("the owner's approved answers appear verbatim", () => {
     {
       decision: "1 — production and delivery timing",
       text:
+        "Production time varies by piece. If an estimated production or delivery timeframe is provided " +
+        "on a product page, campaign page, or custom-order approval, it is an estimate rather than a " +
+        "guaranteed delivery date. Shipping transit time begins after production is complete.",
+    },
+    {
+      decision: "1 — production and delivery timing (closing sentence)",
+      text:
         "Unless CaratForUs expressly states otherwise in writing, production and delivery dates are " +
         "estimates and are not guaranteed.",
+    },
+    {
+      decision: "2 correction — the Group Buy campaign timeline controls",
+      text:
+        "Each Group Buy campaign states its own timeline, and that campaign's terms control. Production " +
+        "follows the terms stated for that campaign.",
     },
     {
       decision: "2 — materials and stones",
@@ -146,7 +159,8 @@ describe("the owner's approved answers appear verbatim", () => {
     {
       decision: "6 — contact channels",
       text:
-        "Need help? Contact CaratForUs through our Contact Us form or email us at support@caratforus.com.",
+        "Need help? Contact CaratForUs through our Contact Us form or email us at " +
+        "orders@raywanjewelers.com.",
     },
   ];
 
@@ -356,6 +370,45 @@ describe("decision 1 — no blanket production SLA", () => {
   it("says the dates are estimates, not guarantees", () => {
     expect(CUSTOMER_FACING).toMatch(/estimates and are not guaranteed/);
   });
+
+  it("states the estimate CONDITIONALLY — never promises one will be shown", () => {
+    /**
+     * THE CORRECTION THIS FENCE EXISTS FOR (owner, 2026-10-12).
+     *
+     * An earlier draft said an estimate "will be shown on the product,
+     * campaign, or final approval page before purchase". Nothing in the Buy
+     * Now or Group Buy schema enforces that, so the FAQ was committing the
+     * business to behaviour the product does not have — and the fix is the
+     * conditional, NOT a new schema field (explicitly ruled out for MVP1).
+     *
+     * The promise form is easy to restore by accident, because it reads more
+     * confidently.
+     */
+    expect(CUSTOMER_FACING).toMatch(
+      /If an estimated production or delivery timeframe is provided on a product page, campaign page, or custom-order approval/
+    );
+
+    for (const promiseForm of [
+      /estimate will be shown/i,
+      /will be (shown|displayed|provided) (on|before)/i,
+      /we (will|'ll) (show|display|provide) (you )?an estimate/i,
+    ]) {
+      expect(
+        CUSTOMER_FACING,
+        `a delivery-estimate PROMISE (${promiseForm}) reappeared; the owner's wording is conditional`
+      ).not.toMatch(promiseForm);
+    }
+  });
+
+  it("keeps the Group Buy campaign timeline as its OWN statement", () => {
+    // Folding it into the general conditional would make "if an estimate is
+    // provided" read as though it governed a campaign that states its own
+    // terms. For Group Buy the campaign controls.
+    const groupBuySection = FAQ.slice(FAQ.indexOf("## 1. Group Buys"), FAQ.indexOf("## 2. Pricing & Refunds"));
+    expect(customerFacingText(groupBuySection)).toMatch(
+      /Each Group Buy campaign states its own timeline, and that campaign's terms control/
+    );
+  });
 });
 
 describe("decision 2 — no catalog-wide materials claim", () => {
@@ -416,9 +469,26 @@ describe("decision 6 — two channels, and only the approved address", () => {
     }
   });
 
-  it("names support@caratforus.com and no other address", () => {
+  it("names orders@raywanjewelers.com and no other address", () => {
+    /**
+     * THE ADDRESS IS AN OWNER DECISION, AND I GOT IT WRONG ONCE.
+     *
+     * An earlier draft invented `support@caratforus.com` — it matched the
+     * brand domain and read plausibly, which is exactly why nothing caught
+     * it. The real address is on a different domain entirely, so "looks
+     * consistent with the brand" is an actively misleading heuristic here.
+     *
+     * Asserting the exact SET means both halves are guarded: the approved
+     * address is present, and no second address has crept in beside it.
+     */
     const addresses = new Set(CUSTOMER_FACING.match(/[\w.+-]+@[\w.-]+\.\w+/g) ?? []);
-    expect([...addresses]).toEqual(["support@caratforus.com"]);
+    expect([...addresses]).toEqual(["orders@raywanjewelers.com"]);
+  });
+
+  it("the superseded invented address appears nowhere, not even in commentary", () => {
+    // Including the fences. A reader who finds it anywhere could reasonably
+    // conclude it is still a candidate.
+    expect(FAQ).not.toContain("support@caratforus.com");
   });
 });
 
@@ -429,9 +499,13 @@ describe("the fences survive", () => {
     expect((FAQ.match(/⚠️/g) ?? []).length).toBeGreaterThanOrEqual(9);
   });
 
-  it("still flags the support address as a launch blocker", () => {
+  it("still flags the contact channels as a launch blocker — BOTH halves", () => {
     expect(FAQ).toMatch(/🚦/);
-    expect(FLAT).toMatch(/MUST BE PROVISIONED AND TESTED BEFORE THIS ANSWER IS PUBLISHED/);
+    expect(FLAT).toMatch(/LAUNCH BLOCKER — TWO PARTS, BOTH REQUIRED/);
+    // The mailbox AND the form. Publishing one watched channel beside one
+    // that is not is the failure the blocker exists to prevent.
+    expect(FLAT).toMatch(/actively monitored/);
+    expect(FLAT).toMatch(/Contact Us form must route into the \*\*same\*\* customer-service/);
   });
 
   it("leaves no unresolved marker", () => {

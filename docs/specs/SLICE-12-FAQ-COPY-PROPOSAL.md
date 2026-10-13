@@ -8,9 +8,10 @@ Refunds, Production & Delivery, Materials & Stones, Ring Sizing, Custom
 Jewelry, Warranty & Repairs, Returns & Cancellations, Payments, and Shipping
 & Insurance — plus Contact, which is its own Slice 12 page.
 
-**ONE THING STILL GATES PUBLICATION:** `support@caratforus.com` must be
-provisioned and tested. The owner was explicit that an unprovisioned address
-is a setup task, never a reason to substitute a different one.
+**ONE THING STILL GATES PUBLICATION:** `orders@raywanjewelers.com` must be an
+actively monitored mailbox, and the Contact Us form must route into the same
+customer-service process. An unprovisioned address is a setup task to
+complete, never a reason to substitute a different one.
 
 ---
 
@@ -94,9 +95,19 @@ three sides.
 > email us to reactivate the same order at the price you originally locked in.
 > After the campaign closes, reactivation is at our discretion.
 
----
+### Q: When will a Group Buy piece be made? **[OWNER-APPROVED 2026-10-12 — decision 2 correction]**
 
-## 2. Pricing & Refunds
+> Each Group Buy campaign states its own timeline, and that campaign's terms
+> control. Production follows the terms stated for that campaign.
+
+> ⚠️ **ADDED, NOT RETAINED.** The owner's correction asked to "retain" this
+> separate Group Buy statement; it did not actually exist in the draft, so it
+> is written here rather than reported as preserved.
+>
+> It is deliberately a SEPARATE answer from §3's general production
+> question. Folding the two together would make the general "if an estimate
+> is provided" conditional read as though it also governed a campaign that
+> states its own terms — and for Group Buy the campaign controls.
 
 ### Q: Why are there two prices? **[LOCKED]**
 
@@ -145,22 +156,29 @@ three sides.
 
 ### Q: How long will my piece take? **[OWNER-APPROVED 2026-10-12 — decision 1]**
 
-> Production and delivery timing varies by item. Ready-to-ship,
-> made-to-order, Custom Jewelry, and Group Buy pieces may have different
-> timelines. The applicable estimate will be shown on the product, campaign,
-> or final approval page before purchase. Once your order ships, we'll send
-> tracking information. Unless CaratForUs expressly states otherwise in
-> writing, production and delivery dates are estimates and are not
-> guaranteed.
+> Production time varies by piece. If an estimated production or delivery
+> timeframe is provided on a product page, campaign page, or custom-order
+> approval, it is an estimate rather than a guaranteed delivery date.
+> Shipping transit time begins after production is complete.
+>
+> Once your order ships, we'll send tracking information. Unless CaratForUs
+> expressly states otherwise in writing, production and delivery dates are
+> estimates and are not guaranteed.
 
 > ⚠️ **NO BLANKET SLA, EVER.** The owner's decision is explicit: do not invent
 > a universal "X–Y weeks" statement, and do not let one appear here later by
-> way of a "helpful" clarification. Timing is per item.
+> way of a "helpful" clarification. Timing is per piece.
 >
-> **THIS ANSWER CREATES AN OBLIGATION ON OTHER SURFACES.** It tells customers
-> the estimate "will be shown on the product, campaign, or final approval page
-> before purchase". Where an estimate applies, that surface must actually
-> carry it — see the implementation note below.
+> ⚠️ **"IF … IS PROVIDED", NOT "WILL BE SHOWN".** An earlier draft promised
+> that an estimate *will* appear on the product, campaign or approval page.
+> Nothing in the Buy Now or Group Buy schema enforces that, so the FAQ was
+> committing the business to behaviour the product does not have. Corrected
+> by owner decision, and **no schema field is being added for MVP1**: Buy Now
+> and Group Buy estimates stay editorial, Custom Jewelry keeps
+> `approvedTimelineText` as designed.
+>
+> Any rewrite that turns the conditional back into a promise re-creates the
+> obligation.
 
 ### Q: How do I know where my order is? **[LOCKED]**
 
@@ -490,18 +508,28 @@ page and the answer below is the same on both surfaces.
 ### Q: How do I get in touch? **[OWNER-APPROVED 2026-10-12 — decision 6]**
 
 > Need help? Contact CaratForUs through our Contact Us form or email us at
-> support@caratforus.com. For an existing order, claim, return, Group Buy, or
-> Custom Jewelry project, please include the applicable order or reference
+> orders@raywanjewelers.com. For an existing order, claim, return, Group Buy,
+> or Custom Jewelry project, please include the applicable order or reference
 > number so we can locate it.
 
 > ⚠️ **TWO CHANNELS ONLY.** Do not advertise telephone, SMS, live chat, or
 > support hours until those channels actually exist and are staffed. An
 > unstaffed channel on a contact page is worse than no channel.
 >
-> 🚦 **LAUNCH BLOCKER — `support@caratforus.com` MUST BE PROVISIONED AND
-> TESTED BEFORE THIS ANSWER IS PUBLISHED.** The owner's instruction is
-> explicit: if it is not live, that is a setup task to complete, **not** a
-> reason to substitute a different address. See `SLICE-12-CONTENT.md` §4.
+> ⚠️ **THE ADDRESS IS `orders@raywanjewelers.com`**, by owner decision.
+> Changing it needs a new owner decision — not a judgement call about which
+> domain looks more consistent with the brand. An earlier draft of this file
+> invented a plausible-looking address on the brand domain and it was wrong;
+> the superseded value is deliberately not repeated here, so that nobody
+> reading this can copy it by mistake. The history is in
+> `SLICE-12-CONTENT.md` §4.1.
+>
+> 🚦 **LAUNCH BLOCKER — TWO PARTS, BOTH REQUIRED.**
+> `orders@raywanjewelers.com` must be an **actively monitored** mailbox, and
+> the website Contact Us form must route into the **same** customer-service
+> process. Publishing one channel that is watched and one that is not is the
+> failure this blocker exists to prevent: the customer cannot tell which is
+> which, and picks the wrong one. See `SLICE-12-CONTENT.md` §4.1.
 
 ---
 
@@ -514,11 +542,11 @@ reasons they are worded the way they are matter.
 | # | Was needed | Owner decision |
 |---|---|---|
 | 1 | Refund timeframe, or a decision to state none | 5 business days to **initiate**, counted from approval — not from request |
-| 2 | Production/delivery timeframes | No blanket SLA. Per-item estimate shown on the product/campaign/approval surface; estimates, not guarantees |
+| 2 | Production/delivery timeframes | No blanket SLA. Varies by piece; **if** an estimate is provided it is an estimate, not a guaranteed delivery date. No schema field for MVP1. Group Buy: the campaign's own terms control |
 | 3 | Materials, stone origin, certification, treatment disclosure | No catalog-wide claim in either direction. Product-specific facts control |
 | 4 | Whether you resize, at what cost, and the warranty effect | Yes, eligibility varies by design, may carry a charge. Unauthorised third-party work is not covered; CaratForUs-authorised work does **not** void the rest |
 | 5 | Countries shipped to, and who pays duties | 50 US states + D.C. only. No international, so no duties |
-| 6 | Contact channels | Contact Us form and `support@caratforus.com`. No phone, SMS, chat or hours |
+| 6 | Contact channels | Contact Us form and `orders@raywanjewelers.com`. No phone, SMS, chat or hours |
 
 ---
 
@@ -541,30 +569,48 @@ whatever system holds this content:
    and inspection, and ends at *initiate*. Not from request, and not to funds
    landing.
 5. **Production timing** — no blanket SLA, ever.
-6. **Materials** — no catalog-wide claim in either direction; six specific
+6. **Production timing, conditional** — "if an estimate *is provided*", never
+   "*will be* shown". The promise form creates an obligation no Buy Now or
+   Group Buy schema enforces, and no schema field is being added for MVP1.
+7. **Group Buy timing** — a separate answer, because the campaign's own
+   stated terms control and must not be absorbed into the general
+   conditional.
+8. **Materials** — no catalog-wide claim in either direction; six specific
    implications are forbidden by name.
-7. **Resizing** — not free, and not an automatic warranty void. Both errors
+9. **Resizing** — not free, and not an automatic warranty void. Both errors
    are live.
-8. **Shipping** — 50 states and D.C. exactly; international, APO/FPO, U.S.
-   territories and duties each need their own approval.
-9. **Contact** — two channels only, and the address must be live first.
+10. **Shipping** — 50 states and D.C. exactly; international, APO/FPO, U.S.
+    territories and duties each need their own approval.
+11. **Contact** — two channels only; the address is `orders@raywanjewelers.com`
+    and changing it needs a new owner decision; both channels must be live
+    and routed to the same process before publication.
 
 ---
 
 ## Obligations this FAQ creates elsewhere
 
-Two answers promise something another surface has to deliver. Recording them
-here because an FAQ that describes behaviour the product does not have is
-worse than no FAQ.
+**ONE, now — down from two.** An FAQ that describes behaviour the product
+does not have is worse than no FAQ, so this list is kept short deliberately.
 
-1. **Per-item delivery estimates** (decision 1). The answer states the
-   estimate "will be shown on the product, campaign, or final approval page
-   before purchase". Where an estimate applies, that surface must carry it.
-   Custom Jewelry already does — `approvedTimelineText` on the approval
-   package, which is deliberately nullable and renders as absence rather than
-   inventing a default. Buy Now product pages and Group Buy campaign pages
-   have no equivalent field today, so an estimate there is editorial content
-   per item, not a system guarantee.
-2. **`support@caratforus.com`** (decision 6). Must be provisioned and tested
-   before publication — flagged as a launch requirement in
-   `SLICE-12-CONTENT.md` §4.
+1. **The contact channels** (decision 6, corrected 2026-10-12).
+   `orders@raywanjewelers.com` must be an actively monitored mailbox, **and**
+   the Contact Us form must route into the same customer-service process.
+   Both, not either: publishing one watched channel beside one that is not is
+   worse than publishing a single channel, because the customer cannot tell
+   which is which and picks the wrong one. Flagged as a launch blocker in
+   `SLICE-12-CONTENT.md` §4.1.
+
+**REMOVED — the delivery-estimate obligation.** The earlier draft promised an
+estimate "will be shown on the product, campaign, or final approval page",
+which nothing in the Buy Now or Group Buy schema enforces. The owner's
+correction replaced it with a conditional ("if an estimated … timeframe is
+provided") and ruled that **no schema field is added for MVP1**. So:
+
+| Surface | MVP1 |
+|---|---|
+| Custom Jewelry approval | `approvedTimelineText`, unchanged — nullable, renders as absence rather than a default |
+| Buy Now product page | Editorial per product. No field, and none is being added |
+| Group Buy campaign page | Editorial per campaign, and the campaign's own stated terms control |
+
+That is the correct resolution rather than a deferral: the FAQ no longer
+claims a behaviour, so there is nothing left for a schema to enforce.
