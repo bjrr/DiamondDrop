@@ -39,6 +39,18 @@ on:
 env:
   APP_ENV: test
   DATABASE_URL: "postgresql://carat:carat_ci_password@localhost:5432/carat_ci?schema=public"
+  # THE PRISMA CLI READS THIS, AND ONLY THE CLI — migrate, db push, introspect
+  # (see the `directUrl` comment in prisma/schema.prisma). Without it
+  # `prisma migrate deploy` fails before touching the database at all:
+  #
+  #   P1012  Environment variable not found: DIRECT_URL
+  #
+  # Production splits the two because Fly Managed Postgres fronts the database
+  # with PgBouncer, and migrate's session-level advisory lock cannot survive a
+  # transaction pooler. CI has one Postgres and no pooler, so both point at the
+  # same place — exactly the "locally both point at the same Postgres and
+  # nothing changes" case the schema comment describes.
+  DIRECT_URL: "postgresql://carat:carat_ci_password@localhost:5432/carat_ci?schema=public"
   SESSION_SECRET: "ci_session_secret_placeholder_not_a_real_secret"
   CRON_SECRET: "ci_cron_secret_placeholder_not_a_real_secret_"
   SHOPIFY_API_SECRET: "ci_shopify_app_secret_placeholder____________"
