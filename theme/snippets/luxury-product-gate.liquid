@@ -1,0 +1,183 @@
+{% comment %}
+  Renders the PDP Luxury Steal / Final Sale badge, disclosure, real-inventory
+  scarcity line, and the never-pre-checked acknowledgment gate that must be
+  satisfied before add-to-cart (Slice 3 task 3-5,
+  docs/specs/SLICE-3-LUXURY-STEALS.md §4.2-4.3 and §4.7, criteria 129, 130,
+  133, 134, 143, 146, 148-149).
+
+  WHY THIS RENDERS UNCONDITIONALLY REGARDLESS OF SECTION BLOCK CONFIGURATION.
+  `sections/main-product.liquid` renders this from a fixed location BEFORE the
+  merchant-configurable `section.blocks` loop (not from inside the
+  `buy_buttons` block case), because the Final Sale disclosure and gate are
+  policy-required, not optional merchandising -- they must not silently
+  disappear if a merchant ever removes/reorders the `buy_buttons` block.
+  Rendering first in `.product__info-container`, ahead of the title/price/
+  buy-buttons blocks, also satisfies criterion 129's "conspicuous, not a
+  footnote" requirement independent of however those blocks are arranged.
+
+  THE GATE IS SCOPED TO THE SELECTED VARIANT (D27 / criterion 146), never the
+  product. Selecting a non-assigned sibling variant must show nothing here;
+  selecting an assigned one must show the full gate with the checkbox reset to
+  unchecked. Same-product option changes re-render this whole partial via
+  Dawn's Section Rendering API (`product-info.js` `handleUpdateProductInfo`),
+  and `assets/luxury-steal-gate.js` swaps this container's markup from that
+  fresh server render on the `variant-change` pub/sub event -- see that file's
+  header comment for the full mechanism and its known limits.
+
+  THE `.value` RULE (criterion 149) -- see `snippets/luxury-badge-card.liquid`
+  and `snippets/price.liquid` for the same rule. `carat_ls_variant.metafields
+  .carat.luxury_steal` ALONE is a metafield drop, truthy even when its value
+  is `false` (unassignment writes `false`, never deletes -- criterion 128).
+  Every read here goes through `.value`.
+
+  THIS IS PREVENTIVE, NOT THE ENFORCEMENT (D6, spec §10). The order-time
+  `orders/create` check (task 3-4) is what actually binds; this UI is the
+  honest, accessible front door to it.
+
+  OWNER RULING, 2026-09-24: "we don't display any payment method or allow
+  anything to happen until it is acknowledged." A dynamic/accelerated
+  checkout button (Shop Pay etc.) never touches THIS form's submit flow at
+  all, so disabling Add to Cart alone did nothing to it -- closed by
+  `buy-buttons.liquid` itself now composing this same Luxury Steal condition
+  into its `payment_button` wrapper's `hidden` state (see that file's own
+  comment on `data-carat-dynamic-checkout-wrapper` and
+  `assets/cart.js`'s `showModeRedundantControls` for how the composition with
+  the UNRELATED Bank-mode hidden condition is kept from racing). That is a
+  Dawn-file edit beyond this task's usual single-line-hook rule, explicitly
+  authorized by the architect for this specific wrapper because no render
+  hook could reach it.
+
+  THE `required` ATTRIBUTE ON THE CHECKBOX BELOW closes the remaining gap for
+  a JS-disabled visitor: Add to Cart is a REAL native `<button type="submit">`
+  in `buy-buttons.liquid` that this file cannot disable without JavaScript,
+  so without `required` a JS-off visitor could submit it unacknowledged. The
+  checkbox itself is associated to the form via its own `form="<product_form_id>"`
+  attribute below, the same external-association mechanism the hidden ack-id
+  input already uses, so the browser's native constraint validation blocks
+  submission with no script running at all.
+
+  SCARCITY (criterion 130). "Only X left" renders ONLY when
+  `inventory_management` is `shopify` (i.e. Shopify is actually tracking real
+  inventory for this variant) AND `inventory_policy` is not `continue` (i.e.
+  backorders are not allowed for it -- showing a countdown while oversell is
+  permitted would itself be a misleading number) AND the live quantity is a
+  real positive integer. Absent any of those, nothing renders -- never a
+  fabricated or decorative count.
+
+  NO COMPARISON PRICE OR SAVINGS CLAIM (criterion 132) is rendered anywhere in
+  this file. That is a deliberate omission, not an oversight.
+
+  Accepts:
+  - product: {Object} Product Liquid object
+  - section: {Object} the enclosing section (for id-scoping)
+  - product_form_id: {String} the `<form>` id the buy-buttons snippet already
+    rendered elsewhere in this section -- both the hidden acknowledgment-id
+    input AND the acknowledgment checkbox below associate to it via their own
+    HTML `form=""` attribute, since this container is a DOM SIBLING of that
+    form, not a descendant of it.
+
+  Usage:
+  {%- render 'luxury-product-gate', product: product, section: section, product_form_id: product_form_id -%}
+{% endcomment %}
+{{ 'component-luxury-gate.css' | asset_url | stylesheet_tag }}
+{%- liquid
+  assign carat_ls_variant = product.selected_or_first_available_variant
+  assign carat_ls_assigned = false
+  if carat_ls_variant.metafields.carat.luxury_steal.value
+    assign carat_ls_assigned = true
+  endif
+
+  # ONE LINE, DELIBERATELY. Inside a liquid tag every newline starts a NEW
+  # tag, so a condition wrapped across lines makes Liquid read `and` as a tag
+  # name and fail with "Unknown tag 'and'". Shopify's own compiler caught that
+  # on the first real theme push; nothing local could, because this repo has
+  # no Liquid parser. The same rule is why these are # line comments rather
+  # than a comment/endcomment block, which failed here for the same reason.
+  assign carat_ls_show_scarcity = false
+  if carat_ls_assigned and carat_ls_variant.inventory_management == 'shopify' and carat_ls_variant.inventory_policy != 'continue' and carat_ls_variant.inventory_quantity > 0
+    assign carat_ls_show_scarcity = true
+  endif
+-%}
+<div
+  id="Luxury-Steal-Gate-{{ section.id }}"
+  class="carat-luxury-gate"
+  data-carat-luxury-gate
+  data-section-id="{{ section.id }}"
+  data-product-form-id="{{ product_form_id }}"
+  {%- if carat_ls_assigned %}
+    data-carat-ls-assigned="true"
+    data-shopify-variant-id="{{ carat_ls_variant.id }}"
+    data-cart-token="{{ cart.token }}"
+    data-error-text="{{ 'luxury_steals.acknowledgment.error' | t | escape }}"
+    data-gate-hint="{{ 'luxury_steals.acknowledgment.gate_hint' | t | escape }}"
+  {%- endif %}
+>
+  {%- if carat_ls_assigned -%}
+    <div class="carat-luxury-gate__panel" role="region" aria-label="{{ 'luxury_steals.badge' | t | escape }}">
+      <span class="badge color-{{ settings.sale_badge_color_scheme }} carat-luxury-badge carat-luxury-badge--pdp">
+        {{- 'luxury_steals.badge' | t -}}
+      </span>
+
+      <div class="carat-luxury-gate__disclosure" id="Luxury-Steal-Disclosure-{{ section.id }}">
+        <h3 class="carat-luxury-gate__disclosure-heading">
+          {{- 'luxury_steals.disclosure.heading' | t -}}
+        </h3>
+        <p class="carat-luxury-gate__disclosure-body">
+          {{- 'luxury_steals.disclosure.body' | t -}}
+        </p>
+        <p class="carat-luxury-gate__disclosure-claims">
+          {{- 'luxury_steals.disclosure.claims' | t -}}
+        </p>
+      </div>
+
+      {%- if carat_ls_show_scarcity -%}
+        <p class="carat-luxury-gate__scarcity" role="status">
+          {{- 'luxury_steals.scarcity.only_x_left' | t: count: carat_ls_variant.inventory_quantity -}}
+        </p>
+      {%- endif -%}
+
+      <div class="carat-luxury-gate__acknowledgment" id="Luxury-Steal-Acknowledgment-{{ section.id }}">
+        <p class="carat-luxury-gate__acknowledgment-heading">
+          {{- 'luxury_steals.acknowledgment.heading' | t -}}
+        </p>
+        <p class="carat-luxury-gate__acknowledgment-body">
+          {{- 'luxury_steals.acknowledgment.body_html' | t -}}
+        </p>
+      </div>
+
+      <div class="carat-luxury-gate__control">
+        <input
+          type="checkbox"
+          id="Luxury-Steal-Checkbox-{{ section.id }}"
+          class="carat-luxury-gate__checkbox"
+          data-carat-ls-checkbox
+          aria-describedby="Luxury-Steal-Disclosure-{{ section.id }} Luxury-Steal-Acknowledgment-{{ section.id }}"
+          form="{{ product_form_id }}"
+          required
+        >
+        <label for="Luxury-Steal-Checkbox-{{ section.id }}" class="carat-luxury-gate__checkbox-label">
+          <span class="visually-hidden">{{ 'luxury_steals.acknowledgment.checkbox_label' | t }}: </span>
+          {{- 'luxury_steals.acknowledgment.affirm_label' | t -}}
+        </label>
+      </div>
+
+      <p
+        class="carat-luxury-gate__status"
+        id="Luxury-Steal-Status-{{ section.id }}"
+        role="status"
+        data-carat-ls-status
+        hidden
+      ></p>
+      <p class="carat-luxury-gate__error" role="alert" data-carat-ls-error hidden></p>
+
+      <input
+        type="hidden"
+        name="properties[_carat_ls_ack]"
+        value=""
+        form="{{ product_form_id }}"
+        data-carat-ls-ack-input
+      >
+    </div>
+  {%- endif -%}
+</div>
+<script src="{{ 'luxury-steal-gate.js' | asset_url }}" defer="defer"></script>

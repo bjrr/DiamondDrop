@@ -1,0 +1,159 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  InvalidRefundTransitionError,
+  RefundComputationError,
+  assertRefundTransition,
+  computeTierRefund,
+  isTerminal,
+  type RefundStatus,
+} from "./refunds";
+
+/**
+ * Tier-adjustment refunds (README §171, §173).
+ *
+ * "If a lower tier is ultimately reached, earlier participants receive the same
+ *  final eligible-variant price."
+ */
+
+describe("refund amount", () => {
+  it("refunds the difference, times the units", () => {
+    // Paid $400, campaign settled at $360, three units still qualifying.
+    const result = computeTierRefund({
+      paidPerUnitMinorUnits: 40_000n,
+      finalPerUnitMinorUnits: 36_000n,
+      qualifyingUnits: 3,
+    });
+
+    expect(result.refundPerUnitMinorUnits).toBe(4_000n);
+    expect(result.totalRefundMinorUnits).toBe(12_000n);
+    expect(result.owed).toBe(true);
+  });
+
+  it("owes nothing when the price did not move", () => {
+    const result = computeTierRefund({
+      paidPerUnitMinorUnits: 40_000n,
+      finalPerUnitMinorUnits: 40_000n,
+      qualifyingUnits: 2,
+    });
+
+    expect(result.totalRefundMinorUnits).toBe(0n);
+    expect(result.owed).toBe(false);
+    expect(result.finalPriceExceededPaid).toBe(false);
+  });
+
+  it("NEVER becomes a charge when the final price is higher — belt and braces", () => {
+    // Under the one-way tier rule (owner §24) the final tier can no longer
+    // land above a tier a customer paid at, so this input pair should not
+    // arise from normal campaign settlement any more. `computeTierRefund` is
+    // a pure function that cannot know that, though, so it still floors at
+    // zero rather than trust a caller never to hand it a stale or
+    // out-of-band pair. Charging a customer more after checkout, for any
+    // reason, is not something to infer from silence.
+    const result = computeTierRefund({
+      paidPerUnitMinorUnits: 36_000n,
+      finalPerUnitMinorUnits: 40_000n,
+      qualifyingUnits: 3,
+    });
+
+    expect(result.totalRefundMinorUnits).toBe(0n);
+    expect(result.refundPerUnitMinorUnits).toBe(0n);
+    expect(result.owed).toBe(false);
+    // Recorded rather than silently swallowed — a `true` here on a real
+    // campaign is now a signal worth investigating, not an expected outcome.
+    expect(result.finalPriceExceededPaid).toBe(true);
+  });
+
+  it("owes nothing on a line with no qualifying units left", () => {
+    // Fully cancelled: the tier adjustment is moot because the purchase is gone.
+    const result = computeTierRefund({
+      paidPerUnitMinorUnits: 40_000n,
+      finalPerUnitMinorUnits: 36_000n,
+      qualifyingUnits: 0,
+    });
+    expect(result.totalRefundMinorUnits).toBe(0n);
+    expect(result.owed).toBe(false);
+  });
+
+  it("is exact on large amounts, with no float in the path", () => {
+    // bigint throughout: a value beyond 2^53 still multiplies exactly.
+    const result = computeTierRefund({
+      paidPerUnitMinorUnits: 9_007_199_254_740_993n,
+      finalPerUnitMinorUnits: 1n,
+      qualifyingUnits: 3,
+    });
+    expect(result.totalRefundMinorUnits).toBe(27_021_597_764_222_976n);
+  });
+
+  it("rejects invalid inputs rather than coercing them", () => {
+    expect(() =>
+      computeTierRefund({ paidPerUnitMinorUnits: 1n, finalPerUnitMinorUnits: 0n, qualifyingUnits: 1.5 })
+    ).toThrow(RefundComputationError);
+    expect(() =>
+      computeTierRefund({ paidPerUnitMinorUnits: -1n, finalPerUnitMinorUnits: 0n, qualifyingUnits: 1 })
+    ).toThrow(/cannot be negative/);
+  });
+});
+
+describe("the refund lifecycle holds money through production", () => {
+  it("cannot go straight from pending to processing", () => {
+    // The owner's timing, encoded: settled at close, HELD through production
+    // and QC, released only at shipping. A direct pending -> processing path
+    // would pay before the item shipped.
+    expect(() => assertRefundTransition("pending", "processing")).toThrow(
+      InvalidRefundTransitionError
+    );
+  });
+
+  it("follows close -> shipped -> processed -> issued", () => {
+    expect(() => assertRefundTransition("pending", "releasable")).not.toThrow();
+    expect(() => assertRefundTransition("releasable", "processing")).not.toThrow();
+    expect(() => assertRefundTransition("processing", "issued")).not.toThrow();
+  });
+
+  it("lets a failed refund be retried through the SAME path", () => {
+    // Back to releasable, not straight to processing: a retry should not
+    // acquire a second, less-tested route to money.
+    expect(() => assertRefundTransition("processing", "failed")).not.toThrow();
+    expect(() => assertRefundTransition("failed", "releasable")).not.toThrow();
+    expect(() => assertRefundTransition("failed", "processing")).toThrow();
+  });
+});
+
+describe("issued is terminal — no duplicate customer value", () => {
+  it("has NO outgoing transitions at all", () => {
+    // README 371: "Duplicate/retried refund ... must not create duplicate
+    // customer value." A retry cannot find a path back into processing.
+    const everyStatus: RefundStatus[] = [
+      "pending",
+      "releasable",
+      "processing",
+      "issued",
+      "failed",
+      "not_owed",
+    ];
+
+    for (const to of everyStatus) {
+      expect(() => assertRefundTransition("issued", to)).toThrow(InvalidRefundTransitionError);
+    }
+    expect(isTerminal("issued")).toBe(true);
+  });
+
+  it("not_owed is terminal for every path except the one named reopening edge", () => {
+    // Architect decision (Group Buy settlement override follow-up,
+    // 2026-09-28): corrected facts can reveal a `not_owed` line is actually
+    // owed after all. `not_owed -> pending` is the ONLY escape — reachable
+    // only via `recordGroupBuyRefundOverride`, never a general reopening.
+    expect(isTerminal("not_owed")).toBe(false);
+    expect(() => assertRefundTransition("not_owed", "pending")).not.toThrow();
+    expect(() => assertRefundTransition("not_owed", "releasable")).toThrow(InvalidRefundTransitionError);
+    expect(() => assertRefundTransition("not_owed", "processing")).toThrow(InvalidRefundTransitionError);
+    expect(() => assertRefundTransition("not_owed", "issued")).toThrow(InvalidRefundTransitionError);
+    expect(() => assertRefundTransition("not_owed", "failed")).toThrow(InvalidRefundTransitionError);
+  });
+
+  it("names what WAS allowed when it refuses", () => {
+    // A refusal that does not say what is permitted just moves the guesswork.
+    expect(() => assertRefundTransition("pending", "issued")).toThrow(/Allowed: releasable, not_owed/);
+  });
+});

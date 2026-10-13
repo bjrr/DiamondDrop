@@ -1,0 +1,32 @@
+-- Slice 2C-b (docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md §13/§14,
+-- criterion 102). Adds the third `admin_alert_notification.source_kind`
+-- member so the guarantee sweep's "flag" outcome can be routed through the
+-- existing `dispatchAdminAlert` / `AdminAlertNotification` dedup path
+-- instead of an ungoverned direct send.
+--
+-- `source_id` for this kind is the FAILURE EPISODE's own id
+-- (`price_calculation_failure.id` / `price_sync_failure.id`) that made a
+-- variant unresolvable -- the SAME semantics `calculation_failure` and
+-- `sync_failure` already use, and deliberately NOT `bank_payment_order.id`.
+-- A bank order is disposable (open, then cancelled or completed) while an
+-- episode is the thing with real opened/resolved history; keying on the
+-- order would let a `resolved` row from one flagged episode permanently
+-- block a LATER, different episode from ever alerting again for the same
+-- order (the unique index below allows only one `opened` and one `resolved`
+-- per id, for ever). One order can appear in several episodes' alerts
+-- (`master_variant_id` plus the caller-supplied list of affected orders),
+-- and one episode can block several orders -- see the enum's own doc
+-- comment in schema.prisma.
+--
+-- NO FOLLOW-UP MIGRATION IS NEEDED. `ALTER TYPE ... ADD VALUE` cannot be
+-- used in the same transaction as a comparison against the new value
+-- (Postgres restriction; Prisma wraps each migration in one transaction) --
+-- this repository has hit that before (migrations 20260917070507 and
+-- 20260919084408) and split those additions from the DDL that used the new
+-- value. This migration adds nothing else: no new column, CHECK constraint
+-- or default anywhere references `bank_payment_guarantee` at the SQL level.
+-- The value is written only by application-level `INSERT`s, in a later,
+-- separate transaction, so there is nothing to split it from here.
+
+-- AlterEnum
+ALTER TYPE "admin_alert_source_kind" ADD VALUE 'bank_payment_guarantee';

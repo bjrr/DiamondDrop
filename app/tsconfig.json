@@ -1,4 +1,21 @@
 {
+  // FINDING F-24 (docs/specs/SLICE-0-FINDINGS.md, docs/ARCHITECTURE-MVP1.md
+  // §2.1 "Configuration gaps to close in slice 2") — DELIBERATELY REJECTED in
+  // slice 2, not left unaddressed.
+  //
+  // Shopify's React Router template imports generated `+types/*` route
+  // modules, which need `"rootDirs": [".", "./.react-router/types"]` here and
+  // a `react-router typegen` step ahead of `tsc --noEmit`. Every route module
+  // in this app instead types its loader/action with `LoaderFunctionArgs` /
+  // `ActionFunctionArgs` from "react-router" directly (see any file under
+  // app/routes/) and typechecks cleanly with neither `rootDirs` nor a typegen
+  // step. Adding one without the other is the failure mode the finding warns
+  // about: a half-adopted template whose type errors look like a broken
+  // install to the next person who touches a route file.
+  //
+  // `.react-router` stays excluded and no typegen script exists — do not add
+  // either in isolation. Revisit only if a future slice deliberately migrates
+  // every route module to the generated `+types/*` style in one pass.
   "include": ["**/*.ts", "**/*.tsx", "prisma/seed.ts", "scripts/**/*.mjs"],
   "exclude": ["node_modules", "build", ".cache", ".react-router"],
   "compilerOptions": {

@@ -1,0 +1,13 @@
+{
+  "group_buy": {
+    "units_sold": "pieces claimed so far",
+    "current_price": "Group price",
+    "buy_now_price": "Buy it now",
+    "you_save": "You save",
+    "next_tier": "At {{ units }} more, the price drops to {{ price }}",
+    "best_price": "Best Price Unlocked",
+    "closes_in": "Closes in",
+    "loading": "Loading group price…",
+    "unavailable": "Group pricing is not available for this item right now."
+  }
+}

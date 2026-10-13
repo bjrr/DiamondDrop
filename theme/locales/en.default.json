@@ -1,0 +1,742 @@
+{
+  "general": {
+    "password_page": {
+      "login_form_heading": "Enter store using password:",
+      "login_password_button": "Enter using password",
+      "login_form_password_label": "Password",
+      "login_form_password_placeholder": "Your password",
+      "login_form_error": "Wrong password!",
+      "login_form_submit": "Enter",
+      "admin_link_html": "Are you the store owner? <a href=\"/admin\" class=\"link underlined-link\">Log in here</a>",
+      "powered_by_shopify_html": "This shop will be powered by {{ shopify }}"
+    },
+    "social": {
+      "alt_text": {
+        "share_on_facebook": "Share on Facebook",
+        "share_on_twitter": "Share on X",
+        "share_on_pinterest": "Pin on Pinterest"
+      },
+      "links": {
+        "twitter": "X (Twitter)",
+        "facebook": "Facebook",
+        "pinterest": "Pinterest",
+        "instagram": "Instagram",
+        "tumblr": "Tumblr",
+        "snapchat": "Snapchat",
+        "youtube": "YouTube",
+        "vimeo": "Vimeo",
+        "tiktok": "TikTok"
+      }
+    },
+    "continue_shopping": "Continue shopping",
+    "pagination": {
+      "label": "Pagination",
+      "page": "Page {{ number }}",
+      "next": "Next page",
+      "previous": "Previous page"
+    },
+    "search": {
+      "search": "Search",
+      "reset": "Clear search term"
+    },
+    "cart": {
+      "view": "View cart ({{ count }})",
+      "view_empty_cart": "View cart",
+      "item_added": "Item added to your cart"
+    },
+    "share": {
+      "close": "Close share",
+      "copy_to_clipboard": "Copy link",
+      "share_url": "Link",
+      "success_message": "Link copied to clipboard"
+    },
+    "slider": {
+      "of": "of",
+      "next_slide": "Slide right",
+      "previous_slide": "Slide left",
+      "name": "Slider"
+    }
+  },
+  "newsletter": {
+    "label": "Email",
+    "success": "Thanks for subscribing",
+    "button_label": "Subscribe"
+  },
+  "accessibility": {
+    "skip_to_text": "Skip to content",
+    "skip_to_product_info": "Skip to product information",
+    "close": "Close",
+    "unit_price_separator": "per",
+    "vendor": "Vendor:",
+    "error": "Error",
+    "refresh_page": "Choosing a selection results in a full page refresh.",
+    "link_messages": {
+      "new_window": "Opens in a new window.",
+      "external": "Opens external website."
+    },
+    "loading": "Loading...",
+    "total_reviews": "total reviews",
+    "star_reviews_info": "{{ rating_value }} out of {{ rating_max }} stars",
+    "collapsible_content_title": "Collapsible content",
+    "complementary_products": "Complementary products"
+  },
+  "blogs": {
+    "article": {
+      "blog": "Blog",
+      "read_more_title": "Read more: {{ title }}",
+      "comments": {
+        "one": "{{ count }} comment",
+        "other": "{{ count }} comments"
+      },
+      "moderated": "Please note, comments need to be approved before they are published.",
+      "comment_form_title": "Leave a comment",
+      "name": "Name",
+      "email": "Email",
+      "message": "Comment",
+      "post": "Post comment",
+      "back_to_blog": "Back to blog",
+      "share": "Share this article",
+      "success": "Your comment was posted successfully! Thank you!",
+      "success_moderated": "Your comment was posted successfully. We will publish it in a little while, as our blog is moderated."
+    }
+  },
+  "onboarding": {
+    "product_title": "Example product title",
+    "collection_title": "Your collection's name"
+  },
+  "products": {
+    "product": {
+      "add_to_cart": "Add to cart",
+      "add_to_cart_bank_payment": "Add to Cart with Bank Payment Discount",
+      "add_to_cart_bank_payment_note": "Switches your whole cart to Bank Payment pricing",
+      "choose_options": "Choose options",
+      "choose_product_options": "Choose options for {{ product_name }}",
+      "description": "Description",
+      "inventory_in_stock": "In stock",
+      "inventory_in_stock_show_count": "{{ quantity }} in stock",
+      "inventory_low_stock": "Low stock",
+      "inventory_low_stock_show_count": "Low stock: {{ quantity }} left",
+      "inventory_out_of_stock": "Out of stock",
+      "inventory_out_of_stock_continue_selling": "In stock",
+      "sku": "SKU",
+      "on_sale": "Sale",
+      "product_variants": "Product variants",
+      "media": {
+        "gallery_viewer": "Gallery Viewer",
+        "load_image": "Load image {{ index }} in gallery view",
+        "load_model": "Load 3D Model {{ index }} in gallery view",
+        "load_video": "Play video {{ index }} in gallery view",
+        "image_available": "Image {{ index }} is now available in gallery view",
+        "open_media": "Open media {{ index }} in modal",
+        "play_model": "Play 3D Viewer",
+        "play_video": "Play video"
+      },
+      "nested_label": "{{ title }} for {{ parent_title }}",
+      "quantity": {
+        "label": "Quantity",
+        "input_label": "Quantity for {{ product }}",
+        "increase": "Increase quantity for {{ product }}",
+        "decrease": "Decrease quantity for {{ product }}",
+        "minimum_of": "Minimum of {{ quantity }}",
+        "maximum_of": "Maximum of {{ quantity }}",
+        "multiples_of": "Increments of {{ quantity }}",
+        "min_of": "Min {{ quantity }}",
+        "max_of": "Max {{ quantity }}",
+        "in_cart_html": "<span class=\"quantity-cart\">{{ quantity }}</span> in cart",
+        "in_cart_aria_label": "Quantity ({{ quantity }} in cart)",
+        "note": "View quantity rules"
+      },
+      "volume_pricing": {
+        "title": "Volume Pricing",
+        "note": "Volume pricing available",
+        "minimum": "{{ quantity }}+",
+        "price_at_each_html": "at {{ price }}/ea",
+        "price_range": "{{ minimum }} - {{ maximum }}"
+      },
+      "pickup_availability": {
+        "view_store_info": "View store information",
+        "check_other_stores": "Check availability at other stores",
+        "pick_up_available": "Pickup available",
+        "pick_up_available_at_html": "Pickup available at <span class=\"color-foreground\">{{ location_name }}</span>",
+        "pick_up_unavailable_at_html": "Pickup currently unavailable at <span class=\"color-foreground\">{{ location_name }}</span>",
+        "unavailable": "Couldn't load pickup availability",
+        "refresh": "Refresh"
+      },
+      "price": {
+        "from_price_html": "From {{ price }}",
+        "regular_price": "Regular price",
+        "sale_price": "Sale price",
+        "unit_price": "Unit price",
+        "as_low_as_html": "As low as {{ price }}",
+        "as_low_as_unavailable": "Price unavailable",
+        "bank_payment_price": "Bank Payment Price",
+        "bank_payment_saving_html": "Save {{ amount }} with Bank Payment"
+      },
+      "share": "Share this product",
+      "sold_out": "Sold out",
+      "unavailable": "Unavailable",
+      "vendor": "Vendor",
+      "value_unavailable": "{{ option_value }} - Unavailable",
+      "variant_sold_out_or_unavailable": "Variant sold out or unavailable",
+      "video_exit_message": "{{ title }} opens full screen video in same window.",
+      "view_full_details": "View full details",
+      "xr_button": "View in your space",
+      "xr_button_label": "View in your space, loads item in augmented reality window",
+      "taxes_included": "Taxes included.",
+      "duties_included": "Duties included.",
+      "duties_and_taxes_included": "Duties and taxes included.",
+      "shipping_policy_html": "<a href=\"{{ link }}\">Shipping</a> calculated at checkout."
+    },
+    "modal": {
+      "label": "Media gallery"
+    },
+    "facets": {
+      "filter_and_operator_subtitle": "Match all",
+      "apply": "Apply",
+      "clear": "Clear",
+      "clear_all": "Remove all",
+      "from": "From",
+      "filter_and_sort": "Filter and sort",
+      "filter_by_label": "Filter:",
+      "filter_button": "Filter",
+      "filters_selected": {
+        "one": "{{ count }} selected",
+        "other": "{{ count }} selected"
+      },
+      "filter_selected_accessibility": "{{ type }} ({{ count }} filters selected)",
+      "show_more": "Show more",
+      "show_less": "Show less",
+      "max_price": "The highest price is {{ price }}",
+      "product_count": {
+        "one": "{{ product_count }} of {{ count }} product",
+        "other": "{{ product_count }} of {{ count }} products"
+      },
+      "product_count_simple": {
+        "one": "{{ count }} product",
+        "other": "{{ count }} products"
+      },
+      "reset": "Reset",
+      "sort_button": "Sort",
+      "sort_by_label": "Sort by:",
+      "to": "To",
+      "clear_filter": "Remove filter"
+    }
+  },
+  "templates": {
+    "404": {
+      "title": "Page not found",
+      "subtext": "404"
+    },
+    "search": {
+      "no_results": "No results found for “{{ terms }}”. Check the spelling or use a different word or phrase.",
+      "page": "Page",
+      "products": "Products",
+      "results_pages_with_count": {
+        "one": "{{ count }} page",
+        "other": "{{ count }} pages"
+      },
+      "results_suggestions_with_count": {
+        "one": "{{ count }} suggestion",
+        "other": "{{ count }} suggestions"
+      },
+      "results_products_with_count": {
+        "one": "{{ count }} product",
+        "other": "{{ count }} products"
+      },
+      "results_with_count": {
+        "one": "{{ count }} result",
+        "other": "{{ count }} results"
+      },
+      "results_with_count_and_term": {
+        "one": "{{ count }} result found for “{{ terms }}”",
+        "other": "{{ count }} results found for “{{ terms }}”"
+      },
+      "title": "Search results",
+      "search_for": "Search for “{{ terms }}”",
+      "suggestions": "Suggestions",
+      "pages": "Pages"
+    },
+    "cart": {
+      "cart": "Cart"
+    },
+    "contact": {
+      "form": {
+        "title": "Contact form",
+        "name": "Name",
+        "email": "Email",
+        "phone": "Phone number",
+        "comment": "Comment",
+        "send": "Send",
+        "post_success": "Thanks for contacting us. We'll get back to you as soon as possible.",
+        "error_heading": "Please adjust the following:"
+      }
+    },
+    "warranty_claim": {
+      "form": {
+        "heading": "Warranty Claim",
+        "intro": "Use this form to report a suspected manufacturing defect covered by CaratForUs's 1-year limited manufacturing warranty. The warranty covers defects in materials, construction, setting, or assembly under normal use. Examples may include defective solder joints, structural workmanship failures, setting defects, and defective clasps or mechanisms under normal use. It does not cover normal wear, scratches, dents, impact damage, worn or bent prongs, stone loss caused by damage or wear, misuse, improper care, sizing changes, or unauthorized repairs, alterations, or modifications.",
+        "notice_heading": "Please don't send your item yet",
+        "notice_body": "Do not send your jewelry until CaratForUs authorizes an inspection and provides shipping instructions.",
+        "sign_in_required_heading": "Sign in required",
+        "sign_in_required_message": "Please sign in or create a CaratForUs account to continue.",
+        "order_lookup_legend": "Find your order",
+        "order_number_label": "Order number",
+        "order_number_placeholder": "e.g. 1001",
+        "order_number_help": "Enter the number for the order that includes the item this claim is about.",
+        "find_order_button": "Find order",
+        "searching_order": "Searching…",
+        "order_lookup_not_found": "We couldn't find that order on your account. Please check the order number and try again, or contact us for help.",
+        "order_result_found": "Order {{ order }}",
+        "select_item_legend": "Which item is this claim about?",
+        "line_item_option_label": "{{ title }} (Qty: {{ quantity }})",
+        "search_different_order": "Search a different order",
+        "cant_find_order_help": "Can't find your order? Contact us and we'll help you complete this form.",
+        "purchaser_name_label": "Your name",
+        "purchaser_email_label": "Email",
+        "item_configuration_label": "Item and configuration",
+        "item_configuration_placeholder": "Describe the exact item and configuration, e.g. ring style, metal, size",
+        "purchase_date_label": "Purchase date (optional)",
+        "delivery_date_label": "Delivery date (optional)",
+        "issue_first_noticed_date_label": "Date you first noticed the issue (optional)",
+        "problem_description_label": "Describe the problem",
+        "impact_question_label": "Has this item experienced an impact, accident, unusual force, or other damage event?",
+        "impact_yes": "Yes",
+        "impact_no": "No",
+        "impact_details_label": "Please describe what happened",
+        "altered_question_label": "Has this item been resized, repaired, altered, serviced, or modified by anyone since delivery?",
+        "altered_yes": "Yes",
+        "altered_no": "No",
+        "altered_details_label": "Please provide details",
+        "certificate_label": "Certificate or serial number (optional)",
+        "uploads_note": "Photo uploads aren’t available right now. Please describe the issue below, and mention that you have photos — we’ll ask for them if an inspection is authorized.",
+        "acknowledgment_text": "I certify that the information and files I submitted are accurate to the best of my knowledge. I understand that submitting this claim does not establish warranty coverage. I will not send my jewelry until CaratForUs authorizes an inspection and provides shipping instructions. If inspection is authorized, I am responsible for tracked and appropriately insured shipping to CaratForUs. Coverage and any remedy will be determined after CaratForUs reviews the claim and, when applicable, inspects the item.",
+        "acknowledgment_affirm_label": "I Certify & Agree",
+        "submit": "Submit warranty claim",
+        "submitting": "Submitting…",
+        "error_summary_heading": "We couldn't submit your claim",
+        "error_order_number_required": "Enter your order number.",
+        "error_order_id_required": "Find and select your order above.",
+        "error_line_item_id_required": "Select which item this claim is about.",
+        "error_purchaser_name_required": "Enter your name.",
+        "error_purchaser_email_required": "Enter a valid email address.",
+        "error_item_configuration_required": "Describe the item and configuration.",
+        "error_problem_description_required": "Describe the problem.",
+        "error_impact_details_required": "Describe what happened.",
+        "error_alteration_details_required": "Provide details.",
+        "error_acknowledgment_required": "You must certify and agree before submitting.",
+        "error_order_not_found": "We couldn't verify that order and item. Please search for your order again, or contact us for help.",
+        "error_service_unavailable": "We couldn't submit your claim right now. Please try again shortly.",
+        "error_network": "We couldn't reach the server. Please check your connection and try again.",
+        "success_heading": "We've received your warranty claim",
+        "success_body_html": "Thank you. Your warranty claim reference is <strong>{{ reference }}</strong>. Submitting this claim does not mean your item is covered under the warranty. Please don't send your item to us — we will contact you if we need more information, and before authorizing your item for inspection.",
+        "uploads_legend": "Photos of the issue (optional)",
+        "uploads_help": "Add up to 5 photos, 20 MB each. JPEG, PNG, WebP or HEIC. Clear, well-lit close-ups of the problem area help most.",
+        "uploads_choose_button": "Choose photos",
+        "uploads_pending": "Uploading…",
+        "uploads_done": "Uploaded",
+        "uploads_remove": "Remove",
+        "error_upload_too_many": "You can add up to 5 photos.",
+        "error_upload_too_large": "That file is larger than 20 MB. Please choose a smaller photo.",
+        "error_upload_type": "That file type isn’t supported. Please choose a JPEG, PNG, WebP or HEIC photo.",
+        "error_upload_failed": "That photo could not be uploaded. You can try again, or submit your claim without it and mention the issue in your description."
+      }
+    },
+    "group_buy_campaign": {
+      "onboarding_missing_settings": "Add a campaign product and campaign code in the theme editor to show this Group Buy.",
+      "share_label": "Share this Group Buy",
+      "loading": "Loading Group Buy pricing…",
+      "noscript": "Group Buy pricing requires JavaScript to be enabled.",
+      "table_heading": "Available configurations",
+      "bank_note": "Lower pricing is available with Bank Payment.",
+      "configure_heading": "Choose your configuration",
+      "payment_type_legend": "Payment Type",
+      "payment_type_card": "Credit / Debit Card",
+      "payment_type_bank": "Bank Payment",
+      "order_heading": "Order this configuration",
+      "order_hint": "Choose your configuration and Payment Type above, then order below.",
+      "add_to_cart": "Add to Cart",
+      "bank_contact_cta": "Contact us about Bank Payment",
+      "sign_in_required_heading": "Sign in required",
+      "sign_in_required_message": "Please sign in or create a CaratForUs account to continue.",
+      "cancellation_disclosure": "Before the campaign closes, you may request a cancellation, but cancellation is not automatic and requires CaratForUs approval. Once the campaign closes, your Group Buy order is committed and cannot be canceled or returned because you change your mind. This does not affect claims for defects, incorrect items or specifications, shipping damage, warranty issues, fulfillment problems, or other rights required by law.",
+      "cancellation_checkbox_label": "I understand that cancellation requests before the campaign closes require CaratForUs approval, and that once the campaign closes my Group Buy order is committed and is not eligible for discretionary cancellation or return.",
+      "cancellation_affirm_label": "I Understand & Agree",
+      "cancellation_ack_error": "We couldn't record your acknowledgment. Please try again."
+    },
+    "custom_jewelry": {
+      "form": {
+        "heading": "Custom jewelry request",
+        "intro": "Tell us what you have in mind and we'll design it with you.",
+        "deposit_disclosure": "This enquiry is free. If we move forward with design/CAD work, there is a $49 Design Deposit. The deposit is charged when design/CAD work begins and is credited toward your final price. If CaratForUs completes the agreed design stage and you decide not to proceed, the $49 deposit is refunded.",
+        "confirmation_template": "Thanks — we’ve received your custom jewelry request and recorded it under {projectReference}. There’s no charge for this enquiry. We’ll be in touch by email.",
+        "first_name_label": "First name",
+        "last_name_label": "Last name",
+        "email_label": "Email",
+        "phone_label": "Phone",
+        "starting_point_legend": "Where would you like to start?",
+        "starting_point_from_scratch": "Start from scratch",
+        "starting_point_existing_design": "Work from an existing design",
+        "prompt_label": "What would you like us to make?",
+        "prompt_placeholder": "Describe the piece — the style, the metal, the stones, who it's for, anything that matters to you.",
+        "jewelry_type_label": "Type of piece (optional)",
+        "jewelry_type_placeholder": "Ring, pendant, earrings…",
+        "budget_label": "Approximate budget (optional)",
+        "budget_placeholder": "3500",
+        "budget_help": "In US dollars. An approximate figure is fine.",
+        "timing_legend": "Timing",
+        "desired_date_label": "Desired completion date (optional)",
+        "no_deadline_label": "I don't have a deadline",
+        "inspiration_legend": "Inspiration (optional)",
+        "inspiration_help": "Reference images help a lot. Paste links, or attach photos if you're signed in.",
+        "inspiration_links_label": "Inspiration link(s)",
+        "inspiration_links_placeholder": "Paste one link per line.",
+        "uploads_help": "Attach up to 10 photos, 20 MB each. JPEG, PNG, WebP or HEIC.",
+        "uploads_note": "Photo attachments aren't available right now. You can still paste inspiration links above and send your request.",
+        "uploads_sign_in_message": "To attach photos, please sign in or create a CaratForUs account to continue. You can also paste links above and submit without signing in.",
+        "uploads_sign_in_link": "Sign in",
+        "follow_up_legend": "How would you like us to follow up?",
+        "follow_up_schedule_consultation": "Schedule a consultation",
+        "follow_up_contact_me": "Please contact me",
+        "submit": "Send request"
+      }
+    }
+  },
+  "sections": {
+    "announcements": {
+      "previous_announcement": "Previous announcement",
+      "next_announcement": "Next announcement",
+      "carousel": "Carousel",
+      "announcement": "Announcement",
+      "announcement_bar": "Announcement bar"
+    },
+    "header": {
+      "announcement": "Announcement",
+      "menu": "Menu",
+      "cart_count": {
+        "one": "{{ count }} item",
+        "other": "{{ count }} items"
+      }
+    },
+    "cart": {
+      "title": "Your cart",
+      "caption": "Cart items",
+      "remove_title": "Remove {{ title }}",
+      "estimated_total": "Estimated total",
+      "new_estimated_total": "New estimated total",
+      "note": "Order special instructions",
+      "checkout": "Check out",
+      "card_checkout": "Card Checkout",
+      "card_checkout_confirm": "Continue to Card Checkout",
+      "bank_payment_checkout": "Bank Payment Checkout",
+      "bank_payment_checkout_note": "Choosing Bank Payment switches your entire cart to Bank Payment pricing. Eligible items will use their Bank Payment Price.",
+      "bank_payment_checkout_form": {
+        "heading": "Bank Payment Checkout",
+        "sign_in_required_heading": "Sign in required",
+        "sign_in_required_message": "Please sign in or create a CaratForUs account to continue.",
+        "not_committed_disclosure": "Your Bank Payment Price is guaranteed for 24 hours. Submitting this form does not complete your order or reserve your items. Your order is not committed and availability is not guaranteed until your Bank Payment is received and verified. We’ll email you an invoice with payment instructions, and nothing is charged when you submit this form.",
+        "email_label": "Email",
+        "first_name_label": "First name",
+        "last_name_label": "Last name",
+        "address1_label": "Address",
+        "address2_label": "Apartment, suite, etc. (optional)",
+        "city_label": "City",
+        "province_label": "State / Province",
+        "zip_label": "ZIP / Postal code",
+        "country_label": "Country",
+        "phone_label": "Phone (optional)",
+        "submit": "Continue to Bank Payment Invoice",
+        "submitting": "Submitting…",
+        "cancel": "Cancel",
+        "error_summary_heading": "We couldn't submit your order",
+        "error_email_required": "Enter a valid email address.",
+        "error_address1_required": "Enter your street address.",
+        "error_city_required": "Enter your city.",
+        "error_zip_required": "Enter your ZIP or postal code.",
+        "error_country_required": "Select your country.",
+        "error_unpurchasable_lines": "One or more items in your cart are no longer available for Bank Payment Checkout. Please refresh your cart to see the latest availability and pricing before continuing.",
+        "error_group_buy_variant_present": "Your cart includes a Group Buy item. Group Buy purchases are placed separately and can’t be combined with Buy Now Bank Payment Checkout. Please remove the Group Buy item from this cart to continue.",
+        "error_checkout_unresolved": "We're still finishing a previous submission for this order. Please wait a moment and try again.",
+        "error_checkout_failed_previously": "A previous attempt to submit this order did not go through. Please contact us so we can help, or try again after changing your cart.",
+        "error_checkout_upstream_failed": "We couldn't create your order just now. Please try again in a few minutes.",
+        "error_checkout_unavailable": "Bank Payment Checkout is temporarily unavailable. Please try again shortly, or use Card Checkout instead.",
+        "error_invalid_request": "We couldn't submit that information. Please check the form and try again.",
+        "error_authentication_required": "Please sign in or create a CaratForUs account to continue.",
+        "error_generic": "Something went wrong and we couldn't submit your order. Please try again.",
+        "error_network": "We couldn't reach the server. Please check your connection and try again.",
+        "success_check_email": "Your Bank Payment request was submitted. We’ve emailed you an invoice with payment instructions. Your order is not committed and your items are not reserved until your Bank Payment is received and verified.",
+        "redirecting": "Taking you to your invoice…"
+      },
+      "pricing": {
+        "calculating": "Calculating your price…",
+        "regular_card_price": "Regular/Card Price",
+        "bank_payment_price": "Bank Payment Price",
+        "bank_payment_saving": "Bank Payment Savings",
+        "card_total": "Card Total",
+        "bank_payment_total": "Bank Payment Total",
+        "card_checkout_reprice_notice": "Your cart is now set to Card pricing. The Card Total above is the amount you'll pay if you continue to Card Checkout. To use Bank Payment pricing, switch back to Bank Payment.",
+        "switch_to_bank_payment": "Switch to Bank Payment Pricing",
+        "switch_to_bank_payment_note": "Eligible items will update to their Bank Payment Price.",
+        "price_unavailable": "Price unavailable. Please refresh.",
+        "item_unavailable_heading": "Price unavailable",
+        "item_unavailable_supporting_text": "This item is not currently available for purchase. Please check back later or contact us for assistance.",
+        "checkout_reprice_failed": "We could not switch your cart to Card pricing. Please try again.",
+        "switch_to_bank_failed": "We could not switch your cart to Bank Payment pricing. Please try again."
+      },
+      "empty": "Your cart is empty",
+      "product_disclosure": "Product disclosure",
+      "product_disclosures": "Product disclosures",
+      "cart_error": "There was an error while updating your cart. Please try again.",
+      "cart_quantity_error_html": "You can only add {{ quantity }} of this item to your cart.",
+      "duties_and_taxes_included_shipping_at_checkout_with_policy_html": "Duties and taxes included. Discounts and <a href=\"{{ link }}\">shipping</a> calculated at checkout.",
+      "duties_and_taxes_included_shipping_at_checkout_without_policy": "Duties and taxes included. Discounts and shipping calculated at checkout.",
+      "taxes_included_shipping_at_checkout_with_policy_html": "Taxes included. Discounts and <a href=\"{{ link }}\">shipping</a> calculated at checkout.",
+      "taxes_included_shipping_at_checkout_without_policy": "Taxes included. Discounts and shipping calculated at checkout.",
+      "duties_included_taxes_at_checkout_shipping_at_checkout_with_policy_html": "Duties included. Taxes, discounts and <a href=\"{{ link }}\">shipping</a> calculated at checkout.",
+      "duties_included_taxes_at_checkout_shipping_at_checkout_without_policy": "Duties included. Taxes, discounts and shipping calculated at checkout.",
+      "taxes_at_checkout_shipping_at_checkout_with_policy_html": "Taxes, discounts and <a href=\"{{ link }}\">shipping</a> calculated at checkout.",
+      "taxes_at_checkout_shipping_at_checkout_without_policy": "Taxes, discounts and shipping calculated at checkout.",
+      "headings": {
+        "product": "Product",
+        "price": "Price",
+        "total": "Total",
+        "quantity": "Quantity",
+        "image": "Product image"
+      },
+      "update": "Update",
+      "login": {
+        "title": "Have an account?",
+        "paragraph_html": "<a href=\"{{ link }}\" class=\"link underlined-link\">Log in</a> to check out faster."
+      }
+    },
+    "footer": {
+      "payment": "Payment methods"
+    },
+    "featured_blog": {
+      "view_all": "View all",
+      "onboarding_title": "Blog post",
+      "onboarding_content": "Give your customers a summary of your blog post"
+    },
+    "featured_collection": {
+      "view_all": "View all",
+      "view_all_label": "View all products in the {{ collection_name }} collection"
+    },
+    "collection_list": {
+      "view_all": "View all"
+    },
+    "collection_template": {
+      "empty": "No products found",
+      "title": "Collection",
+      "use_fewer_filters_html": "Use fewer filters or <a class=\"{{ class }}\" href=\"{{ link }}\">remove all</a>"
+    },
+    "video": {
+      "load_video": "Load video: {{ description }}"
+    },
+    "slideshow": {
+      "load_slide": "Load slide",
+      "previous_slideshow": "Previous slide",
+      "next_slideshow": "Next slide",
+      "pause_slideshow": "Pause slideshow",
+      "play_slideshow": "Play slideshow",
+      "carousel": "Carousel",
+      "slide": "Slide"
+    },
+    "page": {
+      "title": "Page title"
+    },
+    "quick_order_list": {
+      "product_total": "Product subtotal",
+      "view_cart": "View cart",
+      "each": "{{ money }}/ea",
+      "product": "Product",
+      "variant": "Variant",
+      "variant_total": "Variant total",
+      "items_added": {
+        "one": "{{ quantity }} item added",
+        "other": "{{ quantity }} items added"
+      },
+      "items_removed": {
+        "one": "{{ quantity }} item removed",
+        "other": "{{ quantity }} items removed"
+      },
+      "product_variants": "Product variants",
+      "total_items": "Total items",
+      "remove_all_single_item_confirmation": "Remove 1 item from your cart?",
+      "remove_all_items_confirmation": "Remove all {{ quantity }} items from your cart?",
+      "remove_all": "Remove all",
+      "cancel": "Cancel",
+      "min_error": "This item has a minimum of {{ min }}",
+      "max_error": "This item has a maximum of {{ max }}",
+      "step_error": "You can only add this item in increments of {{ step }}"
+    }
+  },
+  "localization": {
+    "country_label": "Country/region",
+    "language_label": "Language",
+    "update_language": "Update language",
+    "update_country": "Update country/region",
+    "search": "Search",
+    "popular_countries_regions": "Popular countries/regions",
+    "country_results_count": "{{ count }} countries/regions found"
+  },
+  "customer": {
+    "account": {
+      "title": "Account",
+      "details": "Account details",
+      "view_addresses": "View addresses",
+      "return": "Return to Account details"
+    },
+    "activate_account": {
+      "title": "Activate account",
+      "subtext": "Create your password to activate your account.",
+      "password": "Password",
+      "password_confirm": "Confirm password",
+      "submit": "Activate account",
+      "cancel": "Decline invitation"
+    },
+    "addresses": {
+      "title": "Addresses",
+      "default": "Default",
+      "add_new": "Add a new address",
+      "edit_address": "Edit address",
+      "first_name": "First name",
+      "last_name": "Last name",
+      "company": "Company",
+      "address1": "Address 1",
+      "address2": "Address 2",
+      "city": "City",
+      "country": "Country/region",
+      "province": "Province",
+      "zip": "Postal/ZIP code",
+      "phone": "Phone",
+      "set_default": "Set as default address",
+      "add": "Add address",
+      "update": "Update address",
+      "cancel": "Cancel",
+      "edit": "Edit",
+      "delete": "Delete",
+      "delete_confirm": "Are you sure you wish to delete this address?"
+    },
+    "log_in": "Log in",
+    "log_out": "Log out",
+    "login_page": {
+      "cancel": "Cancel",
+      "create_account": "Create account",
+      "email": "Email",
+      "forgot_password": "Forgot your password?",
+      "guest_continue": "Continue",
+      "guest_title": "Continue as a guest",
+      "password": "Password",
+      "title": "Login",
+      "sign_in": "Sign in",
+      "submit": "Submit",
+      "alternate_provider_separator": "or"
+    },
+    "order": {
+      "title": "Order {{ name }}",
+      "date_html": "Placed on {{ date }}",
+      "cancelled_html": "Order Cancelled on {{ date }}",
+      "cancelled_reason": "Reason: {{ reason }}",
+      "billing_address": "Billing Address",
+      "payment_status": "Payment Status",
+      "shipping_address": "Shipping Address",
+      "fulfillment_status": "Fulfillment Status",
+      "discount": "Discount",
+      "shipping": "Shipping",
+      "tax": "Tax",
+      "product": "Product",
+      "sku": "SKU",
+      "price": "Price",
+      "quantity": "Quantity",
+      "total": "Total",
+      "total_refunded": "Refunded",
+      "fulfilled_at_html": "Fulfilled {{ date }}",
+      "track_shipment": "Track shipment",
+      "tracking_url": "Tracking link",
+      "tracking_company": "Carrier",
+      "tracking_number": "Tracking number",
+      "subtotal": "Subtotal",
+      "total_duties": "Duties"
+    },
+    "orders": {
+      "title": "Order history",
+      "order_number": "Order",
+      "order_number_link": "Order number {{ number }}",
+      "date": "Date",
+      "payment_status": "Payment status",
+      "fulfillment_status": "Fulfillment status",
+      "total": "Total",
+      "none": "You haven't placed any orders yet."
+    },
+    "recover_password": {
+      "title": "Reset your password",
+      "subtext": "We will send you an email to reset your password",
+      "success": "We've sent you an email with a link to update your password."
+    },
+    "register": {
+      "title": "Create account",
+      "first_name": "First name",
+      "last_name": "Last name",
+      "email": "Email",
+      "password": "Password",
+      "submit": "Create"
+    },
+    "reset_password": {
+      "title": "Reset account password",
+      "subtext": "Enter a new password",
+      "password": "Password",
+      "password_confirm": "Confirm password",
+      "submit": "Reset password"
+    }
+  },
+  "gift_cards": {
+    "issued": {
+      "how_to_use_gift_card": "Use the gift card code online or QR code in-store",
+      "title": "Here's your {{ value }} gift card balance for {{ shop }}!",
+      "subtext": "Your gift card",
+      "gift_card_code": "Gift card code",
+      "shop_link": "Visit online store",
+      "add_to_apple_wallet": "Add to Apple Wallet",
+      "qr_image_alt": "QR code — scan to redeem gift card",
+      "copy_code": "Copy gift card code",
+      "expiration_date": "Expires {{ expires_on }}",
+      "copy_code_success": "Code copied successfully",
+      "expired": "Expired"
+    }
+  },
+  "recipient": {
+    "form": {
+      "checkbox": "I want to send this as a gift",
+      "expanded": "Gift card recipient form expanded",
+      "collapsed": "Gift card recipient form collapsed",
+      "email_label": "Recipient email",
+      "email_label_optional_for_no_js_behavior": "Recipient email (optional)",
+      "email": "Email",
+      "name_label": "Recipient name (optional)",
+      "name": "Name",
+      "message_label": "Message (optional)",
+      "message": "Message",
+      "max_characters": "{{ max_chars }} characters max",
+      "send_on": "YYYY-MM-DD",
+      "send_on_label": "Send on (optional)"
+    }
+  },
+  "luxury_steals": {
+    "badge": "Final Sale",
+    "disclosure": {
+      "heading": "Final Sale — this item cannot be returned or exchanged.",
+      "body": "Luxury Steals are limited pieces offered at exceptional prices. Because of that, this item can’t be returned or exchanged if you change your mind, prefer another style, or choose the wrong size or configuration. Please review the specifications and your selected options carefully before ordering.",
+      "claims": "This does not affect claims for an item that arrives damaged, is not what you ordered, does not match its description, or may have a manufacturing issue covered by our warranty. If something is wrong with your order, contact us and we’ll review it under the applicable CaratForUs warranty or claims policy."
+    },
+    "scarcity": {
+      "only_x_left": "Only {{ count }} left"
+    },
+    "acknowledgment": {
+      "heading": "FINAL SALE ACKNOWLEDGMENT",
+      "body_html": "I understand that this item is a Luxury Steal and is <strong>FINAL SALE</strong>. I understand that it cannot be returned or exchanged because I change my mind, prefer another style, select the wrong size or configuration, or otherwise no longer want the item. I have reviewed the item specifications and selected options before purchasing.",
+      "affirm_label": "I Understand & Agree",
+      "checkbox_label": "I have read the Final Sale Acknowledgment above and agree to it",
+      "gate_hint": "Add to Cart is disabled until you agree to the Final Sale terms above.",
+      "error": "We couldn't record your acknowledgment. Please try again before adding this item to your cart."
+    }
+  }
+}

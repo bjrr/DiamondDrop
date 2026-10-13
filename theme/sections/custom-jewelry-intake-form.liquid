@@ -1,0 +1,610 @@
+{% comment %}
+  Renders the storefront Custom Jewelry enquiry form (Slice 9, README
+  "Custom Jewelry -- MVP1 Locked Direction"). POSTs to
+  `POST /apps/carat/custom-jewelry-intake`
+  (app/app/routes/apps.carat.custom-jewelry-intake.tsx) via
+  `assets/custom-jewelry-intake-form.js` -- a plain `<form>`, NOT Shopify's
+  native `{% form %}` tag, because there is no native Shopify form type for a
+  custom App Proxy submission. Field/error markup follows
+  `sections/warranty-claim-form.liquid` closely: `.field`/`.field__input`/
+  `.field__label`/`.field--with-error` and `.form-status`/`.form__message`
+  are EXISTING Dawn classes reused here, not reinvented.
+
+  COPY STATUS -- read before editing any string in this file or its locale
+  keys. TWO strings are OWNER-APPROVED and evidence-pinned, not draft:
+
+    `.confirmation_template`  -- the post-submission confirmation
+    `.deposit_disclosure`     -- the $49 Design Deposit disclosure
+
+  Both are imported byte-for-byte from
+  `app/app/domain/customjewelry/intakeCopy.ts`
+  (`CUSTOM_JEWELRY_INTAKE_CONFIRMATION_TEMPLATE` /
+  `CUSTOM_JEWELRY_DESIGN_DEPOSIT_DISCLOSURE`) and proven identical by
+  `app/app/theme/ownerApprovedCopy.test.ts`. The two follow-up choice labels
+  are owner-approved too, pinned in `intakeCopy.test.ts`. EVERY OTHER string
+  in this file's locale keys -- the intro, the field labels, the errors -- is
+  mechanical form furniture, drafted here, carrying no promise.
+
+  ============================================================================
+  THIS FORM RENDERS FOR SIGNED-OUT VISITORS. THAT IS THE DECISION.
+  ============================================================================
+  Unlike `warranty-claim-form.liquid`, which hides everything behind a
+  sign-in gate, this form is fully usable with no account -- an explicit owner
+  decision (2026-10-05): "do not force account creation merely to submit the
+  enquiry". The README calls the initial request "free and intentionally
+  low-friction", and `docs/REQUIRED-CUSTOMER-ACCOUNTS.md` requires an account
+  for every PURCHASE path; a pre-purchase enquiry is not one.
+
+  WHAT *IS* GATED is the upload control, and only that. A signed-out visitor
+  sees the inspiration-links textarea plus a sign-in invitation in place of
+  the file input -- never a file input that cannot work. The reason is abuse
+  and storage, not payment: an endpoint minting presigned PUTs for anyone is
+  free file hosting on our account.
+
+  THE DEPOSIT DISCLOSURE IS ALWAYS VISIBLE, never behind a toggle or a
+  "learn more". It is the first thing after the intro, because "this enquiry
+  is free" must be something the customer can rely on before they hand over
+  their details rather than something they discover afterwards.
+
+  NO ABANDONMENT / NON-RESPONSE RULE ANYWHERE IN THIS FILE. Owner instruction,
+  verbatim: "Do not put the abandonment/non-response rule on the initial
+  intake form. Keep the intake welcoming." It is not dropped -- it must appear
+  conspicuously on the deposit/design-approval step, where the customer
+  affirmatively accepts it before any money moves. `intakeCopy.test.ts`
+  asserts the disclosure does not carry it.
+
+  NO RESPONSE-TIME PROMISE ANYWHERE. Not "shortly", not "as soon as
+  possible" -- the owner struck that kind of phrasing from the warranty copy
+  twice and from this surface explicitly.
+
+  NO PAYMENT HERE. No price field, no deposit charge, no checkout. The route
+  takes no payment input and the table it writes has no payment columns; the
+  README is explicit that intake must not charge the deposit yet.
+
+  CLIENT-SIDE VALIDATION IS UX, NOT ENFORCEMENT -- the same division of
+  labour `warranty-claim-form.liquid` and `bank-payment-checkout-dialog
+  .liquid` describe. The authority is the Zod schema and the 401/422 branches
+  in the route.
+
+  Accepts (schema settings): heading (optional override).
+{% endcomment %}
+{{ 'component-custom-jewelry-intake-form.css' | asset_url | stylesheet_tag }}
+
+{%- style -%}
+  .section-{{ section.id }}-padding {
+    padding-top: {{ section.settings.padding_top | times: 0.75 | round: 0 }}px;
+    padding-bottom: {{ section.settings.padding_bottom | times: 0.75 | round: 0 }}px;
+  }
+
+  @media screen and (min-width: 750px) {
+    .section-{{ section.id }}-padding {
+      padding-top: {{ section.settings.padding_top }}px;
+      padding-bottom: {{ section.settings.padding_bottom }}px;
+    }
+  }
+{%- endstyle -%}
+
+<div class="color-{{ section.settings.color_scheme }} gradient">
+  <div class="page-width page-width--narrow section-{{ section.id }}-padding carat-custom-jewelry">
+    {%- if section.settings.heading != blank -%}
+      <h2 class="title title-wrapper--no-top-margin {{ section.settings.heading_size }}">
+        {{ section.settings.heading }}
+      </h2>
+    {%- else -%}
+      {%- comment -%}
+        Visually hidden when unset, matching contact-form.liquid and
+        warranty-claim-form.liquid -- `sections/main-page.liquid` (rendered
+        first in templates/page.custom-jewelry.json) already shows the
+        Shopify page's own title as an <h1>, so a second VISIBLE heading
+        would duplicate it.
+      {%- endcomment -%}
+      <h2 class="visually-hidden">{{ 'templates.custom_jewelry.form.heading' | t }}</h2>
+    {%- endif -%}
+
+    <p class="carat-custom-jewelry__intro">
+      {{- 'templates.custom_jewelry.form.intro' | t -}}
+    </p>
+
+    {%- comment -%}
+      OWNER-APPROVED, ALWAYS VISIBLE, FIRST. See this file's header comment on
+      why it is not behind a toggle.
+    {%- endcomment -%}
+    <div class="carat-custom-jewelry__deposit-notice" role="note">
+      <p class="carat-custom-jewelry__deposit-text">
+        {{- 'templates.custom_jewelry.form.deposit_disclosure' | t -}}
+      </p>
+    </div>
+
+    <div
+      id="CustomJewelryErrorSummary"
+      class="carat-custom-jewelry__error-summary form-status-list"
+      role="alert"
+      tabindex="-1"
+      hidden
+      data-carat-cj-error-summary
+    ></div>
+
+    {%- comment -%}
+      The OWNER-APPROVED confirmation sentence is carried as a data attribute
+      rather than built in JS, so the string lives in exactly one place: the
+      locale file, pinned against
+      `app/app/domain/customjewelry/intakeCopy.ts` by
+      `app/app/theme/ownerApprovedCopy.test.ts`. The JS substitutes
+      `{projectReference}` with the reference the SERVER assigned — never a
+      value the browser invented.
+    {%- endcomment -%}
+    <div
+      id="CustomJewelryConfirmation"
+      class="carat-custom-jewelry__confirmation"
+      role="status"
+      tabindex="-1"
+      hidden
+      data-carat-cj-confirmation
+      data-confirmation-template="{{ 'templates.custom_jewelry.form.confirmation_template' | t | escape }}"
+    ></div>
+
+    <form id="CustomJewelryIntakeForm" novalidate data-carat-cj-form>
+      <div class="carat-custom-jewelry__field-row">
+        <div class="field field--with-error">
+          <input
+            type="text"
+            id="CustomJewelryFirstName"
+            name="first_name"
+            class="field__input"
+            autocomplete="given-name"
+            required
+            value="{{ customer.first_name | escape }}"
+            aria-describedby="CustomJewelryFirstName-error"
+          >
+          <label class="field__label" for="CustomJewelryFirstName">
+            {{- 'templates.custom_jewelry.form.first_name_label' | t }}
+            <span aria-hidden="true">*</span></label
+          >
+          <small
+            id="CustomJewelryFirstName-error"
+            class="carat-custom-jewelry__field-error form__message"
+            hidden
+            data-carat-cj-field-error
+          >
+            <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+            <span data-carat-cj-field-error-text></span>
+          </small>
+        </div>
+
+        <div class="field field--with-error">
+          <input
+            type="text"
+            id="CustomJewelryLastName"
+            name="last_name"
+            class="field__input"
+            autocomplete="family-name"
+            required
+            value="{{ customer.last_name | escape }}"
+            aria-describedby="CustomJewelryLastName-error"
+          >
+          <label class="field__label" for="CustomJewelryLastName">
+            {{- 'templates.custom_jewelry.form.last_name_label' | t }}
+            <span aria-hidden="true">*</span></label
+          >
+          <small
+            id="CustomJewelryLastName-error"
+            class="carat-custom-jewelry__field-error form__message"
+            hidden
+            data-carat-cj-field-error
+          >
+            <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+            <span data-carat-cj-field-error-text></span>
+          </small>
+        </div>
+      </div>
+
+      <div class="carat-custom-jewelry__field-row">
+        <div class="field field--with-error">
+          <input
+            type="email"
+            id="CustomJewelryEmail"
+            name="email"
+            class="field__input"
+            autocomplete="email"
+            spellcheck="false"
+            autocapitalize="off"
+            required
+            value="{{ customer.email | escape }}"
+            aria-describedby="CustomJewelryEmail-error"
+          >
+          <label class="field__label" for="CustomJewelryEmail">
+            {{- 'templates.custom_jewelry.form.email_label' | t }}
+            <span aria-hidden="true">*</span></label
+          >
+          <small
+            id="CustomJewelryEmail-error"
+            class="carat-custom-jewelry__field-error form__message"
+            hidden
+            data-carat-cj-field-error
+          >
+            <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+            <span data-carat-cj-field-error-text></span>
+          </small>
+        </div>
+
+        <div class="field field--with-error">
+          <input
+            type="tel"
+            id="CustomJewelryPhone"
+            name="phone"
+            class="field__input"
+            autocomplete="tel"
+            required
+            aria-describedby="CustomJewelryPhone-error"
+          >
+          <label class="field__label" for="CustomJewelryPhone">
+            {{- 'templates.custom_jewelry.form.phone_label' | t }}
+            <span aria-hidden="true">*</span></label
+          >
+          <small
+            id="CustomJewelryPhone-error"
+            class="carat-custom-jewelry__field-error form__message"
+            hidden
+            data-carat-cj-field-error
+          >
+            <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+            <span data-carat-cj-field-error-text></span>
+          </small>
+        </div>
+      </div>
+
+      <fieldset class="carat-custom-jewelry__fieldset">
+        <legend class="carat-custom-jewelry__legend">
+          {{- 'templates.custom_jewelry.form.starting_point_legend' | t }}
+          <span aria-hidden="true">*</span>
+        </legend>
+        <div class="carat-custom-jewelry__radio-group carat-custom-jewelry__radio-group--stacked">
+          <label class="carat-custom-jewelry__radio">
+            <input type="radio" name="starting_point" value="from_scratch" required data-carat-cj-starting-point>
+            {{- 'templates.custom_jewelry.form.starting_point_from_scratch' | t -}}
+          </label>
+          <label class="carat-custom-jewelry__radio">
+            <input type="radio" name="starting_point" value="existing_design" required data-carat-cj-starting-point>
+            {{- 'templates.custom_jewelry.form.starting_point_existing_design' | t -}}
+          </label>
+        </div>
+        <small
+          id="CustomJewelryStartingPoint-error"
+          class="carat-custom-jewelry__field-error form__message"
+          hidden
+          data-carat-cj-field-error
+        >
+          <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+          <span data-carat-cj-field-error-text></span>
+        </small>
+      </fieldset>
+
+      <div class="field field--with-error">
+        <textarea
+          id="CustomJewelryPrompt"
+          name="prompt_text"
+          class="text-area field__input"
+          rows="6"
+          required
+          placeholder="{{ 'templates.custom_jewelry.form.prompt_placeholder' | t }}"
+          aria-describedby="CustomJewelryPrompt-error"
+        ></textarea>
+        <label class="form__label field__label" for="CustomJewelryPrompt">
+          {{- 'templates.custom_jewelry.form.prompt_label' | t }}
+          <span aria-hidden="true">*</span></label
+        >
+        <small
+          id="CustomJewelryPrompt-error"
+          class="carat-custom-jewelry__field-error form__message"
+          hidden
+          data-carat-cj-field-error
+        >
+          <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+          <span data-carat-cj-field-error-text></span>
+        </small>
+      </div>
+
+      <div class="field">
+        <input
+          type="text"
+          id="CustomJewelryType"
+          name="jewelry_type"
+          class="field__input"
+          placeholder="{{ 'templates.custom_jewelry.form.jewelry_type_placeholder' | t }}"
+        >
+        <label class="field__label" for="CustomJewelryType">
+          {{- 'templates.custom_jewelry.form.jewelry_type_label' | t -}}
+        </label>
+      </div>
+
+      {%- comment -%}
+        BUDGET. Optional, and submitted as a STRING of minor units -- the
+        route's schema rejects a JSON number for it, because a budget is money
+        and a JSON number is an IEEE double. The customer types dollars; the
+        JS converts to integer cents without floating-point arithmetic (see
+        `dollarsToMinorUnits` there). Currency is fixed to the only one MVP1
+        sells in; it is submitted explicitly because the route requires both
+        halves of a budget or neither.
+      {%- endcomment -%}
+      <div class="field field--with-error">
+        <input
+          type="text"
+          id="CustomJewelryBudget"
+          name="approximate_budget"
+          class="field__input"
+          inputmode="decimal"
+          autocomplete="off"
+          placeholder="{{ 'templates.custom_jewelry.form.budget_placeholder' | t }}"
+          aria-describedby="CustomJewelryBudget-help CustomJewelryBudget-error"
+        >
+        <label class="field__label" for="CustomJewelryBudget">
+          {{- 'templates.custom_jewelry.form.budget_label' | t -}}
+        </label>
+        <small id="CustomJewelryBudget-help" class="carat-custom-jewelry__field-help">
+          {{- 'templates.custom_jewelry.form.budget_help' | t -}}
+        </small>
+        <small
+          id="CustomJewelryBudget-error"
+          class="carat-custom-jewelry__field-error form__message"
+          hidden
+          data-carat-cj-field-error
+        >
+          <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+          <span data-carat-cj-field-error-text></span>
+        </small>
+      </div>
+
+      {%- comment -%}
+        TIMING. "No deadline" and a date are two answers to one question, and
+        the route refuses both together -- so the JS clears and disables the
+        date input while the checkbox is ticked rather than letting the
+        customer assemble a request the server will reject.
+      {%- endcomment -%}
+      <fieldset class="carat-custom-jewelry__fieldset">
+        <legend class="carat-custom-jewelry__legend">
+          {{- 'templates.custom_jewelry.form.timing_legend' | t -}}
+        </legend>
+        <div class="field">
+          <label class="field__label field__label--static" for="CustomJewelryDesiredDate">
+            {{- 'templates.custom_jewelry.form.desired_date_label' | t -}}
+          </label>
+          <input
+            type="date"
+            id="CustomJewelryDesiredDate"
+            name="desired_completion_date"
+            class="field__input"
+            data-carat-cj-desired-date
+          >
+        </div>
+        <div class="carat-custom-jewelry__control">
+          <input
+            type="checkbox"
+            id="CustomJewelryNoDeadline"
+            name="has_no_deadline"
+            class="carat-custom-jewelry__checkbox"
+            data-carat-cj-no-deadline
+          >
+          <label for="CustomJewelryNoDeadline" class="carat-custom-jewelry__checkbox-label">
+            {{- 'templates.custom_jewelry.form.no_deadline_label' | t -}}
+          </label>
+        </div>
+      </fieldset>
+
+      {%- comment -%}
+        INSPIRATION. Two ways in, deliberately, and the first works with no
+        account at all -- the owner asked for a plain-text links field
+        precisely so a signed-out visitor is not pushed into registering.
+
+        NOTHING SERVER-SIDE EVER FETCHES THESE LINKS. A server that retrieves
+        a customer-supplied URL is an SSRF primitive; staff open them in a
+        browser, where they are ordinary untrusted links. The route's own
+        module comment says the same.
+      {%- endcomment -%}
+      <fieldset class="carat-custom-jewelry__fieldset">
+        <legend class="carat-custom-jewelry__legend">
+          {{- 'templates.custom_jewelry.form.inspiration_legend' | t -}}
+        </legend>
+        <p class="carat-custom-jewelry__help">
+          {{- 'templates.custom_jewelry.form.inspiration_help' | t -}}
+        </p>
+
+        <div class="field">
+          <textarea
+            id="CustomJewelryInspirationLinks"
+            name="inspiration_links"
+            class="text-area field__input"
+            rows="3"
+            placeholder="{{ 'templates.custom_jewelry.form.inspiration_links_placeholder' | t }}"
+          ></textarea>
+          <label class="form__label field__label" for="CustomJewelryInspirationLinks">
+            {{- 'templates.custom_jewelry.form.inspiration_links_label' | t -}}
+          </label>
+        </div>
+
+        {%- if customer -%}
+          {%- comment -%}
+            UPLOADS -- authenticated visitors only, and this is a server-side
+            render-time branch on Liquid's own `customer` object, not a
+            client-side hide-after-render.
+
+            PHOTOS ONLY in this iteration, for the same reason as the warranty
+            form: the checksum the server requires is computed in the browser,
+            and hashing a 300 MB video in a phone tab is a hang waiting to
+            happen. The 20 MB photo ceiling keeps it bounded.
+
+            Hidden until the JS confirms storage is available, then revealed.
+            If the destination endpoint reports storage unavailable the control
+            stays hidden and `uploads_note` appears instead -- the customer is
+            never left with a file input that silently does nothing, and the
+            note names no internal cause.
+          {%- endcomment -%}
+          <div class="carat-custom-jewelry__uploads" data-carat-cj-uploads hidden>
+            <p class="carat-custom-jewelry__help" id="carat-cj-uploads-help">
+              {{- 'templates.custom_jewelry.form.uploads_help' | t -}}
+            </p>
+            <input
+              type="file"
+              class="carat-custom-jewelry__file-input"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+              multiple
+              aria-describedby="carat-cj-uploads-help"
+              data-carat-cj-upload-input
+            >
+            <ul class="carat-custom-jewelry__upload-list" data-carat-cj-upload-list></ul>
+            <small
+              class="carat-custom-jewelry__field-error form__message"
+              hidden
+              data-carat-cj-upload-error
+              role="status"
+            >
+              <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+              <span data-carat-cj-upload-error-text></span>
+            </small>
+          </div>
+
+          <p class="carat-custom-jewelry__uploads-note" data-carat-cj-uploads-unavailable hidden>
+            {{- 'templates.custom_jewelry.form.uploads_note' | t -}}
+          </p>
+        {%- else -%}
+          {%- comment -%}
+            THE ONLY GATED THING ON THIS PAGE. An invitation, not a wall: the
+            rest of the form above and below remains fully usable, and the
+            sign-in link returns the visitor to this exact page. The sentence
+            itself is the owner-approved gate wording from
+            `docs/REQUIRED-CUSTOMER-ACCOUNTS.md` §4, reused verbatim so every
+            gate in the storefront reads identically.
+          {%- endcomment -%}
+          <div class="carat-custom-jewelry__uploads-signin" data-carat-cj-uploads-signin>
+            <p class="carat-custom-jewelry__uploads-signin-message">
+              {{- 'templates.custom_jewelry.form.uploads_sign_in_message' | t -}}
+            </p>
+            <a
+              href="{{ routes.account_login_url }}?return_url={{ request.path | url_encode }}"
+              class="link carat-custom-jewelry__uploads-signin-link"
+            >
+              {{- 'templates.custom_jewelry.form.uploads_sign_in_link' | t -}}
+            </a>
+          </div>
+        {%- endif -%}
+      </fieldset>
+
+      <fieldset class="carat-custom-jewelry__fieldset">
+        <legend class="carat-custom-jewelry__legend">
+          {{- 'templates.custom_jewelry.form.follow_up_legend' | t }}
+          <span aria-hidden="true">*</span>
+        </legend>
+        {%- comment -%}
+          The two OWNER-APPROVED choices, in the approved order. Their values
+          are the contract with `custom_jewelry_project.follow_up_preference`
+          and are pinned alongside the labels in `intakeCopy.test.ts`.
+        {%- endcomment -%}
+        <div class="carat-custom-jewelry__radio-group carat-custom-jewelry__radio-group--stacked">
+          <label class="carat-custom-jewelry__radio">
+            <input
+              type="radio"
+              name="follow_up_preference"
+              value="schedule_consultation"
+              required
+              data-carat-cj-follow-up
+            >
+            {{- 'templates.custom_jewelry.form.follow_up_schedule_consultation' | t -}}
+          </label>
+          <label class="carat-custom-jewelry__radio">
+            <input type="radio" name="follow_up_preference" value="contact_me" required data-carat-cj-follow-up>
+            {{- 'templates.custom_jewelry.form.follow_up_contact_me' | t -}}
+          </label>
+        </div>
+        <small
+          id="CustomJewelryFollowUp-error"
+          class="carat-custom-jewelry__field-error form__message"
+          hidden
+          data-carat-cj-field-error
+        >
+          <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+          <span data-carat-cj-field-error-text></span>
+        </small>
+      </fieldset>
+
+      <div class="carat-custom-jewelry__actions">
+        <button type="submit" class="button" data-carat-cj-submit>
+          {{- 'templates.custom_jewelry.form.submit' | t -}}
+        </button>
+      </div>
+
+      <p
+        id="CustomJewelryStatus"
+        class="carat-custom-jewelry__status form-status"
+        role="status"
+        aria-live="polite"
+        hidden
+        data-carat-cj-status
+      ></p>
+    </form>
+  </div>
+</div>
+
+<script src="{{ 'custom-jewelry-intake-form.js' | asset_url }}" defer="defer"></script>
+
+{% schema %}
+{
+  "name": "Custom jewelry form",
+  "tag": "section",
+  "class": "section",
+  "disabled_on": {
+    "groups": ["header", "footer"]
+  },
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading"
+    },
+    {
+      "type": "select",
+      "id": "heading_size",
+      "options": [
+        { "value": "h2", "label": "Small" },
+        { "value": "h1", "label": "Medium" },
+        { "value": "h0", "label": "Large" }
+      ],
+      "default": "h1",
+      "label": "Heading size"
+    },
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "Color scheme",
+      "default": "scheme-1"
+    },
+    {
+      "type": "header",
+      "content": "Section padding"
+    },
+    {
+      "type": "range",
+      "id": "padding_top",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "Top padding",
+      "default": 36
+    },
+    {
+      "type": "range",
+      "id": "padding_bottom",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "Bottom padding",
+      "default": 36
+    }
+  ],
+  "presets": [
+    {
+      "name": "Custom jewelry form"
+    }
+  ]
+}
+{% endschema %}

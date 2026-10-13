@@ -31,3 +31,9 @@ Thumbs.db
 # Prisma
 /app/prisma/dev.db
 /app/prisma/dev.db-journal
+
+# Ad-hoc patch scripts written while iterating — never part of the app.
+/c.cjs
+/app/c.cjs
+/f.cjs
+/app/f.cjs

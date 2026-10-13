@@ -9,7 +9,9 @@ Resolved 2026-09-14, arising from the slice 0 acceptance review: **D12 = hybrid 
 
 Resolved 2026-09-15, owner-directed: **D13 = React Router 7 replaces Remix v2, and `@shopify/shopify-app-react-router` replaces `@shopify/shopify-app-remix`.** The *hybrid boundary* established by D12 is unchanged and carries over verbatim: the Shopify library supplies OAuth, session storage and App Bridge; inbound webhook receipt stays ours. See §2.1, which is the single live statement of this decision and records both the version pin and why the library's `authenticate.webhook` is deliberately not used.
 
-Still open and tracked in §12: **D1** (Shopify development store + API credentials), **D5–D11**. D7 and D10 are reserved to the owner by `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md` §14 and must be resolved before slice 4 is accepted.
+Resolved 2026-09-18 and extended by owner decisions on 2026-09-19: **D9** is superseded by the Bank-vs-Card pricing model in `docs/BANK-CARD-PRICING.md` plus the surface/operational rules in `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md`. The **Bank Payment Price** is the actual underlying calculated selling price and must not be altered by the bank-vs-card feature. The **Regular/Card Price** is derived afterward from a tier selected exclusively from Bank Payment Price: < $500 +5.0%; $500–$999.99 +4.5%; $1,000–$2,499.99 +4.0%; $2,500–$4,999.99 +3.5%; $5,000+ +3.0%. Only the Regular/Card Price is rounded, always upward to the next $5 increment. Shopify publication uses the final Regular/Card Price, while customer display is surface-specific: collection/search may lead with `As low as` Bank Payment Price; detailed Buy Now shows both; Group Buy defaults to Regular/Card and switches after required Payment Type selection. Historical fixed-5% pricing remains reproducible under its existing versioned rule id and must not be mutated. **D15** = one daily scheduled recalculation plus immediate recalculation on material pricing-input changes. **D14 is resolved for core pricing** — target markup on cost 40%, minimum margin 20%, minimum dollar profit $100; the Bank-vs-Card feature does not alter the underlying Bank Payment Price.
+
+Still open and tracked in §12: **D1** (Shopify development store + API credentials — owner will provide before slice 1 completion; gates slice 2, and Shopify synchronisation must not be described as verified until it exists), **D5–D8**, **D10**, **D11**, and D14's tolerance. D7 and D10 are reserved to the owner by `docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md` §14 and must be resolved before slice 4 is accepted.
 
 Author: Principal Architect / Tech Lead
 Date: 2026-09-13
@@ -66,7 +68,8 @@ No headless storefront. No microservices. No message queue. No separate customer
 | ORM / migrations | Prisma | Typed access + versioned migrations; low ceremony. |
 | Money arithmetic | Integer minor units (`BIGINT` cents) for all stored/charged amounts; `decimal.js` at fixed scale for intermediate cost math | CLAUDE.md #6. Metal-cost math (price/gram × grams) needs decimal precision before rounding to cents under an explicit, versioned rounding rule. |
 | File uploads | S3-compatible private object storage (Cloudflare R2 recommended) + presigned upload, short-lived signed reads | Warranty photos, CAD/PDF quote evidence, custom-design inspiration. Must be private (PII + evidence). Shopify Files is public-by-URL and unsuitable. |
-| Transactional email | One provider (Resend recommended) | Order emails stay native Shopify. Only Group Buy milestones, RMA/warranty/quote status, and magic links go through this. |
+| S3 client for R2 | `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner` (added 2026-09-28) | Two modular v3 packages, not the monolith. Chosen over hand-rolling SigV4: presigning is signature code, easy to get subtly wrong, and wrong in a way that surfaces as an opaque 403 from the provider rather than as a local error. It is the standard client for the S3 API R2 speaks, so it falls inside D4 rather than being a new architectural direction. **A default in it already bit us:** the SDK's `requestChecksumCalculation` defaults to `WHEN_SUPPORTED`, which attaches an `x-amz-checksum-crc32` query parameter to a presigned PUT computed against an EMPTY body — because no bytes exist at presign time — so every real upload would have failed a checksum the SDK itself introduced, presenting as an R2 or CORS fault. Pinned to `WHEN_REQUIRED` and covered by a unit test. |
+| Transactional email | One provider (Resend recommended) | Order emails stay native Shopify. Only Group Buy milestones and RMA/warranty/quote status communications go through this. Guest magic-link authentication is superseded by `docs/REQUIRED-CUSTOMER-ACCOUNTS.md`. |
 | Hosting | Single-instance container host (Fly.io or Render) | ~$7–25/mo, one region, simple logs, built-in cron. |
 | Tests | Vitest (unit + integration), Playwright smoke only | Business rules are pure functions — that is where nearly all test value is. |
 | CI | GitHub Actions: typecheck, lint, unit, integration, build | Cheap, sufficient. |
@@ -138,7 +141,22 @@ The 405 on the same-origin request is the load-bearing detail: it proves the 400
 
 **The failure mode to avoid.** Slices 3, 4, 5, 9 and 10 all POST customer forms through the App Proxy. A form rendered on `caratforus.com` posting to a route that *also renders UI* arrives with `Origin: https://caratforus.com` while `request.url` is the app host. The request is rejected with 400 **before any validation runs, before any evidence row is written, and before any log line our code emits**. A customer's Group Buy join or warranty claim fails silently with nothing in our logs to explain it — and nothing in the diff that introduced it to point at.
 
-**Mitigation, one line.** Either keep App Proxy POST endpoints as resource routes (no default export), or set `allowedActionOrigins: ["caratforus.com", "*.myshopify.com"]` in `app/react-router.config.ts`.
+**Mitigation — CORRECTED 2026-09-19 (slice 2, T10). The two options are NOT interchangeable in production.**
+
+The original wording below said "either … or", and that is wrong for a deployed build:
+
+> ~~Either keep App Proxy POST endpoints as resource routes (no default export), or set `allowedActionOrigins: ["caratforus.com", "*.myshopify.com"]` in `app/react-router.config.ts`.~~
+
+**`react-router build` resolves the config with Vite's `defaultNodeEnv` forced to `"production"`, unconditionally** — verified against the installed `@react-router/dev@7.18.3` CLI source, where both build call sites pass `"production"`, regardless of `APP_ENV` or any tunnel variable present at build time. Every production artefact is produced by `build`, never by `dev`. **Therefore every production deploy ships `allowedActionOrigins: []`, and the allowlist cannot protect a production route at all.**
+
+The correct statement of the mitigation:
+
+1. **Resource routes are the only production protection.** Every cross-origin-reachable POST endpoint — App Proxy (`apps.carat.*`), webhooks (`webhooks.*`), internal/cron (`internal.*`) — must have **no default export**. This holds regardless of config, `NODE_ENV`, or any environment variable being right at deploy time, which is exactly why it is the one to rely on.
+2. **`allowedActionOrigins` is a development-only affordance**, populated from the Shopify CLI's tunnel variables so the embedded admin UI route can POST behind `shopify app dev`. It is real and it works — wildcard matching was confirmed end-to-end against the installed runtime — but it is inert in production by construction.
+
+**Consequence for every later slice:** a route that renders UI *and* accepts a cross-origin POST is not a valid shape for this app. Split it — resource route for the POST, UI route for the page. **Slice 2 stage 2C's Bank Payment Checkout POST must be a resource route**, and the same applies to the warranty, RMA and quote forms in slices 3, 4, 5, 9 and 10.
+
+Because nothing in the type system prevents someone adding a default export to an existing resource route, this invariant is enforced by a machine-checked regression fence over the route modules (slice 2, T10), in the same spirit as slice 1's criterion-29 import fence. The failure it prevents is silent: a 400 returned before validation, before any evidence row is written, and before any `logger` call of ours runs.
 
 #### Standing contract for a future React Router 8 upgrade
 
@@ -156,7 +174,7 @@ Slice 0's React Router configuration is complete and correct **for slice 0**. Th
 
 - **`allowedActionOrigins` is unset** (F-23). See R-1 above. Note that unset does not mean disabled: the key defaults to `false`, which the runtime coerces to an *empty allowlist*, so the guard runs with no exemptions.
 - **No route typegen** (F-24). `app/tsconfig.json` excludes `.react-router` and sets no `rootDirs`, and nothing runs `react-router typegen`. That is correct today, because our route modules use `LoaderFunctionArgs`/`ActionFunctionArgs`. Shopify's React Router template instead uses generated `+types/*` route types, which require `"rootDirs": [".", "./.react-router/types"]` plus a typegen step ahead of `tsc --noEmit`. Slice 2 must either wire that up or deliberately reject the template's typed-route style — the failure mode otherwise is a half-adopted template whose type errors look like a broken install.
-- **Vite major bump likely needed** (F-25). We run `vite@5.4.21`, comfortably inside `@react-router/dev@7.18.3`'s peer range (`^5.1.0 || ^6 || ^7 || ^8`), so nothing is broken now. But Vite 5 has no `server.allowedHosts`, which the tunnel used by `shopify app dev` generally needs. Budget a Vite major in slice 2 rather than meeting it as a surprise on the day the development store is first connected.
+- **~~Vite major bump likely needed~~ (F-25) — RETIRED 2026-09-17, no upgrade required.** The finding assumed `server.allowedHosts` did not exist in Vite 5. It was backported into the 5.4 line, and we run `vite@5.4.21`, whose `index.d.ts` declares it. `vite.config.ts` now allowlists the tunnel host suffixes directly, so `shopify app dev` works on the Vite we already have. Checked before acting rather than taking the finding at face value: a major bump of the build tool would have been real risk taken for no reason. The peer range (`^5.1.0 || ^6 || ^7 || ^8`) still permits a later upgrade whenever one is wanted for its own sake.
 
 ### Alternatives considered and rejected
 
@@ -174,7 +192,7 @@ Slice 0's React Router configuration is complete and correct **for slice 0**. Th
 |---|---|---|
 | Product catalog, variants, media | **Shopify** | Variant = metal × ring-size band. |
 | Cart, checkout, payments, taxes | **Shopify** | Never replaced. |
-| Customer accounts, order history | **Shopify** | |
+| Customer accounts, order history | **Shopify** | Customer authentication is required before every purchase and before warranty/RMA self-service. Guest purchase is not supported; see `docs/REQUIRED-CUSTOMER-ACCOUNTS.md`. |
 | Inventory, sold-out behavior, no overselling | **Shopify** | Luxury Steals relies on this directly ("continue selling when out of stock" must be OFF). |
 | Order confirmation / shipping emails | **Shopify** | Policy text repeated in notification templates. |
 | Discount codes and their exclusions | **Shopify** | Native collection-scoped discounts exclude Group Buy + Luxury Steals. |
@@ -183,7 +201,7 @@ Slice 0's React Router configuration is complete and correct **for slice 0**. Th
 | Storefront presentation, badges, disclosures | **Theme (custom code, Shopify-native mechanism)** | |
 | Cost component libraries + pricing engine | **Custom** | |
 | Buy Now price recalculation + approval + sync | **Custom** | |
-| Group Buy campaigns, freeze, tiers, qualifying units | **Custom** | |
+| Group Buy campaigns, freeze, tiers, monotonic participation units | **Custom** | |
 | Group Buy progress/savings UI data | **Custom API** → theme | |
 | Group Buy final price + refund ledger | **Custom** (executes via Shopify refunds) | |
 | Luxury Steals Final Sale acknowledgment + evidence | **Custom** | Shopify has no record of this. |
@@ -252,7 +270,7 @@ Append-only evidence tables are never UPDATEd. All money columns are `BIGINT` mi
 
 **App Proxy** (`/apps/carat/*`): Group Buy live progress JSON, Luxury Steals acknowledgment capture, RMA form, warranty claim form, quote submission, custom intake, Bring It Back / Request a New Group Buy.
 
-**Scopes (least privilege)**: `read_products, write_products, read_orders, write_orders, read_customers, read_inventory, write_discounts, read_fulfillments, write_price_rules` — plus store-credit scope only if D5 selects native store credit. No `write_customers`, no payment scopes, no unnecessary read of customer PII beyond what a claim requires.
+**Scopes (least privilege)** — GRANTED PER SLICE, not all at once (revised 2026-09-17 when the app was linked). `shopify.app.caratforus-development.toml` requests only what the current slice exercises; today that is `read_products, write_products` for Slice 2 price publication. The remaining scopes are a roadmap granted when the slice that reads them lands: `read_orders, write_orders` (orders/fulfilment), `read_customers` (claims), `read_inventory` (Luxury Steals), `write_discounts, write_price_rules` (Group Buy), `read_fulfillments` (shipping), plus a store-credit scope only if D5 selects native store credit. Granting the full set on day one would give the app standing access to orders and customer PII months before any code reads either, which is what least privilege exists to prevent; a scope change simply re-prompts on the development store. No `write_customers`, no payment scopes, no unnecessary read of customer PII beyond what a claim requires.
 
 ---
 
@@ -268,8 +286,23 @@ This makes the in-flight-cart race safe by construction: a stale cart can only h
 
 Refunds are held through production/QC and processed at shipping, per README — staff triggers a batch in admin; every call is guarded by `idempotency_key` plus a ledger state machine, and re-running is a no-op.
 
-### 6.2 Qualifying units and cancellation
-`orders/paid` creates `campaign_unit` rows (one per unit, not per line). `orders/cancelled` and `refunds/create` mark units non-qualifying, which can move a live campaign back to a prior tier before close — including raising the variant price back up, which is the correct and disclosed behavior. All transitions are idempotent on Shopify event id.
+### 6.2 Campaign participation units and cancellation
+
+A placed Group Buy order creates campaign participation units (one per unit, not per line) **at order placement**, including a pending Bank Payment order. Payment status is tracked separately.
+
+Public campaign progress and unlocked tiers are **monotonic**. A later cancellation, refund, or nonpayment may change internal order/settlement status, but it does **not** subtract from the displayed participation count, does **not** move the campaign back to a prior tier, and does **not** increase prices for other customers. Once a tier unlocks, it remains unlocked.
+
+All order/payment/cancellation transitions remain idempotent on the applicable Shopify event id or internal action id.
+
+**How this is implemented (corrected 2026-09-19).** This section previously said cancellations "can move a live campaign back to a prior tier before close — including raising the variant price back up, which is the correct and disclosed behavior." That is superseded by `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` §24, and it had already been in tension with §6.1's "tier prices descend only" and its monotonic-descent refund math.
+
+`app/app/domain/groupbuy/qualifyingUnits.ts` folds unit events into two figures, kept deliberately apart:
+
+- the **campaign-wide public total** — what tier thresholds compare against and what the storefront reads — is the running sum of purchased quantities only. A cancellation or refund is recorded but never subtracts from it.
+- the **per-line net** (purchased minus removed, on that specific line) is retained separately for two purposes only: refusing to record a cancellation larger than a line ever purchased, and settling that line's own tier-adjustment refund at close. It is never read for tier selection and never exposed to the storefront.
+
+The defect this corrected was live, not theoretical: the public total previously subtracted cancellations, and that value already flowed to the storefront route. No cancellation had yet been written by any code path, so it had not misfired — but the first one ever recorded would have rolled the public tier back silently.
+
 
 Customer-initiated cancellation before close is a signed App Proxy request that creates a staff action; staff approves in admin and the app calls Shopify `refundCreate` + order cancel. Money always moves through Shopify. (See open decision D8 on whether self-serve auto-approval is required for MVP1.)
 
@@ -280,7 +313,7 @@ Layered, because a JavaScript modal alone is not evidence:
 3. Add-to-cart carries the acknowledgment reference as a line-item property.
 4. `orders/create` verifies that every Luxury Steal line item has a matching acknowledgment record; an order without one is flagged and held for staff review rather than silently fulfilled.
 
-Residual gap: a customer who bypasses the storefront and POSTs directly to `/cart/add` can reach checkout without step 2; step 4 catches it after the fact. Closing it pre-checkout requires a Shopify **cart/checkout validation Function** — recommended as a fast-follow once plan availability is confirmed (see open decision D6). I am flagging this rather than asserting the gap does not exist.
+Residual gap: a customer who bypasses the storefront and POSTs directly to `/cart/add` can reach checkout without step 2; step 4 catches it after the fact. Closing it pre-checkout requires a Shopify **cart/checkout validation Function**. **D6 resolved 2026-09-23: the Function is NOT built in MVP1** — the custom-app architecture on Basic/Grow cannot rely on Functions — so this gap is knowingly ACCEPTED, not closed. The consequence is that step 4 is the only enforcement that binds: an un-acknowledged line reaches checkout and is caught afterwards, held for staff review and never silently fulfilled (`docs/specs/SLICE-3-LUXURY-STEALS.md` criteria 137-140). I am flagging this rather than asserting the gap does not exist.
 
 ### 6.4 Buy Now pricing inputs
 MVP1 uses **staff-entered metal prices in the admin app**, behind a `MetalPriceSource` adapter interface. Rationale: zero recurring cost, zero unvetted third-party dependency, fully deterministic and auditable, and it satisfies "recalculate at least daily." A paid spot-price feed can be dropped in behind the same interface later without touching the pricing engine. Twice-daily automated updates are therefore explicitly a fast-follow, not MVP1 — flagged as decision D2.
@@ -291,7 +324,7 @@ Price sync guardrail: computed prices are written to `price_calculation`, auto-a
 Variant = metal × band (Size 2–6 / 6.5–8 / 8.5–11). The customer's **exact** US size is captured as a line-item property and validated server-side against the product's allowed range/increment. Band price is computed from the highest-cost size in the band so the band never sells below floor. Internal cost math still evaluates exact size.
 
 ### 6.6 Customer identity on claim forms
-RMA and warranty forms must not reveal order data from order-number + email alone (enumeration risk). Logged-in customers are identified by App Proxy `logged_in_customer_id`. Guests receive an emailed, short-lived, single-use magic link before any order detail is displayed.
+**SUPERSEDED 2026-09-26 by `docs/REQUIRED-CUSTOMER-ACCOUNTS.md`.** RMA and warranty self-service require an authenticated Shopify customer account. Identify the customer from the signed Shopify identity (`logged_in_customer_id` or equivalent verified session identity) and expose only that customer's orders. Do not provide guest order-number/email lookup or a guest magic-link fallback. A customer who cannot access the purchasing account must contact CaratForUs Customer Care for manual verification.
 
 ### 6.7 Idempotency discipline
 Shopify's `refundCreate` has no generic idempotency token, so idempotency is ours: a UNIQUE `idempotency_key` row is committed before the API call, the call result is recorded against it, and a retry with the same key returns the stored result without a second call. Same pattern for merchandise credit and LUBYQ benefit issuance. This is the single most important safety property in the system.
@@ -299,6 +332,64 @@ Shopify's `refundCreate` has no generic idempotency token, so idempotency is our
 ---
 
 ## 7. Deployment & Local Development
+
+### DO NOT OPEN A GROUP BUY CAMPAIGN IN PRODUCTION YET — 2026-09-28
+
+**Blocking condition, owner action.** No Group Buy campaign may be OPENED in
+production until order-time acknowledgment verification is live and
+live-proven. The campaign admin surface already works, so this is reachable
+today without touching the theme.
+
+WHY, precisely. Production runs this branch (`fly deploy` ships the working
+tree, not a GitHub branch), and the deployed `orders/create` handler counts
+campaign participation units with NO acknowledgment check. A direct cart POST
+to an ordinary Shopify product page — reachable whether or not our campaign
+page is deployed — would therefore count toward public progress and could
+unlock a lower tier for everyone.
+
+Public progress is MONOTONIC and NON-DECREMENTABLE by design. An inflated
+count cannot be corrected: not by deleting the order, not by cancelling it,
+not by staff action. The tier stays unlocked and the lower price is owed to
+every legitimate participant.
+
+**Current exposure is ZERO, verified read-only against production
+2026-09-28:** `group_buy_campaign` has no rows in any status, no variants are
+attached to an open campaign, and `group_buy_unit_event` is empty. There is
+nothing to inflate. That is timing, not design — opening the first campaign
+is what arms it.
+
+I had originally framed this as "do not deploy the campaign page". That was
+too narrow: the theme is irrelevant to the exploit. Opening a campaign is the
+trigger.
+
+Cleared when the owner-approved three-layer enforcement is implemented and
+its seven live proof cases pass (see `docs/specs/STOREFRONT-COPY-PROPOSAL.md`
+§1.6 for the acknowledgment and the task record for the proof list).
+
+### Production deployment record — 2026-09-28
+
+Deployed the Slice 4 RMA, Slice 11 shipping, required-customer-accounts and
+Slice 6 Group Buy work. **EIGHT migrations were applied, not twelve** — the
+count was corrected during the pre-flight check and is recorded here because
+the wrong number appeared in the deployment request. The repository held 57
+migrations against production's 49.
+
+Verified after: `/health` 200, database ok, 57 applied, **0 pending**,
+`requiredPolicyVersions.missing = []` (the new RMA acknowledgment policy is
+provisioned in production — the exact check that caught the Luxury Steals
+outage), all five App Proxy routes returning 401 to unsigned requests,
+storefront surfaces loading, and no `carat_test` or test-database reference
+in production logs.
+
+Only one migration touched existing data: `bank_payment_order`'s
+`customer_gid` backfill before `SET NOT NULL`. Production was inspected
+READ-ONLY beforehand rather than trusting the migration's own comment — it
+held exactly one row, `orders@caratforus.com`, a seeded placeholder with no
+recoverable customer identity, so the sentinel backfill was truthful rather
+than a fabricated identity. `20260926020000` creates a table that
+`20260926060000` drops in the same deploy; production never had it, so it
+nets to nothing.
+
 
 **Repository layout** (proposed, on approval):
 ```
@@ -350,7 +441,7 @@ Shopify plan $39+/mo · app host $7–25/mo · Postgres $0–25/mo · object sto
 - LUXURY-STEALS §"MVP1 Acceptance Cases" 1–12.
 - WARRANTY-CLAIMS §11 cases 1–11.
 - LUBYQ **amendment** §4 cases 1–8 (the amendment's cases control; see §11).
-- Group Buy: tier thresholds, qualifying-unit counting, cancellation regression to a prior tier, final price, refund math, margin-floor validation, weight-by-ring-size, band cost basis, rounding.
+- Group Buy: tier thresholds, campaign participation counting, monotonic progress under nonpayment/cancellation/refund, final price, refund math, margin-floor validation, weight-by-ring-size, band cost basis, rounding.
 - Money: no floating point anywhere; property tests that round-trip and sum to exact cents.
 
 **Integration (Vitest + real Postgres).** Webhook HMAC + replay idempotency; refund ledger under duplicate/retried processing; evidence-row immutability; App Proxy signature rejection; magic-link expiry and single use.
@@ -375,7 +466,7 @@ Each slice is end-to-end and independently reviewable. Assignments use the least
 |---|---|---|---|---|
 | 0 | **Foundation**: repo layout, app scaffold, DB + migrations, money primitives, policy versioning, acknowledgment/snapshot/audit core, webhook verification + idempotency, CI | — | Architect specifies; Backend & Pricing (`sonnet`) implements; **architect review required** | High |
 | 1 | **Cost libraries + Buy Now pricing engine** + admin price review/sync job | 0 | Backend & Pricing (`sonnet`) + Test Eng (`haiku`); **architect + QA review** | High |
-| 2 | **Theme baseline + Buy Now PDP**: media-type labeling, ring-size guide, metal education, return/shipping disclosures | 1 | Shopify Dev (`sonnet`) + Frontend (`sonnet`) | Medium |
+| 2 | **RE-SCOPED BY OWNER 2026-09-19 — see `docs/specs/SLICE-2-BUY-NOW-STOREFRONT-AND-SYNC.md`.** Real Shopify price sync + Buy Now storefront + Bank Payment checkout, in three gated stages: **2A** price sync, approval/override workflow, sync-failure handling; **2B** collection "As low as", Buy Now PDP, cart payment modes; **2C** Bank Payment draft orders, 24h price guarantee, manual payment verification. Theme baseline (media labels, ring-size guide, metal education, disclosures) rides along in 2B | 1 | **Backend & Pricing (`sonnet`) leads**; Shopify Dev (`sonnet`) + Frontend (`sonnet`) for 2B; Test Eng (`haiku`); **architect acceptance at EACH stage gate** | **Highest** |
 | 3 | **Luxury Steals**: collection, badges, real-inventory scarcity, Final Sale acknowledgment + evidence + order verification | 0, 2 | Shopify Dev (`sonnet`) + Backend (`sonnet`); **QA review** | High |
 | 4 | **Buy Now RMA**: customer form, window calculation, staff admin, refund/restocking/merchandise credit, evidence | 0 | Backend (`sonnet`) + Frontend (`sonnet`) + Test Eng (`haiku`); **architect + QA review** | High |
 | 5 | **Warranty claims**: form, uploads, authorization-before-shipment, inspection, remedy, internal-only jeweler records | 0 | Backend (`sonnet`) + Frontend (`sonnet`) + Test Eng (`haiku`); **QA review** | High |
@@ -388,11 +479,36 @@ Each slice is end-to-end and independently reviewable. Assignments use the least
 | 12 | **Content**: FAQ architecture, policy pages, About, Why Buy From Us, contact | 2 | Shopify Dev (`sonnet`) | Low |
 | 13 | **Archive & demand capture**: Past Group Buys, Bring It Back, Request a New Group Buy | 6, 7 | Frontend (`sonnet`) + Backend (`sonnet`) | Low |
 
+**Why slice 2 changed shape (recorded 2026-09-19).** The row above originally read "Theme baseline + Buy Now PDP", Medium risk, owned by Shopify Dev + Frontend. The owner decision set in `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` adds real price publication, an admin money-approval workflow, a sync-failure/suspension state machine and an invoiced alternative payment rail. That is Highest risk and majority backend, and it un-defers the draft-order flow that `docs/BANK-PAYMENT-CHECKOUT-FINDINGS.md` §3 had deferred. This is owner re-scoping, not scope creep, and the three stages are separately reviewable so a defect in 2A cannot reach customers through 2C. The library-adoption note below is now historical: OAuth, Prisma session storage and App Bridge already landed under the §10 exception during slice 1.
+
 **Slice 2 carries the Shopify library adoption (D13).** Per §2.1, `@shopify/shopify-app-react-router@2.1.0` is installed in slice 2 — OAuth, Prisma session storage (the `session` model and its migration) and App Bridge. The slice-2 row above is written as theme-and-PDP work owned by Shopify Dev + Frontend; the library adoption is a **backend** task that must be added to the slice 2 feature spec with the Backend & Pricing Engineer (`sonnet`) as its owner, and it is the first thing in slice 2 that requires D1 (a real development store). Flagging rather than silently re-scoping the table: the slice 2 spec is not yet written, so this is an input to it.
 
 That same backend task also owns the three React Router configuration gaps recorded in §2.1 — `allowedActionOrigins` (F-23), route typegen (F-24) and the likely Vite major bump (F-25). Two of them are cheap if done deliberately in slice 2 and expensive if discovered later: F-23 surfaces as silently-400ing customer forms in slices 3–10 (see R-1), and F-25 surfaces as a blocked `shopify app dev` on the day D1 is finally resolved.
 
 **Parallel-safety rule.** Slices 0 and 1 are serial and touch shared foundations — no parallel work during them. From slice 2 onward, at most two slices run concurrently and only when they own disjoint files (theme vs app, or distinct app modules). Slices 6 and 8 never run alongside another slice that writes to the pricing or ledger modules.
+
+**OWNER-AUTHORIZED EXCEPTION — Slice 2 integration validation during Slice 1 (recorded 2026-09-19).**
+
+Shopify integration work belonging to slice 2 was carried out during slice 1, at the owner's direction. This records what happened and why, so that a future reviewer reading `git log` does not raise it as a process violation. It does **not** relax the rule above.
+
+What was done under the exception:
+
+- Shopify OAuth and session integration (`@shopify/shopify-app-react-router`, Prisma session storage);
+- the embedded admin shell;
+- Shopify Admin API verification against the development store;
+- theme app extension and App Proxy verification.
+
+**Rationale.** The owner directed this work explicitly, to verify the real Shopify development environment and the integration boundary *before* more business functionality was built on assumptions about it. That order is sound: the App Proxy signature contract, the theme-extension deployment path and the OAuth/session model are the kind of thing that is cheap to establish early and expensive to discover late — and slice 1's own risk register already anticipated two of them (F-23 and F-25 above, both of which surfaced exactly as predicted and were resolved because the work was done early rather than late).
+
+**Why this is not what the rule prohibits.** The parallel-safety rule exists to prevent *uncontrolled overlapping feature implementation* — two streams of business logic editing the same modules and producing conflicting edits or interleaved migrations. An owner-authorized, time-boxed integration-validation exercise is not that: it established a boundary rather than implementing a domain, and it touched the app shell, routes and configuration rather than the pricing or ledger modules the rule is written to protect.
+
+**What remains in force, unchanged:**
+
+- Future slice overlap still requires an explicit owner or architect decision, recorded like this one. This exception licenses nothing beyond what it describes.
+- Agents must still avoid concurrent edits to overlapping files and to shared database state. That constraint was not relaxed and was not violated.
+- Slices 6 and 8 still never run alongside a slice that writes to the pricing or ledger modules.
+
+**No history will be rewritten.** This is documentation of what actually occurred, not an attempt to make the history look like something else. The commits stand as they are; the record explains them.
 
 ### Phase 1 (requested for approval now)
 **Slices 0 → 1 → 2, executed in order.** This is the smallest sequence that produces a real, sellable Buy Now storefront on correct, audited, deterministic pricing, and it establishes the money, evidence, and idempotency primitives every later slice depends on. I recommend approving Phase 1 only, then re-reviewing before Phase 2 (slices 3–5).
@@ -417,19 +533,35 @@ These block or shape work as noted. D1–D4 block Phase 1 start; the rest are ne
 
 | # | Decision | Recommendation | Blocks |
 |---|---|---|---|
-| D1 | **OPEN.** Shopify store + plan provisioned; development store and API credentials available to the team | Create a free development store now; defer the paid plan until launch. Slice 0 is scoped to proceed without live credentials; this blocks slice 0's dev-store install step and all of slice 2 | Slice 0 (partial), Slice 2 |
+| D1 | **PARTIALLY RESOLVED 2026-09-17.** Development store `caratforus-dev.myshopify.com` exists and the repo is linked to the existing `caratforus-development` app (`shopify.app.caratforus-development.toml`, client_id `f54993df6c...`). Still outstanding before any Admin API call can be made: `SHOPIFY_API_SECRET` in `app/.env`, `[auth] redirect_urls` (blocked on the D13 library adoption), a real `application_url`, and the OAuth install itself. **Shopify synchronisation remains UNVERIFIED** and must not be described otherwise until an actual Admin API call succeeds. Previously: **OPEN.** Shopify development store + API credentials. **Owner will provide before slice 1 completion.** Does NOT block slice 1 pricing work — cost libraries, reference pricing, product-cost calculation, profiles, floors, overrides, payment-price derivation, snapshots and tests all proceed without it. It DOES gate slice 2 and all real Shopify integration. **Until credentials exist, Shopify synchronisation must not be represented as verified** | Owner to provide | Slice 2 |
 | D2 | ~~Metal price source~~ **RESOLVED 2026-09-13: staff-entered in admin**, behind a `MetalPriceSource` adapter. Automated twice-daily feed is an explicit post-launch fast-follow, not MVP1 | — | — |
 | D3 | ~~Hosting + Postgres provider~~ **RESOLVED 2026-09-13: Fly.io app + Fly managed Postgres, single region** | — | — |
 | D4 | ~~Object storage + email provider~~ **RESOLVED 2026-09-13: Cloudflare R2 (private bucket) + Resend** | — | — |
-| D5 | Merchandise-credit mechanism for RMA Days 8–30 | Shopify native store credit if available on the chosen plan; gift card as fallback. Needs verification against the selected plan | Slice 4 |
-| D6 | Whether to add a Shopify cart/checkout validation Function to hard-block un-acknowledged Luxury Steal checkouts | Ship layered enforcement (§6.3) in MVP1; add the Function as a fast-follow once plan availability is confirmed | Slice 3 |
-| D7 | **Tax treatment of the 50% restocking-fee refund and of merchandise credit.** `BUY-NOW-RETURNS` §14 expressly forbids inventing this | Owner/accountant must specify. I will not assume | Slice 4 completion |
-| D8 | Group Buy cancellation: staff-approved (recommended) vs fully self-serve automatic refund before close | Staff-approved for MVP1; every money move reviewed | Slice 8 |
-| D9 | Payment methods to encourage as "lower-cost," since payment cost is a pricing-engine input | Owner to specify; engine treats it as a configurable component either way | Slice 1 |
-| D10 | Merchandise-credit expiration/transferability | `BUY-NOW-RETURNS` §14 leaves this unsettled — owner must lock it or confirm "no expiration" | Slice 4 |
-| D11 | Legal review of customer-facing policy/acknowledgment copy | Out of engineering scope; recommend counsel review before launch | Slice 12 |
+| D5 | ~~Merchandise-credit mechanism for RMA Days 8-30~~ **RESOLVED 2026-09-25: native Shopify Store Credit, NOT gift cards.** Attached to the applicable Shopify customer, in the order currency, traceable to the RMA/order, retaining Shopify transaction references, issued idempotently so a retry cannot create duplicate credit. **No silent fallback to gift cards** — if native store credit is unavailable for a case, route it to staff review. Request only the minimum store-credit scopes the implementation actually needs. | — | — |
+| D6 | ~~Shopify cart/checkout validation Function for un-acknowledged Luxury Steal checkouts~~ **RESOLVED 2026-09-23: ship layered enforcement (§6.3) for MVP1; do NOT build the Function in slice 3.** The custom-app architecture on Basic/Grow cannot rely on Functions; it stays a future hardening option if plan or distribution eligibility changes. The §6.3 residual gap is therefore ACCEPTED, and the order-time check (`docs/specs/SLICE-3-LUXURY-STEALS.md` criteria 137-140) is load-bearing, not defensive. | — | — |
+| D7 | ~~Tax treatment of the restocking-fee refund and merchandise credit~~ **RESOLVED FOR IMPLEMENTATION 2026-09-25: CaratForUs does not invent or maintain a tax formula.** Shopify stays authoritative for tax calculation and records. An RMA refund computes the MERCHANDISE remedy from locked policy, then requests Shopify's native suggested-refund/tax breakdown for the returned line(s) and **preserves Shopify's allocation** rather than applying an independently coded percentage. Merchandise amount, Shopify-calculated tax adjustment and actual refund/credit are recorded separately in evidence. If Shopify cannot represent a partial refund or store-credit transaction while keeping tax records internally consistent, **do not manufacture a tax result — route to staff review.** Accountant/legal confirmation is a pre-public-launch review, not a slice 4 blocker. | — | — |
+| D8 | ~~Group Buy cancellation approval model~~ **RESOLVED 2026-09-19: staff approval required for MVP1.** No fully self-serve automatic cancellation/refund path. | — | — |
+| D9 | ~~Payment methods and payment pricing~~ **RESOLVED / SUPERSEDED 2026-09-18 by `docs/BANK-CARD-PRICING.md`.** The **Bank Payment Price** is the underlying calculated selling price and is unchanged by this feature. Select the Regular/Card pricing tier using Bank Payment Price only: < $500 +5.0%; $500–$999.99 +4.5%; $1,000–$2,499.99 +4.0%; $2,500–$4,999.99 +3.5%; $5,000+ +3.0%. Then round only the Regular/Card Price upward to the next $5. Display the rounded Regular/Card Price as primary, `Bank Payment Price` as the alternative, and exact dollar savings after rounding. Percentages are internal only. Eligible bank methods are Zelle, bank transfer, designated ACH, wire, and future explicitly approved bank/manual methods. The prior fixed-5% rule is historical and must retain its versioned behavior. | — | — |
+| D10 | ~~Merchandise-credit expiration/transferability~~ **RESOLVED 2026-09-25: does not expire, non-transferable**, belongs to the customer account it was issued to, and has no cash value except where applicable law requires otherwise. **Do not set an expiration date in Shopify.** | — | — |
+| D11 | ~~Legal review of customer-facing policy and acknowledgment copy~~ **RESOLVED 2026-09-23: pre-public-launch gate, NOT a slice 3 implementation blocker.** Build against owner-approved text; storefront password stays on. Any counsel-approved change must create/update the pinned copy and policy version rather than silently editing historical evidence. | — | Before public launch |
 | D12 | ~~Shopify app library: official template vs. plain Remix~~ Resolved 2026-09-14 as a hybrid adoption of `@shopify/shopify-app-remix`. **SUPERSEDED 2026-09-15 by D13 — historical record only, do not implement.** The *hybrid boundary* it established survives in D13; only the framework and library names changed | — | — |
 | D13 | ~~Web framework and Shopify app library~~ **RESOLVED 2026-09-15 (owner-directed): React Router 7 + `@shopify/shopify-app-react-router`.** Supersedes D12. Pin `react-router@7.18.3` (**not** 8.x — breaks the library's `^7.6.2` peer range and raises the Node floor to 22). `@shopify/shopify-app-react-router@2.1.0` is designated now and installed in **slice 2**, not slice 0. Hybrid boundary unchanged: library for OAuth/session/App Bridge; our `receiveShopifyWebhook`/`claimWebhookEventForProcessing` for inbound webhooks. Full rationale, version-pin reasoning and the "do not consolidate onto `authenticate.webhook`" warning are in §2.1 | — | — |
+| D14-followups | **Architect follow-ups from the `ddb7641` review.** N1, N2 and N3 are DONE (`ec10743`, `2e1909a`): the margin model is now a registry so a third model never touches `engine.ts` (pinned by tests asserting the engine names no model and no model-specific rate); the round-then-end sequence is extracted so the cash and card prices cannot drift across the rounding boundary; and `price_override` now has explicit supersession and revocation, with a unique index preventing a forked history and a CHECK preventing a `set` with no price or a `revoke` with one. Remaining, carried into Slice 2: (4) **Slice 2 entry criterion:** split "may we publish automatically at all" from "at what threshold". Today they are one column, so the day the owner supplies a tolerance, automatic publication switches on as a side effect — possibly before D1 credentials exist. Automatic publication must become a separate enablement defaulted off | — | — |
+| GB-tiers | **Group Buy tier boundary — RESOLVED from the locked README (§"Group Buy — Locked MVP1 Direction"), not invented.** The boundary is NOT fixed: the README specifies **3 tiers by default, configurable from 2 to 5 per campaign**, with thresholds in **cumulative campaign participation units** and each tier's price as `frozen base x tier multiplier`. Public participation count is monotonic once recorded for an order; later nonpayment/cancellation/refund does not roll back an unlocked tier. The commonly-repeated "Tier 1 = 1-9, Tier 2 = 10+, 10% lower" is ONE valid two-tier configuration, not the model, and is deliberately absent from the code — a mutation test confirms that hard-coding it fails the suite. Thresholds and multipliers are per-campaign data, frozen at open. Validation enforces the README's constraints (2-5 tiers, tier 1 starts at 1 unit, thresholds ascend, later tiers strictly cheaper, multiplier in (0,1]). `evaluateTierSafety` checks **every variant against every tier** before publication using the SAME `evaluateFloors` predicate as Buy Now, and reports breaches rather than deciding — block-vs-authorized-override is a publication decision | — | — |
+| D14-tolerance | **RESOLVED 2026-09-17, owner: 200 bps (2%).** A recalculated price within 2% of the last published price may auto-apply; anything larger queues for a human. Symmetric — a 3% drop queues exactly as a 3% rise does. Calibration: a 1% move in landed cost produces a 100 bps move in price, so 2% absorbs ordinary daily metal movement while still catching a mistyped metal price. D14 is now fully resolved. **Note:** supplying the tolerance clears prices for publication but publishes nothing — no Shopify sync port exists (D1 open), and `auto_apply` yields an `approved` intent, never `synced` | — | — |
+| D9-final | **FINAL SHAPE, owner-locked 2026-09-18.** `docs/BANK-CARD-PRICING.md` controls. The underlying **Bank Payment Price** is the existing calculated selling price and is never changed or rounded by the bank-vs-card feature. A new versioned card-pricing rule selects the increase from Bank Payment Price only (5.0% / 4.5% / 4.0% / 3.5% / 3.0% by the locked thresholds), calculates the preliminary Regular/Card Price, and ceilings that result to the next $5. If already a multiple of $5 it stays unchanged. The final rounded Regular/Card Price is published/displayed as primary; the Bank Payment Price and exact dollar savings are shown alongside it. No internal percentage, `cash discount`, `card fee`, or `surcharge` wording is customer-facing. Historical `CARD_UPLIFT_CEIL_WHOLE_DOLLAR_V1` semantics remain immutable; new behavior requires a new rule id such as `BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1`. | — | — |
+| D14-impl | **D14 implementation status (owner clarified 2026-09-18).** Target markup 40% ON COST (`MARKUP_ON_COST_V1`: cash price target = cost x 1.40), minimum gross margin 20% of **cash price**, minimum dollar profit $100 on **cash price**, whole-dollar rounding UP (`WHOLE_DOLLAR_UP_V1`). Group Buy tier discounts and manual overrides also operate on cash price. Only after the authoritative cash price is final is the +5% card price derived. Card-processing expense is not part of the cash-floor predicate. Manual owner overrides may breach the cash floors deliberately, subject to the existing warning/confirmation/reason/audit controls. | — | — |
+| D14 | ~~Buy Now pricing profile values~~ **PARTIALLY RESOLVED 2026-09-17.** Target **markup on total cost 40%** (`target_price = total_product_cost x 1.40`) — this is MARKUP ON COST, **not** gross margin. Minimum margin **20%**, a separate safety floor. Minimum dollar profit **$100**. Price rounding **whole dollars**. All four remain configurable and versioned, never hard-coded. **STILL OPEN: the automatic price-sync tolerance.** Until it is supplied, prices may be calculated and displayed, but automatic Shopify publication stays disabled — every change requires manual approval | Owner to supply tolerance | Automatic publication only |
+| D15 | ~~Buy Now price recalculation cadence~~ **RESOLVED 2026-09-17: DAILY**, configurable via the platform scheduler — nothing in the code encodes "once a day". Staff may trigger an immediate run by POSTing `{trigger, triggeredBy, reason}` to the recalculation endpoint; a staff-triggered run without a named actor is refused before any price is written. **IMPLEMENTED:** `price_recalculation_run` records trigger, actor, reason, as-of, start/finish and counts; `price_sync_intent` records previous price, percentage change (`delta_bps`) and dollar change (`delta_minor_units`) alongside approval status; `price_calculation` records profile version, engine version, rounding/ending rule ids and a snapshot of every resolved input. **Group Buy frozen prices are never modified by a Buy Now recalculation** — enforced by a write-surface test that pins the tables the job may write and fails on any new one | — | — |
+| D26 | ~~How Luxury Steals are identified in Shopify~~ **RESOLVED 2026-09-23: Postgres is the system of record.** `carat.luxury_steal` product metafield is a synced presentation cache; the Luxury Steals collection is navigation/merchandising only; tags are NOT authoritative. Status changes go through the controlled admin path. | — | — |
+| D27 | ~~Luxury Steals assignment granularity~~ **RESOLVED 2026-09-23: variant-level is authoritative.** Admin may offer a product-level "apply to all variants" convenience action, but each variant is independently assignable and nothing reads assignment from the product. Supersedes D26's product-level metafield wording: `carat.luxury_steal` is a VARIANT metafield. | — | — |
+| D28 | ~~Does a held Luxury Steal order have to be fulfilment-blocked on Shopify?~~ **RESOLVED 2026-09-24: tag + fulfilment hold, approved by owner and LIVE-PROVEN 2026-09-25.** A verified order is tagged `Luxury Steal` and left alone; an unverifiable one is tagged `Luxury Steal: Needs Review` and every fulfilment order is held, released only by explicit staff action. Order.note is never written. Idempotent across redelivery via a stable hold handle and Shopify's typed DUPLICATE_FULFILLMENT_HOLD_HANDLE code. Scopes: write_orders, read/write_merchant_managed_fulfillment_orders. | — | — |
+| D29 | ~~What does "order value" mean for the shipping/insurance/signature rules?~~ **RESOLVED 2026-09-25: SHIPMENT MERCHANDISE VALUE.** The actual merchandise selling value of the items and quantities *in that outbound shipment*, after merchandise discounts, excluding tax, duties, shipping, tips and other non-merchandise charges, and **not** reduced by gift cards, store credit, Bank Payment or any other tender. Split orders are valued per shipment on their own contents. Integer money arithmetic only. | — | — |
+| D30 | ~~Insurance basis for split shipments~~ **RESOLVED 2026-09-25: per package.** Every outbound shipment is tracked and insured for the merchandise value it actually contains (D29) — never each package insured for the whole original order. Retain carrier/service, tracking, insured amount and reference, ship date and delivery evidence. | — | — |
+| D31 | ~~Signature type above the threshold~~ **RESOLVED 2026-09-25: STANDARD signature confirmation, not adult-signature-required.** Required when shipment merchandise value is **above $100.00**; at $100.00 or less it is not required by this rule. Staff may manually require a stricter service when risk warrants, but adult signature is not the MVP1 default. The customer may not waive a required signature. Record the signature service actually used. | — | — |
+| D32 | ~~Insurance provider for full-value coverage on high-value pieces (slice 11 G2)~~ **RESOLVED 2026-09-25: JM Shipping Solution / Jewelers Mutual** as the initial provider. **Keep the architecture provider-adapter based — do NOT bake Jewelers Mutual concepts into the shipping evidence domain.** MVP1 may record and verify externally purchased coverage where full API integration is not needed for launch; deeper JM API automation where justified. The rule is unchanged: every outbound shipment is tracked and insured for its full shipment merchandise value (D29). | — | — |
+| D33 | ~~Warranty claim order lookup — how a customer identifies their order~~ **RESOLVED 2026-09-25, implementation of already-approved security architecture.** Logged-in: identify via the signed App Proxy `logged_in_customer_id` and only offer orders belonging to that Shopify customer. Guest: accept order number + purchaser email as a lookup REQUEST only — **reveal nothing about whether the order exists**, send a short-lived single-use verification link to the order email, and only after successful verification may the customer see or select the order. **Generic responses before verification**, so the endpoint cannot enumerate orders or email addresses. Do not broaden customer-data scopes beyond what the live implementation requires. | — | — |
+| D34 | **Group Buy Bank Payment ordering mechanism — DECIDED 2026-09-27 by the Tech Lead**, under the owner's explicit delegation in `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` §14 ("the exact supported transaction mechanism... remains an implementation design task subject to Shopify platform capabilities"). **Problem:** Group Buy sells through NATIVE Shopify checkout with the variant price set to the current tier price (§6.1), and native checkout cannot switch price by payment method — so a customer choosing Bank Payment, who must pay the lower Bank Payment Price, had no path. The owner's binding constraint was "do not silently fake a checkout price switch that Shopify cannot honor." **Decision:** mirror the proven Buy Now shape — a server-side draft order created at the Bank Payment price and completed into a real UNPAID order — as a SEPARATE route, never by extending `apps.carat.bank-checkout.tsx`. That route's criterion-76 refusal of Group Buy variants stays, and the new route refuses Buy Now variants symmetrically, so neither can be used for the other's merchandise and the two never share a cart or order. Completing the draft into a real order is what makes the existing `orders/create` webhook record participation units, satisfying README's rule that a pending Bank Payment order counts toward progress immediately. Pricing comes from the campaign's FROZEN snapshot, never recomputed. **Rejected alternatives:** two variants per configuration (doubles the catalogue and splits inventory); a discount applied at checkout (the owner forbids presenting the difference as a fee or discount, and CLAUDE.md rule 11 makes Bank Payment Price the authoritative underlying price rather than a discount off Card). | — | — |
 
 ---
 
@@ -446,6 +578,8 @@ These block or shape work as noted. D1–D4 block Phase 1 start; the rest are ne
 | Single-instance host outage | Webhooks retried by Shopify for 48h and deduped on receipt; no event loss |
 | A routine dependency bump raises React Router to 8, breaking the Shopify library's peer range and the Node 20 floor at once | Pin recorded with both reasons in §2.1 and repeated in the §2 stack table; a React Router major bump is an architecture amendment, not a maintenance change. Enforce in `/review-code` on any diff touching `app/package.json` |
 | A later slice "consolidates" webhook receipt onto the Shopify library's `authenticate.webhook`, silently dropping dedup, failed-attempt replay and stale-claim reclaim | §2.1 states the three properties and the failure mode each prevents; the boundary rule survived the D12→D13 rewrite deliberately. Burden of proof is on the consolidating slice |
+| A campaign opens with NO campaign-options document, and the later Group Buy storefront slice cannot render it | The upload is deliberately OPTIONAL at open (nothing consumes it yet: as of 2026-09-26 no route, theme file or domain module outside `app/domain/groupbuy/campaignOptions.*` and the admin routes reads one). The hazard is that uploads are permanently refused once a campaign leaves `draft`, so an already-open campaign can never acquire one — an unrecoverable state discovered only when the storefront ships. The storefront Group Buy slice MUST therefore either tolerate a null options document explicitly, or add the precondition to `openGroupBuyCampaign` BEFORE it ships, while campaigns can still be opened without one. Do not discover this after a real campaign is frozen. |
+| A Card-basis Group Buy line's PAID amount is never persisted, so settlement depends on a live Shopify lookup at close | Confirmed 2026-09-28: `GroupBuyUnitEvent` records participation but no paid amount, and nothing else stores what a Card-basis line actually paid. `gatherGroupBuyPaidLinesForClose` therefore resolves Bank Payment lines from stored data but must query Shopify for Card lines. It correctly surfaces a line it cannot resolve as `unresolved` rather than guessing or dropping it — but a refund that cannot be computed is a customer who is owed money and does not get it. The paid amount is KNOWN at order time, in the `orders/create` handler that already runs. Persisting it there makes settlement self-contained and immune to a later order edit, a deleted order, or Shopify being unavailable at close. Cheap now while that handler is being rewritten; a retrofit later means backfilling from Shopify for every historical line, which is exactly the lookup being removed. **Do this before the first real campaign closes.** |
 
 ---
 
@@ -471,3 +605,94 @@ Reviewed against Shopify-native boundaries, MVP1 scope, evidence/versioning need
 No scaffolding begins until condition 1 is met.
 
 **Amendment 2026-09-15 (D13).** The verdict above stands unchanged. D13 swaps the web framework and the Shopify app library (Remix v2 → React Router 7; `@shopify/shopify-app-remix` → `@shopify/shopify-app-react-router`) without altering any boundary this review assessed: Shopify-native vs custom is untouched; no framework, queue, service or database is added; financial determinism and the money primitives are framework-independent; inbound webhook idempotency stays with our receiver by explicit decision (§2.1); authn/authz, privacy and scopes are unchanged; recurring cost is unchanged (§7 — same single process, same Fly configuration, same ~$50–110/mo). The re-verification obligation it creates is recorded in §9 and in the slice 0 spec's Deferred verification list.
+
+---
+
+## Scheduled jobs — the exact configuration to apply at deploy
+
+**STATUS 2026-09-22: NEITHER JOB IS SCHEDULED, because the app is not
+deployed.** There is no `Dockerfile`, no `fly.toml`, no `render.yaml`;
+`docker-compose.yml` runs Postgres only, and `application_url` in
+`shopify.app.caratforus-development.toml` is an ephemeral
+`trycloudflare.com` tunnel from a `shopify app dev` session.
+
+§"Cron" above is explicit that scheduling is a **platform scheduler calling an
+authenticated internal route**, never an in-process timer, so that the job
+survives a move to multiple instances. A platform scheduler needs a host to
+call. Writing a cron entry today would point at a tunnel that dies with the
+next terminal.
+
+Both jobs are therefore **one step each at deploy**, and this is that step.
+
+### The two jobs
+
+| Job | Route | Cadence | Why |
+|---|---|---|---|
+| Buy Now price recalculation | `POST /internal/jobs/price-recalculation` | **daily** | D15 |
+| Bank Payment guarantee sweep | `POST /internal/jobs/bank-payment-guarantee` | **hourly** | criterion 100 |
+
+Both authenticate on the header `x-carat-cron-secret`, compared
+timing-safely against `CRON_SECRET`. Neither accepts a query parameter, so the
+secret never lands in a log line or a scheduler's URL field.
+
+**Hourly is a floor, not a preference** (criterion 100). The guarantee is 24
+hours; run the sweep daily and an order can sit up to a full day past expiry,
+during which a customer may pay against a quote we intended to withdraw.
+
+### Fly.io
+
+```toml
+# fly.toml
+[[services]] # ... the app service
+
+[processes]
+  app = "npm run start"
+
+# Fly Machines cron — one scheduled machine per job.
+[[schedules]]
+  name     = "price-recalculation"
+  schedule = "0 3 * * *"          # 03:00 UTC daily
+  command  = "curl -fsS -X POST https://$FLY_APP_NAME.fly.dev/internal/jobs/price-recalculation -H \"x-carat-cron-secret: $CRON_SECRET\""
+
+[[schedules]]
+  name     = "bank-payment-guarantee"
+  schedule = "0 * * * *"          # every hour, on the hour
+  command  = "curl -fsS -X POST https://$FLY_APP_NAME.fly.dev/internal/jobs/bank-payment-guarantee -H \"x-carat-cron-secret: $CRON_SECRET\""
+```
+
+### Render
+
+```yaml
+# render.yaml
+services:
+  - type: web
+    name: caratforus
+    # ...
+
+  - type: cron
+    name: price-recalculation
+    schedule: "0 3 * * *"
+    startCommand: >-
+      curl -fsS -X POST $APP_URL/internal/jobs/price-recalculation
+      -H "x-carat-cron-secret: $CRON_SECRET"
+
+  - type: cron
+    name: bank-payment-guarantee
+    schedule: "0 * * * *"
+    startCommand: >-
+      curl -fsS -X POST $APP_URL/internal/jobs/bank-payment-guarantee
+      -H "x-carat-cron-secret: $CRON_SECRET"
+```
+
+### Verifying it after deploy
+
+`curl -fsS` fails the scheduled run on a non-2xx, so a rejected secret or a
+500 surfaces as a failed job rather than a silent no-op. Confirm each job by
+its own evidence rather than the scheduler's green tick:
+
+- recalculation writes a `price_recalculation_run` row per run;
+- the sweep logs `bank_payment.guarantee_sweep_completed` with its counts, and
+  returns them in the response body.
+
+A sweep that runs and finds nothing is indistinguishable from one that never
+ran, if you only look at whether orders were cancelled.

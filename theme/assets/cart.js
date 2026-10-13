@@ -1,0 +1,1341 @@
+/**
+ * The mode-aware cart pricing applier (Stage 2B task 2B-4, R12 §"the theme
+ * applies and re-applies" — docs/specs/SLICE-2B-CART-SURFACE-INVENTORY.md).
+ *
+ * THE SINGLE PRICE SOURCE IS THE SERVER. This module never computes,
+ * selects, or otherwise decides a price — every `data-carat-money` kind
+ * below is a direct read of one field the proxy response already carries
+ * (see selectDisplayMinorUnits' own comment). It POSTs the cart's lines and
+ * payment mode to `/apps/carat/cart` (the App Proxy route at
+ * app/app/routes/apps.carat.cart.tsx) and writes the figures that route
+ * returns into the DOM nodes 2B-3's Liquid marks with `data-carat-money`.
+ * R12's original fixed DOM contract named four mode-toggled kinds —
+ * `line-unit`, `line-total`, `cart-subtotal`, `cart-total` — keyed by
+ * `data-carat-line-id` where per-line; 2B-3's owner §3 amendment added six
+ * more, non-toggled ones for the simultaneous Card/Bank/saving breakdown —
+ * see selectDisplayMinorUnits' own comment for the full ten-kind list. Every
+ * money figure a customer sees on a cart surface traces
+ * back to `priceCart`, which is typed, money-safety-scanned and unit tested
+ * server-side — this file only formats and places already-decided integers,
+ * using plain string/integer manipulation on the minor-units string so no
+ * floating point ever touches a money value here either (CLAUDE.md
+ * principle 6, extended to the theme even though check-money-safety.mjs
+ * only walks app/tests/prisma today).
+ *
+ * WHY THIS IS THE ONLY THING THAT WRITES THESE NODES. Dawn re-renders cart
+ * sections through the Section Rendering API (this file's own
+ * getSectionsToRender/updateQuantity/onCartUpdate, and assets/cart-drawer.js
+ * — two separate implementations there, both call in here) and swaps
+ * `innerHTML` with fresh SERVER-RENDERED markup that is always Card-basis
+ * (L1: there is no mode-aware Shopify cart object to read instead). A
+ * surface "fixed" once and not re-applied after the next swap silently
+ * reverts to Card pricing on the next quantity change — L3's whole point.
+ * So every call site in this theme that replaces cart money markup calls
+ * `apply()` again afterward. `apply()` re-scans the WHOLE document by
+ * attribute rather than a specific section list, which is what makes it
+ * correct regardless of which of the several different
+ * `getSectionsToRender()` variants fired, or which unrelated component
+ * (product-form add-to-cart, quick-add, quick-order-list, the Standard
+ * Actions refresh path) triggered the swap.
+ *
+ * PENDING / FAIL-SAFE (the R12 cost). In Bank mode the Liquid renders a
+ * money node pending (`data-carat-mode-pending`) because the server-rendered
+ * value under it is Card-basis and must never be shown to a Bank-mode
+ * customer, even briefly. This module clears that attribute only once it
+ * has written a real mode-correct figure. If the proxy call fails, pending
+ * nodes are left pending AND given a plain-language error state — the Card
+ * figure underneath must never be revealed just because the correction
+ * failed.
+ *
+ * NO CLIENT-SIDE STATE. `apply()` always re-reads the `carat_payment_mode`
+ * cart attribute from a fresh cart fetch (or from an already-fresh AJAX
+ * response a caller passes in) rather than caching mode in a JS variable,
+ * and always asks the server to price the CURRENT cart from scratch. That is
+ * what makes repeated Bank <-> Card switching safe: there is nothing
+ * client-side to compound or double-apply.
+ */
+window.CaratCartPricing = (function () {
+  var PROXY_PATH = '/apps/carat/cart';
+  var MODE_ATTRIBUTE = 'carat_payment_mode';
+  var DEFAULT_MODE = 'card';
+  var MONEY_SELECTOR = '[data-carat-money]';
+  var CURRENCY_SYMBOLS = { USD: '$' };
+
+  // Guards against an in-flight apply() resolving AFTER a later one and
+  // overwriting a newer (correct) state with a stale one — e.g. two quick
+  // successive quantity changes whose responses arrive out of order.
+  var requestSequence = 0;
+
+  function currencySymbol(currency) {
+    return CURRENCY_SYMBOLS[currency] || currency + ' ';
+  }
+
+  // Formats an integer minor-units DECIMAL STRING (e.g. "123450") for
+  // display. Pure string/integer manipulation — never converts the value to
+  // a floating-point number, so there is no rounding hazard between what the
+  // server decided and what is shown.
+  function formatMoneyFromMinorUnits(minorUnitsString, currency) {
+    if (typeof minorUnitsString !== 'string' || !/^-?\d+$/.test(minorUnitsString)) return null;
+
+    var negative = minorUnitsString.charAt(0) === '-';
+    var digits = negative ? minorUnitsString.slice(1) : minorUnitsString;
+    var padded = digits.length < 3 ? digits.padStart(3, '0') : digits;
+    var dollars = padded.slice(0, -2);
+    var cents = padded.slice(-2);
+    var groupedDollars = dollars.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+    return (negative ? '-' : '') + currencySymbol(currency) + groupedDollars + '.' + cents;
+  }
+
+  function readModeFromCart(cart) {
+    var mode = cart && cart.attributes && cart.attributes[MODE_ATTRIBUTE];
+    return mode === 'bank' ? 'bank' : DEFAULT_MODE;
+  }
+
+  function buildRequestLines(cart) {
+    var items = (cart && cart.items) || [];
+    return items.map(function (item) {
+      return {
+        lineId: String(item.key),
+        shopifyVariantId: String(item.variant_id != null ? item.variant_id : item.id),
+        quantity: item.quantity,
+      };
+    });
+  }
+
+  function fetchCart() {
+    var cartUrl = (typeof routes !== 'undefined' && routes && routes.cart_url) || '/cart';
+    return fetch(cartUrl + '.js', { headers: { Accept: 'application/json' } }).then(function (response) {
+      if (!response.ok) throw new Error('CaratCartPricing: cart fetch failed with status ' + response.status);
+      return response.json();
+    });
+  }
+
+  function fetchPricing(mode, lines) {
+    return fetch(PROXY_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ mode: mode, lines: lines }),
+    }).then(function (response) {
+      if (!response.ok) throw new Error('CaratCartPricing: proxy responded with status ' + response.status);
+      return response.json();
+    });
+  }
+
+  // Finds a line REGARDLESS of purchasability. findPurchasableLine below
+  // deliberately returns null for an unpurchasable line, which is right for
+  // choosing a figure to display and wrong for deciding whether the line
+  // exists at all. Conflating the two is what left unpurchasable lines
+  // showing "Calculating your price…" forever — see setNodeUnpurchasableState.
+  function findLineById(dto, lineId) {
+    for (var i = 0; i < dto.lines.length; i++) {
+      if (dto.lines[i].lineId === lineId) return dto.lines[i];
+    }
+    return null;
+  }
+
+  // A line the proxy resolved and marked NOT purchasable — no published
+  // CaratForUs price for that variant. This is a TERMINAL state, not a slow
+  // one: no later apply() will ever produce a figure for it, so leaving the
+  // "Calculating your price…" placeholder in place means a permanent loading
+  // spinner standing in for "we cannot price this".
+  //
+  // Found by the first real browser run of this surface (2026-09-25), which
+  // only became possible once the store-level App Proxy subpath was corrected
+  // from carat-1 to carat. No wrong price was ever displayed, so this was
+  // never a money defect — it hid an unpurchasable state behind a spinner.
+  //
+  // NOT flagged with data-carat-mode-error and NOT logged as an error: an
+  // unsynced variant is a legitimate, expected state, and treating it as a
+  // fault would bury real faults in noise. It carries its own attribute so a
+  // test or a future surface can tell the two apart.
+  //
+  // OWNER-APPROVED COPY, 2026-09-25 — replaces the earlier borrowed
+  // `price_unavailable` string, whose "Please refresh." tail was flagged as a
+  // poor fit for a TERMINAL state (no refresh ever fixes it). Both pieces
+  // pinned character-for-character in `theme/locales/en.default.json`'s
+  // `sections.cart.pricing.item_unavailable_heading` /
+  // `.item_unavailable_supporting_text`.
+  //
+  // ONE SENTENCE PER LINE, NOT PER NODE (architect correction, 2026-09-25,
+  // after looking at the live theme). This function runs independently on
+  // EVERY `data-carat-money` node bound to an unpurchasable line — up to
+  // four per line on the cart page (line-unit, line-card, line-bank,
+  // line-saving) — and an earlier revision gave every one of them the full
+  // heading + sentence, which repeated the same explanation four times in a
+  // row for one item and read as broken rather than informative. The FIX:
+  // `kind` (the node's own `data-carat-money` value, already known by every
+  // caller) decides how much text a given node gets. `line-unit` — the ONE
+  // per-line kind confirmed to appear EXACTLY once per line on both surfaces
+  // (`grep -c 'data-carat-money="line-unit"'` returns 1 in both
+  // sections/main-cart-items.liquid and snippets/cart-drawer.liquid, unlike
+  // e.g. line-total, which is deliberately duplicated across responsive
+  // columns and would have repeated the sentence right back if chosen
+  // instead) — carries heading + supporting sentence, exactly as before.
+  // Every other per-line kind carries the heading ALONE: "Price unavailable"
+  // in the Bank Payment Price slot answers exactly what that field would
+  // have shown; the explanation of what to do about it belongs once, not
+  // beside every figure. Cart-level kinds (cart-subtotal, cart-total,
+  // cart-card-total, cart-bank-total, cart-saving) never reach this function
+  // at all — `resolvedLine.purchasable === false` is a per-LINE flag, so
+  // this call site only ever fires for per-line kinds.
+  //
+  // Heading in a `<strong>` (needs no new CSS — bold is the native UA
+  // default, and every node this runs on is already a bare, unstyled inline
+  // span). No new wrapper element on any node, so this still cannot change
+  // the surrounding cart layout beyond occasional line-wrapping of text that
+  // used to fit on one line.
+  //
+  // NEVER THE NATIVE SHOPIFY PRICE, STILL. This function has never read
+  // `variant.price`/`item.final_line_price`/any other native field and does
+  // not start now — the money-critical rule stays: no CaratForUs price means
+  // no price shown, not someone else's number standing in for ours.
+  //
+  // NO INTERNAL REASON ANYWHERE A CUSTOMER CAN READ IT. Neither string below
+  // names a cause (sync, mapping, calculation, database) — only the ONE
+  // customer-facing fact, that the item cannot currently be bought. The
+  // `data-carat-unpurchasable` attribute this function sets is a bare
+  // boolean flag, same as before; the actual reason, if any is ever logged,
+  // stays server-side/console-only, never written into the DOM.
+  function setNodeUnpurchasableState(node, kind) {
+    node.setAttribute('data-carat-unpurchasable', 'true');
+    var strings = window.cartStrings || {};
+    var heading = strings.caratItemUnavailableHeading || 'Price unavailable';
+
+    node.textContent = '';
+    var headingEl = document.createElement('strong');
+    headingEl.textContent = heading;
+    node.appendChild(headingEl);
+
+    if (kind === 'line-unit') {
+      var supportingText =
+        strings.caratItemUnavailableSupportingText ||
+        'This item is not currently available for purchase. Please check back later or contact us for assistance.';
+      node.appendChild(document.createTextNode(' ' + supportingText));
+    }
+  }
+
+  function findPurchasableLine(dto, lineId) {
+    for (var i = 0; i < dto.lines.length; i++) {
+      if (dto.lines[i].purchasable && dto.lines[i].lineId === lineId) return dto.lines[i];
+    }
+    return null;
+  }
+
+  // Picks the minor-units figure a given money node should display. Returns
+  // null when the node cannot be resolved (e.g. a line the proxy marked
+  // unpurchasable, an unrecognized kind, or a stale/removed line id) —
+  // callers leave such a node untouched rather than guessing at a figure.
+  //
+  // TEN kinds total (R12, amended by 2B-3's owner §3 addendum —
+  // docs/specs/SLICE-2B-CART-SURFACE-INVENTORY.md, cartR12DomContract.test.ts
+  // VALID_CARAT_MONEY_VALUES is the authoritative enum this must stay in
+  // sync with): the original four active-mode figures (line-unit,
+  // line-total, cart-subtotal, cart-total — mode-toggled), plus owner §3's
+  // simultaneous, non-toggled Card/Bank/saving breakdown shown regardless of
+  // the cart's current mode (line-card, line-bank, line-saving at line
+  // scope; cart-card-total, cart-bank-total, cart-saving at cart scope).
+  //
+  // EVERY ONE OF THESE IS A DIRECT DTO FIELD READ. No selection, no
+  // eligibility branch, no arithmetic of any kind lives in this function.
+  // line-card/line-bank used to read the eligibility-aware unit price via a
+  // branch here (`bankPaymentDiscountEligible ? bank : card`) — that
+  // reimplemented owner §18's eligibility rule client-side, which is exactly
+  // the kind of duplication CLAUDE.md principle 3 forbids: the rule already
+  // lives in priceCartLine (app/app/domain/cart/pricing.ts), which sets
+  // lineBankBasisTotalMinorUnits equal to lineCardBasisTotalMinorUnits for
+  // an ineligible line BY CONSTRUCTION, so reading lineBankBasisTotalMinorUnits
+  // unconditionally is already correct for both eligible and ineligible
+  // lines — the branch was correct but redundant, and was deleted rather
+  // than kept "just in case" (team lead ruling, 2026-09-19: "every
+  // eligibility decision now lives in one place... the client just renders
+  // what it is given"). lineCardBasisTotalMinorUnits/lineBankBasisTotalMinorUnits
+  // are also quantity-extended, the same scale as lineBankPaymentSavingsMinorUnits,
+  // so line-card minus line-bank now equals line-saving on screen at any
+  // quantity — the scale mismatch flagged in an earlier revision of this
+  // file is resolved, not just hidden.
+  function selectDisplayMinorUnits(dto, kind, lineId) {
+    switch (kind) {
+      case 'cart-subtotal':
+      case 'cart-total':
+        return dto.activeMerchandiseTotalMinorUnits;
+      case 'cart-card-total':
+        return dto.cardMerchandiseTotalMinorUnits;
+      case 'cart-bank-total':
+        return dto.bankMerchandiseTotalMinorUnits;
+      case 'cart-saving':
+        return dto.bankPaymentSavingsMinorUnits;
+      case 'line-unit':
+      case 'line-total':
+      case 'line-card':
+      case 'line-bank':
+      case 'line-saving': {
+        var line = findPurchasableLine(dto, lineId);
+        if (!line) return null;
+        if (kind === 'line-unit') return line.activeUnitPriceMinorUnits;
+        if (kind === 'line-total') return line.lineActiveTotalMinorUnits;
+        if (kind === 'line-card') return line.lineCardBasisTotalMinorUnits;
+        if (kind === 'line-bank') return line.lineBankBasisTotalMinorUnits;
+        return line.lineBankPaymentSavingsMinorUnits;
+      }
+      default:
+        // Unreachable from applyDtoToDocument, which gates on
+        // VALID_CARAT_MONEY_KINDS before ever calling this function —
+        // undefined (not null) so a caller that skips that gate gets the
+        // "missing field on an otherwise-resolved DTO" loud-failure
+        // treatment rather than the "line not found, try again" one.
+        return undefined;
+    }
+  }
+
+  // The authoritative ten (cartR12DomContract.test.ts's VALID_CARAT_MONEY_VALUES
+  // is the source of truth this must stay in sync with).
+  var VALID_CARAT_MONEY_KINDS = [
+    'line-unit',
+    'line-total',
+    'cart-subtotal',
+    'cart-total',
+    'line-card',
+    'line-bank',
+    'line-saving',
+    'cart-card-total',
+    'cart-bank-total',
+    'cart-saving',
+  ];
+
+  // Puts one node into the same visible, non-price error state used on a
+  // fetch/proxy failure. `logMessage`, when given, is logged distinctly from
+  // apply()'s own fetch-failure log so the two failure modes (a request that
+  // failed vs. a value this file does not know how to display) are
+  // distinguishable in the console rather than reading as the same error.
+  //
+  // DELIBERATELY KEEPS THE OLD `price_unavailable` STRING RATHER THAN
+  // ADOPTING setNodeUnpurchasableState's NEW OWNER-APPROVED COPY (2026-09-25
+  // decision, recorded because the task that added the new copy asked
+  // explicitly not to silently make one string serve two meanings). Every
+  // caller of THIS function is a different kind of problem than "the item is
+  // not for sale": an unrecognized data-carat-money value (a theme bug), a
+  // recognized kind whose field is missing from an otherwise-resolved DTO (a
+  // server bug), a non-numeric minor-units value (a server bug), or a failed
+  // apply() request (markPendingNodesAsFailed — often a genuinely TRANSIENT
+  // network/proxy hiccup, unlike setNodeUnpurchasableState's terminal case).
+  // "This item is not currently available for purchase" would be WRONG for
+  // all four — it asserts something about the ITEM when the actual fault is
+  // in this file's own pipeline, and for the transient case specifically,
+  // "Please refresh." is an accurate instruction this function's callers
+  // still deserve, not a poor fit the way it was for the terminal state. No
+  // owner-approved replacement exists for THIS case, so none is invented
+  // here — see `window.cartStrings.caratPriceUnavailable` (theme.liquid)
+  // for the string this still reads, unchanged.
+  function setNodeErrorState(node, logMessage) {
+    node.setAttribute('data-carat-mode-error', 'true');
+    // Not localized — this task owns JS only, and the theme's locale JSON is
+    // out of scope for it. Flagged in the 2B-4 handoff for an owner/locale
+    // decision rather than silently guessed at here.
+    node.textContent =
+      (window.cartStrings && window.cartStrings.caratPriceUnavailable) || 'Price unavailable. Please refresh.';
+    if (logMessage && typeof console !== 'undefined' && console.error) {
+      console.error('[CaratCartPricing] ' + logMessage);
+    }
+  }
+
+  function applyDtoToDocument(dto) {
+    // L3 applies to every "hidden while the cart is in Bank mode" control
+    // exactly as it does to money: a full drawer/notification innerHTML
+    // replacement (add-to-cart, quick-add, ...) re-renders such a control
+    // from Liquid's OWN snapshot of `cart.attributes.carat_payment_mode` at
+    // THAT render's request time — which can be stale by the time this
+    // apply() call resolves (e.g. product-form.js's Bank-flavored add calls
+    // setPaymentMode('bank') BEFORE CartDrawer#renderContents() swaps in a
+    // response whose sections were rendered from the PRE-switch cart; a PDP
+    // has no equivalent re-render at all, so the F1 dynamic-checkout wrapper
+    // would otherwise never correct itself post-add). Driven here,
+    // unconditionally, from dto.mode on every apply() — the
+    // server-authoritative mode this whole file already treats as ground
+    // truth — so both controls self-correct after every swap the same way
+    // money nodes do, rather than needing every call site to remember to
+    // re-sync them separately. syncModeRedundantControls is what makes this
+    // "derive from the DTO, not patch the one call site that found the bug"
+    // (team-lead ruling, 2026-09-19) apply to any FUTURE such control too —
+    // add its selector there, not a third copy of this branch.
+    if (dto && (dto.mode === 'bank' || dto.mode === 'card')) {
+      syncModeRedundantControls(dto.mode);
+    }
+
+    // The Card Checkout confirm panel does NOT get the same treatment: its
+    // correct resting state is not a pure function of mode (a card-mode
+    // customer who never touched Bank Payment must never see it), so it
+    // stays the sole responsibility of the one confirmed interception that
+    // reveals it — see revealCardCheckoutConfirm's own comment. That control
+    // CAN go stale across a full drawer replacement in the same way; tracked
+    // as a named gap in the 2B-5 handoff rather than "fixed" by relaxing the
+    // rule that protects the more common case.
+
+    var nodes = document.querySelectorAll(MONEY_SELECTOR);
+    nodes.forEach(function (node) {
+      var kind = node.getAttribute('data-carat-money');
+
+      // LOUD FAILURE BY DESIGN (team lead correction, 2026-09-19): an
+      // unrecognized data-carat-money value must never sit pending forever
+      // showing "Calculating…" as if nothing were wrong — that is the exact
+      // silent-miss shape the C4 inventory exists to prevent, reproduced at
+      // the level of one attribute value instead of one file. It must also
+      // never fall through to some OTHER kind's figure; showing the wrong
+      // price is worse than showing none.
+      if (VALID_CARAT_MONEY_KINDS.indexOf(kind) === -1) {
+        setNodeErrorState(node, 'unrecognized data-carat-money value "' + kind + '" has no display mapping');
+        return;
+      }
+
+      var lineId = node.getAttribute('data-carat-line-id');
+      var minorUnits = selectDisplayMinorUnits(dto, kind, lineId);
+
+      // NULL is the one legitimate "not yet" case: a per-line kind whose
+      // line isn't resolvable right now (a stale/removed line id, or one
+      // the proxy marked unpurchasable) — left pending, not erred, because
+      // the NEXT apply() call (already scheduled by the same cart mutation)
+      // corrects it. selectDisplayMinorUnits returns this literal `null`
+      // ONLY from its "line not found" branches.
+      if (minorUnits === null) {
+        // Terminal vs transient. A line that IS present in the DTO and is
+        // explicitly unpurchasable will never resolve; anything else (a
+        // stale or removed line id) genuinely may on the next apply().
+        var resolvedLine = lineId ? findLineById(dto, lineId) : null;
+        if (resolvedLine && resolvedLine.purchasable === false) {
+          setNodeUnpurchasableState(node, kind);
+        }
+        return;
+      }
+
+      // UNDEFINED means something different and worse: a recognized kind
+      // whose line (or the cart-level DTO itself) WAS found, but the
+      // specific field this kind reads is missing from it — an upstream
+      // fault (a malformed/incomplete proxy response), never patched over
+      // with a different field's figure (team lead ruling, 2026-09-19: "if
+      // lineBankBasisTotalMinorUnits is ever absent, that is an upstream
+      // fault and should hit your loud-failure path, not be patched over
+      // with the card figure").
+      if (minorUnits === undefined) {
+        setNodeErrorState(node, 'kind "' + kind + '" resolved to a missing field on an otherwise-resolved DTO');
+        return;
+      }
+
+      var formatted = formatMoneyFromMinorUnits(minorUnits, dto.currency);
+      if (formatted == null) {
+        setNodeErrorState(node, 'kind "' + kind + '" resolved to a non-numeric minor-units value: ' + minorUnits);
+        return;
+      }
+
+      // cart-live-region-text.liquid (A4/L2) carries a localized label and
+      // expects the applying JS to compose "<label>: <amount>" rather than
+      // the bare figure, so the announcement reads as a sentence rather than
+      // a lone dollar amount.
+      var liveRegionLabel = node.getAttribute('data-carat-live-region-label');
+      node.textContent = liveRegionLabel ? liveRegionLabel + ': ' + formatted : formatted;
+      node.removeAttribute('data-carat-mode-pending');
+      node.removeAttribute('data-carat-mode-error');
+    });
+  }
+
+  // Failure path (R12: "never show a Card figure ... even for 200ms"). Only
+  // nodes still marked pending are touched — a pending node's underlying
+  // server-rendered content is Card-basis and must stay hidden/replaced; a
+  // non-pending node (Card mode, or an ineligible line) already shows a
+  // figure that was safe to render on the server and is left alone.
+  function markPendingNodesAsFailed() {
+    var nodes = document.querySelectorAll('[data-carat-money][data-carat-mode-pending]');
+    nodes.forEach(function (node) {
+      setNodeErrorState(node);
+    });
+  }
+
+  function apply(options) {
+    options = options || {};
+    var sequence = ++requestSequence;
+
+    var cartPromise = options.cart ? Promise.resolve(options.cart) : fetchCart();
+
+    return cartPromise
+      .then(function (cart) {
+        var mode = readModeFromCart(cart);
+        var lines = buildRequestLines(cart);
+        return fetchPricing(mode, lines);
+      })
+      .then(function (dto) {
+        if (sequence !== requestSequence) return; // superseded by a later apply()
+        applyDtoToDocument(dto);
+      })
+      .catch(function (error) {
+        if (sequence !== requestSequence) return;
+        markPendingNodesAsFailed();
+        if (typeof console !== 'undefined' && console.error) {
+          console.error('[CaratCartPricing] apply() failed', error);
+        }
+      });
+  }
+
+  // ===========================================================================
+  // MODE SWITCHING AND CARD CHECKOUT INTERCEPTION (Stage 2B task 2B-5, owner
+  // §19/§20 — docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md).
+  //
+  // THE PROPERTY THIS SECTION EXISTS TO PROVE: a customer cannot end up
+  // seeing one pricing basis while being charged another, through any
+  // sequence of switching, adding, changing quantity or reloading. Every
+  // function below either (a) tells Shopify's OWN cart what the mode is, via
+  // the `carat_payment_mode` attribute written through /cart/update.js — the
+  // one and only place mode is stored — or (b) reads that attribute back
+  // through fetchCart()/apply(), same as every other path in this file.
+  // Nothing here keeps its own notion of "the current mode" between calls.
+  // ===========================================================================
+
+  var CARD_CHECKOUT_ACTION_SELECTOR = '[data-carat-checkout-action="card"]';
+  var CARD_CHECKOUT_CONFIRM_SELECTOR = '[data-carat-card-checkout-confirm]';
+  var SWITCH_TO_BANK_WRAPPER_SELECTOR = '[data-carat-payment-mode-action-wrapper]';
+  var SWITCH_TO_BANK_BUTTON_SELECTOR = '[data-carat-payment-mode-action="bank"]';
+  // F1 (docs/specs/SLICE-2B-CART-SURFACE-INVENTORY.md) — buy-buttons.liquid's
+  // accelerated/dynamic checkout wrapper. Same visibility rule as the
+  // switch-to-bank wrapper above (hidden while Bank mode, visible
+  // otherwise), so it is driven by the same syncModeRedundantControls below
+  // rather than a third bespoke pair of functions.
+  var DYNAMIC_CHECKOUT_WRAPPER_SELECTOR = '[data-carat-dynamic-checkout-wrapper]';
+
+  // Extracts one element's innerHTML out of a Section Rendering API HTML
+  // string, mirroring getSectionInnerHTML() on CartItems/CartDrawer/
+  // CartNotification below — duplicated rather than shared because those are
+  // instance methods on classes this IIFE runs before any are defined.
+  function extractSectionInnerHTML(sectionHtml, selector) {
+    var parsed = new DOMParser().parseFromString(sectionHtml, 'text/html').querySelector(selector);
+    return parsed ? parsed.innerHTML : null;
+  }
+
+  // Resting state: the plain Card Checkout button is the only checkout
+  // action visible, and the "your cart just repriced to Card" panel is gone.
+  // NEVER touches `disabled` — main-cart-footer.liquid/cart-drawer.liquid
+  // already render `disabled` on this button for an EMPTY cart, and blindly
+  // clearing it here would silently re-enable checkout on an empty cart.
+  // `hidden` alone is sufficient: it removes the element from the
+  // accessibility tree, tab order and click surface.
+  function hideCardCheckoutConfirm() {
+    document.querySelectorAll(CARD_CHECKOUT_CONFIRM_SELECTOR).forEach(function (panel) {
+      panel.setAttribute('hidden', '');
+    });
+    document.querySelectorAll(CARD_CHECKOUT_ACTION_SELECTOR).forEach(function (button) {
+      button.removeAttribute('hidden');
+    });
+  }
+
+  // The one moment this is shown: immediately after a Bank-mode Card
+  // Checkout click has actually repriced the cart to Card (see
+  // handleCardCheckoutSubmit below). Never driven by apply()/mode alone —
+  // an ordinary Card-mode customer who never touched Bank Payment must never
+  // see this gate, so nothing calls this except that one confirmed
+  // transition.
+  function revealCardCheckoutConfirm() {
+    document.querySelectorAll(CARD_CHECKOUT_CONFIRM_SELECTOR).forEach(function (panel) {
+      panel.removeAttribute('hidden');
+    });
+    document.querySelectorAll(CARD_CHECKOUT_ACTION_SELECTOR).forEach(function (button) {
+      button.setAttribute('hidden', '');
+    });
+  }
+
+  // Owner ruling, 2026-09-19: Card -> Bank is asymmetric with Bank -> Card
+  // on purpose. Bank -> Card RAISES what the customer pays, so it is gated
+  // behind the reprice-confirm panel above (owner §19). Card -> Bank only
+  // ever LOWERS it, so `data-carat-payment-mode-action="bank"` needs no
+  // confirmation at all — one plain button, one click, handled entirely by
+  // handleSwitchToBankClick below.
+  //
+  // Both this wrapper and the F1 dynamic-checkout wrapper are redundant (or
+  // outright unsafe — see F1's own comment in buy-buttons.liquid) while the
+  // cart is already in Bank mode, and both are rendered `hidden` at that
+  // point per each file's own DOM contract test. Grouped into one pair of
+  // functions — team-lead ruling, 2026-09-19: "derive its hidden state from
+  // the DTO's mode on every apply()... rather than depending on one call
+  // site remembering" — rather than one bespoke pair per control, so a
+  // FUTURE control with the identical "hidden only in Bank mode" rule is a
+  // one-line addition to MODE_REDUNDANT_IN_BANK_SELECTORS, not a new pair of
+  // functions and a new call site to remember. Unlike the checkout-confirm
+  // panel, both these controls' visibility is a plain function of the
+  // CURRENT mode, not a one-shot reveal tied to a single interception.
+  //
+  // 2026-09-24 UPDATE: mode is no longer the ONLY input for the F1
+  // dynamic-checkout wrapper specifically — see the Luxury Steals comment on
+  // `isDynamicCheckoutLuxuryStealGateOpen` immediately below. The switch-to-
+  // bank wrapper is unaffected; this array still lists both together because
+  // `hideModeRedundantControls` genuinely treats them identically.
+  var MODE_REDUNDANT_IN_BANK_SELECTORS = [SWITCH_TO_BANK_WRAPPER_SELECTOR, DYNAMIC_CHECKOUT_WRAPPER_SELECTOR];
+
+  // LUXURY STEALS, OWNER RULING 2026-09-24 (Slice 3 task 3-5 follow-up) --
+  // "we don't display any payment method or allow anything to happen until
+  // it is acknowledged." The F1 dynamic-checkout wrapper can now be hidden
+  // for TWO INDEPENDENT reasons: Bank mode (this section's original,
+  // unrelated rule) and an unacknowledged Luxury Steal
+  // (`buy-buttons.liquid`'s own comment explains the render-time half).
+  // `hideModeRedundantControls` below is UNCHANGED and needs no Luxury Steal
+  // awareness — hiding is always safe regardless of WHICH reason applies, or
+  // whether both do. Only the reveal direction is a hazard: unconditionally
+  // clearing `hidden` here would silently re-expose a payment method the
+  // customer has not agreed to Final Sale terms for, the moment ANY
+  // unrelated mode-switch interaction elsewhere on the page (e.g. the cart
+  // drawer's Card Checkout button) calls back into this function. So the
+  // dynamic-checkout wrapper's own reveal is gated by
+  // `data-carat-ls-gate-required`/`data-carat-ls-acknowledged` --
+  // `assets/luxury-steal-gate.js` owns writing the latter and calls the
+  // PUBLIC `apply()` (never these internals) to ask for a recompute once it
+  // changes, so this one function stays the single place either trigger's
+  // "should this be visible right now" question gets answered — never two
+  // copies of the decision that could disagree.
+  function isDynamicCheckoutLuxuryStealGateOpen(wrapper) {
+    if (wrapper.getAttribute('data-carat-ls-gate-required') !== 'true') return true;
+    return wrapper.getAttribute('data-carat-ls-acknowledged') === 'true';
+  }
+
+  function hideModeRedundantControls() {
+    MODE_REDUNDANT_IN_BANK_SELECTORS.forEach(function (selector) {
+      document.querySelectorAll(selector).forEach(function (wrapper) {
+        wrapper.setAttribute('hidden', '');
+      });
+    });
+  }
+
+  function showModeRedundantControls() {
+    document.querySelectorAll(SWITCH_TO_BANK_WRAPPER_SELECTOR).forEach(function (wrapper) {
+      wrapper.removeAttribute('hidden');
+    });
+    document.querySelectorAll(DYNAMIC_CHECKOUT_WRAPPER_SELECTOR).forEach(function (wrapper) {
+      // Composed, not overwritten (see the comment above): leave `hidden`
+      // exactly as it is when the Luxury Steal gate is not yet satisfied,
+      // rather than clearing it and letting `luxury-steal-gate.js` fight to
+      // put it back.
+      if (isDynamicCheckoutLuxuryStealGateOpen(wrapper)) {
+        wrapper.removeAttribute('hidden');
+      }
+    });
+  }
+
+  // Single dispatcher so applyDtoToDocument (L3's self-correction) and every
+  // direct mode-switch caller share one "what does mode X mean for these
+  // controls" decision rather than each re-deriving it.
+  function syncModeRedundantControls(mode) {
+    if (mode === 'bank') {
+      hideModeRedundantControls();
+    } else {
+      showModeRedundantControls();
+    }
+  }
+
+  // Writes `carat_payment_mode` through /cart/update.js — the single place
+  // this attribute is ever set — then reprices the WHOLE document from the
+  // resulting cart via apply(), exactly as any other apply() caller does.
+  //
+  // Also refreshes main-cart-footer's server-rendered HTML when that section
+  // is on the page, and ONLY that section: it is the one cart-page surface
+  // whose Liquid actually branches on `cart.attributes.carat_payment_mode`
+  // (the L4 accelerated-checkout suppression around
+  // content_for_additional_checkout_buttons — verified by grep, not
+  // assumed). Every other A-surface's money nodes are always-pending
+  // (R12) and neither read nor branch on the mode attribute in Liquid, so
+  // apply() alone is sufficient to bring them current; re-fetching their
+  // markup on every mode switch would be a needless round trip. The
+  // cart-drawer's own Card Checkout confirm panel is handled the same way
+  // apply() handles drawer money nodes — hideCardCheckoutConfirm/
+  // revealCardCheckoutConfirm query the WHOLE document, so the drawer's
+  // (unreplaced) nodes are covered for free without a drawer-specific fetch.
+  //
+  // Switching TO bank mode also resets the Card Checkout confirm gate to its
+  // resting state — this is what stops a stale "your cart repriced to Card"
+  // panel (left over from an earlier bank->card interception this session)
+  // from surviving a later switch back to Bank mode via a fresh Add to Cart
+  // with Bank Payment Discount. Switching to card mode does NOT reveal the
+  // gate itself — that stays the sole responsibility of
+  // handleCardCheckoutSubmit, which is the only caller allowed to decide
+  // "this transition was a Bank Checkout interception".
+  function setPaymentMode(mode) {
+    var footerEl = document.getElementById('main-cart-footer');
+    var body = { attributes: {} };
+    body.attributes[MODE_ATTRIBUTE] = mode;
+    if (footerEl) {
+      body.sections = [footerEl.dataset.id];
+      body.sections_url = window.location.pathname;
+    }
+
+    var updateUrl = (typeof routes !== 'undefined' && routes && routes.cart_update_url) || '/cart/update.js';
+
+    return fetch(updateUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(function (response) {
+        if (!response.ok) throw new Error('CaratCartPricing: setPaymentMode failed with status ' + response.status);
+        return response.json();
+      })
+      .then(function (cart) {
+        if (cart && cart.errors) {
+          throw new Error('CaratCartPricing: setPaymentMode returned cart errors: ' + JSON.stringify(cart.errors));
+        }
+
+        if (footerEl && cart && cart.sections && cart.sections[footerEl.dataset.id]) {
+          var refreshedFooter = extractSectionInnerHTML(cart.sections[footerEl.dataset.id], '#main-cart-footer');
+          if (refreshedFooter != null) footerEl.innerHTML = refreshedFooter;
+        }
+
+        // apply() (via applyDtoToDocument) already syncs the switch-to-bank
+        // control to dto.mode unconditionally — see that function's own
+        // comment for why driving it from the DTO there, rather than from
+        // `mode` here, is what makes it self-correct after a later stale
+        // drawer/notification replacement too. Only the Card Checkout
+        // confirm gate remains this function's own responsibility, because
+        // its correct resting state is NOT a pure function of mode.
+        return apply({ cart: cart }).then(function () {
+          if (mode === 'bank') hideCardCheckoutConfirm();
+          return cart;
+        });
+      });
+  }
+
+  // Owner §19's second sentence, and the whole reason this section exists:
+  // "the cart/order must reprice to Regular/Card pricing before payment and
+  // show the updated total" — a promise about the customer's own
+  // understanding of their order, not about the amount Shopify charges.
+  // Shopify's native checkout submit already ONLY EVER charges the
+  // published Card price for this button (unmodified, unconditional on any
+  // cart attribute) — that half of owner §19 ("never complete a card
+  // payment at Bank pricing") already holds with no code here at all. This
+  // listener exists purely to satisfy the OTHER half.
+  //
+  // A WeakSet, not a boolean, because more than one Card Checkout button can
+  // exist in the document at once (cart page + drawer), each needing its own
+  // independent one-shot bypass.
+  var checkoutInterceptBypass = new WeakSet();
+
+  function handleCardCheckoutSubmit(event) {
+    var submitter = event.submitter;
+    // `data-carat-checkout-action="card-confirm"` (the second, explicit
+    // action in the confirm panel) is deliberately NOT matched here — per
+    // its own Liquid contract, it never needs interception, because by the
+    // time it is reachable the cart is already in Card mode.
+    if (!submitter || submitter.getAttribute('data-carat-checkout-action') !== 'card') return;
+
+    // Our own programmatic resubmission (the "already Card mode" branch
+    // below) re-dispatches a real submit event through the same submitter
+    // so the browser performs its normal navigation — this is what lets it
+    // through exactly once rather than looping back into this same check.
+    if (checkoutInterceptBypass.delete(submitter)) return;
+
+    var form = event.target;
+    event.preventDefault();
+
+    // Returned (rather than fire-and-forget) so callers — including the
+    // Vitest sandbox harness under app/app/theme/ — can await completion.
+    // The real 'submit' event dispatch ignores a listener's return value, so
+    // this changes nothing about production behaviour.
+    return fetchCart()
+      .then(function (cart) {
+        if (readModeFromCart(cart) !== 'bank') {
+          // Nothing to intercept: submit exactly as Dawn's own button does.
+          // `requestSubmit` (not `.submit()`) preserves the submitter's
+          // name/value pair (`name="checkout"`), which `.submit()` would
+          // silently drop — that field is what tells Shopify's cart form to
+          // proceed to checkout rather than just posting a plain update.
+          checkoutInterceptBypass.add(submitter);
+          form.requestSubmit(submitter);
+          return;
+        }
+
+        return setPaymentMode('card').then(function () {
+          // cart-notification.liquid (C1) deliberately carries a
+          // `data-carat-checkout-action="card"` marker with NO confirm
+          // panel — pdp-actions' own ruling: "close the popup and hand off
+          // to the full cart, which already carries the panel." Rather than
+          // hardcode "this surface is the notification", detect the actual
+          // condition that matters: no confirm panel is reachable ANYWHERE
+          // on the current page. The reprice is already complete (the
+          // setPaymentMode above just persisted and applied it), so the
+          // cart page's own footer will render the confirm panel — and the
+          // already-Card total — the moment it loads.
+          var hasReachableConfirmPanel = document.querySelectorAll(CARD_CHECKOUT_CONFIRM_SELECTOR).length > 0;
+          if (hasReachableConfirmPanel) {
+            revealCardCheckoutConfirm();
+          } else {
+            window.location = (typeof routes !== 'undefined' && routes && routes.cart_url) || '/cart';
+          }
+        });
+      })
+      .catch(function (error) {
+        if (typeof console !== 'undefined' && console.error) {
+          console.error('[CaratCartPricing] Card Checkout interception failed', error);
+        }
+        // Fail closed on the UX promise, not on money: leave the plain Card
+        // Checkout button exactly as it was (still able to charge only the
+        // correct Card price, per the module note above) and surface a
+        // visible error rather than silently retrying or guessing a mode.
+        var errors = document.getElementById('cart-errors') || document.getElementById('CartDrawer-CartErrors');
+        if (errors) {
+          errors.textContent =
+            (window.cartStrings && window.cartStrings.caratCheckoutRepriceFailed) ||
+            'We could not switch your cart to Card pricing. Please try again.';
+        }
+      });
+  }
+
+  // Resolves the actual `data-carat-payment-mode-action="bank"` element for
+  // a click, tolerating a click that lands on a future nested child (icon,
+  // span, ...) even though today's markup has none — `closest()` when the
+  // browser supports it (always, in practice), a direct attribute check
+  // otherwise so this degrades to "only matches when the button itself was
+  // the exact target" rather than throwing.
+  function findSwitchToBankTarget(eventTarget) {
+    if (!eventTarget) return null;
+    if (typeof eventTarget.closest === 'function') {
+      return eventTarget.closest(SWITCH_TO_BANK_BUTTON_SELECTOR);
+    }
+    return eventTarget.getAttribute && eventTarget.getAttribute('data-carat-payment-mode-action') === 'bank'
+      ? eventTarget
+      : null;
+  }
+
+  // Card -> Bank's one-click control (owner ruling, 2026-09-19). No
+  // confirmation gate, no interception of an existing submit — this is a
+  // plain `type="button"` with its own click, and switching cart mode only
+  // ever LOWERS what the customer pays, so there is nothing here to guard
+  // the way handleCardCheckoutSubmit guards the reverse direction.
+  function handleSwitchToBankClick(event) {
+    var target = findSwitchToBankTarget(event.target);
+    if (!target) return;
+
+    // Returned so callers (including the Vitest sandbox harness) can await
+    // completion — a real click listener ignores a returned value.
+    return setPaymentMode('bank').catch(function (error) {
+      if (typeof console !== 'undefined' && console.error) {
+        console.error('[CaratCartPricing] Card -> Bank switch failed', error);
+      }
+      var errors = document.getElementById('cart-errors') || document.getElementById('CartDrawer-CartErrors');
+      if (errors) {
+        errors.textContent =
+          (window.cartStrings && window.cartStrings.caratSwitchToBankFailed) ||
+          'We could not switch your cart to Bank Payment pricing. Please try again.';
+      }
+    });
+  }
+
+  // Delegated on `document` for the same reason as the submit listener
+  // below: it covers every current AND future surface carrying this
+  // attribute without needing to know Dawn's per-surface ids.
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('click', handleSwitchToBankClick);
+  }
+
+  // Delegated on `document` (submit events bubble) rather than bound to any
+  // specific button/form, for the same reason apply() re-scans the whole
+  // document by attribute: it covers every current AND future surface that
+  // carries `data-carat-checkout-action="card"` without this file needing to
+  // know Dawn's per-surface form ids (#cart, #CartDrawer-Form, ...).
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('submit', handleCardCheckoutSubmit);
+  }
+
+  function initGlobalCartUpdateSubscription() {
+    if (typeof subscribe !== 'function' || typeof PUB_SUB_EVENTS === 'undefined') return;
+    // Every cart mutation in this theme (add-to-cart, quick-add,
+    // quick-order-list, recipient-form gifting, the Standard Actions refresh
+    // path in standard-actions-override.js) publishes this event once it has
+    // swapped in fresh (Card-basis) server-rendered markup. 'cart-items' is
+    // skipped because CartItems#updateQuantity below already calls apply()
+    // itself with the precise ordering L2 needs (reapply BEFORE announcing
+    // the live region, not after) — subscribing here too would just be a
+    // redundant duplicate request for that one path.
+    subscribe(PUB_SUB_EVENTS.cartUpdate, function (event) {
+      if (event && event.source === 'cart-items') return;
+      apply();
+    });
+  }
+
+  if (typeof subscribe === 'function' && typeof PUB_SUB_EVENTS !== 'undefined') {
+    initGlobalCartUpdateSubscription();
+  } else {
+    document.addEventListener('DOMContentLoaded', initGlobalCartUpdateSubscription, { once: true });
+  }
+
+  return {
+    apply: apply,
+    // Public API, used from OTHER theme files: product-form.js calls this
+    // after a successful "Add to Cart with Bank Payment Discount" add
+    // (owner §20) to switch the whole cart to Bank mode. Callers should
+    // treat the resolved value (the /cart/update.js cart object) as
+    // informational only — never re-derive a price from it.
+    setPaymentMode: setPaymentMode,
+    // Exposed only for the Vitest sandbox harness under app/app/theme/ to
+    // unit test this file's real pure logic without duplicating it — see
+    // that suite's header comment. Not a public API for other theme
+    // scripts; call apply()/setPaymentMode() from there.
+    _internal: {
+      formatMoneyFromMinorUnits: formatMoneyFromMinorUnits,
+      readModeFromCart: readModeFromCart,
+      buildRequestLines: buildRequestLines,
+      selectDisplayMinorUnits: selectDisplayMinorUnits,
+      applyDtoToDocument: applyDtoToDocument,
+      markPendingNodesAsFailed: markPendingNodesAsFailed,
+      hideCardCheckoutConfirm: hideCardCheckoutConfirm,
+      revealCardCheckoutConfirm: revealCardCheckoutConfirm,
+      handleCardCheckoutSubmit: handleCardCheckoutSubmit,
+      hideModeRedundantControls: hideModeRedundantControls,
+      showModeRedundantControls: showModeRedundantControls,
+      syncModeRedundantControls: syncModeRedundantControls,
+      handleSwitchToBankClick: handleSwitchToBankClick,
+    },
+  };
+})();
+
+class CartRemoveButton extends HTMLElement {
+  constructor() {
+    super();
+
+    this.addEventListener('click', (event) => {
+      event.preventDefault();
+      const cartItems = this.closest('cart-items') || this.closest('cart-drawer-items');
+      cartItems.updateQuantity(this.dataset.index, 0, event);
+    });
+  }
+}
+
+customElements.define('cart-remove-button', CartRemoveButton);
+
+class CartItems extends window.StandardEvents.createViewEventElement(HTMLElement) {
+  constructor() {
+    super();
+    this.lineItemStatusElement =
+      document.getElementById('shopping-cart-line-item-status') || document.getElementById('CartDrawer-LineItemStatus');
+
+    const debouncedOnChange = debounce((event) => {
+      this.onChange(event);
+    }, ON_CHANGE_DEBOUNCE_TIMER);
+
+    this.addEventListener('change', debouncedOnChange.bind(this));
+  }
+
+  cartUpdateUnsubscriber = undefined;
+
+  static pendingCartDataPromise = null;
+
+  connectedCallback() {
+    // The factory base class auto-dispatches cart:view from the
+    // `view-event-payload` attribute (Liquid filter output). The drawer
+    // sets `view-event-trigger="manual"` to skip auto-dispatch.
+    super.connectedCallback();
+
+    this.cartUpdateUnsubscriber = subscribe(PUB_SUB_EVENTS.cartUpdate, (event) => {
+      if (event.source === 'cart-items') return;
+      return this.onCartUpdate();
+    });
+
+    // Stage 2B L5 "reload persistence": the server renders this element with
+    // Card-basis figures (and, in Bank mode, 2B-3's pending markers) on every
+    // full page load and on every Section Rendering API mount, including the
+    // drawer's initial skeleton on pages where the drawer is never opened.
+    // Apply once on connect so a reload reveals mode-aware pricing
+    // immediately rather than waiting for the first quantity change.
+    window.CaratCartPricing.apply();
+  }
+
+  // Fetches the full cart shape (used to resolve the cart:lines-update event
+  // promise after /cart/add.js, which only returns the added line — not the
+  // post-mutation cart aggregates). De-duplicated across concurrent callers.
+  static fetchCartData() {
+    if (!CartItems.pendingCartDataPromise) {
+      const pendingCartDataPromise = fetch(`${routes.cart_url}.json`)
+        .then((response) => response.json())
+        .catch(() => null)
+        .finally(() => {
+          if (CartItems.pendingCartDataPromise === pendingCartDataPromise) CartItems.pendingCartDataPromise = null;
+        });
+
+      CartItems.pendingCartDataPromise = pendingCartDataPromise;
+    }
+    return CartItems.pendingCartDataPromise;
+  }
+
+  disconnectedCallback() {
+    if (this.cartUpdateUnsubscriber) {
+      this.cartUpdateUnsubscriber();
+    }
+  }
+
+  resetQuantityInput(id) {
+    const input = this.querySelector(`#Quantity-${id}`);
+    input.value = input.getAttribute('value');
+    this.isEnterPressed = false;
+  }
+
+  setValidity(event, index, message) {
+    event.target.setCustomValidity(message);
+    event.target.reportValidity();
+    this.resetQuantityInput(index);
+    event.target.select();
+  }
+
+  validateQuantity(event) {
+    const inputValue = parseInt(event.target.value);
+    const index = event.target.dataset.index;
+    let message = '';
+
+    if (inputValue < event.target.dataset.min) {
+      message = window.quickOrderListStrings.min_error.replace('[min]', event.target.dataset.min);
+    } else if (inputValue > parseInt(event.target.max)) {
+      message = window.quickOrderListStrings.max_error.replace('[max]', event.target.max);
+    } else if (inputValue % parseInt(event.target.step) !== 0) {
+      message = window.quickOrderListStrings.step_error.replace('[step]', event.target.step);
+    }
+
+    if (message) {
+      this.setValidity(event, index, message);
+    } else {
+      event.target.setCustomValidity('');
+      event.target.reportValidity();
+      this.updateQuantity(
+        index,
+        inputValue,
+        event,
+        document.activeElement.getAttribute('name'),
+        event.target.dataset.quantityVariantId
+      );
+    }
+  }
+
+  onChange(event) {
+    this.validateQuantity(event);
+  }
+
+  onCartUpdate() {
+    if (this.tagName === 'CART-DRAWER-ITEMS') {
+      return fetch(`${routes.cart_url}?section_id=cart-drawer`)
+        .then((response) => response.text())
+        .then((responseText) => {
+          const html = new DOMParser().parseFromString(responseText, 'text/html');
+          const selectors = ['cart-drawer-items', '.cart-drawer__footer'];
+          for (const selector of selectors) {
+            const targetElement = document.querySelector(selector);
+            const sourceElement = html.querySelector(selector);
+            if (targetElement && sourceElement) {
+              targetElement.replaceWith(sourceElement);
+            }
+          }
+          // D2: this branch swaps in fresh Card-basis markup independently of
+          // updateQuantity()'s own section-rendering path, so it needs its
+          // own reapplication too (L3).
+          window.CaratCartPricing.apply();
+        })
+        .catch((e) => {
+          console.error(e);
+        });
+    } else {
+      return fetch(`${routes.cart_url}?section_id=main-cart-items`)
+        .then((response) => response.text())
+        .then((responseText) => {
+          const html = new DOMParser().parseFromString(responseText, 'text/html');
+          const sourceQty = html.querySelector('cart-items');
+          this.innerHTML = sourceQty.innerHTML;
+          // Same reasoning as the drawer branch above (D1/L3).
+          window.CaratCartPricing.apply();
+        })
+        .catch((e) => {
+          console.error(e);
+        });
+    }
+  }
+
+  getSectionsToRender() {
+    return [
+      {
+        id: 'main-cart-items',
+        section: document.getElementById('main-cart-items').dataset.id,
+        selector: '.js-contents',
+      },
+      {
+        id: 'cart-icon-bubble',
+        section: 'cart-icon-bubble',
+        selector: '.shopify-section',
+      },
+      {
+        id: 'cart-live-region-text',
+        section: 'cart-live-region-text',
+        selector: '.shopify-section',
+      },
+      {
+        id: 'main-cart-footer',
+        section: document.getElementById('main-cart-footer').dataset.id,
+        selector: '.js-contents',
+      },
+    ];
+  }
+
+  updateQuantity(line, quantity, event, name, variantId) {
+    const eventTarget = event.currentTarget instanceof CartRemoveButton ? 'clear' : 'change';
+    const cartPerformanceUpdateMarker = CartPerformance.createStartingMarker(`${eventTarget}:user-action`);
+
+    this.enableLoading(line);
+
+    const action = quantity === 0 ? 'remove' : 'update';
+    const quantityInput = this.querySelector(`#Quantity-${line}`) || this.querySelector(`#Drawer-quantity-${line}`);
+    const lineVariantId = variantId || quantityInput?.dataset.quantityVariantId;
+    const lineKey = quantityInput?.dataset.quantityLineKey;
+    const linesUpdateDeferred = this.createCartLinesUpdateEvent(action, lineVariantId, quantity, lineKey);
+
+    // Cache sections before the fetch so we read dataset.id while elements still exist in the DOM
+    const sectionsToRender = this.getSectionsToRender();
+
+    const body = JSON.stringify({
+      line,
+      quantity,
+      sections: sectionsToRender.map((section) => section.section),
+      sections_url: window.location.pathname,
+    });
+
+    fetch(`${routes.cart_change_url}`, { ...fetchConfig(), ...{ body } })
+      .then((response) => {
+        return response.text();
+      })
+      .then((state) => {
+        const parsedState = JSON.parse(state);
+
+        if (parsedState.errors) {
+          this.dispatchCartErrorEvent(parsedState.errors, 'INVALID');
+          linesUpdateDeferred?.reject(new Error(parsedState.errors));
+        } else {
+          this.resolveCartLinesUpdate(linesUpdateDeferred, parsedState);
+        }
+
+        // Populated inside the measure callback below and read after it, so
+        // the live-region announcement (L2) can be deferred until AFTER
+        // mode-aware pricing has been reapplied — see the comment past the
+        // measure() call for why the deferral itself is necessary.
+        let liveRegionMessage;
+
+        CartPerformance.measure(`${eventTarget}:paint-updated-sections`, () => {
+          const quantityElement =
+            document.getElementById(`Quantity-${line}`) || document.getElementById(`Drawer-quantity-${line}`);
+          const items = document.querySelectorAll('.cart-item');
+
+          if (parsedState.errors) {
+            quantityElement.value = quantityElement.getAttribute('value');
+            this.updateLiveRegions(line, parsedState.errors);
+            return;
+          }
+
+          this.classList.toggle('is-empty', parsedState.item_count === 0);
+          const cartDrawerWrapper = document.querySelector('cart-drawer');
+          const cartFooter = document.getElementById('main-cart-footer');
+
+          if (cartFooter) cartFooter.classList.toggle('is-empty', parsedState.item_count === 0);
+          if (cartDrawerWrapper) cartDrawerWrapper.classList.toggle('is-empty', parsedState.item_count === 0);
+
+          sectionsToRender.forEach((section) => {
+            const elementToReplace =
+              document.getElementById(section.id).querySelector(section.selector) ||
+              document.getElementById(section.id);
+            elementToReplace.innerHTML = this.getSectionInnerHTML(
+              parsedState.sections[section.section],
+              section.selector
+            );
+          });
+          const updatedValue = parsedState.items[line - 1] ? parsedState.items[line - 1].quantity : undefined;
+          let message = '';
+          if (items.length === parsedState.items.length && updatedValue !== parseInt(quantityElement.value)) {
+            if (typeof updatedValue === 'undefined') {
+              message = window.cartStrings.error;
+            } else {
+              message = window.cartStrings.quantityError.replace('[quantity]', updatedValue);
+            }
+          }
+          liveRegionMessage = message;
+
+          const lineItem =
+            document.getElementById(`CartItem-${line}`) || document.getElementById(`CartDrawer-Item-${line}`);
+          if (lineItem && lineItem.querySelector(`[name="${name}"]`)) {
+            cartDrawerWrapper
+              ? trapFocus(cartDrawerWrapper, lineItem.querySelector(`[name="${name}"]`))
+              : lineItem.querySelector(`[name="${name}"]`).focus();
+          } else if (parsedState.item_count === 0 && cartDrawerWrapper?.querySelector('.drawer__inner-empty')) {
+            trapFocus(cartDrawerWrapper.querySelector('.drawer__inner-empty'), cartDrawerWrapper.querySelector('a'));
+          } else if (document.querySelector('.cart-item') && cartDrawerWrapper) {
+            trapFocus(cartDrawerWrapper, document.querySelector('.cart-item__name'));
+          }
+        });
+
+        // L2: sectionsToRender just swapped in fresh Card-basis markup
+        // (D1) — reapply mode-aware pricing to it, and only THEN announce
+        // the live region. Announcing immediately (the original Dawn
+        // ordering) would read the raw Card total to a screen-reader user
+        // in Bank mode, with no visual cue that it was about to be
+        // corrected — worse than the sighted flash, because nothing tells
+        // them it changed. The error-branch call above (still synchronous)
+        // is unaffected: it returns before any section is swapped, so the
+        // live region's money content there is untouched and already
+        // correct from the previous apply().
+        if (!parsedState.errors) {
+          window.CaratCartPricing.apply({ cart: parsedState }).finally(() => {
+            this.updateLiveRegions(line, liveRegionMessage);
+          });
+        }
+
+        publish(PUB_SUB_EVENTS.cartUpdate, { source: 'cart-items', cartData: parsedState, variantId: variantId });
+      })
+      .catch((e) => {
+        this.querySelectorAll('.loading__spinner').forEach((overlay) => overlay.classList.add('hidden'));
+        const errors = document.getElementById('cart-errors') || document.getElementById('CartDrawer-CartErrors');
+        if (errors) errors.textContent = window.cartStrings.error;
+        this.dispatchCartErrorEvent(window.cartStrings.error, 'SERVICE_UNAVAILABLE');
+        linesUpdateDeferred?.reject(e);
+      })
+      .finally(() => {
+        this.disableLoading(line);
+        CartPerformance.measureFromMarker(`${eventTarget}:user-action`, cartPerformanceUpdateMarker);
+      });
+  }
+
+  createCartLinesUpdateEvent(action, variantId, quantity, lineKey) {
+    const { CartLinesUpdateEvent } = window.StandardEvents || {};
+    if (!CartLinesUpdateEvent || !variantId) return null;
+    // No AJAX line key on the row — likely cached HTML rendered before this
+    // attribute landed. Skip dispatch rather than emit an event with id: ''.
+    if (!lineKey) return null;
+
+    const deferred = CartLinesUpdateEvent.createPromise();
+    this.dispatchEvent(
+      new CartLinesUpdateEvent({
+        action,
+        context: 'cart',
+        lines: [{ id: lineKey, quantity }],
+        promise: deferred.promise,
+      })
+    );
+    return deferred;
+  }
+
+  resolveCartLinesUpdate(deferred, parsedState) {
+    if (!deferred) return;
+    const { CartLinesUpdateEvent } = window.StandardEvents || {};
+    if (!CartLinesUpdateEvent) return;
+
+    deferred.resolve({ cart: CartLinesUpdateEvent.createCartFromAjaxResponse(parsedState) });
+  }
+
+  dispatchCartErrorEvent(message, code) {
+    const { CartErrorEvent } = window.StandardEvents || {};
+    if (!CartErrorEvent) return;
+    this.dispatchEvent(new CartErrorEvent({ error: message, code }));
+  }
+
+  updateLiveRegions(line, message) {
+    const lineItemError =
+      document.getElementById(`Line-item-error-${line}`) || document.getElementById(`CartDrawer-LineItemError-${line}`);
+    if (lineItemError) lineItemError.querySelector('.cart-item__error-text').textContent = message;
+
+    this.lineItemStatusElement.setAttribute('aria-hidden', true);
+
+    const cartStatus =
+      document.getElementById('cart-live-region-text') || document.getElementById('CartDrawer-LiveRegionText');
+    cartStatus.setAttribute('aria-hidden', false);
+
+    setTimeout(() => {
+      cartStatus.setAttribute('aria-hidden', true);
+    }, 1000);
+  }
+
+  getSectionInnerHTML(html, selector) {
+    return new DOMParser().parseFromString(html, 'text/html').querySelector(selector).innerHTML;
+  }
+
+  enableLoading(line) {
+    const mainCartItems = document.getElementById('main-cart-items') || document.getElementById('CartDrawer-CartItems');
+    mainCartItems.classList.add('cart__items--disabled');
+
+    const cartItemElements = this.querySelectorAll(`#CartItem-${line} .loading__spinner`);
+    const cartDrawerItemElements = this.querySelectorAll(`#CartDrawer-Item-${line} .loading__spinner`);
+
+    [...cartItemElements, ...cartDrawerItemElements].forEach((overlay) => overlay.classList.remove('hidden'));
+
+    document.activeElement.blur();
+    this.lineItemStatusElement.setAttribute('aria-hidden', false);
+  }
+
+  disableLoading(line) {
+    const mainCartItems = document.getElementById('main-cart-items') || document.getElementById('CartDrawer-CartItems');
+    mainCartItems.classList.remove('cart__items--disabled');
+
+    const cartItemElements = this.querySelectorAll(`#CartItem-${line} .loading__spinner`);
+    const cartDrawerItemElements = this.querySelectorAll(`#CartDrawer-Item-${line} .loading__spinner`);
+
+    cartItemElements.forEach((overlay) => overlay.classList.add('hidden'));
+    cartDrawerItemElements.forEach((overlay) => overlay.classList.add('hidden'));
+  }
+}
+
+customElements.define('cart-items', CartItems);
+
+if (!customElements.get('cart-note')) {
+  customElements.define(
+    'cart-note',
+    class CartNote extends HTMLElement {
+      constructor() {
+        super();
+
+        this.addEventListener(
+          'input',
+          debounce((event) => {
+            const newNote = event.target.value;
+            const noteDeferred = this.dispatchNoteUpdateEvent(newNote);
+
+            const body = JSON.stringify({ note: newNote });
+            fetch(`${routes.cart_update_url}`, { ...fetchConfig(), ...{ body } })
+              .then((r) => r.json())
+              .then((cart) => {
+                if (!cart || cart.errors) {
+                  throw Object.assign(new Error(cart?.errors), { code: 'INVALID' });
+                }
+
+                if (noteDeferred) {
+                  const { CartNoteUpdateEvent } = window.StandardEvents || {};
+                  if (CartNoteUpdateEvent) {
+                    noteDeferred.resolve({ cart: CartNoteUpdateEvent.createCartFromAjaxResponse(cart) });
+                  }
+                }
+                CartPerformance.measureFromEvent('note-update:user-action', event);
+              })
+              .catch((e) => {
+                noteDeferred?.reject(e);
+                const { CartErrorEvent } = window.StandardEvents || {};
+                if (CartErrorEvent) {
+                  this.dispatchEvent(
+                    new CartErrorEvent({
+                      error: e.message || 'Note update failed',
+                      code: e.code || 'SERVICE_UNAVAILABLE',
+                    })
+                  );
+                }
+              });
+          }, ON_CHANGE_DEBOUNCE_TIMER)
+        );
+      }
+
+      dispatchNoteUpdateEvent(newNote) {
+        const { CartNoteUpdateEvent } = window.StandardEvents || {};
+        if (!CartNoteUpdateEvent) return null;
+
+        const context = this.closest('dialog') || this.closest('cart-drawer') ? 'dialog' : 'cart';
+        const deferred = CartNoteUpdateEvent.createPromise();
+
+        this.dispatchEvent(
+          new CartNoteUpdateEvent({
+            context,
+            note: newNote,
+            promise: deferred.promise,
+          })
+        );
+
+        return deferred;
+      }
+    }
+  );
+}

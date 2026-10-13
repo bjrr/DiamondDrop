@@ -1,0 +1,22 @@
+-- OWNER DECISION (late-window RMA approval gating, 2026-09-27,
+-- docs/BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md §4). Adds the `approved`
+-- member `app/app/domain/rma/remedy.ts`'s `RmaRemedyStatus` now requires:
+-- the structural gate between "remedy computed" (`pending`) and "remedy may
+-- be executed" (`processing`) — see that module's header for the full
+-- reasoning.
+--
+-- NO FOLLOW-UP MIGRATION IS NEEDED FOR THIS ONE. `ALTER TYPE ... ADD VALUE`
+-- cannot be used in the same transaction as a comparison against the new
+-- value (Postgres restriction; Prisma wraps each migration in one
+-- transaction) — this repository has hit that before (migrations
+-- 20260917070507, 20260919084408, 20260922032504) and always splits the
+-- addition from the DDL that uses the new value. This migration adds
+-- nothing else: no column, CHECK constraint, or trigger anywhere in this
+-- file references `approved` at the SQL level. Everything that DOES
+-- reference it (the new `rma_remedy.approved_at`/`approved_by_actor_ref`
+-- columns, the approval-required CHECK constraint, and the `rma_remedy_guard`
+-- transition trigger) lives in the next migration,
+-- `20260927030000_rma_remedy_approval_gate`.
+
+-- AlterEnum
+ALTER TYPE "rma_remedy_status" ADD VALUE 'approved' BEFORE 'processing';

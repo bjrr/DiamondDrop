@@ -12,6 +12,8 @@ import { renderToPipeableStream } from "react-dom/server";
 import type { AppLoadContext, EntryContext } from "react-router";
 import { ServerRouter } from "react-router";
 
+import { addDocumentResponseHeaders } from "~/shopify.server";
+
 export const streamTimeout = 5_000;
 
 export default function handleRequest(
@@ -21,6 +23,20 @@ export default function handleRequest(
   remixContext: EntryContext,
   _loadContext: AppLoadContext
 ) {
+  // REQUIRED FOR THE EMBEDDED APP TO RENDER AT ALL.
+  //
+  // Shopify Admin loads the app in an iframe. Without the Content-Security-Policy
+  // frame-ancestors header this adds, the browser refuses to frame the document:
+  // the app area is blank, and the aborted request tears down the SSR stream
+  // mid-pipe, which surfaces as "The destination stream closed early" — an error
+  // about the symptom, several layers below the cause.
+  //
+  // Applied to every document response rather than only the embedded routes,
+  // because the library decides what is appropriate per request (it reads the
+  // shop from the query and will not emit frame-ancestors for a request that
+  // does not warrant it).
+  addDocumentResponseHeaders(request, responseHeaders);
+
   return isbot(request.headers.get("user-agent") || "")
     ? handleBotRequest(request, responseStatusCode, responseHeaders, remixContext)
     : handleBrowserRequest(request, responseStatusCode, responseHeaders, remixContext);

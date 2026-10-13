@@ -1,0 +1,679 @@
+import { prisma } from "~/db/client.server";
+import { dispatchAdminAlert } from "~/db/repositories/adminAlertDispatch.server";
+import {
+  decideGuaranteeOutcome,
+  type GuaranteeCancellingLine,
+  type GuaranteeDecisionLine,
+  type VariantPriceFacts,
+} from "~/domain/bankpayment/guaranteeDecision";
+import { buildGuaranteeCancellationEmail } from "~/domain/bankpayment/guaranteeCancellationEmail";
+import { resolveEmailPort as resolveRealEmailPort, type EmailPortResolution } from "~/lib/email/configuredPort.server";
+import { getEnv } from "~/lib/env.server";
+import { logger } from "~/lib/logger.server";
+
+import { gatherVariantPriceFacts } from "./guaranteeFacts.server";
+
+/**
+ * The 24-hour guarantee sweep (spec §13/§14, criteria 78-82, 96, 100-102).
+ *
+ * CADENCE IS THE CALLER'S JOB (criterion 100). This function does not know
+ * or care how often it runs — `app/routes/internal.jobs.bank-payment
+ * -guarantee.tsx` is invoked HOURLY by the platform scheduler, exactly like
+ * `internal.jobs.price-recalculation.tsx`'s own daily cadence is entirely
+ * external to `runPriceRecalculation`. Encoding "hourly" here would be the
+ * same mistake that route's own header comment warns against.
+ *
+ * IDEMPOTENT UNDER CONCURRENT/OVERLAPPING RUNS (criterion 101), the same way
+ * `completeBankPaymentOrder` is: cancellation is a `updateMany` GUARDED on
+ * `status: "open"` still being true at the moment of the write, never a
+ * blind `update` by id. A losing concurrent caller's `count === 0` is a
+ * successful idempotent no-op — the order IS cancelled, just not by this
+ * call — and sends no second email.
+ *
+ * NEVER CANCELS ON ITS OWN FAILURE (criterion 102). Each order is processed
+ * inside its own try/catch; a thrown error (including one gathering
+ * `VariantPriceFacts`) leaves that order untouched — still `open`, still
+ * fully payable at the quoted price if it arrives — and raises an admin
+ * alert, rather than either cancelling defensively or aborting the whole
+ * sweep and leaving every OTHER order unevaluated for another hour.
+ */
+
+export interface GuaranteeSweepSummary {
+  /** ISO-8601 — the instant this sweep evaluated against. */
+  now: string;
+  ordersConsidered: number;
+  cancelled: number;
+  flagged: number;
+  kept: number;
+  /** An order the sweep could not evaluate at all — left untouched, admin alerted (criterion 102). */
+  errored: number;
+}
+
+export interface GuaranteeSweepDeps {
+  /** Defaults to `new Date()`. Injectable so the 24-hour boundary can be tested exactly. */
+  now?: Date;
+  /**
+   * Defaults to the real `resolveEmailPort` (reads process env). Injectable
+   * so a test can exercise `sent`/`failed`/`skipped_unconfigured` with a
+   * fake `EmailPort` — same seam `dispatchAdminAlert` uses.
+   */
+  resolveEmailPort?: () => EmailPortResolution;
+  /**
+   * Defaults to the real `gatherVariantPriceFacts`. Injectable for the SAME
+   * reason `SyncApprovedIntentDeps.port` is: a test proving criterion 102
+   * ("one order failing must not abort the sweep") needs a genuine,
+   * unpredictable-in-production failure mode — a thrown error while
+   * gathering facts for one specific variant — that cannot be produced by
+   * arranging ordinary fixture data, since every real query this function
+   * issues is guarded by the schema's own foreign keys. A wrapper that
+   * throws for a chosen variant and delegates to the real function
+   * otherwise exercises the actual per-order try/catch in
+   * `runGuaranteeSweep`, not a substitute for it.
+   */
+  gatherVariantPriceFacts?: typeof gatherVariantPriceFacts;
+  /**
+   * Defaults to reading the customer's first name off the Shopify draft
+   * order. Injectable so tests need no Shopify client at all.
+   *
+   * THIS IS A NETWORK CALL FOR A GREETING, and it is deliberate. Criterion 97
+   * keeps the shipping address — first name included — at Shopify instead of
+   * duplicating it into a table we would then have to secure, retain and
+   * redact; criterion 99 says whatever needs it reads it from Shopify at the
+   * time. The owner-approved copy addresses the customer by name, so that
+   * read happens here.
+   *
+   * It is BEST-EFFORT by design: a null return (deleted draft, API failure,
+   * an order placed without a first name) falls back to a neutral greeting.
+   * Holding a cancellation until Shopify answers would make a withdrawn
+   * price contingent on an unrelated outage, which inverts the owner's
+   * ruling that the cancellation is authoritative.
+   */
+  resolveCustomerFirstName?: (draftOrderGid: string) => Promise<string | null>;
+  /**
+   * Defaults to the real `recordCancellationEmailOutcome`. Injectable for
+   * the SAME reason `gatherVariantPriceFacts` above is: a test proving the
+   * cancellation stands even when PERSISTING the delivery outcome throws
+   * needs a genuine failure mode in that specific write, which ordinary
+   * fixture data cannot produce (the row and its id are always valid by
+   * the time this is called — the compare-and-set already succeeded).
+   */
+  recordCancellationEmailOutcome?: typeof recordCancellationEmailOutcome;
+}
+
+type EmailDeliveryOutcome = "sent" | "skipped_unconfigured" | "failed";
+
+interface OpenOrderForSweep {
+  id: string;
+  status: string;
+  customerEmail: string;
+  /**
+   * Carried only so the customer's first name can be read off Shopify at send
+   * time (criteria 97/99). It is a lookup key, not stored customer data.
+   */
+  shopifyDraftOrderGid: string;
+  quotedAt: Date;
+  guaranteeExpiresAt: Date;
+  verifiedAt: Date | null;
+  /**
+   * `masterVariantId` is NULL on a CUSTOM line — a Custom Jewelry piece priced
+   * by an approved package rather than by the pricing engine. See
+   * `processOneOrder` for why those lines are excluded from the price-drift
+   * comparison rather than given a synthetic price.
+   */
+  lines: readonly { masterVariantId: string | null; quotedBankPaymentPriceMinorUnits: bigint }[];
+}
+
+type OrderOutcome = "kept" | "cancelled" | "flagged";
+
+export async function runGuaranteeSweep(deps: GuaranteeSweepDeps = {}): Promise<GuaranteeSweepSummary> {
+  const now = deps.now ?? new Date();
+  const resolvePort = deps.resolveEmailPort ?? resolveRealEmailPort;
+  const gatherFacts = deps.gatherVariantPriceFacts ?? gatherVariantPriceFacts;
+  const resolveFirstName = deps.resolveCustomerFirstName ?? resolveCustomerFirstNameFromShopify;
+  const recordCancellationEmail = deps.recordCancellationEmailOutcome ?? recordCancellationEmailOutcome;
+
+  const openOrders: OpenOrderForSweep[] = await prisma.bankPaymentOrder.findMany({
+    where: { status: "open" },
+    select: {
+      id: true,
+      status: true,
+      customerEmail: true,
+      // Needed only to look the customer's first name up on Shopify at send
+      // time — criterion 99. Never stored by us.
+      shopifyDraftOrderGid: true,
+      quotedAt: true,
+      guaranteeExpiresAt: true,
+      verifiedAt: true,
+      lines: { select: { masterVariantId: true, quotedBankPaymentPriceMinorUnits: true } },
+    },
+  });
+
+  let cancelled = 0;
+  let flagged = 0;
+  let kept = 0;
+  let errored = 0;
+
+  for (const order of openOrders) {
+    try {
+      const outcome = await processOneOrder(
+        order,
+        now,
+        resolvePort,
+        gatherFacts,
+        recordCancellationEmail,
+        resolveFirstName
+      );
+      if (outcome === "kept") kept += 1;
+      else if (outcome === "cancelled") cancelled += 1;
+      else flagged += 1;
+    } catch (error) {
+      errored += 1;
+      const errorName = error instanceof Error ? error.name : "UnknownError";
+      logger.error("bank_payment.guarantee_sweep_order_errored", {
+        bankPaymentOrderId: order.id,
+        error: errorName,
+      });
+      // Criterion 102: a failure to EVALUATE is not a reason to cancel. The
+      // order is left exactly as it was found — this alert's own try/catch
+      // (inside sendAdminAlert) means a notification failure here still
+      // cannot turn into an uncaught rejection that would abort the loop.
+      await sendAdminAlert(resolvePort, {
+        subject: `[CaratForUs admin] Bank Payment guarantee sweep could not evaluate order ${order.id}`,
+        text:
+          `The guarantee sweep raised ${errorName} while evaluating bank payment order ${order.id}. ` +
+          "The order has NOT been touched and remains open at its quoted price pending investigation.",
+      });
+    }
+  }
+
+  // Closing cleared alerts runs AFTER every order, and outside the per-order
+  // try/catch, because it is keyed on episodes rather than orders — an
+  // episode can have been cleared by something that never appears in this
+  // run's order list at all.
+  await resolveClearedGuaranteeAlerts(now, resolvePort, gatherFacts).catch((error) => {
+    logger.error("bank_payment.guarantee_alert_resolve_pass_failed", {
+      error: error instanceof Error ? error.name : "UnknownError",
+    });
+  });
+
+  logger.info("bank_payment.guarantee_sweep_completed", {
+    ordersConsidered: openOrders.length,
+    cancelled,
+    flagged,
+    kept,
+    errored,
+  });
+
+  return { now: now.toISOString(), ordersConsidered: openOrders.length, cancelled, flagged, kept, errored };
+}
+
+async function processOneOrder(
+  order: OpenOrderForSweep,
+  now: Date,
+  resolvePort: () => EmailPortResolution,
+  gatherFacts: typeof gatherVariantPriceFacts,
+  recordCancellationEmail: typeof recordCancellationEmailOutcome,
+  resolveFirstName: (draftOrderGid: string) => Promise<string | null>
+): Promise<OrderOutcome> {
+  // ==========================================================================
+  // CUSTOM LINES ARE EXCLUDED FROM THE PRICE-DRIFT COMPARISON, AND THAT IS
+  // CORRECT RATHER THAN CONVENIENT
+  // ==========================================================================
+  // This sweep implements §22: after 24 hours an unpaid Bank Payment order
+  // stays open only while its price is unchanged, and any change cancels it.
+  // "Changed" means the PRICING ENGINE recalculated the variant — metal moved,
+  // a cost input changed, a profile was revised.
+  //
+  // A Custom Jewelry line has no variant and no engine calculation. Its price
+  // is frozen on an immutable approval package the customer already approved,
+  // and nothing can recalculate it: a design or price change there is a NEW
+  // approval version the customer must approve again, which is a new purchase
+  // rather than a drifted one.
+  //
+  // So there is no price to compare, and a custom line can never be the reason
+  // an order is cancelled. The alternative — inventing a "current price" for it
+  // — would either always match (pointless) or spuriously cancel a customer's
+  // approved custom order, which is the worse of the two by a long way.
+  const variantLines = order.lines.filter(
+    (line): line is { masterVariantId: string; quotedBankPaymentPriceMinorUnits: bigint } =>
+      line.masterVariantId !== null
+  );
+
+  const uniqueVariantIds = [...new Set(variantLines.map((line) => line.masterVariantId))];
+  const factsByVariant = new Map<string, VariantPriceFacts>();
+  for (const variantId of uniqueVariantIds) {
+    factsByVariant.set(variantId, await gatherFacts(variantId, order.quotedAt));
+  }
+
+  const decisionLines: GuaranteeDecisionLine[] = variantLines.map((line) => ({
+    masterVariantId: line.masterVariantId,
+    quotedBankPaymentPriceMinorUnits: line.quotedBankPaymentPriceMinorUnits,
+    // Populated for every id above — never undefined here.
+    facts: factsByVariant.get(line.masterVariantId)!,
+  }));
+
+  const decision = decideGuaranteeOutcome({
+    // The query above filters `status: "open"`, so this is always "open" in
+    // practice; passed through rather than hardcoded so a future caller
+    // that loosens the query cannot silently mis-evaluate a settled order.
+    status: order.status as "open" | "cancelled" | "completed",
+    paymentVerified: order.verifiedAt !== null,
+    quotedAt: order.quotedAt,
+    guaranteeExpiresAt: order.guaranteeExpiresAt,
+    now,
+    lines: decisionLines,
+  });
+
+  // Dedup/opened-vs-resolved bookkeeping for the "flag" alert channel (D22
+  // review; criterion 102). Its own try/catch: a notification-plumbing
+  // hiccup here must never block the CORE decision (cancel/keep) below from
+  // being applied — same discipline `syncApprovedIntent.server.ts` uses
+  // around its own `dispatchAdminAlert` calls.
+  try {
+    if (decision.action === "flag") {
+      const unresolvable = decisionLines.find(
+        (line) => line.facts.publishedBankPaymentPriceMinorUnits === null
+      );
+      // Guaranteed present by decideGuaranteeOutcome's step 3; the guard is
+      // here so a future change to that ordering fails loudly rather than
+      // alerting against the wrong variant.
+      if (unresolvable?.facts.unresolvableEpisodeId) {
+        await openGuaranteeAlertForEpisode(
+          unresolvable.facts.unresolvableEpisodeId,
+          unresolvable.masterVariantId,
+          decision.reason,
+          // The episode's own firstFailedAt when a real episode row backs
+          // it; falls back to this order's guaranteeExpiresAt only in the
+          // rare case `gatherVariantPriceFacts` had no episode to point at
+          // (see its own doc comment) — an approximation, but a variant in
+          // that state has no episode that could flap in the first place.
+          unresolvable.facts.unresolvableEpisodeFirstFailedAt ?? order.guaranteeExpiresAt,
+          now,
+          resolvePort
+        );
+      }
+    }
+  } catch (alertError) {
+    logger.error("bank_payment.guarantee_alert_sync_failed", {
+      bankPaymentOrderId: order.id,
+      error: alertError instanceof Error ? alertError.name : "UnknownError",
+    });
+  }
+
+  if (decision.action === "keep") {
+    return "kept";
+  }
+
+  if (decision.action === "flag") {
+    logger.warn("bank_payment.guarantee_sweep_flagged", {
+      bankPaymentOrderId: order.id,
+      reason: decision.reason,
+    });
+    return "flagged";
+  }
+
+  // action === "cancel"
+  const cancellationReason = buildCancellationReason(decision.cancellingLines ?? []);
+  const claimed = await prisma.bankPaymentOrder.updateMany({
+    where: { id: order.id, status: "open" },
+    data: { status: "cancelled", cancelledAt: now, cancellationReason },
+  });
+
+  if (claimed.count === 0) {
+    // Lost the race to a concurrent sweep run (or the order was settled by
+    // something else in the interim). The order IS cancelled — just not by
+    // this call — so this is a successful idempotent no-op, not an error,
+    // and it must NOT send a second email (criterion 101).
+    logger.info("bank_payment.guarantee_sweep_cancel_already_claimed", { bankPaymentOrderId: order.id });
+    return "cancelled";
+  }
+
+  logger.warn("bank_payment.guarantee_sweep_cancelled", {
+    bankPaymentOrderId: order.id,
+    reason: decision.reason,
+  });
+
+  const customerFirstName = await resolveFirstName(order.shopifyDraftOrderGid);
+  const email = buildGuaranteeCancellationEmail({
+    bankPaymentOrderId: order.id,
+    customerFirstName,
+  });
+  const delivery = await sendCustomerEmail(resolvePort, order.customerEmail, email);
+
+  // THE DECISION MADE EXPLICITLY FOR THIS TASK: the cancellation stands
+  // regardless of whether the notification succeeded — protecting us from
+  // honouring a withdrawn price must not depend on the mail server being
+  // up. An undelivered cancellation email is a real duty left undischarged,
+  // so it raises its own, separate admin alert loud enough for a human to
+  // contact the customer by hand. "Cancelled" and "told them" are now
+  // recorded as two distinct facts by two distinct writes — the
+  // compare-and-set above, and `recordCancellationEmailOutcome` below —
+  // never conflated into one.
+  //
+  // RETRY SEMANTICS, STATED PLAINLY (owner verification list). Once
+  // cancelled, `order.status` is no longer `"open"`, and this function's
+  // caller queries only `status: "open"` — so a cancelled order is NEVER
+  // revisited by a later sweep run, and a failed or skipped cancellation
+  // email is NEVER retried automatically. That is correct: retrying would
+  // risk a second email for one cancellation, and there is exactly one
+  // cancellation to report. It is also WHY the row written below must be
+  // durable rather than a log line — manual follow-up is the ONLY path
+  // back for an undelivered email, and the persisted
+  // `cancellationEmailStatus`/`cancellationEmailProviderMessageId` is the
+  // entire mechanism that makes "which cancelled orders never reached
+  // their customer" an answerable, queryable question.
+  try {
+    await recordCancellationEmail(order.id, delivery, now);
+  } catch (persistError) {
+    // The cancellation (already committed above) MUST stand regardless —
+    // see the module doc comment. A failure to RECORD the delivery outcome
+    // is itself a gap the owner's list cares about, so it is logged loudly
+    // rather than silently swallowed, but it must never propagate and
+    // never be mistaken for a reason to reconsider the cancellation.
+    logger.error("bank_payment.guarantee_cancellation_email_record_failed", {
+      bankPaymentOrderId: order.id,
+      error: persistError instanceof Error ? persistError.name : "UnknownError",
+    });
+  }
+
+  if (delivery.outcome !== "sent") {
+    await sendAdminAlert(resolvePort, {
+      subject: `[CaratForUs admin] Cancellation email NOT delivered — bank payment order ${order.id}`,
+      text:
+        `Bank payment order ${order.id} was cancelled (24-hour guarantee expired; price changed via a ` +
+        `human-approved publication or override) but the customer cancellation email to ` +
+        `${order.customerEmail} was NOT delivered (${delivery.outcome}). Please contact the customer directly.`,
+    });
+  }
+
+  return "cancelled";
+}
+
+/**
+ * Persists the cancellation email's delivery outcome onto the order it
+ * belongs to — a plain `update` by id, never a compare-and-set, because the
+ * cancellation this row documents already happened and committed
+ * (`claimed.count === 1` above is the only caller of this function, and it
+ * is only ever called once per order for exactly that reason).
+ */
+async function recordCancellationEmailOutcome(
+  bankPaymentOrderId: string,
+  delivery: CustomerEmailDeliveryResult,
+  attemptedAt: Date
+): Promise<void> {
+  await prisma.bankPaymentOrder.update({
+    where: { id: bankPaymentOrderId },
+    data: {
+      cancellationEmailStatus: delivery.outcome,
+      cancellationEmailProviderMessageId: delivery.providerMessageId,
+      cancellationEmailAttemptedAt: attemptedAt,
+    },
+  });
+}
+
+function buildCancellationReason(lines: readonly GuaranteeCancellingLine[]): string {
+  const detail = lines
+    .map(
+      (line) =>
+        `variant ${line.masterVariantId}: quoted ${line.quotedPriceMinorUnits} -> ` +
+        `published ${line.publishedPriceMinorUnits} minor units`
+    )
+    .join("; ");
+  return (
+    "24-hour guarantee expired; at least one line's price changed via a human-approved publication " +
+    `or override since the quote (D22): ${detail}`
+  );
+}
+
+/**
+ * THE ALERT IS KEYED ON THE FAILURE EPISODE, NOT ON THE ORDER, and that is a
+ * correctness requirement rather than a preference.
+ *
+ * `admin_alert_notification` is unique on `(sourceKind, sourceId, event)`.
+ * An order id outlives every episode, so keying on it permits exactly one
+ * `opened` and one `resolved` for the whole life of the order: flag,
+ * resolve, flag again, and the index silently refuses the second `opened`.
+ * The order sits flagged and nobody is ever told — a worse failure than the
+ * hourly repetition this dedupe replaced, because noise is visible and
+ * silence is not.
+ *
+ * Episode ids are created fresh per episode, which is exactly why the
+ * calculation- and sync-failure alerts already key on theirs. Keying the
+ * same way makes a new suspension a new alert, automatically.
+ *
+ * THE ORDERS ARE NOT LOST. One episode can block several bank orders, and
+ * the thing at risk is the order even though the thing to fix is the
+ * episode. Every affected open order is named in the alert's reason, so one
+ * alert carries the whole blast radius rather than naming whichever order
+ * the sweep happened to reach first.
+ */
+async function hasOpenGuaranteeAlertForEpisode(episodeId: string): Promise<boolean> {
+  const [opened, resolved] = await Promise.all([
+    prisma.adminAlertNotification.findFirst({
+      where: { sourceKind: "bank_payment_guarantee", sourceId: episodeId, event: "opened" },
+      select: { id: true },
+    }),
+    prisma.adminAlertNotification.findFirst({
+      where: { sourceKind: "bank_payment_guarantee", sourceId: episodeId, event: "resolved" },
+      select: { id: true },
+    }),
+  ]);
+  return opened !== null && resolved === null;
+}
+
+async function openGuaranteeAlertForEpisode(
+  episodeId: string,
+  masterVariantId: string,
+  reason: string,
+  flaggedSince: Date,
+  now: Date,
+  resolvePort: () => EmailPortResolution
+): Promise<void> {
+  if (await hasOpenGuaranteeAlertForEpisode(episodeId)) return;
+
+  const affected = await prisma.bankPaymentOrder.findMany({
+    where: { status: "open", lines: { some: { masterVariantId } } },
+    select: { id: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  await dispatchAdminAlert(
+    {
+      sourceKind: "bank_payment_guarantee",
+      sourceId: episodeId,
+      event: "opened",
+      now,
+      bankPaymentGuarantee: {
+        masterVariantId,
+        reason:
+          `${reason} Blocking ${affected.length} open bank payment order(s): ` +
+          `${affected.map((o) => o.id).join(", ")}.`,
+        flaggedSince,
+      },
+    },
+    { resolveEmailPort: resolvePort }
+  );
+}
+
+/**
+ * Resolution is a SEPARATE PASS over the alerts rather than a branch inside
+ * the per-order loop, because an order that is no longer flagged no longer
+ * knows which episode flagged it — its price resolved, so there is no
+ * episode id left to look up. Walking the open alerts and asking "is this
+ * episode's variant still unresolvable" answers the question from the only
+ * side that still has both halves of it.
+ */
+async function resolveClearedGuaranteeAlerts(
+  now: Date,
+  resolvePort: () => EmailPortResolution,
+  gatherFacts: typeof gatherVariantPriceFacts
+): Promise<void> {
+  const opened = await prisma.adminAlertNotification.findMany({
+    where: { sourceKind: "bank_payment_guarantee", event: "opened" },
+    select: { sourceId: true, masterVariantId: true, createdAt: true },
+  });
+  if (opened.length === 0) return;
+
+  const resolved = await prisma.adminAlertNotification.findMany({
+    where: {
+      sourceKind: "bank_payment_guarantee",
+      event: "resolved",
+      sourceId: { in: opened.map((o) => o.sourceId) },
+    },
+    select: { sourceId: true },
+  });
+  const alreadyResolved = new Set(resolved.map((r) => r.sourceId));
+
+  for (const alert of opened) {
+    if (alreadyResolved.has(alert.sourceId)) continue;
+    try {
+      // `quotedAt` is irrelevant here — only the published price is being
+      // read — so epoch is passed rather than inventing a meaningful date.
+      const facts = await gatherFacts(alert.masterVariantId, new Date(0));
+      if (facts.publishedBankPaymentPriceMinorUnits === null) continue;
+
+      await dispatchAdminAlert(
+        {
+          sourceKind: "bank_payment_guarantee",
+          sourceId: alert.sourceId,
+          event: "resolved",
+          now,
+          bankPaymentGuarantee: {
+            masterVariantId: alert.masterVariantId,
+            reason: "the variant's published price is resolvable again; affected bank orders can be evaluated normally",
+            flaggedSince: alert.createdAt,
+          },
+        },
+        { resolveEmailPort: resolvePort }
+      );
+    } catch (error) {
+      // One stuck alert must not stop the others being closed, and must
+      // never propagate into the sweep's own result.
+      logger.error("bank_payment.guarantee_alert_resolve_failed", {
+        sourceId: alert.sourceId,
+        error: error instanceof Error ? error.name : "UnknownError",
+      });
+    }
+  }
+}
+
+interface CustomerEmailDeliveryResult {
+  outcome: EmailDeliveryOutcome;
+  /**
+   * The provider's own message id — "proof of acceptance, not merely of an
+   * attempt" (`EmailPort.send`'s own doc comment). Non-null exactly when
+   * `outcome === "sent"`; enforced in the database by
+   * `bank_payment_order_cancellation_email_message_id_only_when_sent`.
+   */
+  providerMessageId: string | null;
+}
+
+/**
+ * Reads the first name off the Shopify draft order, returning null on ANY
+ * problem rather than throwing.
+ *
+ * Swallowing every error is the correct behaviour here and nowhere else in
+ * this file: the value is a greeting. A deleted draft, an expired session, a
+ * Shopify outage — none of them are reasons to leave a customer holding a
+ * withdrawn price, and none of them should turn into an uncaught rejection
+ * inside a sweep whose whole contract is that one order's trouble cannot
+ * touch another's. The fallback greeting is the designed outcome, not a
+ * degradation to be reported.
+ */
+async function resolveCustomerFirstNameFromShopify(draftOrderGid: string): Promise<string | null> {
+  try {
+    const { unauthenticated } = await import("~/shopify.server");
+    const shop = getEnv().SHOPIFY_SHOP_DOMAIN;
+    if (!shop) return null;
+    const { admin } = await unauthenticated.admin(shop);
+    const response = await admin.graphql(
+      `#graphql
+       query CaratDraftOrderCustomerName($id: ID!) {
+         draftOrder(id: $id) { shippingAddress { firstName } }
+       }`,
+      { variables: { id: draftOrderGid } }
+    );
+    const body = (await response.json()) as {
+      data?: { draftOrder?: { shippingAddress?: { firstName?: string | null } | null } | null };
+    };
+    return body.data?.draftOrder?.shippingAddress?.firstName ?? null;
+  } catch (error) {
+    logger.warn("bank_payment.cancellation_first_name_unavailable", {
+      error: error instanceof Error ? error.name : "UnknownError",
+    });
+    return null;
+  }
+}
+
+async function sendCustomerEmail(
+  resolvePort: () => EmailPortResolution,
+  toEmail: string,
+  content: { subject: string; text: string }
+): Promise<CustomerEmailDeliveryResult> {
+  const resolution = resolvePort();
+  if (!resolution.configured) {
+    logger.error("bank_payment.guarantee_cancellation_email_unconfigured", { reason: resolution.reason });
+    return { outcome: "skipped_unconfigured", providerMessageId: null };
+  }
+  try {
+    const sent = await resolution.port.send({
+      from: resolution.from,
+      to: [toEmail],
+      subject: content.subject,
+      text: content.text,
+    });
+    return { outcome: "sent", providerMessageId: sent.providerMessageId };
+  } catch (error) {
+    logger.error("bank_payment.guarantee_cancellation_email_failed", {
+      error: error instanceof Error ? error.name : "UnknownError",
+    });
+    return { outcome: "failed", providerMessageId: null };
+  }
+}
+
+/**
+ * A direct, best-effort admin notification with NO dedup — reserved for the
+ * two events that genuinely cannot be deduped on an order id, because
+ * neither one represents a persisting STATE of the order the way "flagged"
+ * does (D22 review): (1) the sweep could not even EVALUATE an order
+ * (criterion 102's outer catch) — a transient/anomalous failure worth
+ * surfacing loudly every time it happens, not something to fold into an
+ * opened/resolved lifecycle; (2) the cancellation email failed to deliver
+ * (finding 4's escalation path, criterion 108) — a one-shot event fired at
+ * most once per order, since the compare-and-set means an order is only
+ * ever cancelled once.
+ *
+ * The "flag" outcome (an unresolvable price) is NOT sent through here — it
+ * genuinely IS a persisting state that can last the full 48-hour suspension
+ * window, so it goes through `dispatchAdminAlert` / `AdminAlertNotification`
+ * instead (`openGuaranteeAlertForEpisode` / `resolveClearedGuaranteeAlerts`
+ * above), which dedupes on `(source_kind, source_id, event)` — keyed on the
+ * failure EPISODE, not the order — and only ever emits one `opened` and one
+ * `resolved` per episode.
+ */
+async function sendAdminAlert(
+  resolvePort: () => EmailPortResolution,
+  content: { subject: string; text: string }
+): Promise<void> {
+  const resolution = resolvePort();
+  if (!resolution.configured) {
+    logger.error("bank_payment.guarantee_admin_alert_unconfigured", {
+      reason: resolution.reason,
+      subject: content.subject,
+    });
+    return;
+  }
+  try {
+    await resolution.port.send({
+      from: resolution.from,
+      to: resolution.recipients,
+      subject: content.subject,
+      text: content.text,
+    });
+  } catch (error) {
+    logger.error("bank_payment.guarantee_admin_alert_failed", {
+      error: error instanceof Error ? error.name : "UnknownError",
+      subject: content.subject,
+    });
+  }
+}

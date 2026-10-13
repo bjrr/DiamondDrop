@@ -53,6 +53,26 @@ above. Stop the server with `pg_ctl -D <data-dir> stop`.
 
 ## Common commands
 
+**RUN THESE FROM `app/`, OR WITH `npm --prefix app`.** Every command below
+resolves its config relative to the working directory, and the failure when
+you get that wrong does not look like a failure.
+
+From the repository root, `npx vitest run --config vitest.integration.config.ts`
+does not find the config, exits 1, and prints a Vite build error — so a
+summary scraped from its output shows no tests, no timeouts and no failures,
+which reads as a clean pass. That has happened. `npm run` sets the working
+directory to the package itself, so prefer it over calling the tools directly:
+
+```sh
+cd app && npm run verify:all
+# or, from anywhere in the repo:
+npm --prefix app run verify:all
+```
+
+When you scrape output, assert that a "Test Files"/"Tests" summary line was
+actually produced. A verification command that can execute zero tests and
+report nothing wrong is worse than one that fails.
+
 | Command | Purpose |
 |---|---|
 | `npm run dev` | Start the React Router dev server |
@@ -62,6 +82,8 @@ above. Stop the server with `pg_ctl -D <data-dir> stop`.
 | `npm test` | Unit tests (Vitest, no database) |
 | `npm run test:integration` | Integration tests against real Postgres (requires `DATABASE_URL` and a migrated database) |
 | `npm run check:money-safety` | Repository-wide scan for ad-hoc `Math.round`/`floor`/`ceil` on money |
+| `npm run verify` | Everything that needs no database: typecheck, lint, money-safety, unit tests |
+| `npm run verify:all` | `verify` plus the integration suite — the full gate |
 | `npm run db:migrate:dev` | Create/apply a new migration locally |
 | `npm run db:migrate` | Apply existing migrations (CI/deploy) |
 | `npm run db:seed` | Seed sample data |
@@ -82,3 +104,38 @@ scripts/             Repository-wide checks (money safety)
 
 Tests are colocated as `*.test.ts` next to the code they cover (unit) or
 under `/tests/integration` (require Postgres).
+
+
+## Integration tests and your dev database
+
+**Which server it runs against is decided by `INTEGRATION_DATABASE_URL`.**
+Unset (the default) means your local Postgres and a 45s per-test timeout.
+Set means a remote database and 600s. Measured: the same 81 files / 1181
+tests take **4m41s local** and **~2.5 hours remote**, because the pricing job
+issues very many small queries. Keep it unset unless you are deliberately
+verifying against the remote database — and when you are, run nothing else
+against it at the same time.
+
+`npm run test:integration` creates a **disposable** database per run
+(`carat_it_<pid>_<ts>`), migrates and seeds it, and drops it afterwards. Your
+`carat_dev` is never written to by the suite.
+
+That matters because several pricing tables are append-only at the database
+level, so a row a test writes can never be deleted. The suite previously ran
+against `carat_dev` and left 60+ non-placeholder pricing profiles behind,
+several of which outranked the real seeded D14 placeholder — which meant the
+placeholder guard could no longer be demonstrated there.
+
+- `KEEP_TEST_DATABASE=1 npm run test:integration` retains the database for
+  post-mortem inspection after a failure.
+- `INTEGRATION_DATABASE_URL` overrides the server the disposable database is
+  created on.
+
+If your `carat_dev` already carries that historical pollution, the only way to
+clear it is to recreate the database — the append-only triggers correctly
+refuse DELETE and TRUNCATE:
+
+```sh
+dropdb -h localhost -U carat carat_dev && createdb -h localhost -U carat carat_dev
+npm run db:migrate && npm run db:seed
+```

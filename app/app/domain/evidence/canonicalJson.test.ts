@@ -180,3 +180,52 @@ describe("hashCanonicalJson", () => {
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
   });
 });
+
+
+/**
+ * F-10 — evidence payloads must not carry decimal quantities as JS numbers.
+ *
+ * Slice 1 puts cost data into these payloads, which is exactly the condition
+ * the finding anticipated. A binary double cannot hold 0.1, 2.9% or 3.45 grams
+ * exactly, so a payload containing one has already lost the input it claims to
+ * preserve — silently, because the value round-trips through JSON looking
+ * perfectly reasonable.
+ */
+describe("F-10 — decimal quantities may not be JS numbers", () => {
+  it("rejects a non-integer number anywhere in the payload", () => {
+    expect(() => canonicalJsonStringify({ weightGrams: 3.45 })).toThrow(
+      NonCanonicalizableValueError
+    );
+    expect(() => canonicalJsonStringify({ weightGrams: 3.45 })).toThrow(
+      /decimal quantities must be exact strings/
+    );
+  });
+
+  it("rejects one nested inside arrays and objects", () => {
+    // The hazard is not at the top level — it is buried in a breakdown.
+    expect(() => canonicalJsonStringify({ stones: [{ carat: 0.75 }] })).toThrow(/F-10/);
+    expect(() => canonicalJsonStringify({ a: { b: { c: [1, 2, 2.5] } } })).toThrow(/F-10/);
+  });
+
+  it("names the classic float that cannot be represented", () => {
+    expect(() => canonicalJsonStringify({ rate: 0.1 })).toThrow(/non-integer number 0.1/);
+  });
+
+  it("ALLOWS integers, which are exact and meaningless as strings", () => {
+    // Counts, positions, versions and basis points. Rejecting these would push
+    // people to stringify things that were never at risk.
+    expect(canonicalJsonStringify({ quantity: 3, profileVersion: 2, deltaBps: -250 })).toBe(
+      '{"deltaBps":-250,"profileVersion":2,"quantity":3}'
+    );
+  });
+
+  it("allows the exact-string form that replaces a float", () => {
+    expect(canonicalJsonStringify({ weightGrams: "3.4500" })).toBe('{"weightGrams":"3.4500"}');
+  });
+
+  it("still rejects non-finite numbers, and says something different", () => {
+    // Two distinct failures; conflating them would make the message unhelpful.
+    expect(() => canonicalJsonStringify({ x: Number.NaN })).toThrow(/non-finite/);
+    expect(() => canonicalJsonStringify({ x: 1.5 })).toThrow(/non-integer/);
+  });
+});

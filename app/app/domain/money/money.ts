@@ -26,10 +26,11 @@ function assertValidCurrency(currency: string): void {
  * runtime bug — that type boundary is itself part of this module's safety
  * design, not just documentation of it.
  *
- * The only sanctioned entry point from decimal.js-based cost math into
- * Money is `fromDecimalMajorUnits` (or `multiplyByDecimal` /
- * `divideByInteger` on an existing Money), and all three require an
- * explicit, named rounding rule — there is no overload that omits one.
+ * The only sanctioned entry points from decimal.js-based cost math into
+ * Money are `fromDecimalMinorUnits` / `fromDecimalMajorUnits` (or
+ * `multiplyByDecimal` / `divideByInteger` on an existing Money), and all
+ * four require an explicit, named rounding rule — there is no overload
+ * that omits one.
  */
 export class Money {
   readonly amountMinorUnits: bigint;
@@ -51,9 +52,39 @@ export class Money {
   }
 
   /**
+   * Converts a Decimal (or numeric string) amount already expressed in
+   * MINOR units (e.g. cents — fractional minor units are permitted, such
+   * as an intermediate margin-solve result) into a Money, rounding under
+   * the given, explicitly named rounding rule.
+   *
+   * This is the pricing engine's single rounding boundary (spec §5.4):
+   * every other money-shaped value produced during a calculation is an
+   * unrounded `MoneyDecimal` until it reaches this method exactly once,
+   * at the final price. `roundingRuleId` is required, not defaulted — an
+   * implicit rounding rule is exactly what the versioned registry in
+   * `rounding.ts` exists to prevent.
+   *
+   * `fromDecimalMajorUnits` below is expressed in terms of this method so
+   * there is exactly one rounding code path, not two.
+   */
+  static fromDecimalMinorUnits(
+    value: MoneyDecimalValue | string,
+    currency: string,
+    roundingRuleId: RoundingRuleId
+  ): Money {
+    assertValidCurrency(currency);
+    const rule = getRoundingRule(roundingRuleId);
+    return new Money(rule.round(new MoneyDecimal(value)), currency);
+  }
+
+  /**
    * Converts a Decimal (or numeric string) MAJOR-unit amount (e.g. dollars,
    * not cents) into a Money, applying the named rounding rule at this
-   * explicit boundary.
+   * explicit boundary. Re-expressed in terms of `fromDecimalMinorUnits`:
+   * scaling to minor units is exact (multiplication by an integer power of
+   * ten), so routing through the minor-unit boundary preserves this
+   * method's behavior exactly while keeping rounding centralized in one
+   * place.
    */
   static fromDecimalMajorUnits(
     value: MoneyDecimalValue | string,
@@ -61,10 +92,8 @@ export class Money {
     roundingRuleId: RoundingRuleId,
     minorUnitsPerMajorUnit = 100
   ): Money {
-    assertValidCurrency(currency);
-    const rule = getRoundingRule(roundingRuleId);
     const decimalMinorUnits = new MoneyDecimal(value).times(minorUnitsPerMajorUnit);
-    return new Money(rule.round(decimalMinorUnits), currency);
+    return Money.fromDecimalMinorUnits(decimalMinorUnits, currency, roundingRuleId);
   }
 
   private assertSameCurrency(other: Money): void {

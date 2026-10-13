@@ -1,0 +1,221 @@
+/**
+ * Component-scoped styling for the Custom Jewelry enquiry form (Slice 9).
+ * No global selectors, no `:root` tokens defined here -- every custom
+ * property consumed below is already defined globally by the theme.
+ * Field/error/status markup reuses EXISTING Dawn classes
+ * (.field/.field__input/.field__label/.form-status/.form__message); this
+ * file only adds layout and the two blocks Dawn has no equivalent for.
+ *
+ * CONTRAST -- read before changing any colour here. This form carries the
+ * owner-approved $49 Design Deposit disclosure, which is material pricing
+ * text. Per the architect's standing ruling (2026-09-25, the cart's
+ * price-unavailable copy): de-emphasis for material terms is expressed with
+ * size/weight/spacing/borders only, NEVER with reduced colour contrast.
+ * `.carat-custom-jewelry__deposit-text` is therefore
+ * `rgb(var(--color-foreground))` at FULL alpha, identical to ordinary body
+ * text, even though it sits inside a bordered aside that reads as secondary.
+ *
+ * The only sub-1 alpha in this file is `__field-help`, which is genuinely
+ * routine field-level help ("in US dollars"), carries no promise or term,
+ * and matches Dawn's own already-shipped `.field__label` treatment
+ * (`rgba(var(--color-foreground), 0.75)` in base.css) rather than inventing
+ * a dimmer tier -- the same single exception
+ * `component-warranty-claim-form.css` documents.
+ */
+
+.carat-custom-jewelry {
+  max-width: 70rem;
+}
+
+.carat-custom-jewelry__intro {
+  color: rgb(var(--color-foreground));
+  line-height: 1.6;
+  margin: 0 0 2rem;
+}
+
+/* The deposit disclosure. Bordered so it reads as a distinct statement, and
+   at full contrast because it is material pricing text -- see the header. */
+.carat-custom-jewelry__deposit-notice {
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  border-radius: var(--badge-corner-radius, 0);
+  padding: 1.6rem;
+  margin: 0 0 2.4rem;
+}
+
+.carat-custom-jewelry__deposit-text {
+  color: rgb(var(--color-foreground));
+  line-height: 1.6;
+  margin: 0;
+}
+
+.carat-custom-jewelry__error-summary {
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  border-radius: var(--badge-corner-radius, 0);
+  padding: 1.6rem;
+  margin: 0 0 2rem;
+}
+
+.carat-custom-jewelry__error-summary p {
+  color: rgb(var(--color-foreground));
+  font-weight: 600;
+  margin: 0 0 0.8rem;
+}
+
+.carat-custom-jewelry__error-summary ul {
+  color: rgb(var(--color-foreground));
+  margin: 0;
+  padding-inline-start: 2rem;
+}
+
+.carat-custom-jewelry__confirmation {
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  border-radius: var(--badge-corner-radius, 0);
+  color: rgb(var(--color-foreground));
+  line-height: 1.6;
+  padding: 2rem;
+}
+
+.carat-custom-jewelry__fieldset {
+  border: 0;
+  margin: 0 0 2.4rem;
+  padding: 0;
+}
+
+.carat-custom-jewelry__legend {
+  color: rgb(var(--color-foreground));
+  font-weight: 600;
+  margin: 0 0 1.2rem;
+  padding: 0;
+}
+
+/* MOBILE FIRST -- single column by default, paired only once there is room.
+   README: "Mobile-first and accessible." */
+.carat-custom-jewelry__field-row {
+  display: grid;
+  gap: 0 1.6rem;
+  grid-template-columns: 1fr;
+}
+
+@media screen and (min-width: 750px) {
+  .carat-custom-jewelry__field-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.carat-custom-jewelry__radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.2rem 2.4rem;
+}
+
+.carat-custom-jewelry__radio-group--stacked {
+  flex-direction: column;
+}
+
+.carat-custom-jewelry__radio,
+.carat-custom-jewelry__checkbox-label {
+  align-items: center;
+  color: rgb(var(--color-foreground));
+  display: flex;
+  gap: 0.8rem;
+  line-height: 1.5;
+}
+
+.carat-custom-jewelry__control {
+  align-items: flex-start;
+  display: flex;
+  gap: 0.8rem;
+  margin: 1.6rem 0 0;
+}
+
+/* 44px minimum target -- WCAG 2.5.8 / iOS guidance. Dawn's own inputs are
+   smaller than this at default sizing, so it is set explicitly. */
+.carat-custom-jewelry__checkbox,
+.carat-custom-jewelry__radio input[type='radio'] {
+  flex: 0 0 auto;
+  height: 2.4rem;
+  margin: 0;
+  min-height: 2.4rem;
+  min-width: 2.4rem;
+  width: 2.4rem;
+}
+
+.carat-custom-jewelry__help {
+  color: rgb(var(--color-foreground));
+  line-height: 1.6;
+  margin: 0 0 1.2rem;
+}
+
+/* THE ONE DELIBERATE SUB-1 ALPHA IN THIS FILE -- routine field help only,
+   never a policy or pricing term. Matches Dawn's shipped `.field__label`. */
+.carat-custom-jewelry__field-help {
+  color: rgba(var(--color-foreground), 0.75);
+  display: block;
+  line-height: 1.5;
+  margin: 0.6rem 0 0;
+}
+
+.carat-custom-jewelry__field-error {
+  align-items: center;
+  color: rgb(var(--color-foreground));
+  display: flex;
+  gap: 0.6rem;
+  margin: 0.6rem 0 0;
+}
+
+.carat-custom-jewelry__uploads {
+  margin: 1.6rem 0 0;
+}
+
+.carat-custom-jewelry__file-input {
+  color: rgb(var(--color-foreground));
+  display: block;
+  max-width: 100%;
+}
+
+.carat-custom-jewelry__upload-list {
+  list-style: none;
+  margin: 1.2rem 0 0;
+  padding: 0;
+}
+
+.carat-custom-jewelry__upload-item {
+  align-items: baseline;
+  border-bottom: 1px solid rgba(var(--color-foreground), 0.15);
+  color: rgb(var(--color-foreground));
+  display: flex;
+  gap: 1.2rem;
+  justify-content: space-between;
+  padding: 0.8rem 0;
+  /* A long device file name must wrap rather than widen the row -- the page
+     body must never scroll sideways on a phone. */
+  overflow-wrap: anywhere;
+}
+
+.carat-custom-jewelry__upload-status {
+  flex: 0 0 auto;
+  font-size: 1.3rem;
+}
+
+.carat-custom-jewelry__uploads-note,
+.carat-custom-jewelry__uploads-signin {
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  border-radius: var(--badge-corner-radius, 0);
+  color: rgb(var(--color-foreground));
+  line-height: 1.6;
+  margin: 1.6rem 0 0;
+  padding: 1.6rem;
+}
+
+.carat-custom-jewelry__uploads-signin-message {
+  margin: 0 0 0.8rem;
+}
+
+.carat-custom-jewelry__actions {
+  margin: 2.4rem 0 0;
+}
+
+.carat-custom-jewelry__status {
+  color: rgb(var(--color-foreground));
+  margin: 1.6rem 0 0;
+}

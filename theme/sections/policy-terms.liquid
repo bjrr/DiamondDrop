@@ -1,0 +1,184 @@
+{%- comment -%}
+  POLICY TERMS — the authoritative wording, quoted rather than retyped.
+
+  Slice 12. Renders the material terms for one policy group, fetched from
+  `GET /apps/carat/policies?group=<group>`
+  (app/app/routes/apps.carat.policies.tsx).
+
+  ============================================================================
+  WHY THIS SECTION EXISTS AT ALL
+  ============================================================================
+  The obvious way to build a Returns page is to type the returns terms into a
+  Shopify page. That creates a second copy of every material term, with
+  nothing keeping it equal to the sentence the customer actually acknowledges
+  at checkout. They drift silently, and the first time anyone notices is a
+  dispute where our own page contradicts our own evidence.
+
+  So the terms are NOT in this file, not in the page's body, and not in a
+  theme setting. They come from `policy_version` — the same rows the
+  acknowledgment surfaces read — and this section renders them verbatim.
+
+  See docs/specs/SLICE-12-CONTENT.md §2.
+
+  ============================================================================
+  WHAT A MERCHANT MAY EDIT, AND WHAT THEY MAY NOT
+  ============================================================================
+  Editable: the heading, the intro paragraph, and which group is shown. Those
+  are narrative and navigation.
+
+  NOT editable, and not present as settings: the terms themselves. There is
+  deliberately no "term text" setting — a settings field would be a second
+  copy wearing a different hat, and it would be the one nobody updates.
+
+  The page's own rich-text body is the right place for explanation,
+  examples and links. It sits above this section.
+
+  ============================================================================
+  THE NOSCRIPT / FAILURE PATH IS NOT A FALLBACK COPY
+  ============================================================================
+  When the fetch fails, this renders a link to the authoritative page rather
+  than a cached or hard-coded version of the terms. A stale material term
+  shown as current is worse than a visible error: the customer cannot tell
+  the difference, and we have no record of what they were shown.
+{%- endcomment -%}
+
+{%- style -%}
+  .section-{{ section.id }}-padding {
+    padding-top: {{ section.settings.padding_top | times: 0.75 | round: 0 }}px;
+    padding-bottom: {{ section.settings.padding_bottom | times: 0.75 | round: 0 }}px;
+  }
+
+  @media screen and (min-width: 750px) {
+    .section-{{ section.id }}-padding {
+      padding-top: {{ section.settings.padding_top }}px;
+      padding-bottom: {{ section.settings.padding_bottom }}px;
+    }
+  }
+{%- endstyle -%}
+
+{{ 'component-policy-terms.css' | asset_url | stylesheet_tag }}
+
+<div class="color-{{ section.settings.color_scheme }} gradient">
+  <div class="page-width section-{{ section.id }}-padding">
+    {%- if section.settings.heading != blank -%}
+      <h2 class="carat-policy-terms__heading {{ section.settings.heading_size }}">
+        {{ section.settings.heading | escape }}
+      </h2>
+    {%- endif -%}
+
+    {%- if section.settings.intro != blank -%}
+      <div class="carat-policy-terms__intro rte">{{ section.settings.intro }}</div>
+    {%- endif -%}
+
+    <div
+      class="carat-policy-terms"
+      data-carat-policy-terms
+      data-group="{{ section.settings.group | escape }}"
+      data-show-version="{{ section.settings.show_version }}"
+    >
+      {%- comment -%}
+        Replaced on load. Not a skeleton pretending to be content — it says
+        what it is, so a customer who hits a failure is not left reading a
+        placeholder that looks like a term.
+      {%- endcomment -%}
+      <p class="carat-policy-terms__loading">Loading the current terms…</p>
+    </div>
+
+    <noscript>
+      <p class="carat-policy-terms__error">
+        These terms need JavaScript to display. You can also read them at the
+        point of purchase, where you are asked to accept them.
+      </p>
+    </noscript>
+  </div>
+</div>
+
+<script src="{{ 'policy-terms.js' | asset_url }}" defer="defer"></script>
+
+{% schema %}
+{
+  "name": "Policy terms",
+  "tag": "section",
+  "class": "section",
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "Shows the current, authoritative wording of the material terms for one policy area. The wording itself is managed by the CaratForUs app and cannot be edited here — that is deliberate, so a policy page can never disagree with what a customer is asked to accept at checkout. Use the page body above for explanation."
+    },
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading",
+      "default": "The terms"
+    },
+    {
+      "type": "select",
+      "id": "heading_size",
+      "options": [
+        { "value": "h2", "label": "Medium" },
+        { "value": "h1", "label": "Large" }
+      ],
+      "default": "h2",
+      "label": "Heading size"
+    },
+    {
+      "type": "richtext",
+      "id": "intro",
+      "label": "Introduction",
+      "info": "Optional. Explanation and links. Do not restate the terms here."
+    },
+    {
+      "type": "select",
+      "id": "group",
+      "options": [
+        { "value": "returns", "label": "Returns" },
+        { "value": "warranty", "label": "Warranty" },
+        { "value": "luxury-steals", "label": "Luxury Steals" },
+        { "value": "group-buy", "label": "Group Buy" },
+        { "value": "custom-jewelry", "label": "Custom Jewelry" },
+        { "value": "quote-match", "label": "Let Us Beat Your Quote" }
+      ],
+      "default": "returns",
+      "label": "Policy area"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_version",
+      "default": true,
+      "label": "Show the version of each term",
+      "info": "Helps support establish what a customer would have read on a given day."
+    },
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "t:sections.all.colors.label",
+      "default": "scheme-1"
+    },
+    {
+      "type": "range",
+      "id": "padding_top",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "t:sections.all.padding.padding_top",
+      "default": 36
+    },
+    {
+      "type": "range",
+      "id": "padding_bottom",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "t:sections.all.padding.padding_bottom",
+      "default": 36
+    }
+  ],
+  "presets": [
+    {
+      "name": "Policy terms"
+    }
+  ]
+}
+{% endschema %}
