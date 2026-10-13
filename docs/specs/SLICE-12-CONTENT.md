@@ -106,14 +106,21 @@ change.
 
 ### 4.1 🚦 LAUNCH BLOCKER — the customer-service contact, both halves
 
-The published address is **`orders@raywanjewelers.com`** (owner decision
-2026-10-12, correcting an earlier draft that invented
-`support@caratforus.com` — that address was never an owner decision and has
-been removed everywhere). **Changing it requires a new owner decision.**
+The published address is **`orders@caratforus.com`**. **Changing it requires
+a new owner decision.**
+
+**PROJECT-WIDE RULE (owner, 2026-10-12): every CaratForUs customer-facing
+email address is on the `@caratforus.com` domain.** No other domain may
+appear anywhere in this application, theme, documentation, environment
+examples, policy copy, FAQ copy, tests or configuration as a CaratForUs
+contact address — including the domain of any related but separate business.
+Enforced by `app/app/domain/content/customerFacingEmailDomain.test.ts`,
+which scans the repository rather than any single file and names the
+specific excluded domain so it cannot creep back in.
 
 Two things must both be true before the Contact page or the FAQ go live:
 
-1. `orders@raywanjewelers.com` is an **actively monitored** mailbox;
+1. `orders@caratforus.com` is an **actively monitored** mailbox;
 2. the website **Contact Us form routes into the same customer-service
    process**.
 
@@ -127,6 +134,28 @@ where a deployer looks for what an environment needs. No code reads it; an
 address printed on a public page that nobody owns is a silent failure,
 because the customer's mail simply goes nowhere and nothing bounces back to
 us.
+
+#### How this address was settled, and why it is now fenced
+
+Recorded because the sequence is the argument for the fence, not trivia.
+**The superseded values are described rather than written out** — the fence
+forbids the foreign domain appearing anywhere, and a history note is not an
+exception worth carving.
+
+1. I **invented** a `support@` address on the CaratForUs domain while
+   drafting, and carried it through the FAQ, the spec and `.env.example` as
+   though it were a decision. It never was one. It read plausibly, which is
+   exactly why nothing caught it.
+2. The owner corrected it to an address on a **different business's domain**.
+3. The owner corrected it again to `orders@caratforus.com` and added the
+   project-wide rule above, which makes that other domain out of bounds
+   here entirely.
+
+Three values in two days, and at no point did anything in the codebase
+object. A fabricated address and a real address belonging to someone else
+are both indistinguishable from a correct one by inspection — so the fence
+checks the DOMAIN, which is a fact a test can hold, rather than trying to
+recognise the right local part.
 
 ### 4.2 In Shopify Admin
 

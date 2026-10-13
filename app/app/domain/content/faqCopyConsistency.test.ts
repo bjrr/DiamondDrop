@@ -160,7 +160,7 @@ describe("the owner's approved answers appear verbatim", () => {
       decision: "6 — contact channels",
       text:
         "Need help? Contact CaratForUs through our Contact Us form or email us at " +
-        "orders@raywanjewelers.com.",
+        "orders@caratforus.com.",
     },
   ];
 
@@ -469,7 +469,7 @@ describe("decision 6 — two channels, and only the approved address", () => {
     }
   });
 
-  it("names orders@raywanjewelers.com and no other address", () => {
+  it("names orders@caratforus.com and no other address", () => {
     /**
      * THE ADDRESS IS AN OWNER DECISION, AND I GOT IT WRONG ONCE.
      *
@@ -482,7 +482,7 @@ describe("decision 6 — two channels, and only the approved address", () => {
      * address is present, and no second address has crept in beside it.
      */
     const addresses = new Set(CUSTOMER_FACING.match(/[\w.+-]+@[\w.-]+\.\w+/g) ?? []);
-    expect([...addresses]).toEqual(["orders@raywanjewelers.com"]);
+    expect([...addresses]).toEqual(["orders@caratforus.com"]);
   });
 
   it("the superseded invented address appears nowhere, not even in commentary", () => {

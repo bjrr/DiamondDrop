@@ -8,7 +8,7 @@ Refunds, Production & Delivery, Materials & Stones, Ring Sizing, Custom
 Jewelry, Warranty & Repairs, Returns & Cancellations, Payments, and Shipping
 & Insurance — plus Contact, which is its own Slice 12 page.
 
-**ONE THING STILL GATES PUBLICATION:** `orders@raywanjewelers.com` must be an
+**ONE THING STILL GATES PUBLICATION:** `orders@caratforus.com` must be an
 actively monitored mailbox, and the Contact Us form must route into the same
 customer-service process. An unprovisioned address is a setup task to
 complete, never a reason to substitute a different one.
@@ -508,7 +508,7 @@ page and the answer below is the same on both surfaces.
 ### Q: How do I get in touch? **[OWNER-APPROVED 2026-10-12 — decision 6]**
 
 > Need help? Contact CaratForUs through our Contact Us form or email us at
-> orders@raywanjewelers.com. For an existing order, claim, return, Group Buy,
+> orders@caratforus.com. For an existing order, claim, return, Group Buy,
 > or Custom Jewelry project, please include the applicable order or reference
 > number so we can locate it.
 
@@ -516,16 +516,21 @@ page and the answer below is the same on both surfaces.
 > support hours until those channels actually exist and are staffed. An
 > unstaffed channel on a contact page is worse than no channel.
 >
-> ⚠️ **THE ADDRESS IS `orders@raywanjewelers.com`**, by owner decision.
-> Changing it needs a new owner decision — not a judgement call about which
-> domain looks more consistent with the brand. An earlier draft of this file
-> invented a plausible-looking address on the brand domain and it was wrong;
-> the superseded value is deliberately not repeated here, so that nobody
-> reading this can copy it by mistake. The history is in
-> `SLICE-12-CONTENT.md` §4.1.
+> ⚠️ **THE ADDRESS IS `orders@caratforus.com`**, by owner decision, and
+> changing it needs a new owner decision.
+>
+> **PROJECT-WIDE RULE: every CaratForUs customer-facing email address is on
+> `@caratforus.com`.** No other domain may appear anywhere as a CaratForUs
+> contact address — including the domain of a related but separate business.
+> Enforced by `app/app/domain/content/customerFacingEmailDomain.test.ts`,
+> which scans the repository rather than this file alone.
+>
+> Two earlier values were wrong before this one was settled; neither is
+> repeated here, so nobody reading this can copy a dead address by mistake.
+> The history is in `SLICE-12-CONTENT.md` §4.1.
 >
 > 🚦 **LAUNCH BLOCKER — TWO PARTS, BOTH REQUIRED.**
-> `orders@raywanjewelers.com` must be an **actively monitored** mailbox, and
+> `orders@caratforus.com` must be an **actively monitored** mailbox, and
 > the website Contact Us form must route into the **same** customer-service
 > process. Publishing one channel that is watched and one that is not is the
 > failure this blocker exists to prevent: the customer cannot tell which is
@@ -546,7 +551,7 @@ reasons they are worded the way they are matter.
 | 3 | Materials, stone origin, certification, treatment disclosure | No catalog-wide claim in either direction. Product-specific facts control |
 | 4 | Whether you resize, at what cost, and the warranty effect | Yes, eligibility varies by design, may carry a charge. Unauthorised third-party work is not covered; CaratForUs-authorised work does **not** void the rest |
 | 5 | Countries shipped to, and who pays duties | 50 US states + D.C. only. No international, so no duties |
-| 6 | Contact channels | Contact Us form and `orders@raywanjewelers.com`. No phone, SMS, chat or hours |
+| 6 | Contact channels | Contact Us form and `orders@caratforus.com`. No phone, SMS, chat or hours |
 
 ---
 
@@ -581,7 +586,7 @@ whatever system holds this content:
    are live.
 10. **Shipping** — 50 states and D.C. exactly; international, APO/FPO, U.S.
     territories and duties each need their own approval.
-11. **Contact** — two channels only; the address is `orders@raywanjewelers.com`
+11. **Contact** — two channels only; the address is `orders@caratforus.com`
     and changing it needs a new owner decision; both channels must be live
     and routed to the same process before publication.
 
@@ -593,7 +598,7 @@ whatever system holds this content:
 does not have is worse than no FAQ, so this list is kept short deliberately.
 
 1. **The contact channels** (decision 6, corrected 2026-10-12).
-   `orders@raywanjewelers.com` must be an actively monitored mailbox, **and**
+   `orders@caratforus.com` must be an actively monitored mailbox, **and**
    the Contact Us form must route into the same customer-service process.
    Both, not either: publishing one watched channel beside one that is not is
    worse than publishing a single channel, because the customer cannot tell
