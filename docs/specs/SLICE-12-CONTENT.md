@@ -98,9 +98,26 @@ than one with placeholder text where a material term should be.
 
 ---
 
-## 4. Manual Shopify setup required
+## 4. Manual setup required
 
-None of this is done by the app, and all of it is done once in Admin:
+None of this is done by the app. Recorded here because `CLAUDE.md`'s release
+gate requires documenting metafields, metaobjects and manual setup when they
+change.
+
+### 4.1 🚦 LAUNCH BLOCKER — `support@caratforus.com`
+
+Owner decision 2026-10-12 publishes this address on the Contact page and in
+the FAQ. **It must be provisioned, receiving and monitored before that content
+goes live.** The owner was explicit that an unprovisioned address is a setup
+task to complete, not a reason to substitute a different one — so if it is not
+live, the content waits.
+
+Also recorded as `SUPPORT_EMAIL` in `app/.env.example`, which is where a
+deployer looks for what an environment needs. No code reads it; an address
+printed on a public page that nobody owns is a silent failure, because the
+customer's mail simply goes nowhere and nothing bounces back to us.
+
+### 4.2 In Shopify Admin
 
 - **Pages**: About, Why Buy From Us, Contact, and one page per policy group
   (`returns`, `warranty`, `luxury-steals`, `group-buy`, `custom-jewelry`,
@@ -111,12 +128,34 @@ None of this is done by the app, and all of it is done once in Admin:
 - **Product metafield** of type "list of metaobject references" pointing at
   FAQ entries, for the contextual FAQs the README allows on product pages.
 
-Recorded here because `CLAUDE.md`'s release gate requires documenting
-metafields, metaobjects and manual setup when they change.
+### 4.3 Per-item delivery estimates — an obligation the FAQ creates
+
+Owner decision 1 states that a delivery estimate "will be shown on the
+product, campaign, or final approval page before purchase". Where an estimate
+applies, that surface must carry it:
+
+| Surface | Today |
+|---|---|
+| Custom Jewelry final approval | **Already supported** — `approvedTimelineText` on the approval package, deliberately nullable, rendered as absence rather than a default |
+| Buy Now product page | No field. An estimate there is editorial content entered per product |
+| Group Buy campaign page | No field. Same |
+
+No blanket SLA, ever (decision 1). If a system-held estimate is wanted for
+Buy Now or Group Buy later, that is a schema change and a separate decision —
+not something to approximate with a hard-coded string in a theme.
 
 ---
 
 ## 5. What is NOT built, and why
+
+> **UPDATED 2026-10-12.** The six open copy decisions below were resolved by
+> the owner and incorporated verbatim into
+> `SLICE-12-FAQ-COPY-PROPOSAL.md`, which is now APPROVED. Ten FAQ categories
+> plus Contact are written and guarded by
+> `app/app/domain/content/faqCopyConsistency.test.ts`. What remains is
+> authoring the approved content into Shopify (§4.2) and provisioning the
+> support address (§4.1). The section below is kept as the record of why the
+> work stopped where it did.
 
 **The content itself.** FAQ answers, policy-page narrative, About, Why Buy
 From Us, and contact copy are all new material customer-facing language, and

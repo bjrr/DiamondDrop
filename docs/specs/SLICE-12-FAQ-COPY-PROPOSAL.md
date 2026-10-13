@@ -1,12 +1,16 @@
 # Slice 12 — FAQ copy
 
-**Status: DRAFT, awaiting owner approval.** Nothing here is live. No FAQ
-surface exists yet, so no customer can reach any of this.
+**Status: APPROVED by the owner 2026-10-12.** All six previously undecided
+answers are resolved and incorporated verbatim; the rest stands as drafted.
 
 Ten categories, per README "FAQ / Trust Architecture": Group Buys, Pricing &
 Refunds, Production & Delivery, Materials & Stones, Ring Sizing, Custom
 Jewelry, Warranty & Repairs, Returns & Cancellations, Payments, and Shipping
-& Insurance.
+& Insurance — plus Contact, which is its own Slice 12 page.
+
+**ONE THING STILL GATES PUBLICATION:** `support@caratforus.com` must be
+provisioned and tested. The owner was explicit that an unprovisioned address
+is a setup task, never a reason to substitute a different one.
 
 ---
 
@@ -19,9 +23,10 @@ Every answer below is marked:
   the facts.
 - **[NEW]** — I wrote it. It makes no promise the locked documents do not
   already make, but the words are mine and need your eye.
-- **[NEEDS YOUR FACTS]** — I did not write a real answer because I do not
-  have the information, and guessing would invent a promise. These are listed
-  with what I need.
+- **[OWNER-APPROVED 2026-10-12]** — the owner's own wording, used verbatim.
+  These were the six questions I refused to answer without facts. Do not
+  restyle them for consistency with the surrounding voice; they are decisions,
+  not drafts.
 
 **Material terms are quoted, not paraphrased.** Where an answer touches a term
 a customer acknowledges, the page shows the authoritative sentence from
@@ -30,9 +35,16 @@ explanation around it. That is why several answers below end by pointing at
 the policy page rather than restating the rule a second time — see
 `SLICE-12-CONTENT.md` §2.
 
-**Nothing below promises a date.** Not production time, not repair time, not
-delivery. `WARRANTY-CLAIMS.md` §12 and your standing instruction both forbid
-it, and it is the single easiest promise to make by accident.
+**EXACTLY ONE TIMEFRAME IS PROMISED, AND IT IS DELIBERATE.** Decision 5
+commits to initiating an approved refund within 5 business days — counted
+from approval, after receipt and inspection, and ending at *initiate* rather
+than at funds landing.
+
+Nothing else here promises a date. Not production, not delivery, not repair.
+`WARRANTY-CLAIMS.md` §12 forbids a warranty turnaround outright, decision 1
+forbids a blanket production SLA, and a date is the single easiest promise to
+make by accident — which is why the one real commitment is fenced on all
+three sides.
 
 ---
 
@@ -107,29 +119,48 @@ it, and it is the single easiest promise to make by accident.
 > No — it applies to the merchandise. Tax, shipping, duties and other charges
 > are not part of the saving.
 
-### Q: When do I get a refund, and how long does it take? **[LOCKED, partial]**
+### Q: When do I get a refund, and how long does it take? **[OWNER-APPROVED 2026-10-12 — decision 5]**
 
 > Refunds go back to the way you paid. A Group Buy tier-adjustment refund is
 > calculated automatically but approved by a person before it is sent.
+>
+> Once an eligible return has been received, inspected when required, and
+> approved, CaratForUs will initiate the approved refund within 5 business
+> days. Your bank or payment provider may take additional time to post the
+> funds to your account. Refund eligibility and amount remain governed by the
+> applicable return policy.
 
-> ⚠️ **[NEEDS YOUR FACTS]** — I have deliberately not stated how long a refund
-> takes. If you want a timeframe here, give me one you are willing to stand
-> behind; otherwise this answer ships as written.
+> ⚠️ **THE FIVE DAYS START AT APPROVAL, NOT AT REQUEST.** The owner was
+> explicit: this wording must not be used to imply that submitting an RMA or a
+> return request starts the clock. The sequence is received → inspected where
+> required → approved → *then* five business days to initiate. Any rewrite
+> that drops one of those steps changes what we have promised.
+>
+> **And it ends at "initiate".** We do not promise when the customer's bank
+> makes the money visible, because we do not control it.
 
 ---
 
 ## 3. Production & Delivery
 
-### Q: How long will my piece take? **[NEEDS YOUR FACTS]**
+### Q: How long will my piece take? **[OWNER-APPROVED 2026-10-12 — decision 1]**
 
-I have not drafted this. There is no locked production timeframe anywhere in
-the documents, and `WARRANTY-CLAIMS.md` §12 plus your standing instruction
-both forbid inventing one.
+> Production and delivery timing varies by item. Ready-to-ship,
+> made-to-order, Custom Jewelry, and Group Buy pieces may have different
+> timelines. The applicable estimate will be shown on the product, campaign,
+> or final approval page before purchase. Once your order ships, we'll send
+> tracking information. Unless CaratForUs expressly states otherwise in
+> writing, production and delivery dates are estimates and are not
+> guaranteed.
 
-**What I need:** either a range you will stand behind per purchase path (Buy
-Now, Group Buy, Custom), or a decision that the answer is "we tell you when
-your order is confirmed and keep you updated by email", which is honest and
-promises nothing.
+> ⚠️ **NO BLANKET SLA, EVER.** The owner's decision is explicit: do not invent
+> a universal "X–Y weeks" statement, and do not let one appear here later by
+> way of a "helpful" clarification. Timing is per item.
+>
+> **THIS ANSWER CREATES AN OBLIGATION ON OTHER SURFACES.** It tells customers
+> the estimate "will be shown on the product, campaign, or final approval page
+> before purchase". Where an estimate applies, that surface must actually
+> carry it — see the implementation note below.
 
 ### Q: How do I know where my order is? **[LOCKED]**
 
@@ -141,16 +172,26 @@ promises nothing.
 
 ## 4. Materials & Stones
 
-### Q: What are CaratForUs pieces made from? **[NEEDS YOUR FACTS]**
+### Q: What are CaratForUs pieces made from? **[OWNER-APPROVED 2026-10-12 — decision 2]**
 
-Not drafted. The repository defines metals and purities as pricing inputs, but
-nothing locked says what you want to *claim* to customers about materials,
-stone sourcing, treatment disclosure or certification — and those are claims
-with legal weight.
+> The materials and stones used in each piece are identified on the product
+> page or, for Custom Jewelry, in the final design and specification package.
+> Where applicable, we disclose the metal type and purity, gemstone type, and
+> whether a diamond is natural or lab-grown. We source from multiple
+> suppliers, so origin can vary by item. If an independent grading report,
+> certification, treatment, sourcing statement, or specific origin applies to
+> a piece, it will be stated for that item.
 
-**What I need:** which metals and purities you offer publicly; whether stones
-are natural, lab-grown or both; what certification you supply and from whom;
-and your position on treatment disclosure.
+> ⚠️ **NO CATALOG-WIDE CLAIM, IN EITHER DIRECTION.** The owner enumerated what
+> this answer must never imply: that every diamond is certified; that every
+> diamond is natural; that every diamond is lab-grown; that every gemstone is
+> untreated; that every item comes from a particular country; or
+> "conflict-free" or any other sourcing certification without evidence
+> supporting that specific claim.
+>
+> These are claims with legal weight and CaratForUs sources from multiple
+> suppliers. **Product-specific facts control.** A later edit that tightens
+> this into something reassuring and general is the failure mode.
 
 ### Q: Are the product images photographs of the actual item? **[LOCKED]**
 
@@ -181,14 +222,27 @@ renders, actual photos/videos and AI visualizations")*
 > eligible for a discretionary return. Custom Jewelry and Luxury Steals have
 > their own rules — see those sections.
 
-### Q: Can you resize a ring I already bought? **[NEEDS YOUR FACTS]**
+### Q: Can you resize a ring I already bought? **[OWNER-APPROVED 2026-10-12 — decision 3]**
 
-Not drafted. Nothing locked says whether you offer resizing, at what cost, or
-with what effect on warranty — and `WARRANTY-CLAIMS.md` §1 excludes "sizing
-changes" from warranty coverage, so a wrong answer here is expensive.
+> Many rings can be resized, but some designs cannot be safely resized or
+> have limited sizing ranges. Contact CaratForUs before having sizing work
+> performed so we can confirm whether your ring is eligible and whether any
+> charge applies. Resizing itself is not a manufacturing defect. Damage caused
+> by unauthorized third-party resizing, repair, alteration, or modification is
+> not covered by the limited warranty. Work performed or expressly authorized
+> by CaratForUs does not automatically void the rest of the warranty.
 
-**What I need:** do you offer resizing, is it paid, and what does it do to the
-warranty.
+> ⚠️ **TWO OPPOSITE ERRORS ARE BOTH FORBIDDEN HERE.** Do not promise free
+> resizing — it is design-dependent and may carry a charge. And do not state
+> that resizing automatically voids the whole warranty: the owner's decision
+> is narrower than `WARRANTY-CLAIMS.md` §1's "sizing changes" exclusion reads
+> on its own, and work CaratForUs performs or authorises does **not**
+> automatically void the rest of the cover.
+>
+> This answer also sits next to the returns rule: a ring **already resized
+> after delivery** is not eligible for a discretionary return
+> (`BUY-NOW-RETURNS-AND-DISPUTE-EVIDENCE.md` §8). Both facts are true and
+> neither cancels the other.
 
 ---
 
@@ -410,29 +464,107 @@ exposure")*
 > unless a change is reviewed and recorded, and we cannot always make a change
 > before a parcel leaves.
 
-### Q: Do you ship internationally? **[NEEDS YOUR FACTS]**
+### Q: Where do you ship, and do I pay duties? **[OWNER-APPROVED 2026-10-12 — decision 4]**
 
-Not drafted. Nothing locked says where you ship, or how duties and import tax
-are handled — and `BANK-CARD-PRICING.md` §8 mentions duties as a real charge,
-so customers will ask.
+> CaratForUs currently ships within the 50 United States and Washington, D.C.
+> We do not currently offer international shipping. Because our current
+> shipping program is domestic, international customs duties and import fees
+> do not apply. Applicable sales tax, when required, is calculated during
+> checkout.
 
-**What I need:** which countries, and who pays duties.
+> ⚠️ **DOMESTIC ONLY AT LAUNCH, AND THE LIST IS EXACT.** The owner's decision
+> names the 50 states and D.C. Do not add international shipping, APO/FPO
+> addresses, or U.S. territories — and do not add duties handling — until
+> those operational paths have actually been approved. Each is a separate
+> approval, not an obvious extension of this one.
+>
+> Tracking, insurance and signature rules are unchanged by this decision.
+
+---
+
+## 11. Contacting us
+
+Not one of the README's ten FAQ categories, but Contact is its own Slice 12
+page and the answer below is the same on both surfaces.
+
+### Q: How do I get in touch? **[OWNER-APPROVED 2026-10-12 — decision 6]**
+
+> Need help? Contact CaratForUs through our Contact Us form or email us at
+> support@caratforus.com. For an existing order, claim, return, Group Buy, or
+> Custom Jewelry project, please include the applicable order or reference
+> number so we can locate it.
+
+> ⚠️ **TWO CHANNELS ONLY.** Do not advertise telephone, SMS, live chat, or
+> support hours until those channels actually exist and are staffed. An
+> unstaffed channel on a contact page is worse than no channel.
+>
+> 🚦 **LAUNCH BLOCKER — `support@caratforus.com` MUST BE PROVISIONED AND
+> TESTED BEFORE THIS ANSWER IS PUBLISHED.** The owner's instruction is
+> explicit: if it is not live, that is a setup task to complete, **not** a
+> reason to substitute a different address. See `SLICE-12-CONTENT.md` §4.
 
 ---
 
 ## Summary of what I need from you
 
-| # | Needed | Why I did not write it |
+**ALL SIX RESOLVED by owner decision 2026-10-12.** Kept as a record of what
+was asked and what came back, because the answers above are terse and the
+reasons they are worded the way they are matter.
+
+| # | Was needed | Owner decision |
 |---|---|---|
-| 1 | Refund timeframe, or a decision to state none | Any number is a promise |
-| 2 | Production/delivery timeframes, or "we tell you when confirmed" | No locked timeframe exists; forbidden to invent |
-| 3 | Materials, stone origin, certification, treatment disclosure | Claims with legal weight; nothing locked |
-| 4 | Whether you resize, at what cost, and the warranty effect | Warranty excludes sizing changes — a wrong answer is expensive |
-| 5 | Countries shipped to, and who pays duties | Nothing locked |
-| 6 | Contact channels (email only, or a form) | A form implies an inbox someone watches |
+| 1 | Refund timeframe, or a decision to state none | 5 business days to **initiate**, counted from approval — not from request |
+| 2 | Production/delivery timeframes | No blanket SLA. Per-item estimate shown on the product/campaign/approval surface; estimates, not guarantees |
+| 3 | Materials, stone origin, certification, treatment disclosure | No catalog-wide claim in either direction. Product-specific facts control |
+| 4 | Whether you resize, at what cost, and the warranty effect | Yes, eligibility varies by design, may carry a charge. Unauthorised third-party work is not covered; CaratForUs-authorised work does **not** void the rest |
+| 5 | Countries shipped to, and who pays duties | 50 US states + D.C. only. No international, so no duties |
+| 6 | Contact channels | Contact Us form and `support@caratforus.com`. No phone, SMS, chat or hours |
 
-Everything else above is ready to ship once you have read it.
+---
 
-The three **⚠️ warnings** are not drafting notes — they are the places where a
-later innocent edit would breach a locked policy, and they should survive into
-whatever system holds this content.
+## The ⚠️ fences
+
+Not drafting notes. Each marks a place where a later innocent edit would
+breach a locked policy or an owner decision, and they should survive into
+whatever system holds this content:
+
+1. **Pricing** — no percentage, and never "surcharge", "card fee", "cash
+   discount" or "cash price" (`BANK-CARD-PRICING.md` §6 forbids each by name).
+2. **Warranty remedy** — no promise of repair specifically, no turnaround, no
+   prepaid inbound label, no post-warranty paid repair
+   (`WARRANTY-CLAIMS.md` §12); the internal local-jeweller option never
+   appears customer-facing at all (§7).
+3. **Bank Payment stock** — "stock is not held" is Buy Now only; generalising
+   it to Group Buy would contradict the campaign page, where a pending Bank
+   Payment order counts toward progress immediately.
+4. **Refund timing** — five business days runs from *approval*, after receipt
+   and inspection, and ends at *initiate*. Not from request, and not to funds
+   landing.
+5. **Production timing** — no blanket SLA, ever.
+6. **Materials** — no catalog-wide claim in either direction; six specific
+   implications are forbidden by name.
+7. **Resizing** — not free, and not an automatic warranty void. Both errors
+   are live.
+8. **Shipping** — 50 states and D.C. exactly; international, APO/FPO, U.S.
+   territories and duties each need their own approval.
+9. **Contact** — two channels only, and the address must be live first.
+
+---
+
+## Obligations this FAQ creates elsewhere
+
+Two answers promise something another surface has to deliver. Recording them
+here because an FAQ that describes behaviour the product does not have is
+worse than no FAQ.
+
+1. **Per-item delivery estimates** (decision 1). The answer states the
+   estimate "will be shown on the product, campaign, or final approval page
+   before purchase". Where an estimate applies, that surface must carry it.
+   Custom Jewelry already does — `approvedTimelineText` on the approval
+   package, which is deliberately nullable and renders as absence rather than
+   inventing a default. Buy Now product pages and Group Buy campaign pages
+   have no equivalent field today, so an estimate there is editorial content
+   per item, not a system guarantee.
+2. **`support@caratforus.com`** (decision 6). Must be provisioned and tested
+   before publication — flagged as a launch requirement in
+   `SLICE-12-CONTENT.md` §4.
