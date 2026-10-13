@@ -4,9 +4,38 @@ on:
   push:
   pull_request:
 
-# Slice 0 is deliberately scoped so the entire pipeline runs with no live
-# Shopify credentials (open decision D1, see docs/ARCHITECTURE-MVP1.md
-# §12) — every value below is a placeholder, not a real secret.
+# THE ENTIRE PIPELINE RUNS WITH NO LIVE SHOPIFY CREDENTIALS. That guarantee
+# is unchanged (open decision D1, see docs/ARCHITECTURE-MVP1.md §12): every
+# value below is a hardcoded placeholder in a public file, not a GitHub
+# secret and not anything Shopify would accept.
+#
+# WHY SHOPIFY CONFIG IS SUPPLIED AT ALL, when Slice 0 needed none.
+#
+# Slice 2 / D13 adopted @shopify/shopify-app-react-router for admin auth.
+# `app/shopify.server.ts` calls `requireShopifyConfig()` at MODULE LOAD, which
+# is correct — an embedded-admin or OAuth surface that boots without Shopify
+# configuration should fail loudly rather than serve a half-configured admin.
+#
+# Unit tests import the embedded-admin route modules, so they transitively
+# load that module and hit that check. With only SHOPIFY_API_SECRET defined,
+# 18 test files failed to load with:
+#
+#   Shopify admin authentication is not configured.
+#   Missing: SHOPIFY_API_KEY, SHOPIFY_APP_URL
+#
+# which is why CI went red at c8c487b (2026-09-17) and stayed red for 105
+# consecutive runs through slices 2-13. It never reproduced locally because a
+# developer's app/.env supplies both values.
+#
+# THE FIX BELONGS HERE, NOT IN THE APPLICATION. Making these optional, or
+# giving them defaults in app code, would mean a real deployment could boot an
+# admin surface with no Shopify configuration and only discover it when a
+# customer-facing request failed. CI exercises the whole application including
+# those routes, so CI is the right place to supply fake configuration — at the
+# boundary, never in application defaults.
+#
+# Jobs that import no Shopify admin/OAuth code still need none of this; that
+# architectural property is unchanged.
 env:
   APP_ENV: test
   DATABASE_URL: "postgresql://carat:carat_ci_password@localhost:5432/carat_ci?schema=public"
@@ -14,6 +43,12 @@ env:
   CRON_SECRET: "ci_cron_secret_placeholder_not_a_real_secret_"
   SHOPIFY_API_SECRET: "ci_shopify_app_secret_placeholder____________"
   SHOPIFY_APP_PROXY_SUBPATH: "carat"
+  # Added 2026-10-13 to repair the break described above. Deliberately
+  # obvious fakes: a key no Shopify app owns, and a .example host that cannot
+  # resolve — RFC 2606 reserves it, so neither can ever be mistaken for, or
+  # accidentally reach, a real environment.
+  SHOPIFY_API_KEY: "ci_shopify_api_key_placeholder"
+  SHOPIFY_APP_URL: "https://ci.caratforus.example"
 
 jobs:
   build-and-test:
