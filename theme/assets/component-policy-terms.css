@@ -1,0 +1,85 @@
+/**
+ * Component-scoped styling for the policy terms section
+ * (sections/policy-terms.liquid). No global selectors; every custom property
+ * used below is an existing theme token. Mobile-first, matching this theme's
+ * convention elsewhere (see component-group-buy-campaign.css).
+ *
+ * CONTRAST — EVERY TERM IS A MATERIAL TERM HERE, so nothing on this surface
+ * uses the theme's dimmed tier. That tier exists for genuinely routine hint
+ * text; it is the wrong choice for wording a customer is being asked to rely
+ * on, and the architect's 2026-09-25 ruling (recorded in
+ * component-warranty-claim-form.css) already says so for the acknowledgment
+ * surfaces. A policy page is the same situation with more text.
+ *
+ * The version line IS dimmed — it is provenance, not a term.
+ */
+
+.carat-policy-terms {
+  max-width: 55rem;
+}
+
+.carat-policy-terms__heading {
+  margin: 0 0 0.5rem;
+}
+
+.carat-policy-terms__intro {
+  margin: 0 0 2rem;
+  color: rgb(var(--color-foreground));
+}
+
+.carat-policy-terms__list {
+  display: grid;
+  gap: 2rem;
+}
+
+.carat-policy-terms__item {
+  border-left: 2px solid rgba(var(--color-foreground), 0.25);
+  padding-left: 1.25rem;
+}
+
+.carat-policy-terms__title {
+  margin: 0 0 0.5rem;
+  font-size: 1.6rem;
+}
+
+/**
+ * THE TERM ITSELF. Full contrast, generous measure, and `pre-wrap` so a
+ * stored term's own line breaks survive — the text is rendered exactly as
+ * recorded, and silently reflowing it would put the page out of step with
+ * the evidence it is quoting.
+ */
+.carat-policy-terms__text {
+  margin: 0;
+  color: rgb(var(--color-foreground));
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.carat-policy-terms__version {
+  margin: 0.5rem 0 0;
+  font-size: 1.2rem;
+  color: rgba(var(--color-foreground), 0.7);
+}
+
+.carat-policy-terms__loading {
+  margin: 0;
+  color: rgba(var(--color-foreground), 0.7);
+}
+
+/**
+ * A FAILURE IS NOT A HINT. Full contrast and a visible border: the customer
+ * needs to know they are not looking at the terms, because there is
+ * deliberately no cached copy standing in for them.
+ */
+.carat-policy-terms__error {
+  margin: 1.5rem 0 0;
+  padding: 1rem;
+  border: 1px solid rgba(var(--color-foreground), 0.4);
+  color: rgb(var(--color-foreground));
+}
+
+@media screen and (min-width: 750px) {
+  .carat-policy-terms__item {
+    padding-left: 1.5rem;
+  }
+}
