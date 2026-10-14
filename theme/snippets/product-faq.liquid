@@ -1,0 +1,43 @@
+{%- comment -%}
+  CONTEXTUAL FAQs ON A PRODUCT PAGE.
+
+  Slice 12. README: "Allow reusable contextual FAQs on product pages and
+  product-specific entries when truly needed."
+
+  Reads the product metafield `carat.faq_entries` — a LIST OF METAOBJECT
+  REFERENCES pointing at `faq_entry` entries. Namespace `carat` matches every
+  other CaratForUs product metafield (`carat.bank_payment_price_minor_units`,
+  `carat.luxury_steal`).
+
+  ============================================================================
+  REUSABLE BY REFERENCE, WHICH IS THE WHOLE POINT
+  ============================================================================
+  The metafield holds REFERENCES, not copies. One "How do I find my ring
+  size?" entry can be attached to fifty products, and editing it once updates
+  all fifty. The alternative — per-product FAQ text — is fifty copies that
+  drift, which is the same mistake the policy pages exist to avoid.
+
+  So this snippet contains no FAQ content and no fallback content. A product
+  with nothing attached renders nothing.
+
+  RENDERS THROUGH `faq-list`, the same renderer the FAQ page uses, so an
+  answer cannot look different in the two places it appears.
+
+  ACCEPTS:
+    product  the product object (required)
+    heading  optional heading (default below)
+{%- endcomment -%}
+
+{%- liquid
+  assign faq_refs = product.metafields.carat.faq_entries.value
+  assign faq_heading = heading | default: 'Questions about this piece'
+-%}
+
+{%- if faq_refs != blank and faq_refs.size > 0 -%}
+  {%- render 'faq-list',
+    entries: faq_refs,
+    heading: faq_heading,
+    heading_size: 'h3',
+    show_category: false
+  -%}
+{%- endif -%}

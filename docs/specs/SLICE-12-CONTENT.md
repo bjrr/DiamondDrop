@@ -1,7 +1,10 @@
 # Slice 12 — Content architecture
 
-**Status: architecture decided and the code half shipped. The content itself
-is not written, and most of it needs owner approval before it can be.**
+**Status: deployed and technically verified; customer-facing copy pending.**
+The app and theme are live and the six policy pages are confirmed working.
+What remains is customer-facing copy — page bodies and FAQ content — plus the
+FAQ Admin configuration. See §4.2's status record for exactly what is done and
+by whom.
 
 Scope per `ARCHITECTURE-MVP1.md` §10 row 12 and README "MVP1 Customer-Facing
 Scope": FAQ architecture, policy pages, About, Why Buy From Us, contact.
@@ -168,6 +171,128 @@ recognise the right local part.
 - **Product metafield** of type "list of metaobject references" pointing at
   FAQ entries, for the contextual FAQs the README allows on product pages.
 
+#### The exact handles the theme reads — these must match or content renders blank
+
+Liquid returns nil for an unknown field, so a definition built with different
+handles produces entries that look correct in Admin and render as nothing on
+the storefront, with no error anywhere. That is the worst available failure
+mode, which is why these are pinned by
+`app/app/theme/faqSurface.test.ts`.
+
+**Metaobject — type handle `faq_entry`:**
+
+| Field | Handle | Type | Required |
+|---|---|---|---|
+| Question | `question` | Single line text | yes |
+| Answer | `answer` | Rich text (or Multi-line text) | yes |
+| Category | `category` | Single line text | no, but see below |
+| Sort key | `sort_key` | Integer | no |
+
+- **Answer** may be either rich text or multi-line text. Rich text yields
+  HTML Shopify itself produced; multi-line yields a string Liquid escapes.
+  Both render correctly and neither is coerced.
+- **Category** drives the page's grouping. An entry saved without one still
+  appears, under the section's "Heading for entries with no category" — so
+  the omission is visible rather than silently dropped.
+- **Sort key** promotes an entry within its group. Entries that have one are
+  printed first in key order; the rest follow in natural order. Optional by
+  design, and the two-pass ordering exists so a nil key never reaches a
+  comparison.
+- An entry missing **question or answer** is skipped entirely rather than
+  rendered as an empty disclosure.
+
+**Product metafield — `carat.faq_entries`:**
+
+| Property | Value |
+|---|---|
+| Namespace | `carat` (matches `carat.luxury_steal`, `carat.bank_payment_price_minor_units`) |
+| Key | `faq_entries` |
+| Type | List of metaobject references → `faq_entry` |
+
+Holds **references, not copies**. One "How do I find my ring size?" entry can
+attach to fifty products and editing it once updates all fifty — which is the
+point, and the reason per-product FAQ text was not used.
+
+#### Where the FAQ renders
+
+| Surface | File | Notes |
+|---|---|---|
+| FAQ page | `templates/page.faq.json` → `sections/faq.liquid` | All entries, grouped by category. Select template `faq` on the page |
+| Product page | `snippets/product-faq.liquid` | Not yet wired into a product template — see below |
+| Shared renderer | `snippets/faq-list.liquid` → `snippets/faq-entry.liquid` | Both surfaces render through these, so an answer cannot look different in the two places |
+
+Needs a targeted theme push of six files:
+`sections/faq.liquid`, `snippets/faq-list.liquid`, `snippets/faq-entry.liquid`,
+`snippets/product-faq.liquid`, `assets/component-faq.css`,
+`templates/page.faq.json`.
+
+**`product-faq.liquid` is not yet rendered by any product template.** It is
+written and tested, but adding it to the product page is a product-page layout
+decision (where it sits relative to disclosures, description and media) that
+has not been made. Until then the snippet is inert — the FAQ page works
+without it. Rendering it is one `{%- render 'product-faq', product: product -%}`
+in whichever product section is chosen.
+
+**No JavaScript and no App Proxy.** Unlike policy terms, which must be fetched
+from our Postgres, FAQ content lives in Shopify and is available to Liquid
+directly — so it renders server-side with no fetch, no loading state and no
+failure path. `<details>`/`<summary>` gives keyboard and screen-reader
+behaviour natively.
+
+#### Status as of 2026-10-14
+
+**App deployed.** Fly app `caratforus` serves `main` at `eff08f4`; 90
+migrations applied; `/health` reports `requiredPolicyVersions: ok` with
+nothing missing.
+
+**Theme pushed.** The nine Slice 12 theme files are live on
+`CaratForUs (Dawn 16 + Slice 2)`, theme id `182948626733`, by targeted
+`--only` push. All nine were additions, so no existing theme file was
+altered.
+
+**Six policy pages: TECHNICALLY VERIFIED, CONTENT-COPY PENDING.**
+
+| Page | Template | Group | Terms |
+|---|---|---|---|
+| Returns and Cancellations | `policy-returns` | `returns` | 1 |
+| Warranty | `policy-warranty` | `warranty` | 1 |
+| Luxury Steals | `policy-luxury-steals` | `luxury-steals` | 1 |
+| Group Buy | `policy-group-buy` | `group-buy` | 3 |
+| Custom Jewelry | `policy-custom-jewelry` | `custom-jewelry` | 3 (one at v2) |
+| Let Us Beat Your Quote | `policy-quote-match` | `quote-match` | 6 |
+
+Two separate verifications, recorded separately because they were performed
+by different parties and cover different things:
+
+- **Backend, verified by the architect 2026-10-14.** All six groups queried
+  against production over signed App Proxy requests: HTTP 200, 15 terms
+  total, every term carrying correct group, non-empty text and a version,
+  `incomplete: false` on all six. Custom Jewelry correctly serves **v2** of
+  the final-approval acknowledgment, which is the tell that the versioned
+  migration took effect rather than a stale row being read.
+- **Rendered pages, verified by the owner 2026-10-14.** The pages were
+  hidden and the dev storefront is password-protected, and the architect was
+  instructed not to request the password — so the per-page render,
+  template assignment and absence of body-only fallback were confirmed by
+  the owner in Admin and through the authenticated storefront, not by the
+  architect.
+
+**PAGE BODIES ARE DELIBERATELY EMPTY.** Owner decision 2026-10-14: the
+customer-facing introductions, explanations, examples and links are deferred
+to the final storefront copy review and will be written there. Draft framing
+sentences were prepared and screened against the locked-policy fences, then
+**withdrawn unused** on that decision — placeholder copy is not to be added
+merely to satisfy an interim check.
+
+Known consequence, accepted: with empty bodies each page presents the
+canonical acknowledgments with no framing, and those are written in the first
+person ("I certify that…", "I understand that…") because that is what they
+are — the words shown at the moment of acceptance. On a standalone policy
+page that reads oddly. The final copy pass resolves it by adding framing
+above the quoted block, never by restating a term.
+
+**The canonical terms are unchanged and remain the single source of truth.**
+
 ### 4.3 Delivery estimates — NO schema work for MVP1
 
 **Corrected 2026-10-12.** An earlier draft of the FAQ said an estimate "will
@@ -203,6 +328,25 @@ in a theme.
 > authoring the approved content into Shopify (§4.2) and provisioning the
 > support address (§4.1). The section below is kept as the record of why the
 > work stopped where it did.
+>
+> **CLOSED 2026-10-14.** The gap noted below — no theme code reading FAQ
+> metaobjects — is now built: `sections/faq.liquid`,
+> `snippets/faq-list.liquid`, `snippets/faq-entry.liquid`,
+> `snippets/product-faq.liquid`, `assets/component-faq.css` and
+> `templates/page.faq.json`, with 20 fences in
+> `app/app/theme/faqSurface.test.ts`. The architecture was not changed; only
+> the consuming Liquid was added. §4.2 now records the exact handles Admin
+> must use.
+>
+> *Original note, 2026-10-13:* no theme code reads FAQ metaobjects. There is
+> no FAQ section or snippet in `theme/` at all. The architecture in §4.2 —
+> metaobject with question/answer/category/sort key, plus a product metafield
+> of references — is settled and is NOT in question; what is missing is the
+> Liquid that consumes it, analogous to `sections/policy-terms.liquid` for
+> policies. Consequence: the Admin definitions can be created and populated,
+> and they will hold correct content, but nothing renders it. This was an
+> under-scoping in §4.2's original wording, which listed the Admin work
+> without noting the theme work it depends on.
 
 **The content itself.** FAQ answers, policy-page narrative, About, Why Buy
 From Us, and contact copy are all new material customer-facing language, and

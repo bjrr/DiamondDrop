@@ -1,0 +1,87 @@
+{%- comment -%}
+  FAQ LIST — renders a set of FAQ metaobject entries as accessible disclosures.
+
+  Slice 12. ONE renderer, used by both FAQ surfaces:
+    - sections/faq.liquid        the FAQ page, all entries, grouped by category
+    - snippets/product-faq.liquid  contextual FAQs on a product page
+
+  A second copy of this markup would be two places an answer could render
+  differently, which is the same failure the policy-terms design exists to
+  prevent — so both callers render through here.
+
+  ============================================================================
+  NO JAVASCRIPT, NO APP PROXY, DELIBERATELY
+  ============================================================================
+  Unlike `policy-terms.liquid`, which must fetch from our own Postgres through
+  the App Proxy, FAQ content lives in Shopify metaobjects and is available to
+  Liquid directly. So this renders server-side with no fetch, no loading
+  state, and no failure path to design — the content is either in the
+  metaobject or it is not.
+
+  `<details>`/`<summary>` is native disclosure: keyboard-operable and
+  screen-reader-announced with no script, and it matches the pattern already
+  shipped in `snippets/product-disclosures.liquid`.
+
+  ============================================================================
+  THE FIELD KEYS ARE A CONTRACT WITH THE ADMIN DEFINITION
+  ============================================================================
+  Metaobject type handle: `faq_entry`
+  Fields read here:  question, answer, category, sort_key
+
+  `docs/specs/SLICE-12-CONTENT.md` §4.2 specifies those four. If the Admin
+  definition uses different keys, entries render blank rather than erroring —
+  Liquid returns nil for an unknown field — so `app/app/theme/faqSurface.test.ts`
+  pins these names against the spec.
+
+  ANSWER IS RENDERED AS THE FIELD TYPE GIVES IT. A rich-text metaobject field
+  returns safe HTML that Shopify itself produced; a multi-line text field
+  returns a string, which Liquid escapes on output. Either is correct. What is
+  NOT done is piping a plain string through anything that would interpret it
+  as markup.
+
+  ACCEPTS:
+    entries        array of faq_entry metaobjects (required)
+    heading        optional heading text
+    heading_size   h2 | h3 (default h2)
+    show_category  true to print the category above each group
+{%- endcomment -%}
+
+{%- liquid
+  assign faq_heading_size = heading_size | default: 'h2'
+-%}
+
+{%- if entries != blank and entries.size > 0 -%}
+  <div class="carat-faq">
+    {%- if heading != blank -%}
+      <h2 class="carat-faq__heading {{ faq_heading_size }}">{{ heading | escape }}</h2>
+    {%- endif -%}
+
+    <div class="carat-faq__list">
+      {%- comment -%}
+        ORDERING, IN TWO PASSES — AND THE REASON IS NIL SAFETY.
+
+        `sort_key` is OPTIONAL by spec, so most entries will not have one.
+        Handing a mixed array to `sort: 'sort_key'` asks Liquid to compare a
+        number against nil, which is exactly the kind of thing that behaves
+        differently from one Liquid version to the next and cannot be proven
+        from here without live metaobjects.
+
+        So: entries WITH a key are sorted among themselves and printed first,
+        then entries WITHOUT one follow in their natural order. No nil ever
+        reaches a comparison, the result is deterministic, and the optional
+        key does what staff want — it promotes an entry above the rest
+        ("How long will my piece take?" before narrower questions) without
+        requiring a key on every entry.
+      {%- endcomment -%}
+      {%- assign keyed = entries | where: 'sort_key' | sort: 'sort_key' -%}
+      {%- for entry in keyed -%}
+        {%- render 'faq-entry', entry: entry, show_category: show_category -%}
+      {%- endfor -%}
+      {%- for entry in entries -%}
+        {%- if entry.sort_key == blank -%}
+          {%- render 'faq-entry', entry: entry, show_category: show_category -%}
+        {%- endif -%}
+      {%- endfor -%}
+    </div>
+  </div>
+{%- endif -%}

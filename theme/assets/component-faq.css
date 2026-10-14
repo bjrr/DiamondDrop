@@ -1,0 +1,126 @@
+/**
+ * Component-scoped styling for the FAQ surfaces
+ * (sections/faq.liquid, snippets/faq-list.liquid, snippets/product-faq.liquid).
+ *
+ * No global selectors; every custom property below is an existing theme
+ * token. Mobile-first, matching this theme's convention elsewhere (see
+ * component-policy-terms.css and component-group-buy-campaign.css).
+ *
+ * CONTRAST — an FAQ answer is not hint text. Several of these answers carry
+ * material terms in everything but name (refunds, returns, warranty), so
+ * answers stay at full foreground contrast. Only the category label, which is
+ * navigation rather than content, uses the dimmed tier. Same reasoning the
+ * architect's 2026-09-25 ruling applied to the acknowledgment surfaces.
+ */
+
+.carat-faq {
+  max-width: 55rem;
+  margin-bottom: 3rem;
+}
+
+.carat-faq__page-heading {
+  margin: 0 0 0.5rem;
+}
+
+.carat-faq__intro {
+  margin: 0 0 2.5rem;
+  color: rgb(var(--color-foreground));
+}
+
+.carat-faq__heading {
+  margin: 0 0 1rem;
+  font-size: 1.8rem;
+}
+
+.carat-faq__list {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.carat-faq__item {
+  border-top: 1px solid rgba(var(--color-foreground), 0.15);
+  padding: 0.25rem 0;
+}
+
+.carat-faq__item:last-child {
+  border-bottom: 1px solid rgba(var(--color-foreground), 0.15);
+}
+
+/**
+ * THE WHOLE ROW IS THE CONTROL. A summary that only responds on the text
+ * itself is a small target on a phone, and the caret is the part people aim
+ * for. `list-style: none` plus the ::-webkit marker reset removes the native
+ * triangle so the theme's own caret is the only affordance.
+ */
+.carat-faq__question {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 0;
+  cursor: pointer;
+  list-style: none;
+  color: rgb(var(--color-foreground));
+  font-size: 1.5rem;
+}
+
+.carat-faq__question::-webkit-details-marker {
+  display: none;
+}
+
+/**
+ * VISIBLE KEYBOARD FOCUS. Removing the native marker must not also remove the
+ * focus ring — a disclosure you cannot see focus on is unusable by keyboard,
+ * and `<details>` is one of the few controls where that is easy to break.
+ */
+.carat-faq__question:focus-visible {
+  outline: 0.2rem solid rgba(var(--color-foreground), 0.6);
+  outline-offset: 0.3rem;
+}
+
+.carat-faq__question-text {
+  flex: 1 1 auto;
+}
+
+.carat-faq__question .icon-caret {
+  flex: 0 0 auto;
+  height: 0.6rem;
+  transition: transform 150ms ease;
+}
+
+.carat-faq__item[open] .carat-faq__question .icon-caret {
+  transform: rotate(180deg);
+}
+
+.carat-faq__answer {
+  padding: 0 0 1.5rem;
+  color: rgb(var(--color-foreground));
+  line-height: 1.6;
+}
+
+.carat-faq__answer > :first-child {
+  margin-top: 0;
+}
+
+.carat-faq__answer > :last-child {
+  margin-bottom: 0;
+}
+
+/* Navigation, not content — see the header note on contrast. */
+.carat-faq__category {
+  margin: 0 0 1.25rem;
+  font-size: 1.2rem;
+  color: rgba(var(--color-foreground), 0.7);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .carat-faq__question .icon-caret {
+    transition: none;
+  }
+}
+
+@media screen and (min-width: 750px) {
+  .carat-faq__question {
+    font-size: 1.6rem;
+  }
+}

@@ -1,0 +1,36 @@
+{%- comment -%}
+  ONE FAQ ENTRY as an accessible disclosure.
+
+  Slice 12. Extracted from `faq-list.liquid` because that snippet prints
+  entries in two passes (keyed first, then unkeyed — see its ordering
+  comment), and two inline copies of this markup would be two places an
+  answer could render differently. One renderer, called twice.
+
+  SKIPS AN INCOMPLETE ENTRY. A metaobject saved with a question but no answer
+  renders nothing rather than an empty disclosure a customer can open to find
+  blank space. The entry stays visible in Admin, so the omission is fixable;
+  what it must not do is look like an answer that says nothing.
+
+  ANSWER IS OUTPUT AS THE FIELD TYPE PROVIDES IT. A rich-text metaobject field
+  yields safe HTML Shopify itself produced; a multi-line text field yields a
+  string that Liquid escapes. Both are correct, and neither is coerced.
+
+  ACCEPTS:
+    entry          one faq_entry metaobject (required)
+    show_category  true to print the entry's category beneath the answer
+{%- endcomment -%}
+
+{%- if entry.question != blank and entry.answer != blank -%}
+  <details class="carat-faq__item">
+    <summary class="carat-faq__question">
+      <span class="carat-faq__question-text">{{ entry.question }}</span>
+      {{- 'icon-caret.svg' | inline_asset_content -}}
+    </summary>
+    <div class="carat-faq__answer rte">
+      {{ entry.answer }}
+    </div>
+    {%- if show_category and entry.category != blank -%}
+      <p class="carat-faq__category">{{ entry.category }}</p>
+    {%- endif -%}
+  </details>
+{%- endif -%}

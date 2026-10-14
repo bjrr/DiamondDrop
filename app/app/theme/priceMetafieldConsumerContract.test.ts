@@ -519,6 +519,14 @@ describe("R16 step 5 — audit: every Liquid comparison against a JSON metafield
       // `item.variant.metafields.carat.luxury_steal.value` to decide whether
       // to render — same boolean eligibility flag, still no money.
       join(THEME_ROOT, "snippets", "luxury-cart-line-disclosure.liquid"),
+      // 2026-10-14, Slice 12 FAQ: reads `product.metafields.carat.faq_entries`,
+      // a LIST OF METAOBJECT REFERENCES to `faq_entry` entries. Carries no
+      // money and no eligibility flag — it resolves to question/answer text
+      // authored in Admin, and the snippet renders nothing when the metafield
+      // is absent. Nothing here is compared, cast, or used in a price
+      // decision, so none of this file's cast-before-compare or
+      // staleness-marker rules apply.
+      join(THEME_ROOT, "snippets", "product-faq.liquid"),
     ];
     const allCaratReaders = files.filter((f) =>
       readFileSync(f, "utf8").includes("metafields.carat.")

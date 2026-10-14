@@ -1,0 +1,185 @@
+{%- comment -%}
+  FAQ PAGE SECTION — every published FAQ entry, grouped by category.
+
+  Slice 12. README "FAQ / Trust Architecture": centrally managed FAQ content
+  with categories such as Group Buys, Pricing & Refunds, Production &
+  Delivery, Materials & Stones, Ring Sizing, Custom Jewelry, Warranty &
+  Repairs, Returns & Cancellations, Payments, and Shipping & Insurance.
+
+  ============================================================================
+  CATEGORIES COME FROM THE CONTENT, NOT FROM THIS FILE
+  ============================================================================
+  The ten README categories are NOT hardcoded here. Groups are derived from
+  the `category` field of whatever entries exist, so adding or renaming a
+  category is an Admin content change rather than a theme edit — the same
+  principle as `policy-terms.liquid` taking its groups from the registry
+  rather than the template.
+
+  A hardcoded list would also create a silent failure: an entry filed under a
+  category the theme does not know would simply never appear.
+
+  ============================================================================
+  NO CONTENT, NO EMPTY SHELL
+  ============================================================================
+  With no entries the section renders nothing at all — not a heading over
+  blank space, and not "No FAQs yet". A published page showing an empty FAQ
+  heading looks broken; a page where the section is absent looks like a page
+  that does not have an FAQ on it, which is the truth until entries exist.
+
+  THE ORDERING PROBLEM, STATED. Shopify's `shop.metaobjects` returns entries
+  in an unspecified order, and Liquid cannot group without materialising the
+  category list first. So this walks the distinct categories in the order
+  they first appear, then filters per category — O(categories x entries),
+  which is fine for an FAQ and avoids inventing a category ordering nobody
+  asked for.
+{%- endcomment -%}
+
+{%- style -%}
+  .section-{{ section.id }}-padding {
+    padding-top: {{ section.settings.padding_top | times: 0.75 | round: 0 }}px;
+    padding-bottom: {{ section.settings.padding_bottom | times: 0.75 | round: 0 }}px;
+  }
+
+  @media screen and (min-width: 750px) {
+    .section-{{ section.id }}-padding {
+      padding-top: {{ section.settings.padding_top }}px;
+      padding-bottom: {{ section.settings.padding_bottom }}px;
+    }
+  }
+{%- endstyle -%}
+
+{{ 'component-faq.css' | asset_url | stylesheet_tag }}
+
+{%- liquid
+  assign all_entries = shop.metaobjects.faq_entry.values
+-%}
+
+{%- if all_entries != blank and all_entries.size > 0 -%}
+  <div class="color-{{ section.settings.color_scheme }} gradient">
+    <div class="page-width section-{{ section.id }}-padding">
+      {%- if section.settings.heading != blank -%}
+        <h1 class="carat-faq__page-heading {{ section.settings.heading_size }}">
+          {{ section.settings.heading | escape }}
+        </h1>
+      {%- endif -%}
+
+      {%- if section.settings.intro != blank -%}
+        <div class="carat-faq__intro rte">{{ section.settings.intro }}</div>
+      {%- endif -%}
+
+      {%- comment -%} Distinct categories, in first-appearance order. {%- endcomment -%}
+      {%- assign seen_categories = '' -%}
+      {%- for entry in all_entries -%}
+        {%- assign this_category = entry.category | default: '' -%}
+        {%- if this_category != blank -%}
+          {%- assign needle = '|' | append: this_category | append: '|' -%}
+          {%- unless seen_categories contains needle -%}
+            {%- assign seen_categories = seen_categories | append: needle -%}
+          {%- endunless -%}
+        {%- endif -%}
+      {%- endfor -%}
+
+      {%- assign category_list = seen_categories | split: '|' -%}
+      {%- for category in category_list -%}
+        {%- if category != blank -%}
+          {%- assign bucket = all_entries | where: 'category', category -%}
+          {%- render 'faq-list',
+            entries: bucket,
+            heading: category,
+            heading_size: 'h2',
+            show_category: false
+          -%}
+        {%- endif -%}
+      {%- endfor -%}
+
+      {%- comment -%}
+        UNCATEGORISED ENTRIES STILL APPEAR. An entry with no category is a
+        content mistake, but hiding it would make the mistake invisible —
+        staff would see the entry in Admin and never on the page.
+      {%- endcomment -%}
+      {%- assign uncategorised = all_entries | where: 'category', blank -%}
+      {%- if uncategorised.size > 0 -%}
+        {%- render 'faq-list',
+          entries: uncategorised,
+          heading: section.settings.uncategorised_heading,
+          heading_size: 'h2',
+          show_category: false
+        -%}
+      {%- endif -%}
+    </div>
+  </div>
+{%- endif -%}
+
+{% schema %}
+{
+  "name": "FAQ",
+  "tag": "section",
+  "class": "section",
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "Shows every FAQ entry, grouped by category. Entries are managed in Settings → Custom data → Metaobjects → FAQ entry. Categories come from the entries themselves, so adding a category needs no theme change. If there are no entries, this section renders nothing rather than an empty heading."
+    },
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Page heading",
+      "default": "Frequently asked questions"
+    },
+    {
+      "type": "select",
+      "id": "heading_size",
+      "options": [
+        { "value": "h1", "label": "Large" },
+        { "value": "h2", "label": "Medium" }
+      ],
+      "default": "h1",
+      "label": "Heading size"
+    },
+    {
+      "type": "richtext",
+      "id": "intro",
+      "label": "Introduction",
+      "info": "Optional."
+    },
+    {
+      "type": "text",
+      "id": "uncategorised_heading",
+      "label": "Heading for entries with no category",
+      "default": "Other questions",
+      "info": "An entry saved without a category still appears, under this heading, so the omission is visible rather than hidden."
+    },
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "t:sections.all.colors.label",
+      "default": "scheme-1"
+    },
+    {
+      "type": "range",
+      "id": "padding_top",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "t:sections.all.padding.padding_top",
+      "default": 36
+    },
+    {
+      "type": "range",
+      "id": "padding_bottom",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "t:sections.all.padding.padding_bottom",
+      "default": 36
+    }
+  ],
+  "presets": [
+    {
+      "name": "FAQ"
+    }
+  ]
+}
+{% endschema %}
