@@ -1,4 +1,4 @@
-import type { PricingProfileCode } from "@prisma/client";
+import { Prisma, type PricingProfileCode } from "@prisma/client";
 
 import { Money } from "~/domain/money/money";
 
@@ -101,4 +101,170 @@ export async function resolveActivePricingProfile(
 /** Resolves the exact version a stored calculation was computed from. */
 export async function getPricingProfileVersion(code: PricingProfileCode, version: number) {
   return prisma.pricingProfile.findUnique({ where: { code_version: { code, version } } });
+}
+
+/**
+ * Creates the NEXT version of a pricing profile from operator-entered
+ * settings. The only supported write path to `pricing_profile`.
+ *
+ * ============================================================================
+ * VERSION IS SYSTEM METADATA, NEVER OPERATOR INPUT
+ * ============================================================================
+ * Before this existed, versions were hand-assigned in `prisma/seed.ts`, which
+ * is fine for a script an engineer reads and impossible for a form. The next
+ * version is derived here, server-side, and the caller cannot influence it.
+ *
+ * CONCURRENCY IS HANDLED BY THE UNIQUE CONSTRAINT, NOT BY HOPING.
+ * `MAX(version) + 1` read outside any protection is the classic lost-update:
+ * two operators saving together both read 5 and both try to write 6. The
+ * `(code, version)` unique index is the real boundary — the same discipline
+ * the rest of this codebase uses for concurrency — so the loser of a race
+ * gets P2002 and we recompute and retry. Bounded, because an unbounded retry
+ * loop under sustained contention is its own outage.
+ *
+ * EVERYTHING THE OPERATOR DID NOT TYPE IS INHERITED FROM THE CURRENT ACTIVE
+ * PROFILE. The margin model, currency, rounding rule, price-ending rule,
+ * card-price rule and uplift rate all carry forward unchanged. A settings
+ * form that silently reset the card rule to a default would be a pricing
+ * incident dressed as a UI convenience.
+ *
+ * THE AUDIT EVENT IS WRITTEN IN THE SAME TRANSACTION as the profile row, so
+ * a recorded change always has its evidence and an unrecorded one leaves
+ * nothing behind. Same pattern as `groupBuyRepository.server.ts`.
+ */
+export class NoActivePricingProfileError extends Error {
+  constructor(code: string) {
+    super(
+      `No active pricing profile exists for "${code}", so there is nothing to base a new version on. ` +
+        `This is a provisioning problem, not a data-entry one.`
+    );
+    this.name = "NoActivePricingProfileError";
+  }
+}
+
+export class PricingProfileVersionRaceError extends Error {
+  constructor(attempts: number) {
+    super(
+      `Could not allocate a new pricing profile version after ${attempts} attempts because another save kept winning the race. Nothing was written. Try again.`
+    );
+    this.name = "PricingProfileVersionRaceError";
+  }
+}
+
+export interface PricingProfileSettingsToPersist {
+  readonly targetMarkupRate: string;
+  readonly minGrossMarginRate: string;
+  readonly minDollarProfitMinorUnits: bigint;
+  readonly currency: string;
+}
+
+export interface CreatedPricingProfileVersion {
+  readonly id: string;
+  readonly code: PricingProfileCode;
+  readonly version: number;
+  readonly effectiveFrom: Date;
+  readonly previousVersion: number;
+  readonly previousId: string;
+}
+
+const MAX_VERSION_ATTEMPTS = 5;
+
+export async function createNextPricingProfileVersion(input: {
+  code: PricingProfileCode;
+  settings: PricingProfileSettingsToPersist;
+  /** From the authenticated embedded-admin session. Never typed by the operator. */
+  actorRef: string;
+  /** Server time. MVP1 does not expose future-dating. */
+  effectiveFrom: Date;
+}): Promise<CreatedPricingProfileVersion> {
+  let lastConflict: unknown = null;
+
+  for (let attempt = 1; attempt <= MAX_VERSION_ATTEMPTS; attempt += 1) {
+    // Read the CURRENT profile fresh on every attempt: a competing save may
+    // have changed both the version to beat and the fields to inherit.
+    const current = await resolveActivePricingProfile(input.code, input.effectiveFrom).catch(() => null);
+    if (!current) throw new NoActivePricingProfileError(input.code);
+
+    const highest = await prisma.pricingProfile.findFirst({
+      where: { code: input.code },
+      orderBy: { version: "desc" },
+      select: { version: true },
+    });
+    const nextVersion = (highest?.version ?? 0) + 1;
+
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const created = await tx.pricingProfile.create({
+          data: {
+            code: input.code,
+            version: nextVersion,
+            // ---- inherited, not operator-editable ----
+            marginModel: current.marginModel,
+            targetGrossMarginRate: null,
+            roundingRuleId: current.roundingRuleId,
+            priceEndingRuleId: current.priceEndingRuleId,
+            autoApplyToleranceBps: current.autoApplyToleranceBps,
+            regularCardPriceRuleId: current.regularCardPriceRuleId,
+            fixedCardUpliftRate: current.fixedCardUpliftRate,
+            isPlaceholder: false,
+            // ---- operator-entered ----
+            targetMarkupRate: input.settings.targetMarkupRate,
+            minGrossMarginRate: input.settings.minGrossMarginRate,
+            minDollarProfitMinorUnits: input.settings.minDollarProfitMinorUnits,
+            currency: input.settings.currency,
+            effectiveFrom: input.effectiveFrom,
+            createdBy: input.actorRef,
+          },
+        });
+
+        await tx.auditEvent.create({
+          data: {
+            actorType: "staff",
+            actorRef: input.actorRef,
+            action: "pricing_profile.version_created",
+            entityType: "pricing_profile",
+            entityId: created.id,
+            before: {
+              version: current.version,
+              profileId: current.id,
+              targetMarkupRate: current.targetMarkupRate,
+              minGrossMarginRate: current.minGrossMarginRate,
+              minDollarProfitMinorUnits: current.minDollarProfit.amountMinorUnits.toString(),
+              currency: current.minDollarProfit.currency,
+            },
+            after: {
+              version: created.version,
+              profileId: created.id,
+              targetMarkupRate: input.settings.targetMarkupRate,
+              minGrossMarginRate: input.settings.minGrossMarginRate,
+              minDollarProfitMinorUnits: input.settings.minDollarProfitMinorUnits.toString(),
+              currency: input.settings.currency,
+              effectiveFrom: input.effectiveFrom.toISOString(),
+            },
+            reason: "pricing_profile_settings",
+          },
+        });
+
+        return {
+          id: created.id,
+          code: created.code,
+          version: created.version,
+          effectiveFrom: created.effectiveFrom,
+          previousVersion: current.version,
+          previousId: current.id,
+        };
+      });
+    } catch (error) {
+      // P2002 on (code, version) means a concurrent save took this number.
+      // Recompute and try again; anything else is a real failure.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        lastConflict = error;
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  void lastConflict;
+  throw new PricingProfileVersionRaceError(MAX_VERSION_ATTEMPTS);
 }

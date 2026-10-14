@@ -4,6 +4,7 @@ import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "re
 import { Form, useActionData, useLoaderData, useNavigation, useRouteError } from "react-router";
 
 import { prisma } from "~/db/client.server";
+import { resolveActivePricingProfile } from "~/db/repositories/pricingProfileRepository.server";
 import {
   CUSTOM_JEWELRY_DEPOSIT_ACKNOWLEDGMENT_TEXT,
   CUSTOM_JEWELRY_DEPOSIT_AFFIRMATIVE_ACTION_LABEL,
@@ -408,14 +409,43 @@ async function issueApprovalPackageAction(input: {
   // THE CARD PRICE, DERIVED. The profile carries the locked rule and its rate;
   // reading the ACTIVE profile here is correct because a new package is being
   // priced now, unlike a historical calculation which carries its own.
-  const profile = await prisma.pricingProfile.findFirst({
-    where: { code: "buy_now", isPlaceholder: false },
-    orderBy: { version: "desc" },
-  });
-  if (!profile) {
+  //
+  // ==========================================================================
+  // ONE RESOLVER, SHARED WITH THE REST OF PRICING. DO NOT REPLACE THIS WITH A
+  // LOCAL QUERY AGAIN.
+  // ==========================================================================
+  // This was `findFirst({ where: { code, isPlaceholder: false }, orderBy:
+  // { version: "desc" } })` — a second, subtly different definition of "the
+  // active profile". It had NO `effectiveFrom` filter, so a future-dated
+  // profile version took effect here the instant it was inserted while
+  // `resolveActivePricingProfile` correctly ignored it until its date, and
+  // Custom Jewelry quoted a card price the rest of the system would not agree
+  // with. Not hypothetical: `frozenRuleVersioning.test.ts` inserts a row dated
+  // 2999-01-01, and the new pricing-settings surface makes operator-created
+  // versions routine.
+  //
+  // Resolution now comes from the same repository function Buy Now uses, so
+  // there is one definition of "current profile" in the codebase.
+  // `customJewelryProfileResolution.test.ts` pins this.
+  let profile;
+  try {
+    profile = await resolveActivePricingProfile("buy_now", new Date());
+  } catch {
     return {
       error:
         "No active Buy Now pricing profile is provisioned, so the Regular/Card Price cannot be derived. " +
+        "This is a configuration problem, not a data-entry one.",
+    };
+  }
+  // PLACEHOLDER REFUSAL IS PRESERVED, but now applies to the profile that is
+  // genuinely in effect rather than to whichever non-placeholder row happened
+  // to have the highest version. A placeholder in effect is a configuration
+  // fault and must stop the quote, exactly as the price-review CLI refuses to
+  // sync a price computed from one.
+  if (profile.isPlaceholder) {
+    return {
+      error:
+        "The active Buy Now pricing profile is a placeholder, so the Regular/Card Price cannot be derived. " +
         "This is a configuration problem, not a data-entry one.",
     };
   }

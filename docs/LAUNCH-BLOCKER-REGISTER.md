@@ -164,7 +164,8 @@ not an unresolved decision.
 |---|---|---|---|
 | P1 | **Pricing engine and schema** | 🟢 WORKING | Profile, metal, labor, stone and component models all populated in production; 94 calculations already recorded |
 | P2 | **Pricing-profile operating defaults — 40% target markup, 20% minimum gross margin, $100 minimum profit** | 🟢 **VALUES SETTLED — not an owner decision** | Owner-locked 2026-10-14 as *configurable operating inputs*. Active profile `buy_now` v5, `is_placeholder: false`. **Do not ask the owner to reconfirm these.** Note: *settled* is about the values, not the tooling — see P6 |
-| P6 | **Operator tooling to change pricing values** | 🟡 YELLOW — **data-driven but not operationally configurable** | Architecture audit 2026-10-14. The values are genuinely data-driven (Level A) and runtime-resolved (Level B), but **the only writer to `pricing_profile`, `metal_reference_price`, `stone_cost`, `cost_component` and `labor_rate` anywhere in the repository is `prisma/seed.ts`.** No admin route, no CLI verb. Changing a price input today requires an engineer. A previous revision of this register marked this GREEN on the strength of the database columns existing; that was the exact error the owner warned against |
+| P6 | **Operator tooling — pricing profile, metal, labor, stone** | 🟢 **GREEN — operationally configurable** | `app/routes/app.pricing-settings.tsx`. An authenticated operator can change target markup, minimum gross margin, minimum profit, metal reference prices, labor rates and stone costs with no code change, no seed, no SQL and no SSH. Each save inserts a new effective-dated row, attributed to the signed-in Shopify staff user. Proven by 75 tests — see below |
+| P7 | **Operator tooling — lower-frequency cost components** | 🟡 YELLOW — **still engineering-only** | Metal loss, casting, setting, polishing, assembly, QC, packaging, shipping, insurance, warranty reserve and supplier fee remain versioned and effective-dated but are **not** managed from the admin surface. Changing one still requires an engineer. Deliberately out of scope for the first implementation; the screen says so to the operator rather than leaving them to discover it |
 | P3 | **Production cost inputs** — gold, stone, labor, metal loss, casting/setting/polishing/assembly/QC, packaging, shipping, insurance, warranty reserve, supplier fee | 🟡 YELLOW | Every row exists and resolves; all are seed fixtures dated `2026-01-01` and self-labelled "not a real market quote / supplier quote / cost assumption". **Validate for Product #1 before publishing it.** Not a blocker on the engine — only on publishing a real SKU |
 | P4 | **Card-price derivation** | 🟢 WORKING | Active profile carries `BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1` — the approved tiered uplift with upward-to-$5 rounding on the Regular/Card Price only |
 | P5 | **Fixture catalogue cleanup** | 🟡 YELLOW | Required before public operation; **not a reason to resume feature development.** Proposal prepared, not executed — see section 8 |
@@ -185,6 +186,54 @@ The owner's requirement that historical calculations stay reproducible is
 So new calculations resolve current values, old ones remain reproducible,
 and no future change can retroactively alter recorded evidence.
 
+### The operator surface, and what makes it GREEN
+
+`app/routes/app.pricing-settings.tsx`, built 2026-10-14 to close the gap the
+architecture audit found. Scoped to the gap and nothing more: no dashboards,
+no charts, no commodity feed, no bulk import, no channel management.
+
+| Level | Result |
+|---|---|
+| A — data-driven | ✅ was already true |
+| B — runtime-resolved | ✅ was already true |
+| C — operator-configurable | ✅ **closed by this work** |
+| D — safely configurable | ✅ **closed by this work** |
+
+What makes it safe rather than merely present:
+
+- **Version is system metadata.** `createNextPricingProfileVersion` allocates
+  it server-side; the operator cannot see or choose a version number.
+  Concurrency rides the existing `(code, version)` unique index with a bounded
+  deterministic retry, not an unprotected `MAX(version) + 1`.
+- **The three profile values save as ONE version.** They are one policy, not
+  three independent settings.
+- **Everything not typed is inherited** from the current profile — margin
+  model, currency, rounding rule, price-ending rule, card-price rule and
+  uplift rate. A settings form that silently reset the card rule would be a
+  pricing incident dressed as a UI convenience.
+- **Validation is real.** The database CHECK that appears to guard these
+  fields is vacuous under `MARKUP_ON_COST_V1` (it compares against a NULL
+  `target_gross_margin_rate`), so `domain/pricing/profileSettings.ts` is the
+  actual guard: markup required and non-negative with no invented ceiling,
+  margin in [0, 100), profit non-negative, exact decimal throughout. No
+  binary floating point anywhere.
+- **Actor comes from the session**, never a form field. Writes require an
+  ONLINE Shopify session with an associated user and 401 without one.
+- **Audit in the same transaction** as the row, via the existing
+  `audit_event` table, carrying the prior and new version and values.
+- **Nothing publishes.** The route reaches no Shopify API. Configuration →
+  recalculation → calculation → approval/sync intent → Shopify is unchanged,
+  and production keeps `PRICE_AUTO_PUBLISH_ENABLED=false`.
+
+**Known limitation, reported rather than worked around:** there is no
+"recalculate now" button. `runPriceRecalculation` with no `variantIds` sweeps
+every active variant and is measured in tens of seconds; running it inside an
+embedded admin request would block past any sane timeout, and doing it
+properly needs a job-status surface with polling — materially more scope than
+this gap. The daily `cron-price-recalculation` already picks up configuration
+changes, and every save message tells the operator that prices update at the
+next recalculation.
+
 ### Profile scope — one profile serves more than Buy Now
 
 `PricingProfileCode` defines six codes (`buy_now`, `group_buy`, `custom`,
@@ -199,15 +248,20 @@ derivation and the economics any *future* Group Buy campaign freezes at
 open. Already-open campaigns are insulated — proven, see below. The
 per-channel capability the schema allows is **not implemented**.
 
-⚠️ **Latent inconsistency, not currently harmful.**
-`app.custom-jewelry.$id.tsx:412` resolves the active profile with
-`orderBy: { version: "desc" }` and **no `effectiveFrom` filter**, whereas
-`resolveActivePricingProfile` filters `effectiveFrom <= asOf`. A
-future-dated profile version would therefore take effect immediately in
-Custom Jewelry while Buy Now correctly ignored it until its date. Not
-hypothetical: `frozenRuleVersioning.test.ts` inserts exactly such a row
-(`effectiveFrom: 2999-01-01`). Worth fixing before anyone future-dates a
-real profile change.
+✅ **The resolution inconsistency is FIXED (2026-10-14).**
+`app.custom-jewelry.$id.tsx` carried its own
+`findFirst({ orderBy: { version: "desc" } })` with no `effectiveFrom` filter,
+so a future-dated profile took effect there immediately while Buy Now
+correctly ignored it until its date. It now calls the same
+`resolveActivePricingProfile` the rest of pricing uses, so there is one
+definition of "current profile" in the codebase. The placeholder refusal is
+preserved and now applies to the profile genuinely in effect.
+
+Pinned two ways in `pricingConfigurationPropagation.test.ts`: behaviourally
+(a future-dated version does not move the card price Custom Jewelry would
+quote, and does once its date arrives) and structurally (the route must call
+the shared resolver and must carry no `prisma.pricingProfile` query of its
+own) — because a behavioural test alone cannot see the thing that regressed.
 
 ### Already-open Group Buys are insulated — proven by test
 

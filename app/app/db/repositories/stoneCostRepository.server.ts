@@ -136,8 +136,20 @@ export async function resolveStoneCost(
  * surfaces later as an ambiguity error at pricing time — this catches it at
  * the point someone can still fix the data.
  */
-export async function findOverlappingCaratBands(stoneType: StoneType, shape: string) {
-  const rows = await prisma.stoneCost.findMany({
+export async function findOverlappingCaratBands(
+  stoneType: StoneType,
+  shape: string,
+  /**
+   * Optional transaction client. The operator write path inserts a candidate
+   * row and then runs THIS validator inside the same transaction, throwing to
+   * roll back when it overlaps — which reuses the one definition of "overlap"
+   * instead of writing a second, subtly different "would this overlap?"
+   * predicate at the form boundary. `stone_cost` is append-only, so a
+   * rollback is the only way to undo a bad insert.
+   */
+  client: Pick<typeof prisma, "stoneCost"> = prisma
+) {
+  const rows = await client.stoneCost.findMany({
     where: { stoneType, shape },
     orderBy: [{ caratMin: "asc" }, { effectiveFrom: "asc" }],
   });

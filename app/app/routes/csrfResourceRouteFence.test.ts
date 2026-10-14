@@ -70,6 +70,20 @@ const EXEMPT_UI_ACTION_ROUTES: Readonly<Record<string, string>> = {
     "action is also gated by isDevProbeEnabled() and returns 403 outside " +
     "development regardless of Origin — there is no production mutation on " +
     "this route today. If that ever changes, this exemption must be re-argued.",
+  "app.pricing-settings.tsx":
+    "the pricing-configuration operator surface. Same single leg as the other " +
+    "embedded admin mutations: Shopify Admin frames it at this app's own host, " +
+    "so a form submitted from within it carries this app's own Origin and " +
+    "throwIfPotentialCSRFAttack rejects anything else. It is a real production " +
+    "mutation and a financially sensitive one — it writes pricing policy — so " +
+    "it does NOT rest on the second leg _index.tsx uses (no production " +
+    "mutation). Two further protections that are not CSRF defences but bound " +
+    "the blast radius if this exemption were ever wrong: every write requires " +
+    "an ONLINE session with an associated Shopify user and 401s without one, " +
+    "so a forged request with no staff identity cannot write at all; and the " +
+    "route reaches no Shopify API and publishes no price — a configuration " +
+    "change still has to pass recalculation and the existing approval/sync " +
+    "gate before it can affect a storefront.",
   "app.bank-payments.$id.tsx":
     "the manual Bank Payment verification admin surface (Slice 2C phase 2C-c). " +
     "NOT the same argument as _index.tsx, which rests on two legs — same-origin " +
