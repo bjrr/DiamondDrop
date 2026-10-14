@@ -85,7 +85,7 @@ the business still could not sell anything.
 | E1 | Slices 0–13 implemented and merged to `main` | 🟢 GREEN | — | Merge `4d688ef`, tagged `mvp1-engineering-complete` at `c4420a1` |
 | E2 | **Group Buy milestone emails** — tier unlock, best-tier unlock, campaign close | 🟢 GREEN | — | Built in `157a216`. Was a verified gap: `unitLedger.server.ts` contained no send of any kind. Needs D5 to actually run |
 | E3 | **Slice 13 theme surfaces** | 🟢 GREEN | — | Built in `5f33f0e`. The backends had shipped with zero theme files referencing them |
-| E4 | CI green on `main` | 🟡 YELLOW | — | See the note below |
+| E4 | CI green on `main` | 🟢 GREEN | — | Run #116 on `50fc7d8`: every step green, integration and build included. 99/99 integration files and 1576 tests also pass locally. See the note below for what #115 was |
 | E5 | Live Shopify proof for Group Buy refund execution | 🟢 GREEN | — | 15/15 assertions against the real store, Slice 8 |
 
 ### Note on E4
@@ -100,7 +100,11 @@ only thing seeding a result can mean.
 
 Reproducing it needed a real Postgres, and this machine has no Docker, WSL
 or installed Postgres — the suite was run against a throwaway server from
-npm in the scratchpad.
+npm in the scratchpad. **Anyone repeating that must initialise it with
+`--encoding=UTF8`.** initdb otherwise defaults to the Windows locale's
+WIN1252, `CREATE DATABASE` inherits it, and
+`webhooks/httpServer.test.ts` then fails with Postgres 22P05 on an emoji in
+a webhook payload — which looks like a webhook defect and is not one.
 
 ---
 
