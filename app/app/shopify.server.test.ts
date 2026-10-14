@@ -132,6 +132,12 @@ describe("D23 — useOnlineTokens is additive, and nothing background-facing dep
    */
   const BACKGROUND_ADMIN_CALLERS = [
     join(APP_DIR, "jobs", "bankpayment", "guaranteeSweep.server.ts"),
+    // Card-basis Group Buy participants' email addresses are not stored
+    // locally (the unit ledger holds no customer identity), so the milestone
+    // sweep reads them from the order record. Resolved in the JOB module for
+    // the same reason the guarantee sweep does it there — the cron route
+    // itself must stay free of admin auth, which the last test here enforces.
+    join(APP_DIR, "jobs", "groupbuy", "milestoneNotificationSweep.server.ts"),
     join(APP_DIR, "shopify", "admin", "productionPriceSyncPort.server.ts"),
     join(APP_DIR, "shopify", "webhooks", "inventoryPurchasabilityHandler.server.ts"),
     join(APP_DIR, "routes", "apps.carat.bank-checkout.tsx"),

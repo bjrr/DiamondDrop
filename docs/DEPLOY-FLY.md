@@ -167,7 +167,12 @@ must be re-registered.
 
 ---
 
-## Step 6 — schedule both jobs
+## Step 6 — schedule the jobs
+
+There are **four** scheduled routes. Every `internal.jobs.*` route in the app
+must appear here; one that exists in code but is never scheduled is a feature
+that silently does nothing, which is harder to notice than one that is
+missing.
 
 Scheduled machines, authenticating with the header the routes already require.
 `curl -fsS` fails the run on a non-2xx, so a rejected secret surfaces as a
@@ -179,11 +184,35 @@ flyctl machine run . --schedule hourly --app caratforus \
 
 flyctl machine run . --schedule daily --app caratforus \
   --command "curl -fsS -X POST https://caratforus.fly.dev/internal/jobs/price-recalculation -H 'x-carat-cron-secret: $CRON_SECRET'"
+
+flyctl machine run . --schedule hourly --app caratforus \
+  --command "curl -fsS -X POST https://caratforus.fly.dev/internal/jobs/group-buy-bank-payment-window -H 'x-carat-cron-secret: $CRON_SECRET'"
+
+flyctl machine run . --schedule hourly --app caratforus \
+  --command "curl -fsS -X POST https://caratforus.fly.dev/internal/jobs/group-buy-milestones -H 'x-carat-cron-secret: $CRON_SECRET'"
 ```
 
-**Hourly is a floor, not a preference.** The guarantee is 24 hours; run the
-sweep daily and an order can sit a full day past expiry, during which a
+**Hourly is a floor, not a preference.** The Buy Now guarantee is 24 hours; run
+that sweep daily and an order can sit a full day past expiry, during which a
 customer may pay against a quote we intended to withdraw.
+
+**`group-buy-bank-payment-window`** enforces owner §24 — the 48-hour payment
+window, its single automatic 48-hour extension, and inactivation at 96 hours.
+Hourly for the same reason: a daily cadence puts the inactivation instant up to
+a day late, so an order stays apparently payable after its window closed.
+
+**`group-buy-milestones`** sends the participant emails README line 245
+requires (tier unlock, best-tier unlock, campaign close). Hourly is a
+deliberate *ceiling* here rather than a floor — the sweep coalesces a burst of
+orders into one email about the tier the group actually reached, which is what
+"do not email for every unit change" asks for. Running it far more often would
+start to split that burst across several emails; running it far less often
+delays the close notification. The sweep is idempotent under any cadence,
+including overlapping runs, so the choice is about customer experience rather
+than correctness.
+
+Both Group Buy jobs are safe to schedule before the first campaign opens: with
+no open or closed campaigns they examine nothing and send nothing.
 
 ---
 
@@ -195,9 +224,17 @@ customer may pay against a quote we intended to withdraw.
   session survives: it lives in Postgres, not in memory, so a restart must not
   require re-consent.
 - Invoke each job route by hand and read its **own** evidence: recalculation
-  writes a `price_recalculation_run` row; the sweep logs
-  `bank_payment.guarantee_sweep_completed` with counts and returns them.
-  A sweep that runs and finds nothing looks exactly like one that never ran if
-  you only check whether anything was cancelled.
+  writes a `price_recalculation_run` row; the guarantee sweep logs
+  `bank_payment.guarantee_sweep_completed` with counts and returns them; the
+  milestone sweep logs `group_buy_milestone.sweep_complete` with counts,
+  returns them, and writes `groupbuy_milestone:*` rows to `idempotency_key`
+  for whatever it actually sent. A sweep that runs and finds nothing looks
+  exactly like one that never ran if you only check whether anything was
+  cancelled.
+- On the milestone sweep specifically, check `recipientsUnresolved` in the
+  returned counts. A non-zero value means some Card-basis participants could
+  not be reached (no `SHOPIFY_SHOP_DOMAIN`, a guest order with no email, or a
+  failing Admin API call) — the milestone is deliberately left open and
+  retried, so a number that never falls to zero is a standing fault, not noise.
 - `flyctl logs` — confirm no secret value appears. The structured logger
   redacts, but the check is cheap and the cost of being wrong is not.
