@@ -102,7 +102,7 @@ yet. Deploy first, schedule second.
 | # | Item | Status | Evidence / note |
 |---|---|---|---|
 | C1 | **A real catalogue.** No sellable product exists | 🔴 MISSING | See Track B in the action queue for exactly what is needed |
-| C2 | **A store that can take payments.** `caratforus-dev.myshopify.com` is a development store | 🔴 MISSING | Development stores cannot process real transactions. This blocks every purchase path |
+| C2 | **A store that can take payments.** | 🔴 MISSING | **Confirmed by Shopify CLI 2026-10-14: `Type: Dev`, Plan Basic, created Sep 17 2026, org "My Store" (236195662).** It is a development store, not a client transfer store. Whether *this* store can be transferred depends on the purpose it was created with, which the CLI does not expose — owner is checking for a "Transfer ownership" action in the Partner/Dev Dashboard. **All Shopify catalogue mutations are held until that answer**, so we do not create product IDs in a store we may abandon |
 | C3 | **Bank payment coordinates** | 🟢 WORKING (one check) | `PAYMENT_ZELLE_RECIPIENT`, `PAYMENT_WIRE_BANK_NAME`, `PAYMENT_WIRE_ACCOUNT_NAME`, `PAYMENT_WIRE_ROUTING_NUMBER`, `PAYMENT_WIRE_ACCOUNT_NUMBER` all set and Deployed. ❓ **One thing to confirm —** `PAYMENT_ZELLE_RECIPIENT` has an identical digest to `STAFF_EMAIL_ALLOWLIST`, meaning the same value. That is fine if both are one address; it is wrong if the allowlist is a comma-separated list, because the Zelle recipient would then be unusable. Worth one look |
 | C4 | **Terms of Service** | 🔴 MISSING | Four business decisions needed first — `docs/content/MVP1-STOREFRONT-COPY.md` Part 4 |
 | C5 | **Privacy Policy** | 🔴 MISSING | Append-only evidence tables interact with deletion requests and need a lawful stated answer — Part 5 |
@@ -150,7 +150,50 @@ yet. Deploy first, schedule second.
 | D5 | Email provider | 🟢 WORKING (configured) | `EMAIL_API_KEY`, `EMAIL_FROM`, `STAFF_EMAIL_ALLOWLIST` all Deployed. ❓ No test send was performed — configured is proven, *delivery* is not |
 | D6 | Object storage | 🟢 WORKING (configured) | All four `STORAGE_*` Deployed. ❓ No upload was performed from here |
 | D7 | **Scheduled jobs — 2 of 4** | 🔄 PARTIAL | `cron-guarantee-sweep` (hourly) and `cron-price-recalculation` (daily) exist, target the correct endpoints with `CRON_SECRET`, and are exiting **0**. **Missing: `group-buy-bank-payment-window` and `group-buy-milestones`.** The latter cannot be scheduled until a deploy, because its route is currently 404 |
-| D8 | Production reference data — pricing profile, metal prices, labor rates, stone costs | ❓ **UNKNOWN, and it gates Track B** | `prisma migrate deploy` runs as the release command; **it does not run the seed.** The 15 policy terms prove only that *migrations* ran, since policy text is migration-provisioned. Whether production holds a pricing profile and cost libraries cannot be seen from outside. **If it does not, no price can be calculated for any product** |
+| D8 | Production reference data | 🟢 **RESOLVED 2026-10-14** | Answered by a read-only probe run inside the container. The seed *has* run: a pricing profile, all three labor sources, all 15 cost components, three metal references and five stone-cost rows exist. **Nothing is missing.** What remains is validating market/supplier values — tracked as P3 below, not here |
+
+---
+
+## 4a. Pricing
+
+**The pricing system is not a launch blocker.** Its operating numbers are
+configurable by design, and a configurable value sitting at a default is
+not an unresolved decision.
+
+| # | Item | Status | Evidence / note |
+|---|---|---|---|
+| P1 | **Pricing engine and schema** | 🟢 WORKING | Profile, metal, labor, stone and component models all populated in production; 94 calculations already recorded |
+| P2 | **Pricing-profile operating defaults — 40% target markup, 20% minimum gross margin, $100 minimum profit** | 🟢 **CONFIGURED — not an owner decision** | Owner-locked 2026-10-14 as *configurable operating inputs*. Active profile `buy_now` v5, `is_placeholder: false`. **Do not ask the owner to reconfirm these.** They change through the versioned profile mechanism, never through code |
+| P3 | **Production cost inputs** — gold, stone, labor, metal loss, casting/setting/polishing/assembly/QC, packaging, shipping, insurance, warranty reserve, supplier fee | 🟡 YELLOW | Every row exists and resolves; all are seed fixtures dated `2026-01-01` and self-labelled "not a real market quote / supplier quote / cost assumption". **Validate for Product #1 before publishing it.** Not a blocker on the engine — only on publishing a real SKU |
+| P4 | **Card-price derivation** | 🟢 WORKING | Active profile carries `BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1` — the approved tiered uplift with upward-to-$5 rounding on the Regular/Card Price only |
+| P5 | **Fixture catalogue cleanup** | 🟡 YELLOW | Required before public operation; **not a reason to resume feature development.** Proposal prepared, not executed — see section 8 |
+
+### Auditability — verified, not assumed
+
+The owner's requirement that historical calculations stay reproducible is
+**enforced by the database**, not by convention. Verified 2026-10-14:
+
+- `metal_reference_price`, `stone_cost`, `cost_component`, `pricing_profile`
+  and `labor_rate` each carry `no_update`, `no_delete` and (where applicable)
+  `no_truncate` triggers. **A historical row physically cannot be rewritten
+  in place.** Changing a value means inserting a new effective-dated row.
+- `PriceCalculation` pins `pricingProfileId`, `profileVersion`,
+  `engineVersion`, `roundingRuleId`, `priceEndingRuleId` and a frozen
+  `snapshotId` of the resolved inputs.
+
+So new calculations resolve current values, old ones remain reproducible,
+and no future change can retroactively alter recorded evidence.
+
+### Payment processing is a cost input, not a price rule
+
+`payment_processing` (currently 2.9% + $0.30, `basis: revenue_side`) is a
+**configurable cost/audit input only**. It does not and must not participate
+in deriving the customer-facing Regular/Card Price, which is governed solely
+by the approved Bank-vs-Card rule: Bank Payment Price is the underlying
+calculated selling price, the Regular/Card Price is derived afterwards by
+the tiered uplift, and only the Card Price is rounded up to the next $5.
+Updating the processing rate when a real gateway is chosen changes cost and
+margin maths; it leaves the Bank-vs-Card model untouched.
 
 ---
 
@@ -209,11 +252,14 @@ mostly engineering.
 
 Strictly ordered; each step depends on the one before.
 
-1. **Decide: convert `caratforus-dev` to a paid plan, or stand up a new
-   production store.** Everything else in this track waits on it. Converting
-   keeps the app install, the theme, the policy pages and the App Proxy
-   configuration intact, which is a substantial amount of verified setup.
-   A new store means redoing all of it.
+1. **Check whether `caratforus-dev` offers "Transfer ownership"** in the
+   Partner/Dev Dashboard, then either retain it or stand up a production
+   store. Everything else in this track — and the whole of Track B — waits
+   on this. Retaining preserves the verified app install, theme, policy
+   pages and App Proxy configuration. **Now is the cheapest possible moment
+   to move**: there is no catalogue, no FAQ metaobjects and no collections
+   to lose, and the 15 policy terms live in Postgres rather than Shopify, so
+   they survive either way.
 2. **Payment gateway** — Shopify Payments or a provider, activated and
    able to take a live card.
 3. **Tax** — registration and Shopify tax configuration.
@@ -232,39 +278,93 @@ Strictly ordered; each step depends on the one before.
 
 ### Track B — the first real product
 
-**What to create first: a single-variant, no-stone, fixed-size pendant or
-chain in sterling silver.**
+**LOCKED (owner, 2026-10-14): a 14K gold solitaire pendant with one
+lab-grown diamond.** Fixed configuration, single Shopify variant,
+`sizeAxis: none`, no ring-sizing model, one centre stone.
 
-Not a ring, and not for aesthetic reasons. A ring drags in the ring-size
-band model, `weightPerFullSizeGrams`, size-band weight overrides and a
-per-size price surface — four systems that can each fail independently on
-a first run. `sizeAxis: none` removes all of it. No stones removes the
-stone cost library. Sterling silver keeps the metal reference price
-simple. The goal of the first product is to prove
-**Map → Calculate → Approve → Sync → Verify** end to end, and every extra
-dimension is another way for that proof to be ambiguous.
+An earlier draft of this register proposed a sterling-silver SKU on
+simplicity grounds. That was wrong for the purpose: a throwaway product has
+no launch value. The locked archetype proves the real CaratForUs path —
+metal + purity + weight + labor + stone + components + pricing profile +
+Bank/Card derivation + Shopify sync — while `sizeAxis: none` still excludes
+the ring-size band model, `weightPerFullSizeGrams`, weight overrides and the
+per-size price surface.
 
-Rings, stones and multi-variant products come second, once the path is
-known to work.
+14K costs nothing extra on the metal side: `purity.ts` computes
+`pure_reference_price_per_gram × fineness × grams`, so one
+`MetalReferencePrice(gold)` row serves 10k/14k/18k.
 
-**Blocking unknown first:** D8. If production holds no pricing profile and
-no cost libraries, nothing can be priced. That has to be settled before
-any of the data below is useful.
+**Blocked on the Shopify-store decision**, deliberately. No product is
+created or mapped until it is settled, so Shopify IDs are not minted in a
+store we may abandon.
 
-**Exactly what is needed from the owner:**
+**Owner inputs, agreed 2026-10-14:** product name; finished 14K weight in
+grams; whether a chain is included and if so its length and weight; stone
+shape; carat; intended colour/clarity/cut; actual supplier cost for the
+stone; labor source and real rate; current pure-gold price with as-of date;
+realistic metal-loss percentage; and the applicable component costs
+(casting, setting, polishing, assembly, QC, packaging, shipping, insurance,
+warranty reserve, supplier fee). CAD may legitimately be zero for a stock
+pendant.
 
-| # | Field | Example | Why |
+**Stone coverage.** The existing library covers lab round and lab princess
+over **[0.90, 1.10) ct** only — a half-open interval, so 1.10 itself is not
+covered. If the real pendant is a commoner pendant size (0.25–0.75 ct),
+a new effective-dated `StoneCost` band is created **from the owner's real
+supplier cost**, never invented to make the engine resolve. A missing band
+raises `MissingCostInputError`, so the engine fails closed rather than
+pricing a stone at zero.
+
+**MVP1 stone-costing policy, stated plainly.** The *resolver* supports
+quality tiers — `selectMostSpecific` prefers a row matching colour, clarity,
+cut grade, lab status or supplier over a less specific one. The *data* does
+not: every current row leaves those qualifiers NULL, so they act as
+wildcards and cost varies only by stone type, shape and carat band. The
+database does not differentiate quality today. Adding a more specific row
+later will take precedence automatically, with no code change.
+
+---
+
+## 8. Fixture catalogue cleanup — proposed, NOT executed
+
+Production carries seed and live-gate fixtures. The concrete harm today is
+narrow but real: **four active fixture variants are processed by the daily
+production recalculation cron.** None is synced to Shopify
+(`shopify_variant_gid` is null), so nothing is customer-visible — but an
+active fixture product in a production catalogue is what surfaces at the
+worst possible moment.
+
+**The lever is `status`, and it is safe and reversible.** Verified:
+`runRecalculation.server.ts` selects `{ status: "active" }` and nothing
+else consumes active master variants; `MasterProductStatus` and
+`MasterVariantStatus` are both `draft | active | archived`; and the
+catalogue tables carry **no** append-only triggers, so a status change is a
+normal, reversible update. Archiving removes a variant from recalculation
+and sync without touching one row of evidence.
+
+| Row | Current | Proposed | Why |
 |---|---|---|---|
-| 1 | Product name and category | "Rope Chain 20in", `chain` | `MasterProduct.name` / `.category` |
-| 2 | Metal and purity | `sterling_silver` / `925` | Selects the metal reference price |
-| 3 | Finished weight in grams | `8.4` | `baseWeightGrams`. The single biggest cost driver |
-| 4 | Labor source and cost | `china`, and the per-unit labor cost | `LaborSource` + `LaborRate` |
-| 5 | Current silver reference price | per troy ounce or per gram, and as-of date | `MetalReferencePrice` |
-| 6 | Any per-unit extras | plating, packaging, QC, inbound freight | `CostComponent` |
-| 7 | Target markup and minimum margin floor | — | `PricingProfile`, **only if production has none** |
-| 8 | Product photographs | — | For the Shopify product |
+| `Seed Fixture Solitaire Ring` (product) | `active` | **archive** | Pure seed fixture; a ring, which we are not launching with |
+| Its 3 active 14k gold variants | `active` | **archive** | Stops them entering daily recalculation |
+| Its 1 active pt950 variant | `active` | **archive** | Same |
+| `ZZ livegate storefront …` (product) | `archived`, has `shopify_product_gid` | **leave as-is in Postgres** | Already archived. Its Shopify side is handled below |
+| `ZZ LIVE GATE TEST — DO NOT SELL …` (product) | `draft` | **leave as-is** | Draft never reaches recalculation |
+| Its 1 archived + 1 draft variant | archived / draft | **leave as-is** | Already excluded |
+| 94 `price_calculation`, 93 `price_sync_intent`, all snapshots | — | **UNTOUCHED** | Historical evidence. Archiving the variant does not break the foreign keys that reference it |
+| `policy_version`, acknowledgments, audit records | — | **UNTOUCHED** | Never in scope |
 
-With 1–6 (and 7 if needed) the engineering side can run: map the master
-product and variant, calculate the Bank Payment Price, derive the
-Regular/Card Price under the locked tier-and-$5-rounding rules, approve,
-sync to Shopify, and verify the published price matches the calculation.
+**Nothing is hard-deleted.** No DELETE on any fixture row is proposed, and
+the evidence tables are append-only in any case.
+
+### Shopify side, split by outcome
+
+| | If `caratforus-dev` is retained | If a new production store is created |
+|---|---|---|
+| `gid://shopify/Product/10357871313197` (the live-gate storefront product) | Must be deleted or unpublished **in Shopify Admin** — it is a real product record in that store | Disappears on its own; the new store starts clean |
+| The one draft variant holding a `shopify_variant_gid` | Same — remove in Admin | Disappears |
+| **Postgres fixture records** | Archive as proposed above | **Still need archiving.** A new store does not clean the database |
+
+That last cell is the one worth not missing: moving store solves the
+Shopify half and none of the Postgres half.
+
+**Not executed.** Proposed for owner approval first.
