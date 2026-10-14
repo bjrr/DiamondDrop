@@ -163,7 +163,8 @@ not an unresolved decision.
 | # | Item | Status | Evidence / note |
 |---|---|---|---|
 | P1 | **Pricing engine and schema** | 🟢 WORKING | Profile, metal, labor, stone and component models all populated in production; 94 calculations already recorded |
-| P2 | **Pricing-profile operating defaults — 40% target markup, 20% minimum gross margin, $100 minimum profit** | 🟢 **CONFIGURED — not an owner decision** | Owner-locked 2026-10-14 as *configurable operating inputs*. Active profile `buy_now` v5, `is_placeholder: false`. **Do not ask the owner to reconfirm these.** They change through the versioned profile mechanism, never through code |
+| P2 | **Pricing-profile operating defaults — 40% target markup, 20% minimum gross margin, $100 minimum profit** | 🟢 **VALUES SETTLED — not an owner decision** | Owner-locked 2026-10-14 as *configurable operating inputs*. Active profile `buy_now` v5, `is_placeholder: false`. **Do not ask the owner to reconfirm these.** Note: *settled* is about the values, not the tooling — see P6 |
+| P6 | **Operator tooling to change pricing values** | 🟡 YELLOW — **data-driven but not operationally configurable** | Architecture audit 2026-10-14. The values are genuinely data-driven (Level A) and runtime-resolved (Level B), but **the only writer to `pricing_profile`, `metal_reference_price`, `stone_cost`, `cost_component` and `labor_rate` anywhere in the repository is `prisma/seed.ts`.** No admin route, no CLI verb. Changing a price input today requires an engineer. A previous revision of this register marked this GREEN on the strength of the database columns existing; that was the exact error the owner warned against |
 | P3 | **Production cost inputs** — gold, stone, labor, metal loss, casting/setting/polishing/assembly/QC, packaging, shipping, insurance, warranty reserve, supplier fee | 🟡 YELLOW | Every row exists and resolves; all are seed fixtures dated `2026-01-01` and self-labelled "not a real market quote / supplier quote / cost assumption". **Validate for Product #1 before publishing it.** Not a blocker on the engine — only on publishing a real SKU |
 | P4 | **Card-price derivation** | 🟢 WORKING | Active profile carries `BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1` — the approved tiered uplift with upward-to-$5 rounding on the Regular/Card Price only |
 | P5 | **Fixture catalogue cleanup** | 🟡 YELLOW | Required before public operation; **not a reason to resume feature development.** Proposal prepared, not executed — see section 8 |
@@ -183,6 +184,39 @@ The owner's requirement that historical calculations stay reproducible is
 
 So new calculations resolve current values, old ones remain reproducible,
 and no future change can retroactively alter recorded evidence.
+
+### Profile scope — one profile serves more than Buy Now
+
+`PricingProfileCode` defines six codes (`buy_now`, `group_buy`, `custom`,
+`wholesale`, `friends_family`, `marketplace`). **Only `buy_now` is ever
+resolved.** Verified: `resolveInputs.server.ts:120` and
+`runRecalculation.server.ts:250` both call
+`resolveActivePricingProfile("buy_now", asOf)`, and
+`app.custom-jewelry.$id.tsx:412` reads `code: "buy_now"` directly.
+
+So changing the Buy Now profile also changes Custom Jewelry card-price
+derivation and the economics any *future* Group Buy campaign freezes at
+open. Already-open campaigns are insulated — proven, see below. The
+per-channel capability the schema allows is **not implemented**.
+
+⚠️ **Latent inconsistency, not currently harmful.**
+`app.custom-jewelry.$id.tsx:412` resolves the active profile with
+`orderBy: { version: "desc" }` and **no `effectiveFrom` filter**, whereas
+`resolveActivePricingProfile` filters `effectiveFrom <= asOf`. A
+future-dated profile version would therefore take effect immediately in
+Custom Jewelry while Buy Now correctly ignored it until its date. Not
+hypothetical: `frozenRuleVersioning.test.ts` inserts exactly such a row
+(`effectiveFrom: 2999-01-01`). Worth fixing before anyone future-dates a
+real profile change.
+
+### Already-open Group Buys are insulated — proven by test
+
+`tests/integration/groupbuy/frozenRuleVersioning.test.ts`, "a later profile
+change cannot reach a frozen campaign": a new profile version with a
+different uplift rate leaves an open campaign's bank price, card price and
+savings byte-identical. The mechanism is that `openCampaign.server.ts`
+stores `pricingProfileId` + `profileVersion` on the campaign and the
+storefront reads that frozen row, so no later insert can reach it.
 
 ### Payment processing is a cost input, not a price rule
 
