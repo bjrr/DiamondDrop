@@ -1,0 +1,126 @@
+/**
+ * Component-scoped styling for Group Buy demand capture — "Bring It Back"
+ * inside a Past Group Buys entry, and the standalone "Request a Group Buy"
+ * section. No global selectors; every custom property is an existing theme
+ * token. Mobile-first.
+ *
+ * CONTRAST — THE DISCLOSURE IS NEVER DIMMED. Pressing the button IS the
+ * affirmative action, and the sentence above it is the exact wording the
+ * server records against the address. The architect's 2026-09-25 ruling
+ * (recorded in component-warranty-claim-form.css) is that the theme's dimmed
+ * tier is for routine hints, not for wording someone is being asked to
+ * accept. Styling that sentence as fine print would make the record harder
+ * to defend than the sentence itself.
+ *
+ * The disabled state is styled visibly rather than left to the browser: the
+ * button is disabled until the terms load, and a button that looks pressable
+ * but silently does nothing reads as a broken form.
+ */
+
+.carat-gb-interest__section-heading {
+  margin: 0 0 0.5rem;
+}
+
+.carat-gb-interest__intro {
+  margin: 0 0 1.5rem;
+  color: rgb(var(--color-foreground));
+}
+
+.carat-gb-interest {
+  max-width: 44rem;
+}
+
+.carat-gb-interest--standalone {
+  padding: 1.5rem;
+  border: 1px solid rgba(var(--color-foreground), 0.2);
+  border-radius: var(--inputs-radius, 0);
+}
+
+.carat-gb-interest__form {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.carat-gb-interest__heading {
+  margin: 0 0 0.25rem;
+  font-size: 1.5rem;
+}
+
+.carat-gb-interest__label {
+  font-size: 1.3rem;
+  color: rgb(var(--color-foreground));
+}
+
+.carat-gb-interest__input {
+  width: 100%;
+  padding: 0.75rem;
+  font-size: 1.5rem;
+  color: rgb(var(--color-foreground));
+  background-color: rgb(var(--color-background));
+  border: 1px solid rgba(var(--color-foreground), 0.45);
+  border-radius: var(--inputs-radius, 0);
+}
+
+.carat-gb-interest__input:focus-visible {
+  outline: 2px solid rgb(var(--color-foreground));
+  outline-offset: 1px;
+}
+
+.carat-gb-interest__input--note {
+  resize: vertical;
+  font-family: inherit;
+}
+
+.carat-gb-interest__disclosure {
+  margin: 0.5rem 0;
+}
+
+.carat-gb-interest__disclosure-text,
+.carat-gb-interest__disclosure-pending,
+.carat-gb-interest__disclosure-error,
+.carat-gb-interest__loading {
+  margin: 0;
+  font-size: 1.3rem;
+  /* Full contrast. See the header. */
+  color: rgb(var(--color-foreground));
+}
+
+.carat-gb-interest__submit {
+  justify-self: start;
+  padding: 0.9rem 1.8rem;
+  font-size: 1.4rem;
+  cursor: pointer;
+  color: rgb(var(--color-background));
+  background-color: rgb(var(--color-foreground));
+  border: 1px solid rgb(var(--color-foreground));
+  border-radius: var(--buttons-radius, 0);
+}
+
+.carat-gb-interest__submit:focus-visible {
+  outline: 2px solid rgb(var(--color-foreground));
+  outline-offset: 2px;
+}
+
+.carat-gb-interest__submit:disabled {
+  cursor: not-allowed;
+  color: rgba(var(--color-foreground), 0.6);
+  background-color: transparent;
+  border-color: rgba(var(--color-foreground), 0.35);
+}
+
+.carat-gb-interest__status {
+  margin: 0;
+  font-size: 1.3rem;
+  color: rgb(var(--color-foreground));
+}
+
+.carat-gb-interest__status--error {
+  font-weight: 600;
+}
+
+.carat-gb-interest__confirmation {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: rgb(var(--color-foreground));
+}

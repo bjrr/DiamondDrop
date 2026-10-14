@@ -1,0 +1,161 @@
+{%- comment -%}
+  PAST GROUP BUYS — the public archive of closed campaigns.
+
+  Slice 13. Renders `GET /apps/carat/past-group-buys`
+  (app/app/routes/apps.carat.past-group-buys.tsx), which returns only
+  campaigns with locked final figures and derives every price server-side
+  under each campaign's own frozen pricing rules.
+
+  ============================================================================
+  NO PRICE, COUNT OR NOTE IS WRITTEN IN THIS FILE
+  ============================================================================
+  Same discipline as `policy-terms.liquid`, for a related reason. A closed
+  campaign's figures are locked history, and the one place they are derived
+  correctly — integer minor units, the campaign's frozen card rule, the tier
+  it actually finished on — is the server. A settings field or a hardcoded
+  example price here would be a second source for a number nobody rechecks,
+  because the campaign is over and no one is watching it any more.
+
+  The Regular/Card note required by CLAUDE.md rule 13 likewise arrives in the
+  payload and is printed, never restated here.
+
+  ============================================================================
+  BRING IT BACK LIVES INSIDE EACH ENTRY, NOT ONCE AT THE BOTTOM
+  ============================================================================
+  The demand signal must carry the campaign it is about. Rendering one form
+  at the foot of the page would mean asking the customer to retype a code
+  they can already see, and a mistyped code is demand recorded against the
+  wrong campaign. So `past-group-buys.js` appends a per-campaign host and
+  `group-buy-interest.js` mounts a form into it with the code already set.
+
+  What a merchant may edit: the heading and the introduction. Not the
+  campaign data, and not the price note.
+{%- endcomment -%}
+
+{{ 'component-past-group-buys.css' | asset_url | stylesheet_tag }}
+{{ 'component-group-buy-interest.css' | asset_url | stylesheet_tag }}
+
+{%- style -%}
+  .section-{{ section.id }}-padding {
+    padding-top: {{ section.settings.padding_top | times: 0.75 | round: 0 }}px;
+    padding-bottom: {{ section.settings.padding_bottom | times: 0.75 | round: 0 }}px;
+  }
+
+  @media screen and (min-width: 750px) {
+    .section-{{ section.id }}-padding {
+      padding-top: {{ section.settings.padding_top }}px;
+      padding-bottom: {{ section.settings.padding_bottom }}px;
+    }
+  }
+{%- endstyle -%}
+
+<div class="color-{{ section.settings.color_scheme }} gradient">
+  <div class="page-width section-{{ section.id }}-padding">
+    {%- if section.settings.heading != blank -%}
+      <h2 class="carat-past-group-buys__heading {{ section.settings.heading_size }}">
+        {{ section.settings.heading | escape }}
+      </h2>
+    {%- endif -%}
+
+    {%- if section.settings.intro != blank -%}
+      <div class="carat-past-group-buys__intro rte">{{ section.settings.intro }}</div>
+    {%- endif -%}
+
+    <div
+      class="carat-past-group-buys"
+      data-carat-past-group-buys
+      {% if section.settings.show_bring_it_back %}data-interest-template="bring_it_back"{% endif %}
+    >
+      {%- comment -%}
+        Replaced on load, and it says what it is rather than imitating a row
+        of campaigns — a skeleton here would look like an archive that
+        finished loading and found one blank entry.
+      {%- endcomment -%}
+      <p class="carat-past-group-buys__loading">Loading past Group Buys…</p>
+    </div>
+
+    <noscript>
+      <p class="carat-past-group-buys__error">
+        Past Group Buys need JavaScript to display. Email us and we will tell
+        you what a campaign closed at.
+      </p>
+    </noscript>
+  </div>
+</div>
+
+<script src="{{ 'group-buy-interest.js' | asset_url }}" defer="defer"></script>
+<script src="{{ 'past-group-buys.js' | asset_url }}" defer="defer"></script>
+
+{% schema %}
+{
+  "name": "Past Group Buys",
+  "tag": "section",
+  "class": "section",
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "Shows every closed Group Buy with the price the group reached. The campaigns, prices and unit counts are managed by the CaratForUs app and cannot be edited here — they are locked historical figures. Use the introduction for narrative."
+    },
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading",
+      "default": "Past Group Buys"
+    },
+    {
+      "type": "select",
+      "id": "heading_size",
+      "options": [
+        { "value": "h2", "label": "Medium" },
+        { "value": "h1", "label": "Large" }
+      ],
+      "default": "h1",
+      "label": "Heading size"
+    },
+    {
+      "type": "richtext",
+      "id": "intro",
+      "label": "Introduction",
+      "info": "Optional. Explain how Group Buys work. Do not restate prices here."
+    },
+    {
+      "type": "checkbox",
+      "id": "show_bring_it_back",
+      "default": true,
+      "label": "Offer \"Email me if this runs again\" on each campaign",
+      "info": "Records interest in re-running a specific past campaign."
+    },
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "t:sections.all.colors.label",
+      "default": "scheme-1"
+    },
+    {
+      "type": "range",
+      "id": "padding_top",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "t:sections.all.padding.padding_top",
+      "default": 36
+    },
+    {
+      "type": "range",
+      "id": "padding_bottom",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "t:sections.all.padding.padding_bottom",
+      "default": 36
+    }
+  ],
+  "presets": [
+    {
+      "name": "Past Group Buys"
+    }
+  ]
+}
+{% endschema %}

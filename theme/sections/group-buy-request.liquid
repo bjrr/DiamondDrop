@@ -1,0 +1,144 @@
+{%- comment -%}
+  REQUEST A NEW GROUP BUY — demand capture for a campaign that does not exist.
+
+  Slice 13. Posts to `/apps/carat/group-buy-interest` with
+  `kind=new_campaign_request` (app/app/routes/apps.carat.group-buy-interest.tsx).
+
+  ============================================================================
+  THIS IS NOT A CUSTOM-DESIGN BRIEF
+  ============================================================================
+  README is explicit that neither demand-capture form may turn into a
+  custom-design questionnaire. There is one free-text field and an email
+  address, and there are deliberately no settings here to add more. Someone
+  who wants a piece designed belongs in Custom Jewelry, which has intake,
+  a deposit and an approval record; collecting the same information here
+  would gather design requirements with none of that around them.
+
+  ============================================================================
+  THE DISCLOSURE AND THE BUTTON CAPTION ARE NOT IN THIS FILE
+  ============================================================================
+  Pressing the button IS the affirmative action — owner decision, no tickbox.
+  The server records the exact disclosure text and the exact caption against
+  the captured address, so both come from the app rather than from theme
+  copy: the disclosure is fetched from the same versioned row the server
+  records, and the caption is pinned to a server constant by
+  `app/app/theme/groupBuyDemandCaptureSurface.test.ts`.
+
+  The submit button stays disabled until the disclosure is on the page. See
+  `group-buy-interest.js`.
+
+  What a merchant may edit: the heading and the introduction.
+{%- endcomment -%}
+
+{{ 'component-group-buy-interest.css' | asset_url | stylesheet_tag }}
+
+{%- style -%}
+  .section-{{ section.id }}-padding {
+    padding-top: {{ section.settings.padding_top | times: 0.75 | round: 0 }}px;
+    padding-bottom: {{ section.settings.padding_bottom | times: 0.75 | round: 0 }}px;
+  }
+
+  @media screen and (min-width: 750px) {
+    .section-{{ section.id }}-padding {
+      padding-top: {{ section.settings.padding_top }}px;
+      padding-bottom: {{ section.settings.padding_bottom }}px;
+    }
+  }
+{%- endstyle -%}
+
+<div class="color-{{ section.settings.color_scheme }} gradient">
+  <div class="page-width section-{{ section.id }}-padding">
+    {%- if section.settings.heading != blank -%}
+      <h2 class="carat-gb-interest__section-heading {{ section.settings.heading_size }}">
+        {{ section.settings.heading | escape }}
+      </h2>
+    {%- endif -%}
+
+    {%- if section.settings.intro != blank -%}
+      <div class="carat-gb-interest__intro rte">{{ section.settings.intro }}</div>
+    {%- endif -%}
+
+    <div
+      class="carat-gb-interest carat-gb-interest--standalone"
+      data-carat-group-buy-interest="new_campaign_request"
+    >
+      <p class="carat-gb-interest__loading">Loading the form…</p>
+    </div>
+
+    <noscript>
+      <p class="carat-gb-interest__disclosure-error">
+        This form needs JavaScript. Email us instead and tell us what you
+        would like us to run.
+      </p>
+    </noscript>
+  </div>
+</div>
+
+<script src="{{ 'group-buy-interest.js' | asset_url }}" defer="defer"></script>
+
+{% schema %}
+{
+  "name": "Request a Group Buy",
+  "tag": "section",
+  "class": "section",
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "Captures interest in a Group Buy we are not running. The terms shown above the button are managed by the CaratForUs app and cannot be edited here — they are the exact wording recorded against each submission. This form is intentionally short; design requests belong in Custom Jewelry."
+    },
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading",
+      "default": "Want a Group Buy we are not running?"
+    },
+    {
+      "type": "select",
+      "id": "heading_size",
+      "options": [
+        { "value": "h2", "label": "Medium" },
+        { "value": "h1", "label": "Large" }
+      ],
+      "default": "h2",
+      "label": "Heading size"
+    },
+    {
+      "type": "richtext",
+      "id": "intro",
+      "label": "Introduction",
+      "info": "Optional. Tell people what sort of request is useful."
+    },
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "t:sections.all.colors.label",
+      "default": "scheme-2"
+    },
+    {
+      "type": "range",
+      "id": "padding_top",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "t:sections.all.padding.padding_top",
+      "default": 36
+    },
+    {
+      "type": "range",
+      "id": "padding_bottom",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "t:sections.all.padding.padding_bottom",
+      "default": 36
+    }
+  ],
+  "presets": [
+    {
+      "name": "Request a Group Buy"
+    }
+  ]
+}
+{% endschema %}

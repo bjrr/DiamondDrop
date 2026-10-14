@@ -1,0 +1,124 @@
+/**
+ * Component-scoped styling for the Past Group Buys archive
+ * (sections/past-group-buys.liquid). No global selectors; every custom
+ * property used below is an existing theme token. Mobile-first, matching
+ * this theme's convention elsewhere (see component-group-buy-campaign.css).
+ *
+ * CONTRAST — the prices and the Regular/Card note are NOT dimmed. The same
+ * ruling recorded in component-warranty-claim-form.css applies: the theme's
+ * dimmed tier is for routine hint text, and a price a customer may rely on
+ * is not that. Only the campaign code and the closing date are dimmed, which
+ * are provenance rather than claims.
+ */
+
+.carat-past-group-buys {
+  max-width: 55rem;
+}
+
+.carat-past-group-buys__heading {
+  margin: 0 0 0.5rem;
+}
+
+.carat-past-group-buys__intro {
+  margin: 0 0 2rem;
+  color: rgb(var(--color-foreground));
+}
+
+.carat-past-group-buys__list {
+  display: grid;
+  gap: 2.5rem;
+}
+
+.carat-past-group-buys__item {
+  border-top: 1px solid rgba(var(--color-foreground), 0.2);
+  padding-top: 1.5rem;
+}
+
+.carat-past-group-buys__name {
+  margin: 0 0 0.35rem;
+  font-size: 1.6rem;
+}
+
+.carat-past-group-buys__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0 0 1rem;
+  font-size: 1.3rem;
+  /* Provenance, not a claim — dimming is appropriate here. */
+  color: rgba(var(--color-foreground), 0.7);
+}
+
+.carat-past-group-buys__prices {
+  display: grid;
+  grid-template-columns: auto auto;
+  justify-content: start;
+  gap: 0.35rem 1.5rem;
+  margin: 0 0 0.75rem;
+}
+
+.carat-past-group-buys__label {
+  margin: 0;
+  font-size: 1.3rem;
+  color: rgba(var(--color-foreground), 0.7);
+}
+
+.carat-past-group-buys__value {
+  margin: 0;
+  font-size: 1.5rem;
+  color: rgb(var(--color-foreground));
+}
+
+.carat-past-group-buys__value--start {
+  /* Struck through only when a lower final price sits beside it; on its own
+     a struck price would imply a saving the campaign never produced. The
+     server sends `priceFellBy` only when the price actually fell, so the
+     strike is driven from that below rather than applied unconditionally. */
+  text-decoration: none;
+}
+
+.carat-past-group-buys__value--final {
+  font-weight: 600;
+}
+
+.carat-past-group-buys__outcome {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0;
+  font-size: 1.4rem;
+  color: rgb(var(--color-foreground));
+}
+
+.carat-past-group-buys__saving {
+  font-weight: 600;
+}
+
+.carat-past-group-buys__price-note {
+  margin: 2rem 0 0;
+  font-size: 1.4rem;
+  /* A material pricing disclosure (CLAUDE.md rule 13). Full contrast. */
+  color: rgb(var(--color-foreground));
+}
+
+.carat-past-group-buys__interest {
+  margin-top: 1.25rem;
+}
+
+.carat-past-group-buys__loading,
+.carat-past-group-buys__empty,
+.carat-past-group-buys__error {
+  margin: 0;
+  font-size: 1.4rem;
+  color: rgb(var(--color-foreground));
+}
+
+@media screen and (min-width: 750px) {
+  .carat-past-group-buys__name {
+    font-size: 1.8rem;
+  }
+
+  .carat-past-group-buys__prices {
+    gap: 0.5rem 2.5rem;
+  }
+}
