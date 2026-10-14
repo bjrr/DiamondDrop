@@ -80,11 +80,21 @@ export class RecordingGroupBuyParticipantEmailPort implements GroupBuyParticipan
   private readonly results = new Map<string, string | null>();
   private readonly failures = new Map<string, Error>();
 
+  /**
+   * Seeding a result CLEARS any seeded failure for the same order, because
+   * "this order resolves to X now" is the only thing a caller can mean. The
+   * first version kept both and checked failures first, so a test that
+   * seeded a failure, then recovered the order, silently kept throwing — and
+   * the resulting red looked like the sweep failing to retry rather than the
+   * fake refusing to heal.
+   */
   seed(orderGid: string, email: string | null): void {
+    this.failures.delete(orderGid);
     this.results.set(orderGid, email);
   }
 
   seedFailure(orderGid: string, error: Error): void {
+    this.results.delete(orderGid);
     this.failures.set(orderGid, error);
   }
 
