@@ -53,6 +53,23 @@ const DATA = {
       effectiveFrom: "2026-01-01T00:00:00.000Z",
     },
   ],
+  components: [
+    {
+      componentType: "packaging",
+      basis: "cost_side",
+      valueKind: "fixed",
+      value: "6.00 USD",
+      effectiveFrom: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      componentType: "warranty_reserve",
+      basis: "cost_side",
+      valueKind: "percentage",
+      value: "0.02",
+      effectiveFrom: "2026-01-01T00:00:00.000Z",
+    },
+  ],
+  componentTypes: ["metal_loss", "casting", "packaging", "warranty_reserve"],
   autoPublishEnabled: false,
 };
 
@@ -143,8 +160,29 @@ describe("the screen tells the truth about what saving does", () => {
     expect(html).not.toMatch(/approval and sync controls/i);
   });
 
-  it("discloses that lower-frequency components are not managed here", () => {
-    expect(render()).toMatch(/not yet managed from/i);
+  it("no longer claims components are unmanaged, now that they are", () => {
+    expect(render()).not.toMatch(/not yet managed from/i);
+  });
+});
+
+describe("cost components", () => {
+  const html = render();
+
+  it("lists the currently effective components", () => {
+    expect(html).toContain("packaging");
+    expect(html).toContain("6.00 USD");
+    expect(html).toContain("warranty_reserve");
+  });
+
+  it("offers only the component types the loader supplied", () => {
+    // The loader filters INERT_COMPONENT_TYPES out, so the page cannot offer
+    // a type whose value would silently affect no price.
+    expect(html).toContain('value="metal_loss"');
+    expect(html).not.toContain('value="payment_adjustment"');
+  });
+
+  it("explains the value-kind split rather than letting the operator guess", () => {
+    expect(html).toMatch(/0\.029 means 2\.9%/);
   });
 });
 
@@ -194,6 +232,44 @@ describe("the authorization boundary", () => {
     expect(code).not.toMatch(/admin\.graphql/);
     expect(code).not.toMatch(/syncApprovedPriceSyncIntent/);
     expect(code).not.toMatch(/unauthenticated\.admin/);
+  });
+
+  it("validates every enum-like field at RUNTIME, not with a cast", () => {
+    // `as never` is erased at build time. A crafted POST carrying
+    // `metal=unobtanium` previously reached the database layer unexamined;
+    // it now fails at the boundary with a 400 naming the field.
+    expect(code).not.toMatch(/as never/);
+    for (const field of ["Metal", "LaborSource", "StoneType", "StoneCostKind", "CostComponentType", "CostComponentBasis", "CostComponentValueKind"]) {
+      expect(code, `${field} is not runtime-validated`).toMatch(
+        new RegExp(String.raw`parseEnumValue\(\s*${field}\b`)
+      );
+    }
+  });
+
+  it("validates currency on every path that reaches a repository", () => {
+    /**
+     * The column is `char(3)` and Postgres PADS a short value, so "US" would
+     * be stored as "US " with no error at any layer — corruption rather than
+     * a rejected request. Every currency must therefore be validated before
+     * it reaches a write.
+     *
+     * TWO legitimate routes to that, and an earlier version of this fence
+     * failed a correct one by only recognising the first: the three cost
+     * libraries call `parseCurrency` directly, while the profile path hands
+     * the raw value to `validatePricingProfileSettings`, which applies the
+     * same three-letter check one layer down. Both are validated; a blanket
+     * ban on `currency: text(` flagged the second.
+     *
+     * Kept deliberately structural rather than clever: two earlier attempts
+     * matched a TypeScript interface declaration and a correctly-validated
+     * call respectively. The BEHAVIOUR — that a two-letter currency is
+     * refused rather than padded — is pinned where it belongs, in
+     * `pricingSettingsOperatorPath.test.ts` against a real database. This
+     * only checks the wiring exists.
+     */
+    // One per cost library: metal, labor, stone. Components add a fourth.
+    expect((code.match(/parseCurrency\(/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(code).toMatch(/validatePricingProfileSettings\(/);
   });
 
   it("does not let the operator choose a version number", () => {

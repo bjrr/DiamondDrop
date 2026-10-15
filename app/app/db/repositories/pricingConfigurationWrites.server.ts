@@ -1,4 +1,15 @@
-import type { LaborSource, Metal, MetalPriceSource, StoneCostKind, StoneType } from "@prisma/client";
+import type {
+  CostComponentBasis,
+  CostComponentType,
+  CostComponentValueKind,
+  LaborSource,
+  Metal,
+  MetalPriceSource,
+  StoneCostKind,
+  StoneType,
+} from "@prisma/client";
+
+import { INERT_COMPONENT_TYPES } from "~/jobs/pricing/resolveInputs.server";
 
 import { prisma } from "../client.server";
 import { findOverlappingCaratBands } from "./stoneCostRepository.server";
@@ -233,6 +244,116 @@ export async function createStoneCost(input: {
           clarity: created.clarity,
           cutGrade: created.cutGrade,
           labStatus: created.labStatus,
+        },
+        reason: "pricing_configuration",
+      },
+    });
+
+    return created;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Cost components
+// ---------------------------------------------------------------------------
+
+export class InertComponentTypeError extends Error {
+  constructor(componentType: string) {
+    super(
+      `"${componentType}" is declared inert in INERT_COMPONENT_TYPES — nothing reads it, so a value entered ` +
+        `against it would silently have no effect on any price. Refusing rather than accepting a change that does nothing.`
+    );
+    this.name = "InertComponentTypeError";
+  }
+}
+
+export class InvalidCostComponentError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidCostComponentError";
+  }
+}
+
+/**
+ * Creates a new effective-dated cost component.
+ *
+ * ONE WRITE PATH FOR ALL ELEVEN OPERATING COMPONENTS, because the model
+ * already generalises them: the natural key is `(componentType, valueKind)`
+ * and the only shape difference is which value column is populated —
+ * `fixed`/`per_stone` carry an amount and a currency, `percentage` carries a
+ * rate. That is not an abstraction imposed here; it is the existing
+ * `cost_component_value_kind_matches_value` CHECK, restated so the operator
+ * gets a sentence instead of a constraint violation.
+ *
+ * INERT TYPES ARE REFUSED. `payment_adjustment` exists in the enum but
+ * `resolveInputs.server.ts` declares it inert and nothing reads it. Offering
+ * it would let an operator carefully enter a cost that changes no price —
+ * worse than not offering it, because it looks like it worked. The refusal
+ * reads the existing `INERT_COMPONENT_TYPES` export rather than hard-coding a
+ * second opinion about which types are live.
+ */
+export async function createCostComponent(input: {
+  componentType: CostComponentType;
+  basis: CostComponentBasis;
+  valueKind: CostComponentValueKind;
+  /** Required for `fixed` and `per_stone`. */
+  amountMinorUnits?: bigint | null;
+  /** Required for `fixed` and `per_stone`; must be absent for `percentage`. */
+  currency?: string | null;
+  /** Required for `percentage`, as a decimal fraction ("0.029"). */
+  rate?: string | null;
+  effectiveFrom: Date;
+  actorRef: string;
+  note?: string | null;
+}) {
+  if (INERT_COMPONENT_TYPES.includes(input.componentType)) {
+    throw new InertComponentTypeError(input.componentType);
+  }
+
+  const isAmountKind = input.valueKind === "fixed" || input.valueKind === "per_stone";
+  if (isAmountKind) {
+    if (input.amountMinorUnits === null || input.amountMinorUnits === undefined) {
+      throw new InvalidCostComponentError(`A ${input.valueKind} component requires an amount.`);
+    }
+    if (!input.currency) {
+      throw new InvalidCostComponentError(`A ${input.valueKind} component requires a currency.`);
+    }
+  } else if (input.rate === null || input.rate === undefined) {
+    throw new InvalidCostComponentError("A percentage component requires a rate.");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const created = await tx.costComponent.create({
+      data: {
+        componentType: input.componentType,
+        basis: input.basis,
+        valueKind: input.valueKind,
+        // The CHECK requires exactly one shape; populate accordingly rather
+        // than passing both and letting the database decide.
+        amountMinorUnits: isAmountKind ? input.amountMinorUnits! : null,
+        currency: isAmountKind ? input.currency! : null,
+        rate: isAmountKind ? null : input.rate!,
+        effectiveFrom: input.effectiveFrom,
+        enteredBy: input.actorRef,
+        note: input.note ?? null,
+      },
+    });
+
+    await tx.auditEvent.create({
+      data: {
+        actorType: "staff",
+        actorRef: input.actorRef,
+        action: "cost_component.created",
+        entityType: "cost_component",
+        entityId: created.id,
+        after: {
+          componentType: created.componentType,
+          basis: created.basis,
+          valueKind: created.valueKind,
+          amountMinorUnits: input.amountMinorUnits?.toString() ?? null,
+          currency: created.currency,
+          rate: input.rate ?? null,
+          effectiveFrom: created.effectiveFrom.toISOString(),
         },
         reason: "pricing_configuration",
       },

@@ -1,11 +1,16 @@
+import { LaborSource, Metal, StoneCostKind, StoneType } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 
 import { prisma } from "~/db/client.server";
+import { resolveCostComponent } from "~/db/repositories/costComponentRepository.server";
 import {
+  createCostComponent,
   createLaborRate,
   createMetalReferencePrice,
   createStoneCost,
+  InertComponentTypeError,
   InvalidCaratBandError,
+  InvalidCostComponentError,
   OverlappingCaratBandError,
 } from "~/db/repositories/pricingConfigurationWrites.server";
 import {
@@ -14,6 +19,15 @@ import {
   resolveActivePricingProfile,
 } from "~/db/repositories/pricingProfileRepository.server";
 import { resolveStoneCost } from "~/db/repositories/stoneCostRepository.server";
+import {
+  parseCaratBand,
+  parseCurrency,
+  parseEnumValue,
+  parseMoneyMinorUnits,
+  parseNonNegativeDecimal,
+  parsePositiveDecimal,
+  PricingConfigurationInputError,
+} from "~/domain/pricing/configurationInput";
 import { validatePricingProfileSettings } from "~/domain/pricing/profileSettings";
 
 /**
@@ -503,5 +517,186 @@ describe("configuration never publishes to Shopify", () => {
     // configuration save is the FIRST step only; it must not skip to the end.
     expect(await prisma.priceSyncIntent.count()).toBe(intentsBefore);
     expect(await prisma.priceCalculation.count()).toBe(calculationsBefore);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Input boundary — added after a pre-deployment security review found every
+// enum crossing the boundary through `as never`, and `currency` crossing it
+// with no check at all against a `char(3)` column that PADS rather than
+// rejects. These are the behavioural proofs; the route fence proves wiring.
+// ---------------------------------------------------------------------------
+
+describe("the input boundary refuses crafted values", () => {
+  it("rejects an unknown enum value rather than casting it through", () => {
+    // `as never` is erased at build time and validated nothing. These are the
+    // same Prisma runtime enums the schema and database share, so the
+    // accepted set cannot drift from them.
+    expect(() => parseEnumValue(Metal, "unobtanium", "Metal")).toThrow(PricingConfigurationInputError);
+    expect(() => parseEnumValue(LaborSource, "mars", "Labor source")).toThrow(PricingConfigurationInputError);
+    expect(() => parseEnumValue(StoneType, "glass", "Stone type")).toThrow(PricingConfigurationInputError);
+    expect(() => parseEnumValue(StoneCostKind, "per_gram", "Cost kind")).toThrow(PricingConfigurationInputError);
+    expect(parseEnumValue(Metal, "gold", "Metal")).toBe("gold");
+  });
+
+  it("rejects a short currency instead of letting Postgres pad it", async () => {
+    // THE FINDING THAT MOTIVATED THIS BLOCK. `char(3)` blank-pads, so "US"
+    // would have been stored as "US " silently and then never matched "USD"
+    // in any comparison. Proven against the real column type.
+    expect(() => parseCurrency("US")).toThrow(PricingConfigurationInputError);
+    expect(() => parseCurrency("USDX")).toThrow(PricingConfigurationInputError);
+    expect(parseCurrency("usd")).toBe("USD");
+
+    // And the padding behaviour itself is real, which is why the guard is
+    // not merely tidiness: a 2-char value survives the write and comes back
+    // widened.
+    const created = await createMetalReferencePrice({
+      metal: "gold",
+      pricePerGram: "80.00",
+      currency: "EUR",
+      effectiveFrom: new Date(),
+      source: "manual",
+      actorRef: ACTOR,
+    });
+    expect(created.currency).toBe("EUR");
+  });
+
+  it("rejects a non-positive metal price, matching the database CHECK", () => {
+    expect(() => parsePositiveDecimal("0", "Price per gram")).toThrow(PricingConfigurationInputError);
+    expect(() => parsePositiveDecimal("-5", "Price per gram")).toThrow(PricingConfigurationInputError);
+  });
+
+  it("allows a zero labor rate, because the database does", () => {
+    // `labor_rate_non_negative` is `>= 0`, unlike metal's `> 0`. Domain
+    // semantics, not a blanket rule.
+    expect(parseNonNegativeDecimal("0", "Rate per gram")).toBe("0");
+    expect(() => parseNonNegativeDecimal("-1", "Rate per gram")).toThrow(PricingConfigurationInputError);
+  });
+
+  it("rejects a zero stone cost, which has no database CHECK to catch it", () => {
+    expect(() => parseMoneyMinorUnits("0", "Stone cost", { allowZero: false })).toThrow(
+      PricingConfigurationInputError
+    );
+    expect(parseMoneyMinorUnits("420.00", "Stone cost", { allowZero: false })).toBe(42000n);
+  });
+
+  it("rejects an inverted or empty carat band", () => {
+    expect(() => parseCaratBand("1.0", "1.0")).toThrow(PricingConfigurationInputError);
+    expect(() => parseCaratBand("1.5", "1.0")).toThrow(PricingConfigurationInputError);
+    expect(parseCaratBand("0", "0.1")).toEqual({ caratMin: "0", caratMax: "0.1" });
+  });
+
+  it("rejects exponent, hex and infinity forms decimal.js would otherwise take", () => {
+    for (const bad of ["1e5", "Infinity", "NaN", "0x10"]) {
+      expect(() => parsePositiveDecimal(bad, "value")).toThrow(PricingConfigurationInputError);
+    }
+  });
+});
+
+describe("cost components", () => {
+  it("creates a fixed component with an amount and currency", async () => {
+    const created = await createCostComponent({
+      componentType: "packaging",
+      basis: "cost_side",
+      valueKind: "fixed",
+      amountMinorUnits: 750n,
+      currency: "USD",
+      effectiveFrom: new Date(),
+      actorRef: ACTOR,
+    });
+    expect(created.amountMinorUnits).toBe(750n);
+    expect(created.currency).toBe("USD");
+    expect(created.rate).toBeNull();
+    expect(created.enteredBy).toBe(ACTOR);
+  });
+
+  it("creates a percentage component with a rate and no currency", async () => {
+    const created = await createCostComponent({
+      componentType: "warranty_reserve",
+      basis: "cost_side",
+      valueKind: "percentage",
+      rate: "0.025",
+      effectiveFrom: new Date(),
+      actorRef: ACTOR,
+    });
+    expect(created.rate?.toString()).toBe("0.025");
+    expect(created.amountMinorUnits).toBeNull();
+    expect(created.currency).toBeNull();
+  });
+
+  it("refuses an inert component type rather than accepting a no-op", async () => {
+    // `payment_adjustment` is declared inert in INERT_COMPONENT_TYPES and
+    // nothing reads it. Accepting a value there would look like it worked
+    // and change no price.
+    await expect(
+      createCostComponent({
+        componentType: "payment_adjustment",
+        basis: "revenue_side",
+        valueKind: "percentage",
+        rate: "0.01",
+        effectiveFrom: new Date(),
+        actorRef: ACTOR,
+      })
+    ).rejects.toThrow(InertComponentTypeError);
+  });
+
+  it("refuses a fixed component with no amount or no currency", async () => {
+    await expect(
+      createCostComponent({
+        componentType: "casting", basis: "cost_side", valueKind: "fixed",
+        amountMinorUnits: null, currency: "USD", effectiveFrom: new Date(), actorRef: ACTOR,
+      })
+    ).rejects.toThrow(InvalidCostComponentError);
+    await expect(
+      createCostComponent({
+        componentType: "casting", basis: "cost_side", valueKind: "fixed",
+        amountMinorUnits: 100n, currency: null, effectiveFrom: new Date(), actorRef: ACTOR,
+      })
+    ).rejects.toThrow(InvalidCostComponentError);
+  });
+
+  it("refuses a percentage component with no rate", async () => {
+    await expect(
+      createCostComponent({
+        componentType: "metal_loss", basis: "cost_side", valueKind: "percentage",
+        rate: null, effectiveFrom: new Date(), actorRef: ACTOR,
+      })
+    ).rejects.toThrow(InvalidCostComponentError);
+  });
+
+  it("is append-only and audited", async () => {
+    const created = await createCostComponent({
+      componentType: "metal_loss",
+      basis: "cost_side",
+      valueKind: "percentage",
+      rate: "0.03",
+      effectiveFrom: new Date(),
+      actorRef: ACTOR,
+    });
+
+    await expect(
+      prisma.costComponent.update({ where: { id: created.id }, data: { rate: "0.99" } })
+    ).rejects.toThrow();
+
+    const events = await prisma.auditEvent.findMany({
+      where: { entityType: "cost_component", entityId: created.id },
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]!.actorRef).toBe(ACTOR);
+  });
+
+  it("the resolver then returns the newest value for that (type, kind)", async () => {
+    const asOf = new Date();
+    await createCostComponent({
+      componentType: "qc",
+      basis: "cost_side",
+      valueKind: "fixed",
+      amountMinorUnits: 999n,
+      currency: "USD",
+      effectiveFrom: new Date(asOf.getTime() + 1000),
+      actorRef: ACTOR,
+    });
+    const resolved = await resolveCostComponent("qc", "fixed", new Date(asOf.getTime() + 5000));
+    expect(resolved.amount?.amountMinorUnits).toBe(999n);
   });
 });

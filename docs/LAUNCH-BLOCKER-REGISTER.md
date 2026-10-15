@@ -164,8 +164,25 @@ not an unresolved decision.
 |---|---|---|---|
 | P1 | **Pricing engine and schema** | 🟢 WORKING | Profile, metal, labor, stone and component models all populated in production; 94 calculations already recorded |
 | P2 | **Pricing-profile operating defaults — 40% target markup, 20% minimum gross margin, $100 minimum profit** | 🟢 **VALUES SETTLED — not an owner decision** | Owner-locked 2026-10-14 as *configurable operating inputs*. Active profile `buy_now` v5, `is_placeholder: false`. **Do not ask the owner to reconfirm these.** Note: *settled* is about the values, not the tooling — see P6 |
-| P6 | **Operator tooling — pricing profile, metal, labor, stone** | 🟢 **GREEN — operationally configurable** | `app/routes/app.pricing-settings.tsx`. An authenticated operator can change target markup, minimum gross margin, minimum profit, metal reference prices, labor rates and stone costs with no code change, no seed, no SQL and no SSH. Each save inserts a new effective-dated row, attributed to the signed-in Shopify staff user. Proven by 75 tests — see below |
-| P7 | **Operator tooling — lower-frequency cost components** | 🟡 YELLOW — **still engineering-only** | Metal loss, casting, setting, polishing, assembly, QC, packaging, shipping, insurance, warranty reserve and supplier fee remain versioned and effective-dated but are **not** managed from the admin surface. Changing one still requires an engineer. Deliberately out of scope for the first implementation; the screen says so to the operator rather than leaving them to discover it |
+| P6 | **Operator tooling — pricing profile, metal, labor, stone** | 🟡 **YELLOW overall** — see lifecycle below | Implementation complete and tested; **not yet deployed or smoke-tested in production** |
+| P7 | **Operator tooling — cost components** | 🟡 **YELLOW overall** — see lifecycle below | Implementation complete and tested; same lifecycle gate as P6 |
+
+### P6 / P7 lifecycle — "GREEN" means deployed and usable, not merged
+
+Compressing these three states into one colour is how a register starts
+lying. They are tracked separately.
+
+| Stage | P6 (profile, metal, labor, stone) | P7 (cost components) |
+|---|---|---|
+| **IMPLEMENTED / TESTED** | 🟢 GREEN | 🟢 GREEN |
+| **DEPLOYED to production** | 🔴 not yet | 🔴 not yet |
+| **LIVE OPERATOR SMOKE TEST** | 🔴 not yet | 🔴 not yet |
+| **Overall** | 🟡 YELLOW | 🟡 YELLOW |
+
+Production is running a bundle that predates all of this. Until a deploy
+lands and the embedded page has been opened from Shopify Admin and shown to
+display the real current values, no operator can actually change a price —
+which is the only thing P6 and P7 were ever about.
 | P3 | **Production cost inputs** — gold, stone, labor, metal loss, casting/setting/polishing/assembly/QC, packaging, shipping, insurance, warranty reserve, supplier fee | 🟡 YELLOW | Every row exists and resolves; all are seed fixtures dated `2026-01-01` and self-labelled "not a real market quote / supplier quote / cost assumption". **Validate for Product #1 before publishing it.** Not a blocker on the engine — only on publishing a real SKU |
 | P4 | **Card-price derivation** | 🟢 WORKING | Active profile carries `BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1` — the approved tiered uplift with upward-to-$5 rounding on the Regular/Card Price only |
 | P5 | **Fixture catalogue cleanup** | 🟡 YELLOW | Required before public operation; **not a reason to resume feature development.** Proposal prepared, not executed — see section 8 |
@@ -224,6 +241,61 @@ What makes it safe rather than merely present:
 - **Nothing publishes.** The route reaches no Shopify API. Configuration →
   recalculation → calculation → approval/sync intent → Shopify is unchanged,
   and production keeps `PRICE_AUTO_PUBLISH_ENABLED=false`.
+
+**Cost components are covered too (P7).** One generic editor rather than
+eleven forms, because the model already generalises them: the natural key is
+`(componentType, valueKind)` — which is why `payment_processing` legitimately
+appears twice, as a fixed fee and a percentage — and the only shape
+difference is which value column is populated. That is not an abstraction
+imposed on the schema; it is the existing
+`cost_component_value_kind_matches_value` CHECK. **`payment_adjustment` is
+excluded**, reading the existing `INERT_COMPONENT_TYPES` export rather than a
+second hand-written opinion: nothing resolves it, so a value entered there
+would look like it worked and change no price.
+
+**Input boundary, hardened after a pre-deployment review.** The first
+revision passed form values into Prisma through `as never`, which is erased
+at build time and validates nothing. Two real findings came out of it:
+
+- **`currency` was unvalidated against a `char(3)` column, and Postgres
+  BLANK-PADS a short value.** `currency=US` would have been stored as `"US "`
+  with no error at any layer, then never matched `"USD"` again. That is
+  silent corruption rather than a rejected request, and it is the finding
+  that justified the review.
+- Unknown enum values reached the database layer unexamined. Prisma did
+  reject them, so nothing bad could be stored — but the operator got an
+  opaque 500, and relying on a downstream library to be the input boundary
+  fails the moment a column is more forgiving than expected, which `currency`
+  was.
+
+Both are closed in `domain/pricing/configurationInput.ts`, which validates
+every enum against **Prisma's generated runtime objects** — the same
+definition the schema and database share, never a retyped list — and applies
+numeric rules that follow the database's own stance rather than inventing
+limits: metal price `> 0` (matching `metal_reference_price_positive`), labor
+rate `>= 0` (matching `labor_rate_non_negative`), stone cost `> 0` (no CHECK
+exists, so the boundary is the only guard), component amounts `>= 0`, carat
+band half-open with `max > min`.
+
+**Stone-cost display, corrected.** The first revision listed every row with
+`effectiveFrom <= now`, showing superseded costs beside live ones and
+implying several prices for one stone were simultaneously in force. It now
+collapses to the currently effective row per logical key — type, shape, band
+and every qualifier — which is exactly what `selectMostSpecific` does
+(filter applicable, highest specificity, then latest `effectiveFrom`). Rows
+differing in any qualifier are genuinely co-applicable at different
+specificities and all remain visible; collapsing harder would hide real
+configuration.
+
+**One production cost this feature would have introduced, fixed.**
+`resolveActivePricingProfile` loaded the entire version history for a code on
+every price calculation and used its first row. Invisible while versions
+only appeared when an engineer edited the seed; with operator-created
+versions becoming routine, the cost would grow with how often the business
+changes its mind. `findFirst` with identical `where` and ordering returns
+the same row in constant time. It surfaced in the shared integration
+database, where the extra rows pushed two already-slow pricing tests past
+their timeout and the full suite from 1143s to 651s.
 
 **Known limitation, reported rather than worked around:** there is no
 "recalculate now" button. `runPriceRecalculation` with no `variantIds` sweeps

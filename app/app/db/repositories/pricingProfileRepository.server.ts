@@ -52,15 +52,6 @@ export async function resolveActivePricingProfile(
   code: PricingProfileCode,
   asOf: Date
 ): Promise<ResolvedPricingProfile> {
-  const rows = await prisma.pricingProfile.findMany({
-    where: { code, effectiveFrom: { lte: asOf } },
-    orderBy: [{ effectiveFrom: "desc" }, { version: "desc" }],
-  });
-
-  if (rows.length === 0) {
-    throw new MissingCostInputError("pricing_profile", asOf, `code=${code}`);
-  }
-
   // Resolution is by effective date, with VERSION as the tie-break.
   //
   // pricing_profile is unique on (code, version), NOT on (code, effectiveFrom),
@@ -71,10 +62,23 @@ export async function resolveActivePricingProfile(
   // profile version is a deliberate monotonic sequence, so at the same
   // effective date the higher version is unambiguously the later intent.
   //
-  // Rows arrive ordered (effectiveFrom desc, version desc), so the first
-  // eligible row is already the winner.
-  const eligible = rows.filter((row) => row.effectiveFrom.getTime() <= asOf.getTime());
-  const row = eligible[0];
+  // ONE ROW, NOT ALL OF THEM. This was `findMany` followed by a redundant
+  // in-JS re-filter of the same `effectiveFrom <= asOf` the WHERE already
+  // applied, then `[0]` — so every price calculation loaded the ENTIRE
+  // version history for the code to use its first row.
+  //
+  // That was invisible while versions only appeared when an engineer edited
+  // the seed. The pricing-settings surface makes an operator-created version
+  // a routine weekly event, so the cost now grows with how often the business
+  // changes its mind — in production, and in the shared integration database
+  // where it pushed two already-slow pricing tests past their timeout.
+  // `findFirst` with the identical where and ordering returns exactly the
+  // same row in constant time.
+  const row = await prisma.pricingProfile.findFirst({
+    where: { code, effectiveFrom: { lte: asOf } },
+    orderBy: [{ effectiveFrom: "desc" }, { version: "desc" }],
+  });
+
   if (!row) {
     throw new MissingCostInputError("pricing_profile", asOf, `code=${code}`);
   }

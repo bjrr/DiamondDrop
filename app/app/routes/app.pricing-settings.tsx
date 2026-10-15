@@ -3,12 +3,25 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { Form, useActionData, useLoaderData, useNavigation, useRouteError } from "react-router";
 
+import {
+  CostComponentBasis,
+  CostComponentType,
+  CostComponentValueKind,
+  LaborSource,
+  Metal,
+  StoneCostKind,
+  StoneType,
+} from "@prisma/client";
+
 import { prisma } from "~/db/client.server";
 import {
+  createCostComponent,
   createLaborRate,
   createMetalReferencePrice,
   createStoneCost,
+  InertComponentTypeError,
   InvalidCaratBandError,
+  InvalidCostComponentError,
   OverlappingCaratBandError,
 } from "~/db/repositories/pricingConfigurationWrites.server";
 import {
@@ -17,12 +30,22 @@ import {
   PricingProfileVersionRaceError,
   resolveActivePricingProfile,
 } from "~/db/repositories/pricingProfileRepository.server";
-import { MoneyDecimal } from "~/domain/money/decimal";
+import {
+  parseCaratBand,
+  parseCurrency,
+  parseEnumValue,
+  parseMoneyMinorUnits,
+  parseNonNegativeDecimal,
+  parsePositiveDecimal,
+  parseRate,
+  PricingConfigurationInputError,
+} from "~/domain/pricing/configurationInput";
 import {
   minorUnitsToDisplayAmount,
   rateToPercentDisplay,
   validatePricingProfileSettings,
 } from "~/domain/pricing/profileSettings";
+import { ALL_COMPONENT_TYPES, INERT_COMPONENT_TYPES } from "~/jobs/pricing/resolveInputs.server";
 import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
 import { authenticate } from "~/shopify.server";
@@ -108,6 +131,14 @@ interface StoneRow {
   readonly effectiveFrom: string;
 }
 
+interface ComponentRow {
+  readonly componentType: string;
+  readonly basis: string;
+  readonly valueKind: string;
+  readonly value: string;
+  readonly effectiveFrom: string;
+}
+
 interface LoaderData {
   readonly apiKey: string;
   readonly profile: {
@@ -123,6 +154,8 @@ interface LoaderData {
   readonly metals: readonly MetalRow[];
   readonly labor: readonly LaborRow[];
   readonly stones: readonly StoneRow[];
+  readonly components: readonly ComponentRow[];
+  readonly componentTypes: readonly string[];
   readonly autoPublishEnabled: boolean;
 }
 
@@ -146,6 +179,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const stoneRows = await prisma.stoneCost.findMany({
     where: { effectiveFrom: { lte: now } },
     orderBy: [{ stoneType: "asc" }, { caratMin: "asc" }],
+  });
+  const componentRows = await prisma.costComponent.findMany({
+    where: { effectiveFrom: { lte: now } },
+    orderBy: [{ componentType: "asc" }, { effectiveFrom: "desc" }],
   });
 
   const firstPerKey = <T, K>(rows: readonly T[], key: (row: T) => K): T[] => {
@@ -187,7 +224,43 @@ export async function loader({ request }: LoaderFunctionArgs) {
       currency: r.currency,
       effectiveFrom: r.effectiveFrom.toISOString(),
     })),
-    stones: stoneRows.map((r) => ({
+    /**
+     * COLLAPSED TO THE CURRENTLY EFFECTIVE ROW PER LOGICAL KEY, exactly as
+     * metal and labor are.
+     *
+     * The first version listed every row with `effectiveFrom <= now`, which
+     * showed superseded costs beside live ones and implied that several
+     * prices for the same stone were simultaneously in force. They are not:
+     * `selectMostSpecific` filters to applicable rows, keeps the highest
+     * specificity, and among those takes the LATEST `effectiveFrom`.
+     *
+     * The key is therefore the full identity the resolver discriminates on —
+     * type, shape, band, and every qualifier. Rows differing in any of those
+     * are genuinely co-applicable at different specificities and must all
+     * remain visible; only an identical key superseded by a later date is
+     * hidden. Collapsing more aggressively would hide real configuration.
+     */
+    stones: firstPerKey(
+      [...stoneRows].sort((a, b) => b.effectiveFrom.getTime() - a.effectiveFrom.getTime()),
+      (r) =>
+        [
+          r.stoneType,
+          r.shape,
+          r.caratMin.toString(),
+          r.caratMax.toString(),
+          r.color ?? "",
+          r.clarity ?? "",
+          r.cutGrade ?? "",
+          r.labStatus ?? "",
+          r.supplierRef ?? "",
+        ].join(" ")
+    )
+      .sort((a, b) =>
+        a.stoneType === b.stoneType
+          ? a.caratMin.comparedTo(b.caratMin)
+          : a.stoneType.localeCompare(b.stoneType)
+      )
+      .map((r) => ({
       stoneType: r.stoneType,
       shape: r.shape,
       band: `${r.caratMin.toString()}–${r.caratMax.toString()}`,
@@ -200,6 +273,29 @@ export async function loader({ request }: LoaderFunctionArgs) {
         "any (wildcard)",
       effectiveFrom: r.effectiveFrom.toISOString(),
     })),
+    /**
+     * Keyed on `(componentType, valueKind)` — the natural key
+     * `resolveCostComponent` itself resolves on, which is why one component
+     * type can legitimately appear twice (payment_processing carries both a
+     * fixed fee and a percentage).
+     */
+    components: firstPerKey(
+      [...componentRows].sort((a, b) => b.effectiveFrom.getTime() - a.effectiveFrom.getTime()),
+      (r) => `${r.componentType}:${r.valueKind}`
+    )
+      .filter((r) => !INERT_COMPONENT_TYPES.includes(r.componentType))
+      .sort((a, b) => a.componentType.localeCompare(b.componentType))
+      .map((r) => ({
+        componentType: r.componentType,
+        basis: r.basis,
+        valueKind: r.valueKind,
+        value:
+          r.valueKind === "percentage"
+            ? `${r.rate?.toString() ?? "-"}`
+            : `${minorUnitsToDisplayAmount(r.amountMinorUnits ?? 0n)} ${r.currency ?? ""}`.trim(),
+        effectiveFrom: r.effectiveFrom.toISOString(),
+      })),
+    componentTypes: ALL_COMPONENT_TYPES.filter((t) => !INERT_COMPONENT_TYPES.includes(t)),
     autoPublishEnabled: getEnv().PRICE_AUTO_PUBLISH_ENABLED === "true",
   } satisfies LoaderData;
 }
@@ -229,14 +325,13 @@ function optionalText(form: FormData, name: string): string | null {
   return value === "" ? null : value;
 }
 
-/** Decimal string, no float. Mirrors the discipline in `profileSettings.ts`. */
-const DECIMAL_PATTERN = /^\d+(\.\d+)?$/;
-const MONEY_PATTERN = /^\d+(\.\d{1,2})?$/;
-
-function moneyToMinorUnits(raw: string): bigint {
-  const [whole, fraction = ""] = raw.split(".");
-  return BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, "0"));
-}
+/**
+ * Numeric and enum parsing lives in `~/domain/pricing/configurationInput`,
+ * not here. This route previously carried its own patterns and an inline
+ * minor-units converter alongside `as never` casts on every enum — which is
+ * how `currency` ended up unvalidated against a `char(3)` column that pads
+ * rather than rejects.
+ */
 
 export async function action({ request }: ActionFunctionArgs) {
   const { session } = await authenticate.admin(request);
@@ -291,15 +386,16 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (intent === "save-metal") {
-      const metal = text(form, "metal");
+      // RUNTIME-VALIDATED, not cast. `Metal` is Prisma's generated enum, so
+      // the accepted set is exactly the schema's.
       const price = text(form, "pricePerGram");
-      if (!DECIMAL_PATTERN.test(price)) {
-        return Response.json(fail("Price per gram must be a plain decimal such as 82.70."), { status: 400 });
-      }
       const created = await createMetalReferencePrice({
-        metal: metal as never,
-        pricePerGram: price,
-        currency: text(form, "currency") || "USD",
+        metal: parseEnumValue(Metal, text(form, "metal"), "Metal"),
+        // Strictly positive: the database agrees
+        // (`metal_reference_price_positive`), and a zero metal price makes
+        // gold free without erroring anywhere visible.
+        pricePerGram: parsePositiveDecimal(text(form, "pricePerGram"), "Price per gram"),
+        currency: parseCurrency(text(form, "currency") || "USD"),
         effectiveFrom: now,
         source: "manual",
         actorRef,
@@ -314,14 +410,14 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (intent === "save-labor") {
-      const rate = text(form, "ratePerGram");
-      if (!DECIMAL_PATTERN.test(rate)) {
-        return Response.json(fail("Rate per gram must be a plain decimal such as 5.25."), { status: 400 });
-      }
+      // Zero IS allowed here, matching the database's own stance
+      // (`labor_rate_non_negative` is `>= 0`, unlike metal's `> 0`): a
+      // supplier quoting labour inside another line is representable.
+      const rate = parseNonNegativeDecimal(text(form, "ratePerGram"), "Rate per gram");
       const created = await createLaborRate({
-        source: text(form, "source") as never,
+        source: parseEnumValue(LaborSource, text(form, "source"), "Labor source"),
         ratePerGram: rate,
-        currency: text(form, "currency") || "USD",
+        currency: parseCurrency(text(form, "currency") || "USD"),
         effectiveFrom: now,
         actorRef,
         note: optionalText(form, "note"),
@@ -335,39 +431,29 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (intent === "save-stone") {
-      const caratMin = text(form, "caratMin");
-      const caratMax = text(form, "caratMax");
-      if (!DECIMAL_PATTERN.test(caratMin) || !DECIMAL_PATTERN.test(caratMax)) {
-        return Response.json(fail("Carat minimum and maximum must be plain decimals such as 0.9."), { status: 400 });
-      }
-      // Half-open [min, max): an empty or inverted band can never match.
-      // Compared as exact decimals — `parseFloat` is banned repo-wide by the
-      // money-safety scan, and carats deserve the same discipline as money.
-      if (!new MoneyDecimal(caratMin).lessThan(new MoneyDecimal(caratMax))) {
-        return Response.json(
-          fail("Carat minimum must be strictly less than carat maximum — the band is [min, max)."),
-          { status: 400 }
-        );
-      }
-
-      const costKind = text(form, "costKind");
+      const { caratMin, caratMax } = parseCaratBand(text(form, "caratMin"), text(form, "caratMax"));
+      const costKind = parseEnumValue(StoneCostKind, text(form, "costKind"), "Cost kind");
       const amount = text(form, "costAmount");
-      if (costKind === "per_stone" && !MONEY_PATTERN.test(amount)) {
-        return Response.json(fail("A per-stone cost must be a plain amount such as 420 or 420.00."), { status: 400 });
-      }
-      if (costKind === "per_carat" && !DECIMAL_PATTERN.test(amount)) {
-        return Response.json(fail("A per-carat rate must be a plain decimal such as 150."), { status: 400 });
+      const shape = text(form, "shape");
+      if (shape === "") {
+        return Response.json(fail("Shape is required."), { status: 400 });
       }
 
       const created = await createStoneCost({
-        stoneType: text(form, "stoneType") as never,
-        shape: text(form, "shape"),
+        stoneType: parseEnumValue(StoneType, text(form, "stoneType"), "Stone type"),
+        shape,
         caratMin,
         caratMax,
-        costKind: costKind as never,
-        costMinorUnits: costKind === "per_stone" ? moneyToMinorUnits(amount) : null,
-        costPerCarat: costKind === "per_carat" ? amount : null,
-        currency: text(form, "currency") || "USD",
+        costKind,
+        // A free stone is not a thing. There is no database CHECK here —
+        // unlike metal price — so this boundary is the only guard, which is
+        // precisely why it is strict rather than permissive.
+        costMinorUnits:
+          costKind === "per_stone"
+            ? parseMoneyMinorUnits(amount, "Stone cost", { allowZero: false })
+            : null,
+        costPerCarat: costKind === "per_carat" ? parsePositiveDecimal(amount, "Cost per carat") : null,
+        currency: parseCurrency(text(form, "currency") || "USD"),
         effectiveFrom: now,
         actorRef,
         color: optionalText(form, "color"),
@@ -384,9 +470,47 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
+    if (intent === "save-component") {
+      const valueKind = parseEnumValue(CostComponentValueKind, text(form, "valueKind"), "Value kind");
+      const isAmountKind = valueKind === "fixed" || valueKind === "per_stone";
+      const value = text(form, "value");
+
+      const created = await createCostComponent({
+        componentType: parseEnumValue(CostComponentType, text(form, "componentType"), "Component type"),
+        basis: parseEnumValue(CostComponentBasis, text(form, "basis"), "Basis"),
+        valueKind,
+        // Zero is legitimate for a component — "we do not incur packaging"
+        // is a real configuration, unlike a free gram of gold.
+        amountMinorUnits: isAmountKind
+          ? parseMoneyMinorUnits(value, "Amount", { allowZero: true })
+          : null,
+        currency: isAmountKind ? parseCurrency(text(form, "currency") || "USD") : null,
+        rate: isAmountKind ? null : parseRate(value, "Rate"),
+        effectiveFrom: now,
+        actorRef,
+        note: optionalText(form, "note"),
+      });
+
+      return Response.json(
+        succeed(
+          `Saved ${created.componentType} (${created.valueKind}), effective ${created.effectiveFrom.toISOString()}. ` +
+            `Earlier values are unchanged. Prices update at the next recalculation.`
+        )
+      );
+    }
+
     return Response.json(fail("Unknown action."), { status: 400 });
   } catch (error) {
-    if (error instanceof OverlappingCaratBandError || error instanceof InvalidCaratBandError) {
+    if (error instanceof PricingConfigurationInputError) {
+      // A rejected input is the operator's to fix, not a server fault.
+      return Response.json(fail(error.message), { status: 400 });
+    }
+    if (
+      error instanceof OverlappingCaratBandError ||
+      error instanceof InvalidCaratBandError ||
+      error instanceof InvalidCostComponentError ||
+      error instanceof InertComponentTypeError
+    ) {
       return Response.json(fail(error.message), { status: 400 });
     }
     if (error instanceof NoActivePricingProfileError || error instanceof PricingProfileVersionRaceError) {
@@ -729,11 +853,87 @@ export default function PricingSettingsPage() {
           </Form>
         </section>
 
-        <p style={{ fontSize: "0.8rem", color: "#777" }}>
-          Lower-frequency cost components — metal loss, casting, setting, polishing, assembly, QC, packaging, shipping,
-          insurance, warranty reserve and supplier fee — are versioned and effective-dated but are not yet managed from
-          this screen. Changing one still requires engineering.
-        </p>
+        {/* ---- cost components ---- */}
+        <section style={sectionStyle}>
+          <h2 style={{ fontSize: "1rem", margin: "0 0 0.5rem" }}>Cost components</h2>
+          <p style={{ margin: "0 0 0.5rem", fontSize: "0.85rem", color: "#555" }}>
+            Metal loss, casting, setting, polishing, assembly, QC, packaging, shipping, insurance, warranty reserve and
+            supplier fee. A component is identified by its <strong>type and value kind</strong>, so one type can carry
+            both a fixed fee and a percentage. <strong>Fixed</strong> and <strong>per stone</strong> take an amount and
+            a currency; <strong>percentage</strong> takes a decimal fraction (0.029 means 2.9%).
+          </p>
+          <table style={tableStyle}>
+            <thead>
+              <tr>
+                <th style={cellStyle}>Component</th>
+                <th style={cellStyle}>Basis</th>
+                <th style={cellStyle}>Kind</th>
+                <th style={cellStyle}>Value</th>
+                <th style={cellStyle}>Effective</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.components.map((c) => (
+                <tr key={`${c.componentType}-${c.valueKind}`}>
+                  <td style={cellStyle}>{c.componentType}</td>
+                  <td style={cellStyle}>{c.basis}</td>
+                  <td style={cellStyle}>{c.valueKind}</td>
+                  <td style={cellStyle}>{c.value}</td>
+                  <td style={cellStyle}>{c.effectiveFrom}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <Form method="post" style={{ marginTop: "0.75rem" }}>
+            <input type="hidden" name="intent" value="save-component" />
+            <div style={fieldStyle}>
+              <label style={labelStyle} htmlFor="componentType">
+                Component type
+              </label>
+              <select style={inputStyle} id="componentType" name="componentType" required>
+                {data.componentTypes.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div style={fieldStyle}>
+              <label style={labelStyle} htmlFor="basis">
+                Basis
+              </label>
+              <select style={inputStyle} id="basis" name="basis" required>
+                <option value="cost_side">cost_side</option>
+                <option value="revenue_side">revenue_side</option>
+              </select>
+            </div>
+            <div style={fieldStyle}>
+              <label style={labelStyle} htmlFor="valueKind">
+                Value kind
+              </label>
+              <select style={inputStyle} id="valueKind" name="valueKind" required>
+                <option value="fixed">fixed</option>
+                <option value="per_stone">per_stone</option>
+                <option value="percentage">percentage</option>
+              </select>
+            </div>
+            <div style={fieldStyle}>
+              <label style={labelStyle} htmlFor="componentValue">
+                Amount (fixed / per stone) or rate (percentage)
+              </label>
+              <input style={inputStyle} id="componentValue" name="value" required />
+            </div>
+            <div style={fieldStyle}>
+              <label style={labelStyle} htmlFor="componentNote">
+                Note (optional)
+              </label>
+              <input style={inputStyle} id="componentNote" name="note" />
+            </div>
+            <button type="submit" disabled={busy}>
+              Add cost component
+            </button>
+          </Form>
+        </section>
       </main>
     </AppProvider>
   );
