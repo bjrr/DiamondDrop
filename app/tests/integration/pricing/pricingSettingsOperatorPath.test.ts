@@ -700,3 +700,65 @@ describe("cost components", () => {
     expect(resolved.amount?.amountMinorUnits).toBe(999n);
   });
 });
+
+describe("a rejected request leaves nothing behind", () => {
+  it("a rolled-back stone cost writes no row AND no audit event", async () => {
+    // The overlap guard runs INSIDE the transaction, after the insert, and
+    // throws to roll back. The audit write sits after it on purpose: a
+    // rejected change must not leave an evidence row claiming it happened.
+    const shape = `rollback-${uniq()}`;
+    const effectiveFrom = new Date();
+    const first = await createStoneCost({
+      stoneType: "lab_diamond", shape, caratMin: "0.50", caratMax: "1.00",
+      costKind: "per_stone", costMinorUnits: 30000n, currency: "USD", effectiveFrom, actorRef: ACTOR,
+    });
+
+    await expect(
+      createStoneCost({
+        stoneType: "lab_diamond", shape, caratMin: "0.75", caratMax: "1.25",
+        costKind: "per_stone", costMinorUnits: 40000n, currency: "USD", effectiveFrom, actorRef: ACTOR,
+      })
+    ).rejects.toThrow(OverlappingCaratBandError);
+
+    const rows = await prisma.stoneCost.findMany({ where: { stoneType: "lab_diamond", shape } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(first.id);
+
+    // Exactly one audit event for this shape's one surviving row — none for
+    // the rejected insert.
+    const events = await prisma.auditEvent.findMany({
+      where: { entityType: "stone_cost", entityId: { in: rows.map((r) => r.id) } },
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]!.entityId).toBe(first.id);
+  });
+
+  it("an inert component writes no row and no audit event", async () => {
+    const before = await prisma.costComponent.count({ where: { componentType: "payment_adjustment" } });
+    const eventsBefore = await prisma.auditEvent.count({ where: { entityType: "cost_component" } });
+
+    await expect(
+      createCostComponent({
+        componentType: "payment_adjustment", basis: "revenue_side", valueKind: "percentage",
+        rate: "0.01", effectiveFrom: new Date(), actorRef: ACTOR,
+      })
+    ).rejects.toThrow(InertComponentTypeError);
+
+    expect(await prisma.costComponent.count({ where: { componentType: "payment_adjustment" } })).toBe(before);
+    expect(await prisma.auditEvent.count({ where: { entityType: "cost_component" } })).toBe(eventsBefore);
+  });
+
+  it("an invalid profile value writes no version and no audit event", async () => {
+    const versionsBefore = await prisma.pricingProfile.count({ where: { code: "buy_now" } });
+    const eventsBefore = await prisma.auditEvent.count({ where: { entityType: "pricing_profile" } });
+
+    // Validation runs before the repository is called at all.
+    const result = validatePricingProfileSettings({
+      targetMarkupPercent: "-5", minGrossMarginPercent: "200", minDollarProfit: "-1", currency: "US",
+    });
+    expect(result.ok).toBe(false);
+
+    expect(await prisma.pricingProfile.count({ where: { code: "buy_now" } })).toBe(versionsBefore);
+    expect(await prisma.auditEvent.count({ where: { entityType: "pricing_profile" } })).toBe(eventsBefore);
+  });
+});

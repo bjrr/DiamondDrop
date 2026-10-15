@@ -506,3 +506,73 @@ async function clearCompletionMarkers(campaignId: string) {
     where: { key: { startsWith: `groupbuy_milestone_complete:${campaignId}:` } },
   });
 }
+
+describe("an archived campaign does not email anybody", () => {
+  /**
+   * Production found this one within minutes of the job first running: it
+   * emailed three participants of a campaign staff had archived ten days
+   * earlier. The schema says archiving "governs what staff read as live
+   * business"; a campaign removed from live business must not keep
+   * notifying its participants — and because a failed milestone
+   * deliberately retries, it would have done so indefinitely.
+   */
+  it("skips a campaign that has been archived", async () => {
+    const { campaignId, variantId } = await openCampaign();
+    const email = `archived-${uniq()}@example.com`;
+    await addBankParticipant(campaignId, variantId, email, 5);
+
+    await prisma.groupBuyCampaign.update({
+      where: { id: campaignId },
+      data: {
+        archivedAt: new Date(),
+        archivedBy: "staff:integration-test",
+        archiveReason: "fixture cleanup regression test",
+      },
+    });
+
+    const mail = new CapturingEmailPort();
+    await runGroupBuyMilestoneSweep({ resolveEmailPort: configuredPort(mail) });
+
+    expect(mail.sent.filter((s) => s.to.includes(email))).toHaveLength(0);
+    await assertNoMilestoneRowsFor(campaignId);
+  });
+
+  it("resumes notifying if the campaign is unarchived", async () => {
+    // Archiving is an annotation and is reversible, so suppression must be
+    // too — otherwise un-archiving silently leaves participants in the dark.
+    const { campaignId, variantId } = await openCampaign();
+    const email = `unarchived-${uniq()}@example.com`;
+    await addBankParticipant(campaignId, variantId, email, 5);
+
+    await prisma.groupBuyCampaign.update({
+      where: { id: campaignId },
+      data: { archivedAt: new Date(), archivedBy: "staff:t", archiveReason: "temporarily archived" },
+    });
+    const mail = new CapturingEmailPort();
+    await runGroupBuyMilestoneSweep({ resolveEmailPort: configuredPort(mail) });
+    expect(mail.sent.filter((s) => s.to.includes(email))).toHaveLength(0);
+
+    await prisma.groupBuyCampaign.update({
+      where: { id: campaignId },
+      data: { archivedAt: null, archivedBy: null, archiveReason: null },
+    });
+    await runGroupBuyMilestoneSweep({ resolveEmailPort: configuredPort(mail) });
+    expect(mail.sent.filter((s) => s.to.includes(email))).toHaveLength(1);
+  });
+
+  it("archiving a closed campaign also suppresses its close email", async () => {
+    const { campaignId, variantId } = await openCampaign();
+    const email = `closed-archived-${uniq()}@example.com`;
+    await addBankParticipant(campaignId, variantId, email, 6);
+    await closeGroupBuyCampaign({ campaignId, closedBy: "staff", closedAt: ASOF });
+    await prisma.groupBuyCampaign.update({
+      where: { id: campaignId },
+      data: { archivedAt: new Date(), archivedBy: "staff:t", archiveReason: "fixture" },
+    });
+
+    const mail = new CapturingEmailPort();
+    await runGroupBuyMilestoneSweep({ resolveEmailPort: configuredPort(mail) });
+
+    expect(mail.sent.filter((s) => s.to.includes(email))).toHaveLength(0);
+  });
+});

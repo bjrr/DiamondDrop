@@ -150,8 +150,32 @@ export async function runGroupBuyMilestoneSweep(
   const resolvePort = deps.resolveEmailPort ?? resolveRealEmailPort;
 
   const campaigns = await prisma.groupBuyCampaign.findMany({
-    // Draft campaigns have no participants to notify. Everything else does.
-    where: { status: { in: ["open", "closed"] } },
+    where: {
+      // Draft campaigns have no participants to notify. Everything else does.
+      status: { in: ["open", "closed"] },
+      /**
+       * ARCHIVED CAMPAIGNS ARE NOT LIVE BUSINESS, SO THEY DO NOT EMAIL
+       * CUSTOMERS.
+       *
+       * This filter was missing, and production found it within minutes of
+       * the job first running: it emailed three participants of a campaign
+       * staff had explicitly archived ten days earlier. The schema's own
+       * comment says archiving "governs what staff read as live business" —
+       * a campaign removed from live business must not be sending customers
+       * tier-unlock and close notices about itself.
+       *
+       * That the campaign in question was a live-gate fixture is incidental.
+       * The defect is general: any campaign an operator archives would have
+       * kept notifying its participants indefinitely, because a failed or
+       * pending milestone deliberately retries.
+       *
+       * Deliberately NOT solved by writing completion markers for the
+       * fixtures. That would record those sends as done when they never
+       * happened, which is a lie in the evidence table and leaves the real
+       * defect in place for the next archived campaign.
+       */
+      archivedAt: null,
+    },
     include: { tiers: { orderBy: { tierNumber: "asc" } } },
     orderBy: { createdAt: "asc" },
   });
