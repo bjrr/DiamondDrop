@@ -149,7 +149,7 @@ yet. Deploy first, schedule second.
 | D4 | Shopify secrets | 🔄 TRANSFER-DEPENDENT | `SHOPIFY_API_SECRET`, `SHOPIFY_API_KEY`, `SHOPIFY_SCOPES`, `SHOPIFY_APP_URL`, `SHOPIFY_APP_PROXY_SUBPATH`, `SHOPIFY_SHOP_DOMAIN`, `SHOPIFY_ADMIN_API_VERSION` — all Deployed and working. `SHOPIFY_SHOP_DOMAIN` currently points at the dev store and **must change on transfer**; the API key/secret change too if a new app is created |
 | D5 | Email provider | 🟢 WORKING (configured) | `EMAIL_API_KEY`, `EMAIL_FROM`, `STAFF_EMAIL_ALLOWLIST` all Deployed. ❓ No test send was performed — configured is proven, *delivery* is not |
 | D6 | Object storage | 🟢 WORKING (configured) | All four `STORAGE_*` Deployed. ❓ No upload was performed from here |
-| D7 | **Scheduled jobs — 2 of 4** | 🔄 PARTIAL | `cron-guarantee-sweep` (hourly) and `cron-price-recalculation` (daily) exist, target the correct endpoints with `CRON_SECRET`, and are exiting **0**. **Missing: `group-buy-bank-payment-window` and `group-buy-milestones`.** The latter cannot be scheduled until a deploy, because its route is currently 404 |
+| D7 | **Scheduled jobs — all 4** | 🟢 GREEN | `cron-guarantee-sweep` (hourly), `cron-price-recalculation` (daily), and as of 2026-10-15 `cron-group-buy-bank-payment-window` and `cron-group-buy-milestones` (both hourly). Each was invoked authenticated and verified by **its own evidence**, not by an exit code — see below |
 | D8 | Production reference data | 🟢 **RESOLVED 2026-10-14** | Answered by a read-only probe run inside the container. The seed *has* run: a pricing profile, all three labor sources, all 15 cost components, three metal references and five stone-cost rows exist. **Nothing is missing.** What remains is validating market/supplier values — tracked as P3 below, not here |
 
 ---
@@ -175,14 +175,22 @@ lying. They are tracked separately.
 | Stage | P6 (profile, metal, labor, stone) | P7 (cost components) |
 |---|---|---|
 | **IMPLEMENTED / TESTED** | 🟢 GREEN | 🟢 GREEN |
-| **DEPLOYED to production** | 🔴 not yet | 🔴 not yet |
-| **LIVE OPERATOR SMOKE TEST** | 🔴 not yet | 🔴 not yet |
+| **DEPLOYED to production** | 🟢 GREEN — `8ddc275`, 2026-10-15 | 🟢 GREEN — same deploy |
+| **LIVE OPERATOR SMOKE TEST** | 🔴 **owner action** | 🔴 **owner action** |
 | **Overall** | 🟡 YELLOW | 🟡 YELLOW |
 
-Production is running a bundle that predates all of this. Until a deploy
-lands and the embedded page has been opened from Shopify Admin and shown to
-display the real current values, no operator can actually change a price —
-which is the only thing P6 and P7 were ever about.
+Deployment verified: `/health` ok, database ok, **90 migrations applied, 0
+pending**, the offline Shopify session survived (six signed App Proxy policy
+groups still return 15 terms), and `/app/pricing-settings` returns 410 —
+identical to every other working embedded route, where a genuinely missing
+route returns 404. So the route is registered and authenticating.
+
+**The last stage needs a browser session I do not have.** Opening the page
+inside Shopify Admin and confirming it displays the real 40% / 20% / $100
+and the current metal, labor, stone and component values is the owner's
+step. No configuration write is needed to prove it — and deliberately so:
+the first real write should be an actual Product #1 cost update, not a
+throwaway version created to test a form.
 | P3 | **Production cost inputs** — gold, stone, labor, metal loss, casting/setting/polishing/assembly/QC, packaging, shipping, insurance, warranty reserve, supplier fee | 🟡 YELLOW | Every row exists and resolves; all are seed fixtures dated `2026-01-01` and self-labelled "not a real market quote / supplier quote / cost assumption". **Validate for Product #1 before publishing it.** Not a blocker on the engine — only on publishing a real SKU |
 | P4 | **Card-price derivation** | 🟢 WORKING | Active profile carries `BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1` — the approved tiered uplift with upward-to-$5 rounding on the Regular/Card Price only |
 | P5 | **Fixture catalogue cleanup** | 🟡 YELLOW | Required before public operation; **not a reason to resume feature development.** Proposal prepared, not executed — see section 8 |
@@ -485,6 +493,52 @@ later will take precedence automatically, with no code change.
 
 ---
 
+### The two new cron jobs, and what invoking them actually proved
+
+Verifying the job's own output rather than the exit code was the right
+instruction, and it immediately paid.
+
+**`group-buy-milestones` → HTTP 200**, and:
+
+```json
+{"campaignsExamined":3,"milestonesDispatched":1,"emailsSent":0,
+ "emailsAlreadySent":0,"emailsFailed":3,"recipientsUnresolved":0}
+```
+
+`curl -fsS` exited 0. **Three sends failed.** The job worked perfectly —
+it found an open campaign at `best_tier:2`, resolved three participants,
+built the emails, called the provider and recorded each failure with the
+campaign, the milestone, a recipient fingerprint and the error name, with
+no address in plaintext. What failed is the data: the campaign is
+**`ZZ LIVE GATE TEST CAMPAIGN — DO NOT PUBLISH`, still `open` in
+production, with all three participants on `@example.com`.**
+
+⚠️ **This makes the fixture cleanup time-sensitive rather than cosmetic.**
+A failed milestone deliberately leaves the milestone incomplete so it
+retries — so from now on this produces **three failed sends every hour**,
+against a real email provider, for addresses that cannot exist. Harmless
+to customers, but it burns provider reputation and is exactly the kind of
+recurring error that trains people to ignore the log where a real failure
+will later appear. Closing or archiving that campaign stops it.
+
+**`group-buy-bank-payment-window` → HTTP 200**, and:
+
+```json
+{"now":"2026-10-15T03:45:08.859Z","ordersConsidered":5,
+ "inactivated":5,"kept":0,"errored":0}
+```
+
+**This one changed production state**, and that is worth stating plainly
+rather than burying: it inactivated five Group Buy bank-payment orders.
+All five were fixture/live-gate orders long past their 96-hour window —
+they had been sitting overdue precisely because this job had never been
+scheduled — so the job did exactly what it exists to do on its first run.
+Inactivation is internal bookkeeping only (the enum's own comment: the
+Shopify order and the counted units are untouched) and is reversible by
+staff reactivation.
+
+---
+
 ## 8. Fixture catalogue cleanup — proposed, NOT executed
 
 Production carries seed and live-gate fixtures. The concrete harm today is
@@ -509,6 +563,7 @@ and sync without touching one row of evidence.
 | Its 1 active pt950 variant | `active` | **archive** | Same |
 | `ZZ livegate storefront …` (product) | `archived`, has `shopify_product_gid` | **leave as-is in Postgres** | Already archived. Its Shopify side is handled below |
 | `ZZ LIVE GATE TEST — DO NOT SELL …` (product) | `draft` | **leave as-is** | Draft never reaches recalculation |
+| **`ZZ LIVE GATE TEST CAMPAIGN — DO NOT PUBLISH`** (Group Buy campaign `dcccf42e…`) | **`open`** | **close or archive — now the most urgent item here** | Discovered 2026-10-15 when the milestone cron ran. An OPEN campaign with three `@example.com` participants, generating three failed provider sends every hour. Closing it ends the noise; archiving additionally hides it from staff views. Its three bank-payment orders were inactivated by the window job's first run |
 | Its 1 archived + 1 draft variant | archived / draft | **leave as-is** | Already excluded |
 | 94 `price_calculation`, 93 `price_sync_intent`, all snapshots | — | **UNTOUCHED** | Historical evidence. Archiving the variant does not break the foreign keys that reference it |
 | `policy_version`, acknowledgments, audit records | — | **UNTOUCHED** | Never in scope |
