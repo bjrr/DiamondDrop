@@ -1,27 +1,25 @@
 # MVP1 Launch Blocker Register
 
-**Updated 2026-10-14, after a read-only reconciliation against live
-production.** The single authoritative list of what stands between the
-current repository and taking a real customer's money.
+**Current as of 2026-10-15. `main` = `29de5b1`.**
 
-This is a *launch* register, not a backlog. Nothing enters it because it
-would be nice; an item is here only if MVP1 cannot open without it.
+The single authoritative list of what stands between CaratForUs and taking
+a real customer's money.
 
-> ### Correction notice
->
-> The first version of this register (2026-10-14, commit `50fc7d8`) was
-> written from reconstruction rather than from evidence, and it was wrong
-> about production in three places. It marked the Fly deployment as
-> unconfirmed, production secrets as missing, and the email provider as
-> missing. **All three were already configured and working.** It also
-> marked bank-payment coordinates and object storage as outstanding; both
-> are set. And it said no jobs were scheduled, when two have been running
-> on a schedule since 2026-09-23.
->
-> Every status below now carries the evidence it rests on, or is explicitly
-> marked unknown. Where something was verified earlier by the owner and not
-> re-verified today, it says so rather than borrowing the earlier
-> confidence.
+This is a *launch* register, not a backlog. An item appears only if MVP1
+cannot open without it. It states current truth once; superseded findings
+live in §9 as history, never as open items.
+
+---
+
+## The one-paragraph answer
+
+**The platform is ready; the business is not.** The app is deployed and
+healthy, fully migrated, operator-configurable, and all four scheduled jobs
+run and have been individually proven. What is missing is commercial:
+`caratforus-dev` is a development store that **cannot be converted** to a
+paid storefront, so a new production store must be created; there is no
+real catalogue; and every cost input in the database is still placeholder
+data. No amount of further engineering changes any of that.
 
 ---
 
@@ -29,71 +27,10 @@ would be nice; an item is here only if MVP1 cannot open without it.
 
 | Status | Meaning |
 |---|---|
-| 🟢 **WORKING** | Configured and verified working, with the evidence named |
-| 🔄 **TRANSFER-DEPENDENT** | Working now, but tied to the development store and must be changed or re-verified when the store moves |
-| 🔴 **MISSING** | Genuinely absent. Launch cannot proceed |
-| ❓ **UNKNOWN** | Cannot be determined from here. Needs owner verification before it can be called either way |
-
-**The headline is unchanged, and the reconciliation reinforces it: the
-remaining blockers are commercial, not technical.** The platform is
-deployed, healthy, migrated, secret-configured and serving signed App
-Proxy traffic. What it does not have is a store that can take money and a
-product to sell.
-
----
-
-## Evidence gathered 2026-10-14 (all read-only)
-
-| Check | Result |
-|---|---|
-| `flyctl status -a caratforus` | 1 app machine `started`, health check 1/1 passing |
-| `GET /health` | `status: ok`, `database: ok` (7 ms) |
-| Migrations | **90 applied, 0 pending** — identical to the 90 in the repo |
-| `flyctl secrets list` | **25 secrets**, all status `Deployed` |
-| Signed App Proxy `GET /apps/carat/policies` ×6 | 6/6 HTTP 200, **15 terms**, every term with text and version, `incomplete: false` on all six |
-| `flyctl machines list` | 3 machines: 1 app + **2 scheduled cron machines** |
-| `cron-guarantee-sweep` last runs | 14:08 and 15:08, `exit_code=0`. `curl -fsS` fails on non-2xx, so exit 0 proves the endpoint answered 2xx |
-| Route probe | `/internal/jobs/group-buy-milestones` → **404**; `bank-payment-guarantee` and `group-buy-bank-payment-window` → 401 |
-
-**One limit on the App Proxy evidence, stated rather than glossed.** Those
-six requests were signed locally and sent **directly to
-`caratforus.fly.dev`**. They prove the app works, the handler is correct
-and `SHOPIFY_API_SECRET` matches. They do **not** re-prove that Shopify
-routes `/apps/carat` through to the app, because that would mean going via
-`caratforus-dev.myshopify.com`, which is password-protected and which I was
-instructed not to request. Shopify-side routing was verified by the owner
-earlier and is carried forward as owner-verified, not re-verified today.
-
----
-
-## 0. Deployment currency — production is healthy but behind `main`
-
-🔄 **This is the situation, exactly.**
-
-The running app is healthy and fully functional. It is **not** running the
-latest `main`.
-
-- App machine last deployed **2026-10-14T00:04:46Z**.
-- `main` is at **`6755d0e`**; four commits land after that deploy.
-- Proven, not inferred: `/internal/jobs/group-buy-milestones` returns
-  **404** in production while its sibling job routes return 401. That route
-  ships in `157a216`.
-
-What is actually missing from production as a result:
-
-| Commit | In production? | Runtime impact |
-|---|---|---|
-| `157a216` Group Buy milestone emails | ❌ no | **The only real gap.** Participants get no tier/close emails |
-| `5f33f0e` Slice 13 theme surfaces | n/a | Theme files; they deploy to Shopify, not Fly |
-| `50fc7d8` test-fake fix + docs | ❌ no | None — a test fake and documents |
-| `6755d0e` register update | ❌ no | None — a document |
-
-**The database schema is NOT behind.** 90 migrations applied, 0 pending,
-matching the repo exactly. A redeploy applies no migration.
-
-**Consequence for sequencing:** the milestone cron cannot be scheduled
-until a deploy happens, because the endpoint it would call does not exist
-yet. Deploy first, schedule second.
+| 🟢 **DONE** | Verified working, with the evidence named |
+| 🟡 **PARTIAL** | Works, but with a stated limit or an unverified half |
+| 🔴 **BLOCKER** | Launch cannot proceed until this is done |
+| ❓ **UNKNOWN** | Cannot be determined from here; needs owner verification |
 
 ---
 
@@ -101,612 +38,380 @@ yet. Deploy first, schedule second.
 
 | # | Item | Status | Evidence / note |
 |---|---|---|---|
-| C1 | **A real catalogue.** No sellable product exists | 🔴 MISSING | See Track B in the action queue for exactly what is needed |
-| C2 | **A store that can take payments.** | 🔴 MISSING — **resolved: a NEW production store is required** | See the determination below. `caratforus-dev` offers **no transfer or upgrade path**; it must be replaced, not converted |
-| C3 | **Bank payment coordinates** | 🟢 WORKING (one check) | `PAYMENT_ZELLE_RECIPIENT`, `PAYMENT_WIRE_BANK_NAME`, `PAYMENT_WIRE_ACCOUNT_NAME`, `PAYMENT_WIRE_ROUTING_NUMBER`, `PAYMENT_WIRE_ACCOUNT_NUMBER` all set and Deployed. ❓ **One thing to confirm —** `PAYMENT_ZELLE_RECIPIENT` has an identical digest to `STAFF_EMAIL_ALLOWLIST`, meaning the same value. That is fine if both are one address; it is wrong if the allowlist is a comma-separated list, because the Zelle recipient would then be unusable. Worth one look |
-| C4 | **Terms of Service** | 🔴 MISSING | Four business decisions needed first — `docs/content/MVP1-STOREFRONT-COPY.md` Part 4 |
-| C5 | **Privacy Policy** | 🔴 MISSING | Append-only evidence tables interact with deletion requests and need a lawful stated answer — Part 5 |
-| C6 | **Shipping configuration in Shopify** — rates, insured value, the $100 signature rule | ❓ UNKNOWN | Policy is locked in the README; whether Shopify is configured for it cannot be seen from here |
-| C7 | **Payment gateway and tax** in Shopify | ❓ UNKNOWN | Not visible from here, and moot until C2 |
+| C1 | **A real catalogue** — no sellable product exists | 🔴 BLOCKER | Blocked behind C2 by choice: no Shopify product, mapping, metaobject or collection is created in a store we are about to abandon. See §8 Track B |
+| C2 | **A payment-capable store** | 🔴 BLOCKER | **Determined 2026-10-15: `caratforus-dev` cannot be transferred or upgraded. A new production store is required.** See §2 |
+| C3 | **Bank payment coordinates** | 🟡 PARTIAL | All five `PAYMENT_*` secrets set and Deployed. ❓ One check outstanding: `PAYMENT_ZELLE_RECIPIENT` has the same digest as `STAFF_EMAIL_ALLOWLIST`, so the same value — fine if both are a single address, wrong if the allowlist is comma-separated |
+| C4 | **Terms of Service** | 🔴 BLOCKER | Does not exist. Four business decisions needed first — `docs/content/MVP1-STOREFRONT-COPY.md` Part 4 |
+| C5 | **Privacy Policy** | 🔴 BLOCKER | Does not exist. Append-only evidence tables interact with deletion requests and need a lawful stated answer — Part 5 |
+| C6 | **Shipping configuration in Shopify** | ❓ UNKNOWN | Policy locked in README; Shopify-side configuration not visible from here. Moot until C2 |
+| C7 | **Payment gateway and tax** | ❓ UNKNOWN | Not visible from here. Moot until C2 |
 
 ---
 
-### C2 determined, 2026-10-15 — the store cannot be converted
+## 2. The store determination (C2)
 
 Checked in the authenticated Shopify session, three independent places:
 
-| Source | What it shows |
+| Source | Result |
 |---|---|
-| `shopify store info` (CLI) | `Type: Dev`, Plan Basic, created Sep 17 2026 |
-| Admin → Settings → **Plan** | "Basic" with a **Development store** badge. The only action on the page is **Delete store** — no plan selection, no upgrade, no "select a plan" |
-| Dev Dashboard → Stores → ⋮ | Exactly two actions: **Log in** and **Delete store**. **No "Transfer ownership"** |
+| `shopify store info` (CLI) | `Type: Dev`, Plan Basic, created 2026-09-17, org "My Store" (236195662) |
+| Admin → Settings → **Plan** | "Basic" with a **Development store** badge. Only action on the page: **Delete store**. No plan selection, no upgrade |
+| Dev Dashboard → Stores → ⋮ | Exactly two actions: **Log in**, **Delete store**. **No "Transfer ownership"** |
 
-**Conclusion: `caratforus-dev` is a development store created for app/theme
-testing, with no self-serve route to a paid public storefront.** A
-transferable store would expose a transfer action; this one exposes
-deletion. It must be replaced, not upgraded.
+**`caratforus-dev` is a development store created for app/theme testing,
+with no self-serve route to a paid public storefront.** A transferable
+store exposes a transfer action; this one exposes deletion. It must be
+replaced, not upgraded. Creating a store requires a plan purchase and is an
+owner action — nothing further can be prepared from here.
 
-**Therefore the production store must be created first, and the real
-catalogue built there** — which is exactly why no Shopify product,
-mapping, metaobject or collection has been created. Creating a store
-requires a plan purchase and is an owner action; nothing further can be
-prepared from here.
+### What survives the move, and what does not
 
-What survives the move, and what does not, is unchanged from the earlier
-assessment: all 15 policy terms, the whole database, 24 of 25 Fly secrets
-and both pricing surfaces survive, because they live in Postgres and Fly
-rather than in Shopify. What must be redone is the app install, App Proxy
-configuration, webhook registration, the theme push and the six policy
-page shells. **Now remains the cheapest moment to do it** — there is still
-no catalogue, no FAQ metaobject and no collection to lose.
+| Survives untouched | Must be redone |
+|---|---|
+| All 15 policy terms (they live in Postgres, not Shopify) | App install + OAuth grant |
+| The entire database and all 90 migrations | App Proxy subpath + storefront routing |
+| 24 of 25 Fly secrets (only `SHOPIFY_SHOP_DOMAIN` changes) | Webhook registration |
+| The Fly app, Postgres, all four cron machines | Theme push |
+| Pricing settings and every pricing value | Six policy page shells |
 
----
-
-## 2. Content
-
-| # | Item | Status | Evidence / note |
-|---|---|---|---|
-| N1 | Six policy pages, correct templates, terms served live | 🟢 WORKING | Re-verified today: 6/6, 15 terms, `incomplete: false` |
-| N2 | Policy page bodies are empty | 🔴 MISSING | Drafts written — `MVP1-STOREFRONT-COPY.md` Part 1 |
-| N3 | About page copy | 🔴 MISSING | Draft written; needs 2–3 sentences only the owner has |
-| N4 | Why Buy From Us copy | 🔴 MISSING | Draft written and grounded |
-| N5 | FAQ entries | 🔴 MISSING | No `faq_entry` metaobject definition or entries in Admin, so the FAQ page renders nothing |
-| N6 | Contact mailbox | 🟢 WORKING | `orders@caratforus.com`, owner-confirmed as monitored; fenced repo-wide. **Note:** `CUSTOMER_SERVICE_EMAIL` is deliberately *not* a Fly secret — nothing reads it at runtime. Do not set it |
+**Now is the cheapest possible moment to move** — there is still no
+catalogue, no FAQ metaobject and no collection to lose. That stops being
+true the moment Product #1 is created.
 
 ---
 
-## 3. Shopify Admin setup
+## 3. Content
 
 | # | Item | Status | Evidence / note |
 |---|---|---|---|
-| S1 | Slice 12 policy theme files pushed | 🟢 WORKING | Theme `182948626733`, pushed by owner |
-| S2 | FAQ theme files pushed | 🔴 MISSING | Committed `a764887`, not pushed to Shopify |
-| S3 | Slice 13 theme files pushed | 🔴 MISSING | Committed `5f33f0e`, not pushed |
-| S4 | `faq_entry` metaobject definition | 🔴 MISSING | Exact handles in `docs/specs/SLICE-12-CONTENT.md` §4.2. A wrong field key renders blank entries with no error |
-| S5 | `carat.faq_entries` product metafield | 🔴 MISSING (optional for launch) | `product-faq.liquid` is implemented but deliberately unwired pending an owner decision on PDP placement |
-| S6 | A `past-group-buys` page using the new template | 🔴 MISSING | Template ships in `5f33f0e`; the page must be created in Admin |
-| S7 | Policy pages published | 🔴 MISSING | Deliberately hidden until N2 |
-| S8 | App installed, OAuth valid, App Proxy routing | 🔄 TRANSFER-DEPENDENT | Owner-verified earlier on the dev store. **Must be re-verified end to end after any store transfer** — see Track A |
+| N1 | Six policy pages, correct templates, terms served live | 🟢 DONE | 6/6 groups over signed App Proxy, 15 terms, `incomplete: false`, re-verified after every deploy |
+| N2 | Policy page bodies are empty | 🔴 BLOCKER | Drafts written — `MVP1-STOREFRONT-COPY.md` Part 1 |
+| N3 | About page copy | 🔴 BLOCKER | Draft written; needs 2–3 sentences only the owner has |
+| N4 | Why Buy From Us copy | 🔴 BLOCKER | Draft written and grounded in README + locked pricing policy |
+| N5 | FAQ entries | 🔴 BLOCKER | No `faq_entry` metaobject definition or entries exist, so the FAQ page renders nothing |
+| N6 | Contact mailbox | 🟢 DONE | `orders@caratforus.com`, owner-confirmed, fenced repo-wide. `CUSTOMER_SERVICE_EMAIL` is deliberately *not* a Fly secret — nothing reads it at runtime. Do not set it |
 
 ---
 
-## 4. Deployment and operations
+## 4. Shopify Admin setup
+
+Everything here is **blocked behind C2** and should be done once, in the
+production store.
 
 | # | Item | Status | Evidence / note |
 |---|---|---|---|
-| D1 | App deployed to Fly and healthy | 🟢 WORKING | Machine `started`, 1/1 checks, `/health` ok. **Behind `main` — see section 0** |
-| D2 | Production Postgres attached and migrated | 🟢 WORKING | `database: ok` 7 ms; 90 applied, 0 pending |
-| D3 | Core secrets | 🟢 WORKING | `DATABASE_URL`, `DIRECT_URL`, `SESSION_SECRET`, `CRON_SECRET`, `APP_ENV` — all Deployed. **Do not recreate these** |
-| D4 | Shopify secrets | 🔄 TRANSFER-DEPENDENT | `SHOPIFY_API_SECRET`, `SHOPIFY_API_KEY`, `SHOPIFY_SCOPES`, `SHOPIFY_APP_URL`, `SHOPIFY_APP_PROXY_SUBPATH`, `SHOPIFY_SHOP_DOMAIN`, `SHOPIFY_ADMIN_API_VERSION` — all Deployed and working. `SHOPIFY_SHOP_DOMAIN` currently points at the dev store and **must change on transfer**; the API key/secret change too if a new app is created |
-| D5 | Email provider | 🟢 WORKING (configured) | `EMAIL_API_KEY`, `EMAIL_FROM`, `STAFF_EMAIL_ALLOWLIST` all Deployed. ❓ No test send was performed — configured is proven, *delivery* is not |
-| D6 | Object storage | 🟢 WORKING (configured) | All four `STORAGE_*` Deployed. ❓ No upload was performed from here |
-| D7 | **Scheduled jobs — all 4** | 🟢 GREEN | `cron-guarantee-sweep` (hourly), `cron-price-recalculation` (daily), and as of 2026-10-15 `cron-group-buy-bank-payment-window` and `cron-group-buy-milestones` (both hourly). Each was invoked authenticated and verified by **its own evidence**, not by an exit code — see below |
-| D8 | Production reference data | 🟢 **RESOLVED 2026-10-14** | Answered by a read-only probe run inside the container. The seed *has* run: a pricing profile, all three labor sources, all 15 cost components, three metal references and five stone-cost rows exist. **Nothing is missing.** What remains is validating market/supplier values — tracked as P3 below, not here |
+| S1 | Slice 12 policy theme files pushed | 🟢 DONE (dev store) | Theme `182948626733`. Must be re-pushed to the production store |
+| S2 | FAQ theme files pushed | 🔴 BLOCKER | Committed `a764887`, never pushed to Shopify |
+| S3 | Slice 13 theme files pushed | 🔴 BLOCKER | Committed `5f33f0e`, never pushed |
+| S4 | `faq_entry` metaobject definition | 🔴 BLOCKER | Exact handles in `docs/specs/SLICE-12-CONTENT.md` §4.2. A wrong field key renders blank entries with no error anywhere |
+| S5 | `carat.faq_entries` product metafield | 🟡 PARTIAL (optional for launch) | `product-faq.liquid` is implemented but deliberately unwired pending an owner decision on PDP placement |
+| S6 | A `past-group-buys` page using the new template | 🔴 BLOCKER | Template ships in `5f33f0e`; the page must be created in Admin |
+| S7 | Policy pages published | 🔴 BLOCKER | Deliberately hidden until N2 |
+| S8 | App installed, OAuth valid, App Proxy routing | 🟢 DONE (dev store) | Working today — the embedded admin and signed App Proxy both verified. **All of it must be redone in the production store** |
 
 ---
 
-## 4a. Pricing
-
-**The pricing system is not a launch blocker.** Its operating numbers are
-configurable by design, and a configurable value sitting at a default is
-not an unresolved decision.
+## 5. Deployment and operations
 
 | # | Item | Status | Evidence / note |
 |---|---|---|---|
-| P1 | **Pricing engine and schema** | 🟢 WORKING | Profile, metal, labor, stone and component models all populated in production; 94 calculations already recorded |
-| P2 | **Pricing-profile operating defaults — 40% target markup, 20% minimum gross margin, $100 minimum profit** | 🟢 **VALUES SETTLED — not an owner decision** | Owner-locked 2026-10-14 as *configurable operating inputs*. Active profile `buy_now` v5, `is_placeholder: false`. **Do not ask the owner to reconfirm these.** Note: *settled* is about the values, not the tooling — see P6 |
-| P6 | **Operator tooling — pricing profile, metal, labor, stone** | 🟡 **YELLOW overall** — see lifecycle below | Implementation complete and tested; **not yet deployed or smoke-tested in production** |
-| P7 | **Operator tooling — cost components** | 🟡 **YELLOW overall** — see lifecycle below | Implementation complete and tested; same lifecycle gate as P6 |
+| D1 | App deployed to Fly and healthy | 🟢 DONE | **Production runs the application code of `main`.** Last deploy `c14c94c`; the only commit after it (`29de5b1`) is documentation. `/health` ok, database ok, machine started with health checks passing |
+| D2 | Postgres attached and migrated | 🟢 DONE | **90 migrations applied, 0 pending** — identical to the 90 in the repo |
+| D3 | Core secrets | 🟢 DONE | `DATABASE_URL`, `DIRECT_URL`, `SESSION_SECRET`, `CRON_SECRET`, `APP_ENV` all Deployed. **Do not recreate these** — regenerating `CRON_SECRET` would silently break all four cron jobs |
+| D4 | Shopify secrets | 🟢 DONE (store-dependent) | All seven `SHOPIFY_*` set and working. `SHOPIFY_SHOP_DOMAIN` must change when the production store exists; API key/secret change too if a new app is created |
+| D5 | Email provider | 🟡 PARTIAL | `EMAIL_API_KEY`, `EMAIL_FROM`, `STAFF_EMAIL_ALLOWLIST` Deployed and the provider is reachable — the milestone job's send attempts reached it and were rejected only because the fixture addresses were `@example.com`. **No successful delivery to a real address has been observed** |
+| D6 | Object storage | 🟡 PARTIAL | All four `STORAGE_*` Deployed. No upload performed from here |
+| D7 | **All four scheduled jobs** | 🟢 DONE | `cron-guarantee-sweep` (hourly), `cron-price-recalculation` (daily), `cron-group-buy-bank-payment-window` (hourly), `cron-group-buy-milestones` (hourly). Each invoked authenticated and verified by **its own returned evidence**, not by an exit code — see §6 |
+| D8 | Production reference data exists | 🟢 DONE | A pricing profile, three labor sources, 15 cost components, three metal references and five stone-cost rows all exist. Nothing is missing. Their *values* are placeholder — that is P3, not this |
 
-### P6 / P7 lifecycle — "GREEN" means deployed and usable, not merged
+---
 
-Compressing these three states into one colour is how a register starts
-lying. They are tracked separately.
+## 6. Pricing
 
-| Stage | P6 (profile, metal, labor, stone) | P7 (cost components) |
-|---|---|---|
-| **IMPLEMENTED / TESTED** | 🟢 GREEN | 🟢 GREEN |
-| **DEPLOYED to production** | 🟢 GREEN — `8ddc275`, 2026-10-15 | 🟢 GREEN — same deploy |
-| **LIVE OPERATOR SMOKE TEST** | 🟢 GREEN — 2026-10-15 | 🟢 GREEN — 2026-10-15 |
-| **Overall** | 🟢 **GREEN** | 🟢 **GREEN** |
+| # | Item | Status | Evidence / note |
+|---|---|---|---|
+| P1 | Pricing engine and schema | 🟢 DONE | All models populated in production; 94 calculations recorded |
+| P2 | Operating defaults — 40% markup, 20% min gross margin, $100 min profit | 🟢 DONE — **not an owner decision** | Owner-locked as *configurable operating inputs*. Active profile `buy_now` v5, `isPlaceholder: false`. **Do not ask the owner to reconfirm these** |
+| P3 | **Production cost inputs** | 🟡 PARTIAL — **placeholder, see the warning below** | Every row resolves; all are seed fixtures dated `2026-01-01` |
+| P4 | Card-price derivation | 🟢 DONE | Active profile carries `BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1` — approved tiered uplift, upward-to-$5 rounding on the Card price only |
+| P5 | Fixture catalogue cleanup | 🟡 PARTIAL | The email-generating defect is **fixed and verified** (§9). What remains is tidiness: four active seed-fixture variants still enter daily recalculation. Proposal in §7, not executed |
+| P6 | **Operator tooling — profile, metal, labor, stone** | 🟢 **DONE — implemented, deployed, live smoke-tested** | See below |
+| P7 | **Operator tooling — cost components** | 🟢 **DONE — same** | See below |
 
-Deployment verified: `/health` ok, database ok, **90 migrations applied, 0
-pending**, the offline Shopify session survived (six signed App Proxy policy
-groups still return 15 terms), and `/app/pricing-settings` returns 410 —
-identical to every other working embedded route, where a genuinely missing
-route returns 404. So the route is registered and authenticating.
+### P6 / P7 — all three lifecycle stages complete
 
-**Smoke test completed 2026-10-15** in Shopify Admin at
-`/store/caratforus-dev/apps/caratforus-development/app/pricing-settings`,
-with no configuration written — deliberately, so the first real write can
-be an actual Product #1 cost update rather than a throwaway version.
+| Stage | Evidence |
+|---|---|
+| Implemented / tested | `app/routes/app.pricing-settings.tsx` + 75 tests |
+| Deployed | `c14c94c`, live in production |
+| **Live operator smoke test** | **2026-10-15, in Shopify Admin** |
 
-Observed rendering:
+Smoke test observed, with **no configuration written** — deliberately, so
+the first real write can be an actual Product #1 cost update rather than a
+throwaway version:
 
 - **Target markup 40, minimum gross margin 20, minimum profit 100.00**,
   pre-filled, under "Currently version 5, effective 2026-09-18… margin
   model MARKUP_ON_COST_V1; card rule BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1".
 - Metals: sterling_silver 0.9189, gold 82.7, platinum 36.58 USD/g.
 - Labor: india 4.5, china 5.25, usa 12 USD/g.
-- Stones: five rows, **each appearing once**, all "any (wildcard)" — the
-  per-key collapse working against real data.
+- Stones: five rows, **each appearing once** — the per-key collapse working
+  against real data.
 - Components: fourteen rows including `payment_processing` **twice**
   (percentage 0.029 and fixed 0.30 — the `(type, valueKind)` key behaving
-  as designed), and **`payment_adjustment` correctly absent**.
-- Both scope notices rendered: what a change affects, and that existing
-  Group Buy campaigns are never repriced.
+  as designed) and **`payment_adjustment` correctly absent**.
+- Both scope notices rendered.
+- No application console errors; no failed requests.
 
-No application console errors (only Chrome-extension noise from MetaMask)
-and no failed requests.
-| P3 | **Production cost inputs** — gold, stone, labor, metal loss, casting/setting/polishing/assembly/QC, packaging, shipping, insurance, warranty reserve, supplier fee | 🟡 YELLOW — **placeholder, and must not silently qualify Product #1** | Every row exists and resolves; **all are seed fixtures dated `2026-01-01`** and self-labelled "not a real market quote / supplier quote / cost assumption". See the warning below |
-
-### ⚠️ Placeholder cost data — the trap to avoid with Product #1
-
-**Every cost input in production today is placeholder data, and it does
-not look like placeholder data.** Gold at 82.70/g implies roughly
-$2,572/oz; silver and platinum are similarly plausible. A price computed
-from them will be a sensible-looking number that is not a real price.
-
-Three properties make this dangerous rather than merely untidy:
-
-1. **It resolves.** Nothing fails. A Product #1 priced today would move
-   cleanly through calculate → approve → sync with no error anywhere.
-2. **`isPlaceholder` does not cover it.** That flag lives on
-   `pricing_profile` only, and the active profile is legitimately
-   `isPlaceholder: false` — its *rules* are owner-approved. There is no
-   equivalent flag on `metal_reference_price`, `labor_rate`,
-   `stone_cost` or `cost_component`, so nothing downstream can tell a
-   fixture cost from a real one.
-3. **Every row is dated `2026-01-01`**, which is the one reliable tell.
-
-**The operating rule until the owner supplies real values:** a variant may
-be mapped and calculated for pipeline proving, but **nothing may be
-published to a storefront while any cost input it depends on still carries
-the `2026-01-01` fixture date.** The Pricing Settings screen shows the
-effective date of every value precisely so this is checkable at a glance.
-
-Replacing a value is now an operator action, not an engineering one — that
-is what P6/P7 delivered.
-
----
-| P4 | **Card-price derivation** | 🟢 WORKING | Active profile carries `BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1` — the approved tiered uplift with upward-to-$5 rounding on the Regular/Card Price only |
-| P5 | **Fixture catalogue cleanup** | 🟡 YELLOW | Required before public operation; **not a reason to resume feature development.** Proposal prepared, not executed — see section 8 |
-
-### Auditability — verified, not assumed
-
-The owner's requirement that historical calculations stay reproducible is
-**enforced by the database**, not by convention. Verified 2026-10-14:
-
-- `metal_reference_price`, `stone_cost`, `cost_component`, `pricing_profile`
-  and `labor_rate` each carry `no_update`, `no_delete` and (where applicable)
-  `no_truncate` triggers. **A historical row physically cannot be rewritten
-  in place.** Changing a value means inserting a new effective-dated row.
-- `PriceCalculation` pins `pricingProfileId`, `profileVersion`,
-  `engineVersion`, `roundingRuleId`, `priceEndingRuleId` and a frozen
-  `snapshotId` of the resolved inputs.
-
-So new calculations resolve current values, old ones remain reproducible,
-and no future change can retroactively alter recorded evidence.
-
-### The operator surface, and what makes it GREEN
-
-`app/routes/app.pricing-settings.tsx`, built 2026-10-14 to close the gap the
-architecture audit found. Scoped to the gap and nothing more: no dashboards,
-no charts, no commodity feed, no bulk import, no channel management.
-
-| Level | Result |
-|---|---|
-| A — data-driven | ✅ was already true |
-| B — runtime-resolved | ✅ was already true |
-| C — operator-configurable | ✅ **closed by this work** |
-| D — safely configurable | ✅ **closed by this work** |
-
-What makes it safe rather than merely present:
-
-- **Version is system metadata.** `createNextPricingProfileVersion` allocates
-  it server-side; the operator cannot see or choose a version number.
-  Concurrency rides the existing `(code, version)` unique index with a bounded
-  deterministic retry, not an unprotected `MAX(version) + 1`.
-- **The three profile values save as ONE version.** They are one policy, not
-  three independent settings.
-- **Everything not typed is inherited** from the current profile — margin
-  model, currency, rounding rule, price-ending rule, card-price rule and
-  uplift rate. A settings form that silently reset the card rule would be a
-  pricing incident dressed as a UI convenience.
-- **Validation is real.** The database CHECK that appears to guard these
-  fields is vacuous under `MARKUP_ON_COST_V1` (it compares against a NULL
-  `target_gross_margin_rate`), so `domain/pricing/profileSettings.ts` is the
-  actual guard: markup required and non-negative with no invented ceiling,
-  margin in [0, 100), profit non-negative, exact decimal throughout. No
-  binary floating point anywhere.
-- **Actor comes from the session**, never a form field. Writes require an
-  ONLINE Shopify session with an associated user and 401 without one.
-- **Audit in the same transaction** as the row, via the existing
-  `audit_event` table, carrying the prior and new version and values.
-- **Nothing publishes.** The route reaches no Shopify API. Configuration →
-  recalculation → calculation → approval/sync intent → Shopify is unchanged,
-  and production keeps `PRICE_AUTO_PUBLISH_ENABLED=false`.
-
-**Cost components are covered too (P7).** One generic editor rather than
-eleven forms, because the model already generalises them: the natural key is
-`(componentType, valueKind)` — which is why `payment_processing` legitimately
-appears twice, as a fixed fee and a percentage — and the only shape
-difference is which value column is populated. That is not an abstraction
-imposed on the schema; it is the existing
-`cost_component_value_kind_matches_value` CHECK. **`payment_adjustment` is
-excluded**, reading the existing `INERT_COMPONENT_TYPES` export rather than a
-second hand-written opinion: nothing resolves it, so a value entered there
-would look like it worked and change no price.
-
-**Input boundary, hardened after a pre-deployment review.** The first
-revision passed form values into Prisma through `as never`, which is erased
-at build time and validates nothing. Two real findings came out of it:
-
-- **`currency` was unvalidated against a `char(3)` column, and Postgres
-  BLANK-PADS a short value.** `currency=US` would have been stored as `"US "`
-  with no error at any layer, then never matched `"USD"` again. That is
-  silent corruption rather than a rejected request, and it is the finding
-  that justified the review.
-- Unknown enum values reached the database layer unexamined. Prisma did
-  reject them, so nothing bad could be stored — but the operator got an
-  opaque 500, and relying on a downstream library to be the input boundary
-  fails the moment a column is more forgiving than expected, which `currency`
-  was.
-
-Both are closed in `domain/pricing/configurationInput.ts`, which validates
-every enum against **Prisma's generated runtime objects** — the same
-definition the schema and database share, never a retyped list — and applies
-numeric rules that follow the database's own stance rather than inventing
-limits: metal price `> 0` (matching `metal_reference_price_positive`), labor
-rate `>= 0` (matching `labor_rate_non_negative`), stone cost `> 0` (no CHECK
-exists, so the boundary is the only guard), component amounts `>= 0`, carat
-band half-open with `max > min`.
-
-**Stone-cost display, corrected.** The first revision listed every row with
-`effectiveFrom <= now`, showing superseded costs beside live ones and
-implying several prices for one stone were simultaneously in force. It now
-collapses to the currently effective row per logical key — type, shape, band
-and every qualifier — which is exactly what `selectMostSpecific` does
-(filter applicable, highest specificity, then latest `effectiveFrom`). Rows
-differing in any qualifier are genuinely co-applicable at different
-specificities and all remain visible; collapsing harder would hide real
-configuration.
-
-**The resolver change — corrected claim.** An earlier revision of this
-register said `findFirst` returns the row "in constant time". **That was
-wrong, and the query plan says so.** Measured against production
-2026-10-15 with `EXPLAIN (ANALYZE, BUFFERS)`:
-
-```
-Limit → Sort (top-N heapsort, keys: effective_from DESC, version DESC)
-      → Index Scan using pricing_profile_code_version_key
-          Index Cond: (code = 'buy_now')
-          Filter: (effective_from <= now())   rows=4
-```
-
-The only index is `UNIQUE (code, version)`. **Nothing indexes
-`effective_from`**, so the server still reads every version for the code
-and sorts them. It is O(k), not constant.
-
-What genuinely improved: one row is materialised and returned instead of
-k, and the sort became a top-N heapsort. That matters as k grows and is
-the mechanism behind the integration-suite effect — but at today's k=4 the
-LIMIT form measured *marginally slower* (0.084 ms vs 0.041 ms).
-
-Semantics are preserved exactly: same `where` (`code` + `effective_from <=
-asOf`), same deterministic ordering (`effective_from DESC, version DESC`),
-so the same row is selected and the documented same-date version tie-break
-still holds.
-
-**Causation not established for the suite timing.** The full run went
-1143s → 651s across this change, but machine load was not controlled, so
-that is suggestive rather than evidence. A genuine fix, if version counts
-ever grow enough to matter, is an index on `(code, effective_from DESC,
-version DESC)` — not built, because at k=4 it would be speculative.
+An authenticated operator can now change target markup, minimum gross
+margin, minimum profit, metal reference prices, labor rates, stone costs
+and cost components with **no code change, no seed, no SQL and no SSH**.
+Each save inserts a new effective-dated row attributed to the signed-in
+Shopify staff user.
 
 **Known limitation, reported rather than worked around:** there is no
-"recalculate now" button. `runPriceRecalculation` with no `variantIds` sweeps
-every active variant and is measured in tens of seconds; running it inside an
-embedded admin request would block past any sane timeout, and doing it
-properly needs a job-status surface with polling — materially more scope than
-this gap. The daily `cron-price-recalculation` already picks up configuration
-changes, and every save message tells the operator that prices update at the
-next recalculation.
+"recalculate now" button. `runPriceRecalculation` with no `variantIds`
+sweeps every active variant and is measured in tens of seconds; running it
+inside an embedded admin request would block past any sane timeout, and
+doing it properly needs a job-status surface with polling. The daily cron
+already picks up configuration changes, and every save message says so.
+
+### ⚠️ Placeholder cost data — the trap for Product #1
+
+**Every cost input in production is placeholder data, and it does not look
+like placeholder data.** Gold at 82.70/g implies roughly $2,572/oz; silver
+and platinum are similarly plausible. A price computed from them will be a
+sensible-looking number that is not a real price.
+
+Three properties make this dangerous rather than untidy:
+
+1. **It resolves.** Nothing fails. Product #1 priced today would move
+   cleanly through calculate → approve → sync with no error anywhere.
+2. **`isPlaceholder` does not cover it.** That flag exists only on
+   `pricing_profile`, and the active profile is legitimately
+   `isPlaceholder: false` — its *rules* are owner-approved. There is no
+   equivalent flag on `metal_reference_price`, `labor_rate`, `stone_cost`
+   or `cost_component`.
+3. **Every row is dated `2026-01-01`** — the one reliable tell, and the
+   Pricing Settings screen shows it for every value.
+
+**Operating rule:** a variant may be mapped and calculated to prove the
+pipeline, but **nothing may be published to a storefront while any cost
+input it depends on still carries the `2026-01-01` fixture date.**
+
+### Auditability — enforced by the database, not by convention
+
+- `metal_reference_price`, `stone_cost`, `cost_component`,
+  `pricing_profile` and `labor_rate` each carry `no_update` / `no_delete`
+  triggers. **A historical row cannot be rewritten in place.** A change is
+  always a new effective-dated row.
+- `PriceCalculation` pins `pricingProfileId`, `profileVersion`,
+  `engineVersion`, both rule ids and a frozen `snapshotId`.
+
+New calculations resolve current values; old ones stay reproducible; no
+future change can retroactively alter recorded evidence.
 
 ### Profile scope — one profile serves more than Buy Now
 
-`PricingProfileCode` defines six codes (`buy_now`, `group_buy`, `custom`,
-`wholesale`, `friends_family`, `marketplace`). **Only `buy_now` is ever
-resolved.** Verified: `resolveInputs.server.ts:120` and
-`runRecalculation.server.ts:250` both call
-`resolveActivePricingProfile("buy_now", asOf)`, and
-`app.custom-jewelry.$id.tsx:412` reads `code: "buy_now"` directly.
+`PricingProfileCode` defines six codes; **only `buy_now` is ever
+resolved**. It is read by floating Buy Now calculations, by Custom Jewelry
+card-price derivation, and by Group Buy campaigns at the moment they open
+and freeze. The per-channel capability the schema allows is **not
+implemented**, and the Pricing Settings screen says so rather than
+labelling itself "Buy Now settings".
 
-So changing the Buy Now profile also changes Custom Jewelry card-price
-derivation and the economics any *future* Group Buy campaign freezes at
-open. Already-open campaigns are insulated — proven, see below. The
-per-channel capability the schema allows is **not implemented**.
-
-✅ **The resolution inconsistency is FIXED (2026-10-14).**
-`app.custom-jewelry.$id.tsx` carried its own
-`findFirst({ orderBy: { version: "desc" } })` with no `effectiveFrom` filter,
-so a future-dated profile took effect there immediately while Buy Now
-correctly ignored it until its date. It now calls the same
-`resolveActivePricingProfile` the rest of pricing uses, so there is one
-definition of "current profile" in the codebase. The placeholder refusal is
-preserved and now applies to the profile genuinely in effect.
-
-Pinned two ways in `pricingConfigurationPropagation.test.ts`: behaviourally
-(a future-dated version does not move the card price Custom Jewelry would
-quote, and does once its date arrives) and structurally (the route must call
-the shared resolver and must carry no `prisma.pricingProfile` query of its
-own) — because a behavioural test alone cannot see the thing that regressed.
-
-### Already-open Group Buys are insulated — proven by test
-
-`tests/integration/groupbuy/frozenRuleVersioning.test.ts`, "a later profile
-change cannot reach a frozen campaign": a new profile version with a
-different uplift rate leaves an open campaign's bank price, card price and
-savings byte-identical. The mechanism is that `openCampaign.server.ts`
-stores `pricingProfileId` + `profileVersion` on the campaign and the
-storefront reads that frozen row, so no later insert can reach it.
+Already-open Group Buy campaigns are insulated by their frozen
+profile/version — proven by `frozenRuleVersioning.test.ts`, and the
+operator surface creates no path around it.
 
 ### Payment processing is a cost input, not a price rule
 
-`payment_processing` (currently 2.9% + $0.30, `basis: revenue_side`) is a
-**configurable cost/audit input only**. It does not and must not participate
-in deriving the customer-facing Regular/Card Price, which is governed solely
-by the approved Bank-vs-Card rule: Bank Payment Price is the underlying
-calculated selling price, the Regular/Card Price is derived afterwards by
-the tiered uplift, and only the Card Price is rounded up to the next $5.
-Updating the processing rate when a real gateway is chosen changes cost and
-margin maths; it leaves the Bank-vs-Card model untouched.
+`payment_processing` (2.9% + $0.30, `revenue_side`) is a configurable
+cost/audit input only. It does not participate in deriving the
+customer-facing Regular/Card Price, which is governed solely by the
+approved Bank-vs-Card rule. Updating it when a real gateway is chosen
+changes cost and margin maths and leaves that model untouched.
+
+### The resolver query — accurate characterisation
+
+`resolveActivePricingProfile` uses `findFirst` with the same `where`
+(`code` + `effective_from <= asOf`) and the same deterministic ordering
+(`effective_from DESC, version DESC`), so it selects exactly the same row
+and the documented same-date version tie-break still holds.
+
+It is **not constant time.** `EXPLAIN (ANALYZE, BUFFERS)` against
+production shows an index scan on the `(code, version)` unique index
+reading **all** rows for the code, then a top-N heapsort — nothing indexes
+`effective_from`. The genuine improvement is that one row is materialised
+and returned instead of k. At today's k=4 the LIMIT form measured
+marginally *slower* (0.084 ms vs 0.041 ms); the benefit appears as versions
+accumulate. If they ever do, the real fix is an index on
+`(code, effective_from DESC, version DESC)` — not built, because at k=4 it
+would be speculative.
 
 ---
 
-## 5. Engineering
+## 7. Engineering
 
 | # | Item | Status | Evidence / note |
 |---|---|---|---|
-| E1 | Slices 0–13 implemented and merged | 🟢 WORKING | Tagged `mvp1-engineering-complete` at `c4420a1` |
-| E2 | Group Buy milestone emails | 🟢 WORKING (in `main`) | `157a216`. **Not in production** — see section 0 |
-| E3 | Slice 13 theme surfaces | 🟢 WORKING (in `main`) | `5f33f0e`. Not pushed to Shopify |
-| E4 | CI green on `main` | 🟢 WORKING | Runs #116/#117 green on every step. 99/99 integration files and 1576 tests also pass locally |
-| E5 | Live Shopify proof for Group Buy refund execution | 🟢 WORKING | 15/15 assertions against the real store |
+| E1 | Slices 0–13 implemented and merged | 🟢 DONE | Tagged `mvp1-engineering-complete` at `c4420a1` |
+| E2 | **Group Buy milestone emails** | 🟢 DONE — **in production** | `157a216`, deployed. Route authenticates; the job has run against production and reported its own evidence |
+| E3 | Slice 13 theme surfaces | 🟢 DONE (in `main`) | `5f33f0e`. Not yet pushed to Shopify — see S3 |
+| E4 | CI green on `main` | 🟢 DONE | Green on `29de5b1`. 180 unit files / 3195 tests and 101 integration files / 1622 tests also pass locally |
+| E5 | Live Shopify proof for Group Buy refund execution | 🟢 DONE | 15/15 assertions against the real store |
 
-**Feature development is stopped.** No further engineering until launch
-testing exposes an actual defect.
+**Feature development is frozen.** No further engineering until the
+production-store migration or launch testing exposes an actual defect.
 
-### Note on CI run #115
+### Fixture catalogue cleanup — proposed, NOT executed
 
-It failed one assertion in the new milestone test. The cause was the **test
-fake**: `RecordingGroupBuyParticipantEmailPort.seed()` did not clear a
-previously seeded failure, so a "recovered" order kept throwing and it read
-as the sweep failing to retry. The sweep was correct.
+The email-generating problem is **resolved** (§9). What remains is
+tidiness: four active seed-fixture variants still enter the daily
+recalculation. Nothing is customer-visible — none is synced to Shopify.
 
-Reproducing it needed a real Postgres and this machine has no Docker, WSL
-or installed Postgres, so a throwaway server from npm was used in the
-scratchpad. **Anyone repeating that must initialise it with
-`--encoding=UTF8`** — initdb otherwise defaults to the Windows locale's
-WIN1252, `CREATE DATABASE` inherits it, and `webhooks/httpServer.test.ts`
-then fails with Postgres 22P05 on an emoji in a payload, which looks like a
-webhook defect and is not one.
+The lever is `status`, verified safe and reversible: `runRecalculation`
+selects only `{ status: "active" }`, nothing else consumes active master
+variants, and the catalogue tables carry no append-only triggers.
+
+| Row | Current | Proposed |
+|---|---|---|
+| `Seed Fixture Solitaire Ring` (product) | `active` | **archive** |
+| Its 3 active 14k gold variants | `active` | **archive** |
+| Its 1 active pt950 variant | `active` | **archive** |
+| `ZZ livegate storefront …` / `ZZ LIVE GATE TEST — DO NOT SELL …` | archived / draft | **leave** — already excluded |
+| All six ZZ Group Buy campaigns | archived | **leave** — already archived, and the sweep now honours it |
+| 94 price calculations, 93 sync intents, all snapshots | — | **UNTOUCHED** — evidence |
+| Policy versions, acknowledgments, audit records | — | **UNTOUCHED** — never in scope |
+
+**No hard deletion is proposed for anything.** On the Shopify side, one
+leftover live-gate product (`gid://shopify/Product/10357871313197`) exists
+in the dev store and disappears when the production store replaces it —
+but **the Postgres fixtures still need archiving either way.**
 
 ---
 
-## 6. What is NOT in this register
+## 8. The two parallel tracks
+
+### Track A — production store (owner)
+
+1. **Create the production Shopify store.** `caratforus-dev` cannot be
+   converted (§2). Requires a plan purchase — owner only.
+2. **Payment gateway** — activated and able to take a live card.
+3. **Tax** — registration and Shopify configuration.
+4. **Shipping** (C6) — rates, full-value insurance, the $100 signature rule.
+5. **Confirm the Zelle recipient** (C3).
+6. **Re-establish the app in the new store**: update `SHOPIFY_SHOP_DOMAIN`
+   (and API key/secret if a new app), reinstall and re-grant scopes,
+   reconfigure the App Proxy and verify routing **through the storefront**,
+   re-register webhooks, re-push the theme, recreate the six policy pages.
+
+### Track B — the first real product
+
+**Locked archetype: a 14K gold solitaire pendant with one lab-grown
+diamond.** Fixed configuration, single Shopify variant, `sizeAxis: none`,
+no ring-sizing model, one centre stone. It proves the real CaratForUs path
+— metal + purity + weight + labor + stone + components + profile +
+Bank/Card derivation + Shopify sync — while `sizeAxis: none` excludes the
+ring-size band model, `weightPerFullSizeGrams`, weight overrides and the
+per-size price surface.
+
+14K costs nothing extra on the metal side: `purity.ts` computes
+`pure_price_per_gram × fineness × grams`, so one gold reference row serves
+10k/14k/18k.
+
+**Blocked on Track A step 1**, deliberately — so Shopify IDs are not minted
+in a store we are about to abandon.
+
+**Owner inputs needed:** product name; finished 14K weight in grams;
+whether a chain is included and if so its length and weight; stone shape;
+carat; intended colour/clarity/cut; actual supplier cost for the stone;
+labor source and real rate; current pure-gold price with as-of date;
+realistic metal-loss percentage; and the applicable component costs. CAD
+may legitimately be zero for a stock pendant.
+
+**Stone coverage:** the library covers lab round and lab princess over
+**[0.90, 1.10)** ct only — half-open, so 1.10 is not covered. A commoner
+pendant size (0.25–0.75 ct) needs a new effective-dated band created from
+the owner's real supplier cost, never invented to make the engine resolve.
+A missing band raises `MissingCostInputError`, so the engine fails closed
+rather than pricing a stone at zero.
+
+**MVP1 stone-costing policy:** the *resolver* supports quality tiers, but
+every current row leaves colour, clarity, cut and lab status NULL, so they
+are wildcards and cost varies only by type, shape and carat band. **The
+database does not differentiate quality today.** A more specific row added
+later takes precedence automatically, with no code change.
+
+---
+
+## 9. Resolved findings — history, not open items
+
+Recorded because the reasoning is worth keeping. **None of these is an
+active blocker.**
+
+**The milestone sweep emailed participants of archived campaigns.**
+Found within minutes of the job first running in production: it emailed
+three participants of a campaign staff had archived ten days earlier. The
+sweep filtered on `status in (open, closed)` and ignored `archivedAt`. This
+was never fixture hygiene — all six ZZ campaigns were *already* archived on
+2026-10-05 — it was a general defect that would have kept notifying
+participants of **any** archived campaign indefinitely, because failed
+milestones deliberately retry. Fixed in `c14c94c` with three regression
+tests; production now reports `campaignsExamined: 0, emailsFailed: 0`.
+Rejected non-fixes: writing completion markers (would record sends that
+never happened) and closing the campaign (would convert the pending
+milestone into a `campaign_closed` milestone, producing *more* failed
+sends, and move a fixture campaign toward settlement).
+
+**Five overdue bank-payment orders were inactivated correctly.** The
+window job's first run inactivated five orders — `16a161d3…`, `4b53f8ca…`,
+`d89dc767…`, `d7f0fc4b…`, `60f80d34…` — all `active` → `inactive`, all on
+`@example.com`, all on ZZ live-gate campaigns, quoted 2026-09-29/10-05 and
+therefore 10–16 days past their 96-hour window. They were overdue precisely
+because the job had never been scheduled. Inactivation is internal
+bookkeeping only; the Shopify orders and counted units are untouched and
+staff reactivation reverses it.
+
+**Verifying job evidence rather than exit codes was load-bearing.** The
+milestone job returned HTTP 200 and `curl -fsS` exited 0 while reporting
+`emailsFailed: 3`. An exit-code check would have called that success.
+
+**Pricing values were data-driven but not operationally configurable.** An
+architecture audit found the only writer to any pricing-configuration table
+was `prisma/seed.ts`. Closed by P6/P7.
+
+**Custom Jewelry resolved the pricing profile by a different rule.** It
+carried its own query with no `effectiveFrom` filter, so a future-dated
+profile would have taken effect there before Buy Now. Now uses the shared
+resolver; pinned behaviourally and structurally.
+
+**The input boundary used casts, not checks.** Every enum crossed through
+`as never`, and `currency` was unvalidated against a `char(3)` column that
+**blank-pads** — `US` would have been stored as `"US "` silently. Closed in
+`domain/pricing/configurationInput.ts`, validating against Prisma's
+generated runtime enums.
+
+**Production reference data was unknown and turned out to exist.** The
+seed had run; a pricing profile and all cost libraries were present.
+
+**Earlier register revisions were wrong about production.** A
+reconstruction-based revision marked the Fly deployment unconfirmed,
+secrets missing, email missing and no jobs scheduled. All were already
+configured. Every status in this register now names its evidence.
+
+---
+
+## 10. Not in this register
 
 - Post-MVP functionality of any kind.
 - `product-faq.liquid`'s PDP placement — implemented, unwired, awaiting an
   owner decision. Not a blocker; the FAQ page works without it.
 - The optional "close to the next tier" Group Buy email. README permits it;
   the scope freeze excludes it.
-- Performance work on the pricing job's query count. Real, recorded, not a
-  launch blocker.
-- **Anything already configured.** Core secrets, email, storage, bank
-  coordinates and the two live cron jobs are done, and the action queue
-  does not ask for them again.
-
----
-
-## 7. The two parallel tracks
-
-These do not depend on each other and should run at the same time. Track A
-is entirely owner work. Track B needs one input from the owner and is then
-mostly engineering.
-
-### Track A — commerce-store activation (owner)
-
-Strictly ordered; each step depends on the one before.
-
-1. **Check whether `caratforus-dev` offers "Transfer ownership"** in the
-   Partner/Dev Dashboard, then either retain it or stand up a production
-   store. Everything else in this track — and the whole of Track B — waits
-   on this. Retaining preserves the verified app install, theme, policy
-   pages and App Proxy configuration. **Now is the cheapest possible moment
-   to move**: there is no catalogue, no FAQ metaobjects and no collections
-   to lose, and the 15 policy terms live in Postgres rather than Shopify, so
-   they survive either way.
-2. **Payment gateway** — Shopify Payments or a provider, activated and
-   able to take a live card.
-3. **Tax** — registration and Shopify tax configuration.
-4. **Shipping configuration** (C6) — rates, full-value insurance, and the
-   locked rule that anything over $100 requires signature.
-5. **Confirm the Zelle recipient** (C3) — it currently holds the same value
-   as `STAFF_EMAIL_ALLOWLIST`.
-6. **Post-transfer re-verification**, only if the store identity changes:
-   - update `SHOPIFY_SHOP_DOMAIN`, and `SHOPIFY_API_KEY` / `SHOPIFY_API_SECRET`
-     if a new app is created;
-   - reinstall the app and re-grant scopes;
-   - reconfigure the App Proxy subpath and re-verify routing **through the
-     storefront**, which is the half not provable from the app side;
-   - re-register webhooks and confirm delivery;
-   - re-push the theme.
-
-### Track B — the first real product
-
-**LOCKED (owner, 2026-10-14): a 14K gold solitaire pendant with one
-lab-grown diamond.** Fixed configuration, single Shopify variant,
-`sizeAxis: none`, no ring-sizing model, one centre stone.
-
-An earlier draft of this register proposed a sterling-silver SKU on
-simplicity grounds. That was wrong for the purpose: a throwaway product has
-no launch value. The locked archetype proves the real CaratForUs path —
-metal + purity + weight + labor + stone + components + pricing profile +
-Bank/Card derivation + Shopify sync — while `sizeAxis: none` still excludes
-the ring-size band model, `weightPerFullSizeGrams`, weight overrides and the
-per-size price surface.
-
-14K costs nothing extra on the metal side: `purity.ts` computes
-`pure_reference_price_per_gram × fineness × grams`, so one
-`MetalReferencePrice(gold)` row serves 10k/14k/18k.
-
-**Blocked on the Shopify-store decision**, deliberately. No product is
-created or mapped until it is settled, so Shopify IDs are not minted in a
-store we may abandon.
-
-**Owner inputs, agreed 2026-10-14:** product name; finished 14K weight in
-grams; whether a chain is included and if so its length and weight; stone
-shape; carat; intended colour/clarity/cut; actual supplier cost for the
-stone; labor source and real rate; current pure-gold price with as-of date;
-realistic metal-loss percentage; and the applicable component costs
-(casting, setting, polishing, assembly, QC, packaging, shipping, insurance,
-warranty reserve, supplier fee). CAD may legitimately be zero for a stock
-pendant.
-
-**Stone coverage.** The existing library covers lab round and lab princess
-over **[0.90, 1.10) ct** only — a half-open interval, so 1.10 itself is not
-covered. If the real pendant is a commoner pendant size (0.25–0.75 ct),
-a new effective-dated `StoneCost` band is created **from the owner's real
-supplier cost**, never invented to make the engine resolve. A missing band
-raises `MissingCostInputError`, so the engine fails closed rather than
-pricing a stone at zero.
-
-**MVP1 stone-costing policy, stated plainly.** The *resolver* supports
-quality tiers — `selectMostSpecific` prefers a row matching colour, clarity,
-cut grade, lab status or supplier over a less specific one. The *data* does
-not: every current row leaves those qualifiers NULL, so they act as
-wildcards and cost varies only by stone type, shape and carat band. The
-database does not differentiate quality today. Adding a more specific row
-later will take precedence automatically, with no code change.
-
----
-
-### The two new cron jobs, and what invoking them actually proved
-
-Verifying the job's own output rather than the exit code was the right
-instruction, and it immediately paid.
-
-**`group-buy-milestones` → HTTP 200**, and:
-
-```json
-{"campaignsExamined":3,"milestonesDispatched":1,"emailsSent":0,
- "emailsAlreadySent":0,"emailsFailed":3,"recipientsUnresolved":0}
-```
-
-`curl -fsS` exited 0. **Three sends failed.** The job worked perfectly —
-it found an open campaign at `best_tier:2`, resolved three participants,
-built the emails, called the provider and recorded each failure with the
-campaign, the milestone, a recipient fingerprint and the error name, with
-no address in plaintext. What failed is the data: the campaign is
-**`ZZ LIVE GATE TEST CAMPAIGN — DO NOT PUBLISH`, still `open` in
-production, with all three participants on `@example.com`.**
-
-🔴 **CORRECTION, 2026-10-15 — the fixture framing above was wrong, and
-recording pre-change state is what caught it.**
-
-Production holds **six** ZZ live-gate campaigns and **all six were already
-archived on 2026-10-05**. Nobody had forgotten to clean anything up. The
-archive annotation was in place and **the milestone sweep did not honour
-it** — it filtered on `status in (open, closed)` and ignored `archivedAt`
-entirely.
-
-So this was never fixture hygiene. It was a **general defect in the sweep**:
-any campaign an operator archives would have kept emailing its
-participants indefinitely, because a failed or pending milestone
-deliberately retries. The schema's own comment says archiving "governs
-what staff read as live business"; a campaign removed from live business
-must not send customers tier-unlock and close notices about itself.
-
-Fixed in `c14c94c` by filtering `archivedAt: null`, with three regression
-tests (archived sends nothing; un-archiving resumes, because suppression
-must be as reversible as the annotation causing it; an archived *closed*
-campaign suppresses its close email too).
-
-**Verified in production after deploy:** the sweep now reports
-`campaignsExamined: 0, emailsFailed: 0`. The hourly failure loop is
-stopped.
-
-Two tempting non-fixes were rejected. Writing completion markers for the
-affected campaign would record three sends as done when they never
-happened — a lie in the evidence table — and would leave the defect in
-place for the next archived campaign. Closing the campaign is wrong twice
-over: it converts the pending tier milestone into a `campaign_closed`
-milestone, producing three *more* failed sends to the same unreachable
-addresses, and moves a fixture campaign into settlement-eligible state.
-
-The three failed `idempotency_key` rows are left exactly as they are: they
-are the honest record that three sends were attempted and failed.
-
-**`group-buy-bank-payment-window` → HTTP 200**, and:
-
-```json
-{"now":"2026-10-15T03:45:08.859Z","ordersConsidered":5,
- "inactivated":5,"kept":0,"errored":0}
-```
-
-**This one changed production state**, and that is worth stating plainly
-rather than burying: it inactivated five Group Buy bank-payment orders.
-All five were fixture/live-gate orders long past their 96-hour window —
-they had been sitting overdue precisely because this job had never been
-scheduled — so the job did exactly what it exists to do on its first run.
-Inactivation is internal bookkeeping only (the enum's own comment: the
-Shopify order and the counted units are untouched) and is reversible by
-staff reactivation.
-
----
-
-## 8. Fixture catalogue cleanup — proposed, NOT executed
-
-Production carries seed and live-gate fixtures. The concrete harm today is
-narrow but real: **four active fixture variants are processed by the daily
-production recalculation cron.** None is synced to Shopify
-(`shopify_variant_gid` is null), so nothing is customer-visible — but an
-active fixture product in a production catalogue is what surfaces at the
-worst possible moment.
-
-**The lever is `status`, and it is safe and reversible.** Verified:
-`runRecalculation.server.ts` selects `{ status: "active" }` and nothing
-else consumes active master variants; `MasterProductStatus` and
-`MasterVariantStatus` are both `draft | active | archived`; and the
-catalogue tables carry **no** append-only triggers, so a status change is a
-normal, reversible update. Archiving removes a variant from recalculation
-and sync without touching one row of evidence.
-
-| Row | Current | Proposed | Why |
-|---|---|---|---|
-| `Seed Fixture Solitaire Ring` (product) | `active` | **archive** | Pure seed fixture; a ring, which we are not launching with |
-| Its 3 active 14k gold variants | `active` | **archive** | Stops them entering daily recalculation |
-| Its 1 active pt950 variant | `active` | **archive** | Same |
-| `ZZ livegate storefront …` (product) | `archived`, has `shopify_product_gid` | **leave as-is in Postgres** | Already archived. Its Shopify side is handled below |
-| `ZZ LIVE GATE TEST — DO NOT SELL …` (product) | `draft` | **leave as-is** | Draft never reaches recalculation |
-| **`ZZ LIVE GATE TEST CAMPAIGN — DO NOT PUBLISH`** (Group Buy campaign `dcccf42e…`) | **`open`** | **close or archive — now the most urgent item here** | Discovered 2026-10-15 when the milestone cron ran. An OPEN campaign with three `@example.com` participants, generating three failed provider sends every hour. Closing it ends the noise; archiving additionally hides it from staff views. Its three bank-payment orders were inactivated by the window job's first run |
-| Its 1 archived + 1 draft variant | archived / draft | **leave as-is** | Already excluded |
-| 94 `price_calculation`, 93 `price_sync_intent`, all snapshots | — | **UNTOUCHED** | Historical evidence. Archiving the variant does not break the foreign keys that reference it |
-| `policy_version`, acknowledgments, audit records | — | **UNTOUCHED** | Never in scope |
-
-**Nothing is hard-deleted.** No DELETE on any fixture row is proposed, and
-the evidence tables are append-only in any case.
-
-### Shopify side, split by outcome
-
-| | If `caratforus-dev` is retained | If a new production store is created |
-|---|---|---|
-| `gid://shopify/Product/10357871313197` (the live-gate storefront product) | Must be deleted or unpublished **in Shopify Admin** — it is a real product record in that store | Disappears on its own; the new store starts clean |
-| The one draft variant holding a `shopify_variant_gid` | Same — remove in Admin | Disappears |
-| **Postgres fixture records** | Archive as proposed above | **Still need archiving.** A new store does not clean the database |
-
-That last cell is the one worth not missing: moving store solves the
-Shopify half and none of the Postgres half.
-
-**Not executed.** Proposed for owner approval first.
+- A "recalculate now" action — see the limitation under P6/P7.
+- An index on `(code, effective_from, version)` — speculative at k=4.
+- Channel-specific pricing profiles — schema-capable, not required for MVP1.
+- **Anything already configured.** Core secrets, Shopify secrets, email,
+  storage, bank coordinates and all four cron jobs are done, and nothing
+  here asks for them again.
