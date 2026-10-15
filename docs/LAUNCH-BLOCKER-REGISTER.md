@@ -102,12 +102,43 @@ yet. Deploy first, schedule second.
 | # | Item | Status | Evidence / note |
 |---|---|---|---|
 | C1 | **A real catalogue.** No sellable product exists | 🔴 MISSING | See Track B in the action queue for exactly what is needed |
-| C2 | **A store that can take payments.** | 🔴 MISSING | **Confirmed by Shopify CLI 2026-10-14: `Type: Dev`, Plan Basic, created Sep 17 2026, org "My Store" (236195662).** It is a development store, not a client transfer store. Whether *this* store can be transferred depends on the purpose it was created with, which the CLI does not expose — owner is checking for a "Transfer ownership" action in the Partner/Dev Dashboard. **All Shopify catalogue mutations are held until that answer**, so we do not create product IDs in a store we may abandon |
+| C2 | **A store that can take payments.** | 🔴 MISSING — **resolved: a NEW production store is required** | See the determination below. `caratforus-dev` offers **no transfer or upgrade path**; it must be replaced, not converted |
 | C3 | **Bank payment coordinates** | 🟢 WORKING (one check) | `PAYMENT_ZELLE_RECIPIENT`, `PAYMENT_WIRE_BANK_NAME`, `PAYMENT_WIRE_ACCOUNT_NAME`, `PAYMENT_WIRE_ROUTING_NUMBER`, `PAYMENT_WIRE_ACCOUNT_NUMBER` all set and Deployed. ❓ **One thing to confirm —** `PAYMENT_ZELLE_RECIPIENT` has an identical digest to `STAFF_EMAIL_ALLOWLIST`, meaning the same value. That is fine if both are one address; it is wrong if the allowlist is a comma-separated list, because the Zelle recipient would then be unusable. Worth one look |
 | C4 | **Terms of Service** | 🔴 MISSING | Four business decisions needed first — `docs/content/MVP1-STOREFRONT-COPY.md` Part 4 |
 | C5 | **Privacy Policy** | 🔴 MISSING | Append-only evidence tables interact with deletion requests and need a lawful stated answer — Part 5 |
 | C6 | **Shipping configuration in Shopify** — rates, insured value, the $100 signature rule | ❓ UNKNOWN | Policy is locked in the README; whether Shopify is configured for it cannot be seen from here |
 | C7 | **Payment gateway and tax** in Shopify | ❓ UNKNOWN | Not visible from here, and moot until C2 |
+
+---
+
+### C2 determined, 2026-10-15 — the store cannot be converted
+
+Checked in the authenticated Shopify session, three independent places:
+
+| Source | What it shows |
+|---|---|
+| `shopify store info` (CLI) | `Type: Dev`, Plan Basic, created Sep 17 2026 |
+| Admin → Settings → **Plan** | "Basic" with a **Development store** badge. The only action on the page is **Delete store** — no plan selection, no upgrade, no "select a plan" |
+| Dev Dashboard → Stores → ⋮ | Exactly two actions: **Log in** and **Delete store**. **No "Transfer ownership"** |
+
+**Conclusion: `caratforus-dev` is a development store created for app/theme
+testing, with no self-serve route to a paid public storefront.** A
+transferable store would expose a transfer action; this one exposes
+deletion. It must be replaced, not upgraded.
+
+**Therefore the production store must be created first, and the real
+catalogue built there** — which is exactly why no Shopify product,
+mapping, metaobject or collection has been created. Creating a store
+requires a plan purchase and is an owner action; nothing further can be
+prepared from here.
+
+What survives the move, and what does not, is unchanged from the earlier
+assessment: all 15 policy terms, the whole database, 24 of 25 Fly secrets
+and both pricing surfaces survive, because they live in Postgres and Fly
+rather than in Shopify. What must be redone is the app install, App Proxy
+configuration, webhook registration, the theme push and the six policy
+page shells. **Now remains the cheapest moment to do it** — there is still
+no catalogue, no FAQ metaobject and no collection to lose.
 
 ---
 
@@ -176,8 +207,8 @@ lying. They are tracked separately.
 |---|---|---|
 | **IMPLEMENTED / TESTED** | 🟢 GREEN | 🟢 GREEN |
 | **DEPLOYED to production** | 🟢 GREEN — `8ddc275`, 2026-10-15 | 🟢 GREEN — same deploy |
-| **LIVE OPERATOR SMOKE TEST** | 🔴 **owner action** | 🔴 **owner action** |
-| **Overall** | 🟡 YELLOW | 🟡 YELLOW |
+| **LIVE OPERATOR SMOKE TEST** | 🟢 GREEN — 2026-10-15 | 🟢 GREEN — 2026-10-15 |
+| **Overall** | 🟢 **GREEN** | 🟢 **GREEN** |
 
 Deployment verified: `/health` ok, database ok, **90 migrations applied, 0
 pending**, the offline Shopify session survived (six signed App Proxy policy
@@ -185,13 +216,59 @@ groups still return 15 terms), and `/app/pricing-settings` returns 410 —
 identical to every other working embedded route, where a genuinely missing
 route returns 404. So the route is registered and authenticating.
 
-**The last stage needs a browser session I do not have.** Opening the page
-inside Shopify Admin and confirming it displays the real 40% / 20% / $100
-and the current metal, labor, stone and component values is the owner's
-step. No configuration write is needed to prove it — and deliberately so:
-the first real write should be an actual Product #1 cost update, not a
-throwaway version created to test a form.
-| P3 | **Production cost inputs** — gold, stone, labor, metal loss, casting/setting/polishing/assembly/QC, packaging, shipping, insurance, warranty reserve, supplier fee | 🟡 YELLOW | Every row exists and resolves; all are seed fixtures dated `2026-01-01` and self-labelled "not a real market quote / supplier quote / cost assumption". **Validate for Product #1 before publishing it.** Not a blocker on the engine — only on publishing a real SKU |
+**Smoke test completed 2026-10-15** in Shopify Admin at
+`/store/caratforus-dev/apps/caratforus-development/app/pricing-settings`,
+with no configuration written — deliberately, so the first real write can
+be an actual Product #1 cost update rather than a throwaway version.
+
+Observed rendering:
+
+- **Target markup 40, minimum gross margin 20, minimum profit 100.00**,
+  pre-filled, under "Currently version 5, effective 2026-09-18… margin
+  model MARKUP_ON_COST_V1; card rule BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1".
+- Metals: sterling_silver 0.9189, gold 82.7, platinum 36.58 USD/g.
+- Labor: india 4.5, china 5.25, usa 12 USD/g.
+- Stones: five rows, **each appearing once**, all "any (wildcard)" — the
+  per-key collapse working against real data.
+- Components: fourteen rows including `payment_processing` **twice**
+  (percentage 0.029 and fixed 0.30 — the `(type, valueKind)` key behaving
+  as designed), and **`payment_adjustment` correctly absent**.
+- Both scope notices rendered: what a change affects, and that existing
+  Group Buy campaigns are never repriced.
+
+No application console errors (only Chrome-extension noise from MetaMask)
+and no failed requests.
+| P3 | **Production cost inputs** — gold, stone, labor, metal loss, casting/setting/polishing/assembly/QC, packaging, shipping, insurance, warranty reserve, supplier fee | 🟡 YELLOW — **placeholder, and must not silently qualify Product #1** | Every row exists and resolves; **all are seed fixtures dated `2026-01-01`** and self-labelled "not a real market quote / supplier quote / cost assumption". See the warning below |
+
+### ⚠️ Placeholder cost data — the trap to avoid with Product #1
+
+**Every cost input in production today is placeholder data, and it does
+not look like placeholder data.** Gold at 82.70/g implies roughly
+$2,572/oz; silver and platinum are similarly plausible. A price computed
+from them will be a sensible-looking number that is not a real price.
+
+Three properties make this dangerous rather than merely untidy:
+
+1. **It resolves.** Nothing fails. A Product #1 priced today would move
+   cleanly through calculate → approve → sync with no error anywhere.
+2. **`isPlaceholder` does not cover it.** That flag lives on
+   `pricing_profile` only, and the active profile is legitimately
+   `isPlaceholder: false` — its *rules* are owner-approved. There is no
+   equivalent flag on `metal_reference_price`, `labor_rate`,
+   `stone_cost` or `cost_component`, so nothing downstream can tell a
+   fixture cost from a real one.
+3. **Every row is dated `2026-01-01`**, which is the one reliable tell.
+
+**The operating rule until the owner supplies real values:** a variant may
+be mapped and calculated for pipeline proving, but **nothing may be
+published to a storefront while any cost input it depends on still carries
+the `2026-01-01` fixture date.** The Pricing Settings screen shows the
+effective date of every value precisely so this is checkable at a glance.
+
+Replacing a value is now an operator action, not an engineering one — that
+is what P6/P7 delivered.
+
+---
 | P4 | **Card-price derivation** | 🟢 WORKING | Active profile carries `BANK_TIERED_UPLIFT_CEIL_FIVE_DOLLARS_V1` — the approved tiered uplift with upward-to-$5 rounding on the Regular/Card Price only |
 | P5 | **Fixture catalogue cleanup** | 🟡 YELLOW | Required before public operation; **not a reason to resume feature development.** Proposal prepared, not executed — see section 8 |
 
@@ -295,15 +372,37 @@ differing in any qualifier are genuinely co-applicable at different
 specificities and all remain visible; collapsing harder would hide real
 configuration.
 
-**One production cost this feature would have introduced, fixed.**
-`resolveActivePricingProfile` loaded the entire version history for a code on
-every price calculation and used its first row. Invisible while versions
-only appeared when an engineer edited the seed; with operator-created
-versions becoming routine, the cost would grow with how often the business
-changes its mind. `findFirst` with identical `where` and ordering returns
-the same row in constant time. It surfaced in the shared integration
-database, where the extra rows pushed two already-slow pricing tests past
-their timeout and the full suite from 1143s to 651s.
+**The resolver change — corrected claim.** An earlier revision of this
+register said `findFirst` returns the row "in constant time". **That was
+wrong, and the query plan says so.** Measured against production
+2026-10-15 with `EXPLAIN (ANALYZE, BUFFERS)`:
+
+```
+Limit → Sort (top-N heapsort, keys: effective_from DESC, version DESC)
+      → Index Scan using pricing_profile_code_version_key
+          Index Cond: (code = 'buy_now')
+          Filter: (effective_from <= now())   rows=4
+```
+
+The only index is `UNIQUE (code, version)`. **Nothing indexes
+`effective_from`**, so the server still reads every version for the code
+and sorts them. It is O(k), not constant.
+
+What genuinely improved: one row is materialised and returned instead of
+k, and the sort became a top-N heapsort. That matters as k grows and is
+the mechanism behind the integration-suite effect — but at today's k=4 the
+LIMIT form measured *marginally slower* (0.084 ms vs 0.041 ms).
+
+Semantics are preserved exactly: same `where` (`code` + `effective_from <=
+asOf`), same deterministic ordering (`effective_from DESC, version DESC`),
+so the same row is selected and the documented same-date version tie-break
+still holds.
+
+**Causation not established for the suite timing.** The full run went
+1143s → 651s across this change, but machine load was not controlled, so
+that is suggestive rather than evidence. A genuine fix, if version counts
+ever grow enough to matter, is an index on `(code, effective_from DESC,
+version DESC)` — not built, because at k=4 it would be speculative.
 
 **Known limitation, reported rather than worked around:** there is no
 "recalculate now" button. `runPriceRecalculation` with no `variantIds` sweeps
@@ -513,13 +612,41 @@ no address in plaintext. What failed is the data: the campaign is
 **`ZZ LIVE GATE TEST CAMPAIGN — DO NOT PUBLISH`, still `open` in
 production, with all three participants on `@example.com`.**
 
-⚠️ **This makes the fixture cleanup time-sensitive rather than cosmetic.**
-A failed milestone deliberately leaves the milestone incomplete so it
-retries — so from now on this produces **three failed sends every hour**,
-against a real email provider, for addresses that cannot exist. Harmless
-to customers, but it burns provider reputation and is exactly the kind of
-recurring error that trains people to ignore the log where a real failure
-will later appear. Closing or archiving that campaign stops it.
+🔴 **CORRECTION, 2026-10-15 — the fixture framing above was wrong, and
+recording pre-change state is what caught it.**
+
+Production holds **six** ZZ live-gate campaigns and **all six were already
+archived on 2026-10-05**. Nobody had forgotten to clean anything up. The
+archive annotation was in place and **the milestone sweep did not honour
+it** — it filtered on `status in (open, closed)` and ignored `archivedAt`
+entirely.
+
+So this was never fixture hygiene. It was a **general defect in the sweep**:
+any campaign an operator archives would have kept emailing its
+participants indefinitely, because a failed or pending milestone
+deliberately retries. The schema's own comment says archiving "governs
+what staff read as live business"; a campaign removed from live business
+must not send customers tier-unlock and close notices about itself.
+
+Fixed in `c14c94c` by filtering `archivedAt: null`, with three regression
+tests (archived sends nothing; un-archiving resumes, because suppression
+must be as reversible as the annotation causing it; an archived *closed*
+campaign suppresses its close email too).
+
+**Verified in production after deploy:** the sweep now reports
+`campaignsExamined: 0, emailsFailed: 0`. The hourly failure loop is
+stopped.
+
+Two tempting non-fixes were rejected. Writing completion markers for the
+affected campaign would record three sends as done when they never
+happened — a lie in the evidence table — and would leave the defect in
+place for the next archived campaign. Closing the campaign is wrong twice
+over: it converts the pending tier milestone into a `campaign_closed`
+milestone, producing three *more* failed sends to the same unreachable
+addresses, and moves a fixture campaign into settlement-eligible state.
+
+The three failed `idempotency_key` rows are left exactly as they are: they
+are the honest record that three sends were attempted and failed.
 
 **`group-buy-bank-payment-window` → HTTP 200**, and:
 
