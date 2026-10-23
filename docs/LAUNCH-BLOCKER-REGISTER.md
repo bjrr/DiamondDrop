@@ -1,6 +1,7 @@
 # MVP1 Launch Blocker Register
 
-**Current as of 2026-10-15. `main` = `29de5b1`.**
+**Current as of 2026-10-22. `main` = `5d24640` (application code unchanged since `c14c94c`).**
+**Production Shopify store: `CaratForUs` — `caratforus.myshopify.com` (permanent domain `nnb1th-cm.myshopify.com`).**
 
 The single authoritative list of what stands between CaratForUs and taking
 a real customer's money.
@@ -13,13 +14,15 @@ live in §9 as history, never as open items.
 
 ## The one-paragraph answer
 
-**The platform is ready; the business is not.** The app is deployed and
-healthy, fully migrated, operator-configurable, and all four scheduled jobs
-run and have been individually proven. What is missing is commercial:
-`caratforus-dev` is a development store that **cannot be converted** to a
-paid storefront, so a new production store must be created; there is no
-real catalogue; and every cost input in the database is still placeholder
-data. No amount of further engineering changes any of that.
+**The production store exists and is wired to the production backend; the
+business is not ready.** On 2026-10-22 the real merchant store was created,
+the existing CaratForUs app was installed on it (same app, same client, no
+secret rotated), Fly was repointed at it, and App Proxy, webhooks, the theme,
+the six policy pages, FAQ infrastructure and the Slice 13 page were verified
+**through the new storefront**. The storefront remains password-protected.
+What is missing is commercial and owner-only: payments (KYC), tax, shipping
+rates, Terms of Service, Privacy Policy, approved page copy and FAQ entries,
+a real catalogue, and real cost inputs to replace the `2026-01-01` fixtures.
 
 ---
 
@@ -38,45 +41,61 @@ data. No amount of further engineering changes any of that.
 
 | # | Item | Status | Evidence / note |
 |---|---|---|---|
-| C1 | **A real catalogue** — no sellable product exists | 🔴 BLOCKER | Blocked behind C2 by choice: no Shopify product, mapping, metaobject or collection is created in a store we are about to abandon. See §8 Track B |
-| C2 | **A payment-capable store** | 🔴 BLOCKER | **Determined 2026-10-15: `caratforus-dev` cannot be transferred or upgraded. A new production store is required.** See §2 |
-| C3 | **Bank payment coordinates** | 🟡 PARTIAL | All five `PAYMENT_*` secrets set and Deployed. ❓ One check outstanding: `PAYMENT_ZELLE_RECIPIENT` has the same digest as `STAFF_EMAIL_ALLOWLIST`, so the same value — fine if both are a single address, wrong if the allowlist is comma-separated |
+| C1 | **A real catalogue** — no sellable product exists | 🔴 BLOCKER | Unblocked by C2 but not started: Product #1 waits on real owner inputs (§8 Track B) and on P3 |
+| C2 | **A payment-capable store** | 🟢 DONE (store) / 🔴 payments not active | Production store created 2026-10-22 on the **Grow** plan ($1/mo promotional until 2027-01-21, then $105/mo — owner chose Grow over Basic). See §2. Card processing is C7 |
+| C3 | **Bank payment coordinates** | 🟢 DONE | All five `PAYMENT_*` secrets Deployed. **Owner confirmed 2026-10-22: `PAYMENT_ZELLE_RECIPIENT` is exactly one recipient** (it shares a digest with `STAFF_EMAIL_ALLOWLIST`, so that allowlist is a single address too). Shopify manual-payment instructions not yet configured — Phase 14 |
 | C4 | **Terms of Service** | 🔴 BLOCKER | Does not exist. Four business decisions needed first — `docs/content/MVP1-STOREFRONT-COPY.md` Part 4 |
-| C5 | **Privacy Policy** | 🔴 BLOCKER | Does not exist. Append-only evidence tables interact with deletion requests and need a lawful stated answer — Part 5 |
-| C6 | **Shipping configuration in Shopify** | ❓ UNKNOWN | Policy locked in README; Shopify-side configuration not visible from here. Moot until C2 |
-| C7 | **Payment gateway and tax** | ❓ UNKNOWN | Not visible from here. Moot until C2 |
+| C5 | **Privacy Policy** | 🔴 BLOCKER | Does not exist. Append-only evidence tables interact with deletion requests and need a lawful stated answer — Part 5. Note: Shopify auto-created a "Your Privacy Choices" page on the new store that refers to a Privacy Policy |
+| C6 | **Shipping configuration in Shopify** | 🔴 BLOCKER | Not configured. Needs owner rates/zones/packages; the $100 signature rule needs an operational mechanism, not policy text |
+| C7 | **Payment gateway and tax** | 🔴 BLOCKER | Shopify Payments **not activated**. Setup is at Step 1 of 4 (business type) — owner KYC. Shopify quotes card rates "starting at 2.7% + $0.30" on Grow vs the pricing audit input 2.9% + $0.30; reconcile only after activation shows the real rate. Tax not configured |
 
 ---
 
-## 2. The store determination (C2)
+## 2. The production store (C2) — migrated 2026-10-22
 
-Checked in the authenticated Shopify session, three independent places:
+`caratforus-dev` is a development store with no transfer or upgrade path
+(determined 2026-10-15). It was **replaced, not converted**, and is left in
+place untouched — app install and session included — until the new store is
+fully live.
 
-| Source | Result |
+### The store
+
+| Property | Value |
 |---|---|
-| `shopify store info` (CLI) | `Type: Dev`, Plan Basic, created 2026-09-17, org "My Store" (236195662) |
-| Admin → Settings → **Plan** | "Basic" with a **Development store** badge. Only action on the page: **Delete store**. No plan selection, no upgrade |
-| Dev Dashboard → Stores → ⋮ | Exactly two actions: **Log in**, **Delete store**. **No "Transfer ownership"** |
+| Display name | **CaratForUs** |
+| Primary myshopify domain | **`caratforus.myshopify.com`** (one further myshopify rename remains) |
+| Permanent domain | **`nnb1th-cm.myshopify.com`** — what Shopify sessions, App Proxy signatures and webhooks identify the shop by. **This, not the friendly name, is `SHOPIFY_SHOP_DOMAIN`** — proven from the install log, where the offline and online sessions were both created for `nnb1th-cm.myshopify.com` |
+| Organization | "My Store" (236195662) — the same organization that owns the app |
+| Type / plan | Production / **Grow** |
+| Storefront | **Private (password-protected)** |
+| Live theme | **CaratForUs MVP1 `#187633434842`**, pushed from `theme/` at `5d24640`. Shopify's default Horizon theme is kept unpublished as the rollback |
 
-**`caratforus-dev` is a development store created for app/theme testing,
-with no self-serve route to a paid public storefront.** A transferable
-store exposes a transfer action; this one exposes deletion. It must be
-replaced, not upgraded. Creating a store requires a plan purchase and is an
-owner action — nothing further can be prepared from here.
+### How the app moved — same app, no new client
 
-### What survives the move, and what does not
+The app belongs to the store's own organization, so Shopify installs it on
+any store in that organization from the Dev Dashboard (**Apps → ⋮ → Install
+app**). No distribution method was chosen, no new app was created, and
+`SHOPIFY_API_KEY` / `SHOPIFY_API_SECRET` were **not** rotated. The only Fly
+change was `SHOPIFY_SHOP_DOMAIN` → `nnb1th-cm.myshopify.com` (release #42).
 
-| Survives untouched | Must be redone |
+Webhook subscriptions and the App Proxy are **declared in the app version**
+(`caratforus-development-13`) and attach to every installation, so there was
+nothing to re-register and no way to create duplicates.
+
+### Verified on the new store
+
+| Check | Evidence |
 |---|---|
-| All 15 policy terms (they live in Postgres, not Shopify) | App install + OAuth grant |
-| The entire database and all 90 migrations | App Proxy subpath + storefront routing |
-| 24 of 25 Fly secrets (only `SHOPIFY_SHOP_DOMAIN` changes) | Webhook registration |
-| The Fly app, Postgres, all four cron machines | Theme push |
-| Pricing settings and every pricing value | Six policy page shells |
-
-**Now is the cheapest possible moment to move** — there is still no
-catalogue, no FAQ metaobject and no collection to lose. That stops being
-true the moment Product #1 is created.
+| Embedded admin + OAuth | Install granted the version-13 scopes; app opens embedded and authenticated |
+| Pricing Settings | Profile v5, **40 / 20 / 100.00**, read from the production database; labor rates present. Nothing written |
+| Fly / database | Release #42 healthy; `/health` ok; applied migrations = the 90 in the repo, **0 pending**; required policy versions present |
+| App Proxy — backend half | Direct unsigned `GET caratforus.fly.dev/apps/carat/policies` → `{"error":"unauthorized"}`, logged `invalid_or_missing_signature` |
+| App Proxy — Shopify half | `caratforus.myshopify.com/apps/carat/policies` → signed request reached Fly with `shop=nnb1th-cm.myshopify.com` → **6 groups, 15 terms, `incomplete: false`** |
+| Webhooks | A throwaway draft product ("ZZ webhook test — DO NOT SELL", never active, now **archived**) produced exactly one `products/update` delivery per change (2 changes → 2 deliveries), both **200**, handled by our receiver (which returns 401 on HMAC failure). `inventory_levels/update`, `orders/create`, `orders/paid` are the same subscription set but **not yet observed firing** — they need stock changes or a real order, so they are proven in the launch rehearsal |
+| Six policy pages | See N1 |
+| Past Group Buys | See S6 |
+| FAQ | See S2/S4 |
+| Old dev store | Install and session still present; untouched |
 
 ---
 
@@ -84,30 +103,31 @@ true the moment Product #1 is created.
 
 | # | Item | Status | Evidence / note |
 |---|---|---|---|
-| N1 | Six policy pages, correct templates, terms served live | 🟢 DONE | 6/6 groups over signed App Proxy, 15 terms, `incomplete: false`, re-verified after every deploy |
-| N2 | Policy page bodies are empty | 🔴 BLOCKER | Drafts written — `MVP1-STOREFRONT-COPY.md` Part 1 |
-| N3 | About page copy | 🔴 BLOCKER | Draft written; needs 2–3 sentences only the owner has |
-| N4 | Why Buy From Us copy | 🔴 BLOCKER | Draft written and grounded in README + locked pricing policy |
-| N5 | FAQ entries | 🔴 BLOCKER | No `faq_entry` metaobject definition or entries exist, so the FAQ page renders nothing |
+| N1 | Six policy pages, correct templates, terms served live | 🟢 DONE (production store, live-tested) | Created 2026-10-22, each verified in the storefront: Returns and Cancellations (`policy-returns`, 1 term), Warranty (`policy-warranty`, 1), Luxury Steals (`policy-luxury-steals`, 1), Group Buy (`policy-group-buy`, 3), Custom Jewelry (`policy-custom-jewelry`, 3 — final-approval term at **Version 2**), Let Us Beat Your Quote (`policy-quote-match`, 6). **15 terms**, version labels shown, no Loading or error state, empty bodies so nothing is duplicated. Handles: `returns-and-cancellations`, `warranty`, `luxury-steals`, `group-buy`, `custom-jewelry`, `let-us-beat-your-quote` |
+| N2 | Policy page bodies are empty | 🔴 BLOCKER | Drafts written — `MVP1-STOREFRONT-COPY.md` Part 1, **still DRAFT, not owner-approved**; nothing published from it |
+| N3 | About page copy | 🔴 BLOCKER | Draft written; needs 2–3 sentences only the owner has. No About page created |
+| N4 | Why Buy From Us copy | 🔴 BLOCKER | Draft written and grounded in README + locked pricing policy. Not approved; no page created |
+| N5 | FAQ entries | 🔴 BLOCKER | Definition and page now exist (S4); **no entries** — there is no approved FAQ copy, so the FAQ page shows only its title |
 | N6 | Contact mailbox | 🟢 DONE | `orders@caratforus.com`, owner-confirmed, fenced repo-wide. `CUSTOMER_SERVICE_EMAIL` is deliberately *not* a Fly secret — nothing reads it at runtime. Do not set it |
+| N7 | Contact page + form routing | 🟡 PARTIAL | `/pages/contact` (template `contact`) carries the **owner-approved wording verbatim**; Shopify's contact form renders below it. Store contact email is `orders@caratforus.com`. **Not GREEN until a real test submission is seen arriving in the monitored inbox.** Note: Dawn's form shows an optional "Phone number" input — collected, not advertised as support |
 
 ---
 
 ## 4. Shopify Admin setup
 
-Everything here is **blocked behind C2** and should be done once, in the
-production store.
+All items below refer to the **production store** (`caratforus.myshopify.com`).
 
 | # | Item | Status | Evidence / note |
 |---|---|---|---|
-| S1 | Slice 12 policy theme files pushed | 🟢 DONE (dev store) | Theme `182948626733`. Must be re-pushed to the production store |
-| S2 | FAQ theme files pushed | 🔴 BLOCKER | Committed `a764887`, never pushed to Shopify |
-| S3 | Slice 13 theme files pushed | 🔴 BLOCKER | Committed `5f33f0e`, never pushed |
-| S4 | `faq_entry` metaobject definition | 🔴 BLOCKER | Exact handles in `docs/specs/SLICE-12-CONTENT.md` §4.2. A wrong field key renders blank entries with no error anywhere |
-| S5 | `carat.faq_entries` product metafield | 🟡 PARTIAL (optional for launch) | `product-faq.liquid` is implemented but deliberately unwired pending an owner decision on PDP placement |
-| S6 | A `past-group-buys` page using the new template | 🔴 BLOCKER | Template ships in `5f33f0e`; the page must be created in Admin |
-| S7 | Policy pages published | 🔴 BLOCKER | Deliberately hidden until N2 |
-| S8 | App installed, OAuth valid, App Proxy routing | 🟢 DONE (dev store) | Working today — the embedded admin and signed App Proxy both verified. **All of it must be redone in the production store** |
+| S1 | Complete theme pushed and published | 🟢 DONE | `shopify theme push --unpublished` from `theme/` (391 files) → **CaratForUs MVP1 `#187633434842`**; previewed, then published 2026-10-22 behind the storefront password (owner-approved — Shopify only offers templates from the *published* theme when assigning a page template). All 12 page templates present, including the six `policy-*`. ⚠️ A second unpublished theme also named "CaratForUs MVP1" exists (from an earlier mistyped push attempt) — unused, safe to delete by the owner |
+| S2 | FAQ theme files pushed | 🟢 DONE | Part of S1 |
+| S3 | Slice 13 theme files pushed | 🟢 DONE | Part of S1 |
+| S4 | `faq_entry` metaobject definition | 🟢 DONE (configured) | Type `faq_entry`; fields `question` (single line, required), `answer` (rich text, required), `category` (single line), `sort_key` (integer) — exactly the §4.2 handles. Storefronts API access on; not published as web pages. FAQ page `/pages/faq` uses template `faq`. **No entries** — N5 |
+| S5 | `carat.faq_entries` product metafield | 🟡 PARTIAL (optional for launch) | Not created — not needed until an owner decision on PDP placement |
+| S6 | `past-group-buys` page | 🟢 DONE (live-tested) | `/pages/past-group-buys`, template `past-group-buys`. Archive renders its designed empty state ("No Group Buys have closed yet…") — confirming the archived ZZ fixture campaigns stay hidden — and **Request New Group Buy** renders with its disclosure served live from Postgres. **Bring It Back** renders only on a closed campaign, so it is correctly absent. No test submission made (it would write a fake demand row into production) |
+| S7 | Policy pages published | 🟡 PARTIAL | The six pages are set **Visible** so they can be verified — a Hidden page 404s even in admin preview — but the storefront password keeps them non-public. Still gated by N2 before public launch |
+| S8 | App installed, OAuth valid, App Proxy routing, webhooks | 🟢 DONE (production store) | See §2. Webhooks: `products/update` live-proven; the other three subscriptions await the launch rehearsal |
+| S9 | Storefront password | 🟢 ON | Private mode. **Must stay on** until §8 Track A and C4/C5 are done |
 
 ---
 
@@ -115,10 +135,12 @@ production store.
 
 | # | Item | Status | Evidence / note |
 |---|---|---|---|
-| D1 | App deployed to Fly and healthy | 🟢 DONE | **Production runs the application code of `main`.** Last deploy `c14c94c`; the only commit after it (`29de5b1`) is documentation. `/health` ok, database ok, machine started with health checks passing |
+| D1 | App deployed to Fly and healthy | 🟢 DONE | **Production runs the application code of `main`.** Last code deploy `c14c94c`; every later commit is documentation. Release #42 (2026-10-22) was a secrets-only deploy. `/health` ok, database ok |
 | D2 | Postgres attached and migrated | 🟢 DONE | **90 migrations applied, 0 pending** — identical to the 90 in the repo |
 | D3 | Core secrets | 🟢 DONE | `DATABASE_URL`, `DIRECT_URL`, `SESSION_SECRET`, `CRON_SECRET`, `APP_ENV` all Deployed. **Do not recreate these** — regenerating `CRON_SECRET` would silently break all four cron jobs |
-| D4 | Shopify secrets | 🟢 DONE (store-dependent) | All seven `SHOPIFY_*` set and working. `SHOPIFY_SHOP_DOMAIN` must change when the production store exists; API key/secret change too if a new app is created |
+| D4 | Shopify secrets | 🟢 DONE | All seven `SHOPIFY_*` set. **`SHOPIFY_SHOP_DOMAIN` = `nnb1th-cm.myshopify.com`** (the production store's permanent domain — not `caratforus.myshopify.com`), deployed in release #42. API key/secret unchanged — same app. That deploy also synced the four scheduled machines, clearing Fly's "secrets partially deployed" warning |
+| D9 | **Request log prints Shopify session tokens** | 🟡 DEFECT — documented, not fixed | Every embedded-admin page load logs its full URL, including `id_token` (a signed session JWT), `hmac` and `session`. The token expires in about a minute, so exposure is small, but it breaks "never log session tokens". Smallest fix: strip the query string (or those three keys) in the request logger. **Awaiting owner OK** — no code changed |
+| D10 | Fly Doctor "machines restarting too much" | 🟢 NOT A FAULT | Names `8654d99c9322d8`, a scheduled-job machine that starts, runs and exits by design. The app machine is stable and `/health` returns 200 every 30 s |
 | D5 | Email provider | 🟡 PARTIAL | `EMAIL_API_KEY`, `EMAIL_FROM`, `STAFF_EMAIL_ALLOWLIST` Deployed and the provider is reachable — the milestone job's send attempts reached it and were rejected only because the fixture addresses were `@example.com`. **No successful delivery to a real address has been observed** |
 | D6 | Object storage | 🟡 PARTIAL | All four `STORAGE_*` Deployed. No upload performed from here |
 | D7 | **All four scheduled jobs** | 🟢 DONE | `cron-guarantee-sweep` (hourly), `cron-price-recalculation` (daily), `cron-group-buy-bank-payment-window` (hourly), `cron-group-buy-milestones` (hourly). Each invoked authenticated and verified by **its own returned evidence**, not by an exit code — see §6 |
@@ -286,8 +308,10 @@ variants, and the catalogue tables carry no append-only triggers.
 
 **No hard deletion is proposed for anything.** On the Shopify side, one
 leftover live-gate product (`gid://shopify/Product/10357871313197`) exists
-in the dev store and disappears when the production store replaces it —
-but **the Postgres fixtures still need archiving either way.**
+in the dev store only; it never reaches the production store — but **the
+Postgres fixtures still need archiving either way.** The production store's
+only product is the archived "ZZ webhook test — DO NOT SELL" (draft, never
+on a channel, never mapped in Postgres).
 
 ---
 
@@ -295,16 +319,25 @@ but **the Postgres fixtures still need archiving either way.**
 
 ### Track A — production store (owner)
 
-1. **Create the production Shopify store.** `caratforus-dev` cannot be
-   converted (§2). Requires a plan purchase — owner only.
-2. **Payment gateway** — activated and able to take a live card.
-3. **Tax** — registration and Shopify configuration.
-4. **Shipping** (C6) — rates, full-value insurance, the $100 signature rule.
-5. **Confirm the Zelle recipient** (C3).
-6. **Re-establish the app in the new store**: update `SHOPIFY_SHOP_DOMAIN`
-   (and API key/secret if a new app), reinstall and re-grant scopes,
-   reconfigure the App Proxy and verify routing **through the storefront**,
-   re-register webhooks, re-push the theme, recreate the six policy pages.
+Done 2026-10-22: production store created (Grow); app installed and
+verified; `SHOPIFY_SHOP_DOMAIN` repointed; App Proxy verified through the
+storefront; webhooks verified (`products/update`); theme pushed and
+published; six policy pages, FAQ page + definition, Past Group Buys and the
+Contact wording in place; Zelle recipient confirmed (C3). See §2.
+
+Remaining, in order:
+
+1. **Payment gateway** (C7) — Shopify Payments setup is at Step 1 of 4
+   (individual / registered business / non-profit). Owner KYC, bank and
+   agreement acceptance. Then compare the real card rate with the 2.9% +
+   $0.30 audit input; the Card Price rule is not touched.
+2. **Manual / Bank Payment method** in Shopify, consistent with the app.
+3. **Tax** — nexus, registrations, Shopify configuration (owner facts).
+4. **Shipping** (C6) — rates, zones, packages, full-value insurance and an
+   operational mechanism for the $100 signature rule.
+5. **Contact form** (N7) — one real test submission, seen in the monitored
+   inbox.
+6. **Approved copy** — N2–N5, then C4/C5.
 
 ### Track B — the first real product
 
@@ -320,8 +353,10 @@ per-size price surface.
 `pure_price_per_gram × fineness × grams`, so one gold reference row serves
 10k/14k/18k.
 
-**Blocked on Track A step 1**, deliberately — so Shopify IDs are not minted
-in a store we are about to abandon.
+**No longer blocked by the store** — it can now be created in the production
+store. Blocked only on the owner inputs below and on P3: nothing may be
+published while a dependent cost input still carries the `2026-01-01`
+fixture date.
 
 **Owner inputs needed:** product name; finished 14K weight in grams;
 whether a chain is included and if so its length and weight; stone shape;
@@ -349,6 +384,20 @@ later takes precedence automatically, with no code change.
 
 Recorded because the reasoning is worth keeping. **None of these is an
 active blocker.**
+
+**The production-store migration needed no new app (2026-10-22).** The
+working assumption that a store change might force a new app/client did
+not hold: the app lives in the store's own organization, so the Dev
+Dashboard installs it on any store there. Two traps were avoided and are
+worth knowing for any future store change. First, `SHOPIFY_SHOP_DOMAIN`
+must be the **permanent** myshopify domain (`nnb1th-cm…`), not the renamed
+friendly one (`caratforus…`) — Shopify keys sessions, proxy signatures and
+webhooks by the permanent domain, and the wrong value would have broken
+bank checkout, warranty lookup, price sync and milestone emails silently.
+Second, a **Hidden** Shopify page returns 404 even through the admin
+preview, and page templates can only be assigned from the **published**
+theme — so verifying pages before launch requires a published theme and
+Visible pages behind the storefront password.
 
 **The milestone sweep emailed participants of archived campaigns.**
 Found within minutes of the job first running in production: it emailed

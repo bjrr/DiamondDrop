@@ -85,9 +85,9 @@ flyctl secrets set --app caratforus \
   SHOPIFY_API_SECRET="<from the Shopify app>" \
   SHOPIFY_APP_URL="https://caratforus.fly.dev" \
   SHOPIFY_APP_PROXY_SUBPATH="carat" \
-  SHOPIFY_SHOP_DOMAIN="caratforus-dev.myshopify.com" \
+  SHOPIFY_SHOP_DOMAIN="nnb1th-cm.myshopify.com" \
   SHOPIFY_ADMIN_API_VERSION="2026-07" \
-  SHOPIFY_SCOPES="read_products,write_products,read_inventory,write_draft_orders,read_orders,write_payment_terms" \
+  SHOPIFY_SCOPES="read_products,write_products,read_inventory,read_customers,write_draft_orders,read_orders,write_payment_terms,write_orders,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders" \
   EMAIL_FROM="CaratForUs <orders@caratforus.com>" \
   STAFF_EMAIL_ALLOWLIST="orders@caratforus.com" \
   PRICE_AUTO_PUBLISH_ENABLED="false"
