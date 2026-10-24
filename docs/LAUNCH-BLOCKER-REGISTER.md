@@ -1,6 +1,6 @@
 # MVP1 Launch Blocker Register
 
-**Current as of 2026-10-15. `main` = `29de5b1`.**
+**Current as of 2026-10-24. `main` = `c01b944`, deployed.**
 
 The single authoritative list of what stands between CaratForUs and taking
 a real customer's money.
@@ -115,7 +115,7 @@ production store.
 
 | # | Item | Status | Evidence / note |
 |---|---|---|---|
-| D1 | App deployed to Fly and healthy | 🟢 DONE | **Production runs the application code of `main`.** Last deploy `c14c94c`; the only commit after it (`29de5b1`) is documentation. `/health` ok, database ok, machine started with health checks passing |
+| D1 | App deployed to Fly and healthy | 🟢 DONE | **Production runs `main` (`c01b944`)**, deployed 2026-10-24 with the D11 and D9 fixes. `/health` ok, database ok, 90 migrations applied / 0 pending |
 | D2 | Postgres attached and migrated | 🟢 DONE | **90 migrations applied, 0 pending** — identical to the 90 in the repo |
 | D3 | Core secrets | 🟢 DONE | `DATABASE_URL`, `DIRECT_URL`, `SESSION_SECRET`, `CRON_SECRET`, `APP_ENV` all Deployed. **Do not recreate these** — regenerating `CRON_SECRET` would silently break all four cron jobs |
 | D4 | Shopify secrets | 🟢 DONE (store-dependent) | All seven `SHOPIFY_*` set and working. `SHOPIFY_SHOP_DOMAIN` must change when the production store exists; API key/secret change too if a new app is created |
@@ -143,8 +143,18 @@ production store.
 | Stage | Evidence |
 |---|---|
 | Implemented / tested | `app/routes/app.pricing-settings.tsx` + 75 tests |
-| Deployed | `c14c94c`, live in production |
-| **Live operator smoke test** | **2026-10-15, in Shopify Admin** |
+| Deployed | live in production (`c01b944`) |
+| Live **read** verification | 2026-10-15, in Shopify Admin |
+| Live **write** verification | 2026-10-24, after the D11 fix |
+
+> **The 2026-10-15 smoke test covered rendering only, and that was not
+> enough.** It exercised the loader and deliberately avoided a save, to
+> avoid creating a throwaway profile version. The write path was therefore
+> never tested — and it was broken: **D11** rejected every embedded-admin
+> form action with 400 before authentication or the action ran. "P6/P7
+> GREEN — operationally configurable" was, for nine days, only half true:
+> an operator could read every value and save none. Both halves are now
+> verified separately, and the table above records them separately.
 
 Smoke test observed, with **no configuration written** — deliberately, so
 the first real write can be an actual Product #1 cost update rather than a
@@ -162,6 +172,16 @@ throwaway version:
   as designed) and **`payment_adjustment` correctly absent**.
 - Both scope notices rendered.
 - No application console errors; no failed requests.
+
+**Write path verified 2026-10-24**, without creating a throwaway version:
+an intentionally invalid markup (`-5`) was submitted from Shopify Admin.
+The action ran and rejected it, and the database confirms the request left
+nothing behind — `buy_now` versions still `[1, 2, 3, 5]`, active still
+version 5 at 0.4 / 0.2 / 10000, and **0 audit events** for
+`pricing_profile`. A rejected save writes neither a row nor a misleading
+audit entry. The server log shows `POST /app/pricing-settings.data 200`
+for the page's own data request, which is what proves the CSRF origin
+guard now admits the embedded admin at all.
 
 An authenticated operator can now change target markup, minimum gross
 margin, minimum profit, metal reference prices, labor rates, stone costs
@@ -258,7 +278,7 @@ would be speculative.
 | E1 | Slices 0–13 implemented and merged | 🟢 DONE | Tagged `mvp1-engineering-complete` at `c4420a1` |
 | E2 | **Group Buy milestone emails** | 🟢 DONE — **in production** | `157a216`, deployed. Route authenticates; the job has run against production and reported its own evidence |
 | E3 | Slice 13 theme surfaces | 🟢 DONE (in `main`) | `5f33f0e`. Not yet pushed to Shopify — see S3 |
-| E4 | CI green on `main` | 🟢 DONE | Green on `29de5b1`. 180 unit files / 3195 tests and 101 integration files / 1622 tests also pass locally |
+| E4 | CI green on `main` | 🟢 DONE | Green on `c01b944`. 180 unit files / 3195 tests and 101 integration files / 1622 tests also pass locally |
 | E5 | Live Shopify proof for Group Buy refund execution | 🟢 DONE | 15/15 assertions against the real store |
 
 **Feature development is frozen.** No further engineering until the
@@ -349,6 +369,33 @@ later takes precedence automatically, with no code change.
 
 Recorded because the reasoning is worth keeping. **None of these is an
 active blocker.**
+
+**D11 — every embedded-admin form save failed in production with 400.**
+Fly terminates TLS at its proxy and forwards plain HTTP;
+`react-router-serve` never enables Express's `trust proxy`, so
+`request.url` was rebuilt as `http://caratforus.fly.dev/…` while the
+browser sent `Origin: https://caratforus.fly.dev`. React Router's
+`throwIfPotentialCSRFAttack` compares full origins including scheme, saw a
+mismatch, found the host absent from an allowlist that is `[]` in
+production by design — and rejected every `/app` action before
+authentication or the action ran. Fixed by allowing the app's own host
+(`PRODUCTION_APP_HOST`), with a test tying it to the Shopify TOML's
+`application_url`. Deployed and verified 2026-10-24.
+
+**It was found by a real write, which is the lesson.** My 2026-10-15
+smoke test verified rendering and skipped the save, so a surface reported
+as "operationally configurable" could not actually be operated. A
+read-only verification of a write surface is not a verification of that
+surface.
+
+**D9 — the request log printed Shopify session tokens.**
+`react-router-serve` always installs `morgan("tiny")`, whose `:url` token
+is the full original URL, so every embedded-admin page load logged
+Shopify's `id_token` (a signed session JWT), `hmac` and `session`, and
+every App Proxy request logged its `signature` and
+`logged_in_customer_id`. Fixed by preloading a module that redefines
+morgan's `url` token to the path only. Verified in production: the log
+line is now `GET /app/pricing-settings 200` with no query string.
 
 **The milestone sweep emailed participants of archived campaigns.**
 Found within minutes of the job first running in production: it emailed
