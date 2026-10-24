@@ -1,7 +1,7 @@
 import type { BankPaymentCoordinates } from "~/lib/payments/bankPaymentCoordinates.server";
 
 /**
- * The Buy Now Bank Payment instructions email (D12; fix approved by owner 2026-10-24, body text pending owner approval).
+ * The Buy Now Bank Payment instructions email (D12; fix and full body text owner-approved 2026-10-24).
  *
  * WHY THIS EXISTS. Buy Now used to rely on Shopify's draft-order invoice to
  * carry payment instructions, and that invoice carried no payment coordinates
@@ -77,10 +77,10 @@ export function buildBuyNowPaymentInstructionsEmail(
       `  Account number: ${wire.accountNumber}`,
       `  Reference: ${input.bankPaymentOrderId}`,
       "",
-      // PENDING OWNER APPROVAL (D12 email body, proposed 2026-10-24) -- not yet approved.
+      // OWNER-APPROVED VERBATIM, 2026-10-24 (D12 email body).
       "Your Bank Payment Price is guaranteed for 24 hours. After that, your order stays open only while the price is unchanged; if the price changes before your payment arrives, we’ll cancel the order and email you.",
       "",
-      // PENDING OWNER APPROVAL (D12 email body, proposed 2026-10-24) -- not yet approved.
+      // OWNER-APPROVED VERBATIM, 2026-10-24 (D12 email body).
       "Your order is not committed and availability is not guaranteed until your Bank Payment is received and verified. We’ll email you once that is done.",
       "",
       "CaratForUs",

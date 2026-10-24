@@ -444,7 +444,7 @@
         "zip_label": "ZIP / Postal code",
         "country_label": "Country",
         "phone_label": "Phone (optional)",
-        "submit": "Continue to Bank Payment Invoice",
+        "submit": "Submit Bank Payment Request",
         "submitting": "Submitting…",
         "cancel": "Cancel",
         "error_summary_heading": "We couldn't submit your order",

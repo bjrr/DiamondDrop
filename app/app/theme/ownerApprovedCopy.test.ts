@@ -79,6 +79,9 @@ const APPROVED: ReadonlyArray<readonly [string, string]> = [
     "sections.cart.bank_payment_checkout_form.error_group_buy_variant_present",
     "Your cart includes a Group Buy item. Group Buy purchases are placed separately and can’t be combined with Buy Now Bank Payment Checkout. Please remove the Group Buy item from this cart to continue.",
   ],
+  // Owner-approved 2026-10-24 (D12/D15): there is no Shopify invoice any
+  // more, so the button no longer promises one.
+  ["sections.cart.bank_payment_checkout_form.submit", "Submit Bank Payment Request"],
   [
     // Owner-approved 2026-10-24 (D12/D15): the success screen now shows the
     // Zelle instructions itself; no Shopify invoice, no redirect. The three
