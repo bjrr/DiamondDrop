@@ -60,7 +60,6 @@ describe("R10-style fence — the Bank Payment Checkout result DTO never leaks i
     const dto = buildBankCheckoutResultDto({
       bankPaymentOrderId: "order-1",
       draftOrderGid: "gid://shopify/DraftOrder/1",
-      invoiceUrl: "https://example.myshopify.com/invoice/1",
       quotedAt: new Date("2026-09-21T00:00:00.000Z"),
       guaranteeExpiresAt: new Date("2026-09-22T00:00:00.000Z"),
       lines: [line(), line({ shopifyVariantGid: "gid://shopify/ProductVariant/456", eligibleAtQuoteTime: false })],
@@ -91,7 +90,6 @@ describe("R10-style fence — the Bank Payment Checkout result DTO never leaks i
     const dto = buildBankCheckoutResultDto({
       bankPaymentOrderId: "order-1",
       draftOrderGid: "gid://shopify/DraftOrder/1",
-      invoiceUrl: null,
       quotedAt: new Date("2026-09-21T12:34:56.000Z"),
       guaranteeExpiresAt: new Date("2026-09-22T12:34:56.000Z"),
       lines: [line()],
@@ -116,18 +114,31 @@ describe("R10-style fence — the Bank Payment Checkout result DTO never leaks i
     });
   });
 
-  it("a null invoiceUrl is preserved as null, not dropped or coerced", () => {
+  /**
+   * REGISTER D15. This test is the inverse of the one it replaced.
+   *
+   * The old test asserted that a null `invoiceUrl` survived serialisation —
+   * it was guarding the field's presence. The field is gone: Shopify's
+   * draft-order invoice exposes a **Confirm order** action, and handing it
+   * to the customer let them advance a draft that must stay staff-controlled
+   * until payment is verified.
+   */
+  it("carries NO invoice URL of any kind", () => {
     const dto = buildBankCheckoutResultDto({
       bankPaymentOrderId: "order-1",
       draftOrderGid: "gid://shopify/DraftOrder/1",
-      invoiceUrl: null,
       quotedAt: new Date("2026-09-21T00:00:00.000Z"),
       guaranteeExpiresAt: new Date("2026-09-22T00:00:00.000Z"),
       lines: [line()],
     });
 
-    expect(dto.invoiceUrl).toBeNull();
-    expect(JSON.stringify(dto)).toContain('"invoiceUrl":null');
+    expect(dto).not.toHaveProperty("invoiceUrl");
+    const serialised = JSON.stringify(dto);
+    expect(serialised).not.toContain("invoiceUrl");
+    // Nor any other field that happens to hold a Shopify-hosted URL a
+    // customer could follow — the defect was the navigation, not the name.
+    expect(serialised).not.toMatch(/https?:\/\/[^"]*myshopify\.com/);
+    expect(serialised).not.toMatch(/\/invoice/);
   });
 });
 

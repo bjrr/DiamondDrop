@@ -292,6 +292,93 @@ window.CaratBankPaymentCheckout = (function () {
     summary.innerHTML = '';
   }
 
+  /**
+   * Renders the CaratForUs Bank Payment confirmation in place of the form.
+   *
+   * EVERY VALUE COMES FROM THE SERVER RESPONSE. Nothing is recomputed here —
+   * no price arithmetic, no deadline arithmetic, no currency maths. The
+   * amount is already a formatted decimal string produced from bigint minor
+   * units server-side, and the deadline is already an ISO instant.
+   *
+   * textContent throughout, never innerHTML: these values cross a network
+   * boundary, and a payment destination is the last thing that should be
+   * able to introduce markup into the page.
+   */
+  function renderPaymentInstructions(modal, form, dto) {
+    var ins = dto.instructions;
+    var host = form.parentNode || form;
+
+    function el(tag, className, text) {
+      var node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined && text !== null) node.textContent = text;
+      return node;
+    }
+
+    function row(dl, label, value) {
+      dl.appendChild(el('dt', 'carat-bank-confirmation__label', label));
+      dl.appendChild(el('dd', 'carat-bank-confirmation__value', value));
+    }
+
+    var panel = el('div', 'carat-bank-confirmation');
+    panel.setAttribute('role', 'status');
+    panel.setAttribute('aria-live', 'polite');
+
+    panel.appendChild(el('h3', 'carat-bank-confirmation__heading', localeString('confirmation_heading')));
+    panel.appendChild(el('p', 'carat-bank-confirmation__still-required', ins.paymentStillRequired));
+    // The approved commitment language, chosen server-side by flow — Buy Now
+    // and Group Buy say materially different things and must not be merged.
+    panel.appendChild(el('p', 'carat-bank-confirmation__commitment', ins.commitmentNotice));
+
+    var summary = el('dl', 'carat-bank-confirmation__summary');
+    row(summary, localeString('confirmation_reference'), ins.reference);
+    row(summary, localeString('confirmation_amount_due'), ins.formattedAmountDue + ' ' + ins.currency);
+    row(summary, localeString('confirmation_deadline'), formatDeadline(ins.paymentDeadline));
+    panel.appendChild(summary);
+
+    if (ins.extensionNotice) {
+      panel.appendChild(el('p', 'carat-bank-confirmation__extension', ins.extensionNotice));
+    }
+
+    panel.appendChild(el('h4', 'carat-bank-confirmation__methods-heading', localeString('confirmation_methods')));
+    for (var i = 0; i < ins.methods.length; i += 1) {
+      var m = ins.methods[i];
+      var block = el('div', 'carat-bank-confirmation__method');
+      var fields = el('dl', 'carat-bank-confirmation__method-fields');
+      if (m.kind === 'zelle') {
+        block.appendChild(el('h5', 'carat-bank-confirmation__method-name', localeString('confirmation_zelle')));
+        row(fields, localeString('confirmation_send_to'), m.recipient);
+        row(fields, localeString('confirmation_memo'), m.memo);
+      } else {
+        block.appendChild(el('h5', 'carat-bank-confirmation__method-name', localeString('confirmation_wire')));
+        row(fields, localeString('confirmation_bank_name'), m.bankName);
+        row(fields, localeString('confirmation_account_name'), m.accountName);
+        row(fields, localeString('confirmation_routing'), m.routingNumber);
+        row(fields, localeString('confirmation_account_number'), m.accountNumber);
+        row(fields, localeString('confirmation_reference_label'), m.reference);
+      }
+      block.appendChild(fields);
+      panel.appendChild(block);
+    }
+
+    panel.appendChild(el('p', 'carat-bank-confirmation__include', ins.includeWithPayment));
+    panel.appendChild(
+      el('p', 'carat-bank-confirmation__support', localeString('confirmation_support') + ' ' + ins.supportEmail)
+    );
+
+    form.hidden = true;
+    host.appendChild(panel);
+    if (modal) hideErrorSummary(modal);
+  }
+
+  /** ISO instant to a readable UTC string. No arithmetic — the server decided the instant. */
+  function formatDeadline(iso) {
+    var parsed = new Date(iso);
+    if (isNaN(parsed.getTime())) return iso;
+    var text = parsed.toISOString();
+    return text.slice(0, 10) + ' ' + text.slice(11, 16) + ' UTC';
+  }
+
   function setStatus(form, text) {
     var status = form.querySelector(STATUS_SELECTOR);
     if (!status) return;
@@ -414,20 +501,31 @@ window.CaratBankPaymentCheckout = (function () {
           return;
         }
 
+        // ====================================================================
+        // CARATFORUS OWNS THIS MOMENT. NO REDIRECT. (register D12 + D15)
+        // ====================================================================
+        // This used to send the customer to Shopify's draft-order invoice,
+        // which (a) exposed a **Confirm order** button letting them advance a
+        // draft that must stay staff-controlled until payment is verified,
+        // and (b) meant the only place they were ever told HOW to pay was an
+        // email — so a mail-provider outage left them holding an order with
+        // no destination for the money.
+        //
+        // The server now returns the instructions in the response, resolved
+        // per request and never persisted. They are rendered here, so the
+        // customer has them whether or not the email arrives.
         var dto = result.body;
-        if (dto && dto.invoiceUrl) {
-          setStatus(form, localeString('redirecting'));
-          window.location.href = dto.invoiceUrl;
+        setSubmitting(form, false);
+        if (dto && dto.instructions) {
+          renderPaymentInstructions(modal, form, dto);
           return;
         }
 
-        // Success, but Shopify did not return an invoice URL to redirect to
-        // (e.g. `invoiceUrl: null` — see checkoutResponseDto.ts). The order
-        // and invoice email already exist (criterion 85 carries the same
-        // not-committed disclosure); tell the customer to check their email
-        // rather than leaving them on a form that just silently stopped.
-        setSubmitting(form, false);
-        setStatus(form, localeString('success_check_email'));
+        // Defensive only: a 200 with no instructions should be impossible,
+        // because the server refuses the checkout outright when payment
+        // coordinates are unconfigured. Say something true rather than
+        // leaving a form that silently stopped.
+        setStatus(form, localeString('success_no_instructions'));
         var submit = form.querySelector(SUBMIT_SELECTOR);
         if (submit) submit.disabled = true;
       })

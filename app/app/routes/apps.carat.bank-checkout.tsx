@@ -7,11 +7,21 @@ import { getPublishedVariantPrice } from "~/db/repositories/publishedPriceReposi
 import { coalesceCheckoutLines, type RawCheckoutLine } from "~/domain/bankpayment/coalesceLines";
 import {
   buildBankCheckoutResultDto,
+  toCustomerResponse,
   type BankCheckoutResultDto,
   type QuotedLineForResult,
 } from "~/domain/bankpayment/checkoutResponseDto";
+import { buildPaymentInstructionsView } from "~/domain/bankpayment/paymentInstructionsView";
+import { resolveBankPaymentCoordinates } from "~/lib/payments/bankPaymentCoordinates.server";
+import { minorUnitsToDecimalString } from "~/shopify/admin/priceSyncAdapter.server";
 import { computeBankCheckoutIdempotencyKey } from "~/domain/bankpayment/idempotencyKey";
-import { buildInvoiceCustomMessage } from "~/domain/bankpayment/notCommittedDisclosure";
+// `buildInvoiceCustomMessage` is no longer imported: there is no Shopify
+// invoice to attach it to (register D15). `NOT_COMMITTED_DISCLOSURE` itself
+// is still live — it is the storefront form's pre-submit copy — but one of
+// its clauses ("We’ll email you an invoice with payment instructions") is now
+// factually wrong. That text is owner-approved and pinned
+// character-for-character by two tests, so it is NOT edited here; it is
+// flagged for approval.
 import { normalizeShopifyVariantGid } from "~/domain/cart/shopifyVariantId";
 import {
   executeIdempotent,
@@ -261,11 +271,11 @@ async function performBankCheckout(input: {
     // THE TAG IS WHAT MAKES AN `in_doubt` KEY RESOLVABLE BY HAND.
     //
     // If the transaction below fails after Shopify has already accepted the
-    // draft and sent the invoice, `executeIdempotent` correctly leaves the
-    // key `in_doubt` and refuses to retry — we must not invoice twice. But
-    // without something of ours written onto the Shopify record, the admin
-    // clearing that key has a draft order somewhere in the shop and no way
-    // to find it except by guessing at an email and a timestamp.
+    // draft, `executeIdempotent` correctly leaves the key `in_doubt` and
+    // refuses to retry. But without something of ours written onto the
+    // Shopify record, the admin clearing that key has a draft order
+    // somewhere in the shop and no way to find it except by guessing at an
+    // email and a timestamp.
     //
     // Tags, not `note`: tags are staff-only, whereas a note can surface to
     // the customer on the order, and an internal correlation id is not
@@ -273,15 +283,24 @@ async function performBankCheckout(input: {
     tags: [draftOrderCorrelationTag(input.idempotencyKey)],
   });
 
-  // No second invoice on replay (criterion 75) is guaranteed structurally,
-  // not by a flag here: a replay never re-enters this function at all —
-  // `executeIdempotent` returns the stored result instead (see the route's
-  // action() below).
-  await input.draftOrderPort.sendInvoice({
-    draftOrderGid: created.draftOrderGid,
-    email: input.resolvedEmail,
-    customMessage: buildInvoiceCustomMessage(),
-  });
+  // ==========================================================================
+  // NO SHOPIFY INVOICE IS SENT. DO NOT REINSTATE THIS (register D15).
+  // ==========================================================================
+  // This used to call `draftOrderPort.sendInvoice(...)` and hand the customer
+  // Shopify's draft-order invoice. That invoice carries a **Confirm order**
+  // action, which let the customer advance the draft themselves — before any
+  // human had verified that funds arrived. Buy Now's whole state machine
+  // depends on the opposite: the draft stays staff-only, and nothing is
+  // committed or reserved until the verification path completes it.
+  //
+  // It was also the only place the customer was told how to pay, which made
+  // an email-provider outage into a customer-facing dead end (register D12).
+  // Both are fixed by the same decision: CaratForUs owns the confirmation
+  // surface, renders the instructions itself, and the draft is never exposed.
+  //
+  // `sendInvoice` remains on the port because the Custom Jewelry deposit and
+  // final-purchase flows legitimately invoice through Shopify — those ARE
+  // card payments the customer is meant to complete. Bank Payment is not.
 
   const quotedAt = new Date();
   const guaranteeExpiresAt = new Date(quotedAt.getTime() + GUARANTEE_DURATION_MS);
@@ -324,7 +343,6 @@ async function performBankCheckout(input: {
   return buildBankCheckoutResultDto({
     bankPaymentOrderId: bankPaymentOrder.id,
     draftOrderGid: created.draftOrderGid,
-    invoiceUrl: created.invoiceUrl,
     quotedAt,
     guaranteeExpiresAt,
     lines: input.quotedLines,
@@ -519,6 +537,27 @@ export async function action({ request }: ActionFunctionArgs) {
     }))
   );
 
+  // ==========================================================================
+  // FAIL BEFORE ANYTHING EXISTS IF WE CANNOT SAY HOW TO PAY (register D12).
+  // ==========================================================================
+  // Buy Now did not gate on this before, because the Shopify invoice carried
+  // the payment affordance and our coordinates were only ever needed by the
+  // email. Now that CaratForUs owns the instructions, creating a draft and a
+  // BankPaymentOrder we cannot give the customer a destination for would
+  // leave exactly the dead end this work exists to remove.
+  //
+  // Same shape as the Group Buy gate: the log names MISSING VARIABLES only,
+  // never a coordinate value, and the response carries no detail — a customer
+  // cannot act on our configuration problem, and an attacker should not learn
+  // our state from it.
+  const paymentCoordinates = resolveBankPaymentCoordinates();
+  if (!paymentCoordinates.configured) {
+    logger.error("bank_checkout.payment_coordinates_unconfigured", {
+      reason: paymentCoordinates.reason,
+    });
+    return Response.json({ error: "checkout_unavailable" }, { status: 503 });
+  }
+
   let draftOrderPort: DraftOrderPort;
   try {
     draftOrderPort = await createDraftOrderPort();
@@ -549,7 +588,32 @@ export async function action({ request }: ActionFunctionArgs) {
           idempotencyKey,
         })
     );
-    return Response.json(result, { status: 200 });
+    // ========================================================================
+    // THE COORDINATES JOIN THE RESPONSE HERE, OUTSIDE THE IDEMPOTENT BOUNDARY.
+    // ========================================================================
+    // `result` is what `executeIdempotent` persisted as `resultPayload`, and
+    // it is deliberately coordinate-free — adding bank details to it would
+    // put payment credentials in Postgres, which
+    // `bankPaymentCoordinates.server.ts` forbids outright.
+    //
+    // Composing the envelope AFTER the transaction also means a REPLAY gets
+    // working instructions: the stored result comes back, fresh coordinates
+    // are resolved, and the customer sees the same page rather than a bare
+    // record of something that already happened.
+    const totalDueMinorUnits = quotedLines.reduce(
+      (sum, line) => sum + line.quotedBankPaymentPriceMinorUnits * BigInt(line.quantity),
+      0n
+    );
+    const instructions = buildPaymentInstructionsView({
+      flow: "buy_now",
+      reference: result.bankPaymentOrderId,
+      formattedAmountDue: minorUnitsToDecimalString(totalDueMinorUnits),
+      currency: quotedLines[0]!.currency,
+      paymentDeadline: new Date(result.guaranteeExpiresAt),
+      coordinates: paymentCoordinates.coordinates,
+    });
+
+    return Response.json(toCustomerResponse(result, instructions), { status: 200 });
   } catch (error) {
     if (error instanceof InDoubtIdempotencyError) {
       logger.warn("bank_checkout.idempotency_in_doubt", { key: idempotencyKey });
