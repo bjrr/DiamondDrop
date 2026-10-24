@@ -60,9 +60,16 @@ COPY --from=build /app/package.json ./package.json
 # `prisma migrate deploy` (fly.toml's release_command) needs the schema and the
 # migration SQL at runtime, not just at build time.
 COPY --from=build /app/prisma ./prisma
+# The request-log redaction preload (see CMD below).
+COPY --from=build /app/server ./server
 
 EXPOSE 3000
 
-# react-router-serve, exactly as `npm run start` does locally — the production
-# server is the same one the app is developed against.
-CMD ["npx", "react-router-serve", "./build/server/index.js"]
+# react-router-serve, the same server `npm run start` runs locally, with ONE
+# addition: server/redactRequestLog.cjs is preloaded so its built-in
+# morgan("tiny") request log prints the path only. Without it every embedded
+# admin load logged Shopify's id_token/hmac/session and every App Proxy call
+# logged its signature and logged_in_customer_id (register D9).
+# `node --require` needs a real script path, hence bin.js rather than npx.
+# Pinned by app/app/lib/redactRequestLog.test.ts.
+CMD ["node", "--require", "./server/redactRequestLog.cjs", "node_modules/@react-router/serve/bin.js", "./build/server/index.js"]
