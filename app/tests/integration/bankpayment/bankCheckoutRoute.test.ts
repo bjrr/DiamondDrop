@@ -835,7 +835,7 @@ const COORDINATE_ENV_KEYS = [
   "PAYMENT_WIRE_ACCOUNT_NUMBER",
 ] as const;
 
-function bankBody(shopifyVariantGid: string, quantity = 1, email = `Buyer-${uniq()}@Example.com`) {
+function bankBody(shopifyVariantGid: string | null, quantity = 1, email = `Buyer-${uniq()}@Example.com`) {
   return {
     mode: "bank",
     email,
