@@ -40,7 +40,7 @@ data. No amount of further engineering changes any of that.
 |---|---|---|---|
 | C1 | **A real catalogue** — no sellable product exists | 🔴 BLOCKER | Blocked behind C2 by choice: no Shopify product, mapping, metaobject or collection is created in a store we are about to abandon. See §8 Track B |
 | C2 | **A payment-capable store** | 🔴 BLOCKER | **Determined 2026-10-15: `caratforus-dev` cannot be transferred or upgraded. A new production store is required.** See §2 |
-| C3 | **Bank payment coordinates** | 🟡 PARTIAL | All five `PAYMENT_*` secrets set and Deployed. ❓ One check outstanding: `PAYMENT_ZELLE_RECIPIENT` has the same digest as `STAFF_EMAIL_ALLOWLIST`, so the same value — fine if both are a single address, wrong if the allowlist is comma-separated |
+| C3 | **Bank payment coordinates** | 🟢 DONE | All five `PAYMENT_*` secrets set and Deployed. **Resolved 2026-10-24:** the digest `PAYMENT_ZELLE_RECIPIENT` shares with `STAFF_EMAIL_ALLOWLIST` is because both are `orders@caratforus.com`. The allowlist holds a **single address with no commas**, so the Zelle recipient is a valid one — the failure mode I flagged does not apply |
 | C4 | **Terms of Service** | 🔴 BLOCKER | Does not exist. Four business decisions needed first — `docs/content/MVP1-STOREFRONT-COPY.md` Part 4 |
 | C5 | **Privacy Policy** | 🔴 BLOCKER | Does not exist. Append-only evidence tables interact with deletion requests and need a lawful stated answer — Part 5 |
 | C6 | **Shipping configuration in Shopify** | ❓ UNKNOWN | Policy locked in README; Shopify-side configuration not visible from here. Moot until C2 |
@@ -119,10 +119,37 @@ production store.
 | D2 | Postgres attached and migrated | 🟢 DONE | **90 migrations applied, 0 pending** — identical to the 90 in the repo |
 | D3 | Core secrets | 🟢 DONE | `DATABASE_URL`, `DIRECT_URL`, `SESSION_SECRET`, `CRON_SECRET`, `APP_ENV` all Deployed. **Do not recreate these** — regenerating `CRON_SECRET` would silently break all four cron jobs |
 | D4 | Shopify secrets | 🟢 DONE (store-dependent) | All seven `SHOPIFY_*` set and working. `SHOPIFY_SHOP_DOMAIN` must change when the production store exists; API key/secret change too if a new app is created |
-| D5 | Email provider | 🟡 PARTIAL | `EMAIL_API_KEY`, `EMAIL_FROM`, `STAFF_EMAIL_ALLOWLIST` Deployed and the provider is reachable — the milestone job's send attempts reached it and were rejected only because the fixture addresses were `@example.com`. **No successful delivery to a real address has been observed** |
+| D5 | Email provider | 🟡 PARTIAL | Addresses verified 2026-10-24: `EMAIL_FROM` is `CaratForUs <orders@caratforus.com>` (display-name format, correct address) and `STAFF_EMAIL_ALLOWLIST` is `orders@caratforus.com`. The provider is reachable — the milestone job's attempts got to it and were rejected only because the fixture recipients were `@example.com`. **Still unproven: no successful delivery to a real address has been observed.** See below |
 | D6 | Object storage | 🟡 PARTIAL | All four `STORAGE_*` Deployed. No upload performed from here |
 | D7 | **All four scheduled jobs** | 🟢 DONE | `cron-guarantee-sweep` (hourly), `cron-price-recalculation` (daily), `cron-group-buy-bank-payment-window` (hourly), `cron-group-buy-milestones` (hourly). Each invoked authenticated and verified by **its own returned evidence**, not by an exit code — see §6 |
 | D8 | Production reference data exists | 🟢 DONE | A pricing profile, three labor sources, 15 cost components, three metal references and five stone-cost rows all exist. Nothing is missing. Their *values* are placeholder — that is P3, not this |
+
+---
+
+### Email delivery is configured but unproven, and there is no safe test path
+
+Every outbound address is `orders@caratforus.com`, a monitored mailbox, so
+nothing is misdirected. What has never happened is a **successful delivery
+to a real address** — every recipient so far was an `@example.com` fixture.
+
+There is deliberately **no "send a test email" action** in the app, and
+the three real senders cannot be triggered without inventing data:
+
+- admin alerts fire only when the guarantee sweep finds a genuine fault;
+- payment instructions fire only on a real Group Buy bank checkout;
+- milestone emails fire only for a real campaign at a real milestone.
+
+Fabricating any of those would recreate exactly the fixture rows we just
+finished clearing, so none was done. Three honest options, for the owner
+to choose:
+
+1. **Let the first real event prove it** — the earliest is a bank-payment
+   order's instructions email, which is also the one whose failure would
+   hurt most.
+2. **Accept the risk** on the grounds that the provider is reachable and
+   the From address is verified.
+3. **Add a small authenticated test-send action.** New engineering, and
+   the scope freeze excludes it unless the owner lifts it for this.
 
 ---
 
