@@ -69,7 +69,7 @@ const APPROVED: ReadonlyArray<readonly [string, string]> = [
   ["sections.cart.bank_payment_checkout_note", "Choosing Bank Payment switches your entire cart to Bank Payment pricing. Eligible items will use their Bank Payment Price."],
   [
     "sections.cart.bank_payment_checkout_form.not_committed_disclosure",
-    "Your Bank Payment Price is guaranteed for 24 hours. Submitting this form does not complete your order or reserve your items. Your order is not committed and availability is not guaranteed until your Bank Payment is received and verified. We’ll email you an invoice with payment instructions, and nothing is charged when you submit this form.",
+    "Your Bank Payment Price is guaranteed for 24 hours. Submitting this form does not complete your order or reserve your items. Your order is not committed and availability is not guaranteed until your Bank Payment is received and verified. We’ll show your payment instructions on the next screen and email you a copy, and nothing is charged when you submit this form.",
   ],
   [
     "sections.cart.bank_payment_checkout_form.error_unpurchasable_lines",
@@ -80,8 +80,11 @@ const APPROVED: ReadonlyArray<readonly [string, string]> = [
     "Your cart includes a Group Buy item. Group Buy purchases are placed separately and can’t be combined with Buy Now Bank Payment Checkout. Please remove the Group Buy item from this cart to continue.",
   ],
   [
-    "sections.cart.bank_payment_checkout_form.success_check_email",
-    "Your Bank Payment request was submitted. We’ve emailed you an invoice with payment instructions. Your order is not committed and your items are not reserved until your Bank Payment is received and verified.",
+    // Owner-approved 2026-10-24 (D12/D15): the success screen now shows the
+    // Zelle instructions itself; no Shopify invoice, no redirect. The three
+    // placeholders are filled client-side by bank-payment-checkout.js.
+    "sections.cart.bank_payment_checkout_form.success_payment_instructions",
+    "Your Bank Payment request was submitted. To pay by Zelle, send {{ amount }} to {{ zelle_recipient }} and include your order reference {{ reference }} in the memo. We’ve emailed you these instructions, including domestic wire details. Your order is not committed and your items are not reserved until your Bank Payment is received and verified.",
   ],
   // docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4, owner-approved 2026-09-26. Two
   // independent renders of the SAME sentence — the Bank Payment Checkout

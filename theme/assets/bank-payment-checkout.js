@@ -220,6 +220,38 @@ window.CaratBankPaymentCheckout = (function () {
     }
   }
 
+  function nonEmptyString(value) {
+    return typeof value === 'string' && value.length > 0;
+  }
+
+  function replaceAll(text, token, value) {
+    return text.split(token).join(value);
+  }
+
+  /**
+   * Pure. Fills the owner-approved success template's three placeholders
+   * ([amount], [zelle_recipient], [reference] -- theme.liquid passes those
+   * literal tokens through the `t` filter) from the success response. Plain
+   * string replacement, never Liquid and never HTML: the caller must put the
+   * result into the page with textContent only.
+   *
+   * Returns null when the response lacks the amount, the Zelle recipient or
+   * the order reference, so the caller can fall back to an existing message
+   * instead of showing a half-filled sentence.
+   */
+  function buildSuccessMessage(template, dto) {
+    if (!nonEmptyString(template) || !dto || typeof dto !== 'object') return null;
+    var instructions = dto.paymentInstructions;
+    var recipient = instructions && typeof instructions === 'object' ? instructions.zelleRecipient : null;
+    if (!nonEmptyString(dto.formattedAmountDue) || !nonEmptyString(recipient) || !nonEmptyString(dto.bankPaymentOrderId)) {
+      return null;
+    }
+    var message = replaceAll(template, '[amount]', dto.formattedAmountDue);
+    message = replaceAll(message, '[zelle_recipient]', recipient);
+    message = replaceAll(message, '[reference]', dto.bankPaymentOrderId);
+    return message;
+  }
+
   function fetchCart() {
     var cartUrl = (typeof routes !== 'undefined' && routes && routes.cart_url) || '/cart';
     return fetch(cartUrl + '.js', { headers: { Accept: 'application/json' } }).then(function (response) {
@@ -414,20 +446,22 @@ window.CaratBankPaymentCheckout = (function () {
           return;
         }
 
-        var dto = result.body;
-        if (dto && dto.invoiceUrl) {
-          setStatus(form, localeString('redirecting'));
-          window.location.href = dto.invoiceUrl;
-          return;
+        // D12/D15 (2026-10-24): NO redirect. Buy Now no longer sends a Shopify
+        // invoice, and the old invoice page's "Confirm order" button could turn
+        // the draft into a real order before staff verified payment. The
+        // payment instructions are shown here instead (and emailed by the
+        // server).
+        var message = buildSuccessMessage(localeString('success_payment_instructions'), result.body);
+        if (message === null) {
+          // A success body without the instructions is not something to
+          // improvise copy for; reuse the existing "unavailable" message and
+          // re-enable the form. Resubmitting is an idempotent replay.
+          return Promise.reject({ localMessageKey: 'error_checkout_unavailable' });
         }
 
-        // Success, but Shopify did not return an invoice URL to redirect to
-        // (e.g. `invoiceUrl: null` — see checkoutResponseDto.ts). The order
-        // and invoice email already exist (criterion 85 carries the same
-        // not-committed disclosure); tell the customer to check their email
-        // rather than leaving them on a form that just silently stopped.
         setSubmitting(form, false);
-        setStatus(form, localeString('success_check_email'));
+        // textContent only (inside setStatus) -- the values are server data.
+        setStatus(form, message);
         var submit = form.querySelector(SUBMIT_SELECTOR);
         if (submit) submit.disabled = true;
       })
@@ -458,6 +492,7 @@ window.CaratBankPaymentCheckout = (function () {
       buildRequestBody: buildRequestBody,
       buildRequestLines: buildRequestLines,
       messageKeyForFailure: messageKeyForFailure,
+      buildSuccessMessage: buildSuccessMessage,
     },
   };
 })();

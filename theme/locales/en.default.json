@@ -433,7 +433,7 @@
         "heading": "Bank Payment Checkout",
         "sign_in_required_heading": "Sign in required",
         "sign_in_required_message": "Please sign in or create a CaratForUs account to continue.",
-        "not_committed_disclosure": "Your Bank Payment Price is guaranteed for 24 hours. Submitting this form does not complete your order or reserve your items. Your order is not committed and availability is not guaranteed until your Bank Payment is received and verified. We’ll email you an invoice with payment instructions, and nothing is charged when you submit this form.",
+        "not_committed_disclosure": "Your Bank Payment Price is guaranteed for 24 hours. Submitting this form does not complete your order or reserve your items. Your order is not committed and availability is not guaranteed until your Bank Payment is received and verified. We’ll show your payment instructions on the next screen and email you a copy, and nothing is charged when you submit this form.",
         "email_label": "Email",
         "first_name_label": "First name",
         "last_name_label": "Last name",
@@ -463,8 +463,7 @@
         "error_authentication_required": "Please sign in or create a CaratForUs account to continue.",
         "error_generic": "Something went wrong and we couldn't submit your order. Please try again.",
         "error_network": "We couldn't reach the server. Please check your connection and try again.",
-        "success_check_email": "Your Bank Payment request was submitted. We’ve emailed you an invoice with payment instructions. Your order is not committed and your items are not reserved until your Bank Payment is received and verified.",
-        "redirecting": "Taking you to your invoice…"
+        "success_payment_instructions": "Your Bank Payment request was submitted. To pay by Zelle, send {{ amount }} to {{ zelle_recipient }} and include your order reference {{ reference }} in the memo. We’ve emailed you these instructions, including domestic wire details. Your order is not committed and your items are not reserved until your Bank Payment is received and verified."
       },
       "pricing": {
         "calculating": "Calculating your price…",

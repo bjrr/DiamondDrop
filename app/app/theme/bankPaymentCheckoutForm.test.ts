@@ -305,6 +305,100 @@ describe("error-code coverage against the real apps.carat.bank-checkout.tsx rout
 });
 
 // -----------------------------------------------------------------------
+// 2b. D12/D15 (2026-10-24): success shows our own payment instructions; there
+//     is no Shopify invoice and no redirect to one.
+// -----------------------------------------------------------------------
+
+describe("D12/D15 — success renders the payment instructions on screen, with no invoice redirect", () => {
+  const JS_PATH = join(THEME_ROOT, "assets", "bank-payment-checkout.js");
+  const TEMPLATE =
+    "Send [amount] to [zelle_recipient] and include [reference]. Again: [amount]. [reference]";
+
+  const DTO = {
+    bankPaymentOrderId: "order-123",
+    formattedAmountDue: "1062.00 USD",
+    paymentInstructions: { zelleRecipient: "test-pay@example.invalid" },
+  };
+
+  it("never redirects and no longer references an invoice URL or the removed locale keys", () => {
+    const source = readFileSync(JS_PATH, "utf8");
+    expect(source).not.toMatch(/invoiceUrl/);
+    expect(source).not.toMatch(/location\.href\s*=/);
+    expect(source).not.toMatch(/location\.(assign|replace)\(/);
+    expect(source).not.toContain("'redirecting'");
+    expect(source).not.toContain("success_check_email");
+    expect(source).toContain("'success_payment_instructions'");
+  });
+
+  it("the old locale keys are gone and the new one carries the three placeholders", () => {
+    expect(at("sections.cart.bank_payment_checkout_form.success_check_email")).toBeUndefined();
+    expect(at("sections.cart.bank_payment_checkout_form.redirecting")).toBeUndefined();
+    const text = at("sections.cart.bank_payment_checkout_form.success_payment_instructions") as string;
+    for (const token of ["{{ amount }}", "{{ zelle_recipient }}", "{{ reference }}"]) {
+      expect(text).toContain(token);
+    }
+  });
+
+  it("theme.liquid passes the three placeholders through to JS as literal tokens", () => {
+    const source = readFileSync(join(THEME_ROOT, "layout", "theme.liquid"), "utf8");
+    expect(source).toContain("amount: '[amount]'");
+    expect(source).toContain("zelle_recipient: '[zelle_recipient]'");
+    expect(source).toContain("reference: '[reference]'");
+  });
+
+  it("fills every placeholder (every occurrence) with the response values", () => {
+    const { _internal } = loadBankPaymentCheckout();
+    const message = _internal.buildSuccessMessage(TEMPLATE, DTO);
+    expect(message).toBe(
+      "Send 1062.00 USD to test-pay@example.invalid and include order-123. Again: 1062.00 USD. order-123"
+    );
+  });
+
+  it("treats values as plain text: markup and replacement patterns are not interpreted", () => {
+    const { _internal } = loadBankPaymentCheckout();
+    const message = _internal.buildSuccessMessage(TEMPLATE, {
+      bankPaymentOrderId: "$&-id",
+      formattedAmountDue: "$1 <b>x</b>",
+      paymentInstructions: { zelleRecipient: "<img src=x onerror=alert(1)>" },
+    });
+    expect(message).toContain("<img src=x onerror=alert(1)>");
+    expect(message).toContain("$1 <b>x</b>");
+    expect(message).toContain("$&-id");
+  });
+
+  it("the status element is written with textContent, never innerHTML", () => {
+    const source = readFileSync(JS_PATH, "utf8");
+    const setStatusBody = source.slice(source.indexOf("function setStatus"), source.indexOf("function setSubmitting"));
+    expect(setStatusBody).toContain("status.textContent = text");
+    expect(setStatusBody).not.toContain("innerHTML");
+    // The success path routes the message through setStatus.
+    expect(source).toMatch(/setStatus\(form, message\)/);
+  });
+
+  it("keeps the submit button disabled after success", () => {
+    const source = readFileSync(JS_PATH, "utf8");
+    const successBlock = source.slice(source.indexOf("setStatus(form, message)"));
+    expect(successBlock.slice(0, 300)).toMatch(/submit\.disabled = true/);
+  });
+
+  it.each([
+    ["no body", null],
+    ["no paymentInstructions", { bankPaymentOrderId: "o", formattedAmountDue: "1.00 USD" }],
+    ["empty zelleRecipient", { bankPaymentOrderId: "o", formattedAmountDue: "1.00 USD", paymentInstructions: { zelleRecipient: "" } }],
+    ["no formattedAmountDue", { bankPaymentOrderId: "o", paymentInstructions: { zelleRecipient: "z" } }],
+    ["no bankPaymentOrderId", { formattedAmountDue: "1.00 USD", paymentInstructions: { zelleRecipient: "z" } }],
+  ])("returns null (caller falls back to the unavailable message) when the success body has %s", (_label, dto) => {
+    const { _internal } = loadBankPaymentCheckout();
+    expect(_internal.buildSuccessMessage(TEMPLATE, dto)).toBeNull();
+  });
+
+  it("falls back to error_checkout_unavailable, an existing message, for an incomplete success body", () => {
+    const source = readFileSync(JS_PATH, "utf8");
+    expect(source).toMatch(/message === null[\s\S]{0,400}localMessageKey: 'error_checkout_unavailable'/);
+  });
+});
+
+// -----------------------------------------------------------------------
 // 3. The not-committed disclosure (criterion 84) is present and never hidden.
 // -----------------------------------------------------------------------
 
@@ -386,8 +480,7 @@ describe("forbidden terminology — CLAUDE.md merchandise-only savings rule", ()
     "error_invalid_request",
     "error_generic",
     "error_network",
-    "success_check_email",
-    "redirecting",
+    "success_payment_instructions",
   ];
 
   it.each(NEW_KEYS)("sections.cart.bank_payment_checkout_form.%s exists, is non-empty, and uses no forbidden term", (key) => {
@@ -512,8 +605,7 @@ describe("the dialog and its script/style are loaded unconditionally, everywhere
       "error_generic",
       "error_network",
       "submitting",
-      "redirecting",
-      "success_check_email",
+      "success_payment_instructions",
     ];
     const caratBankCheckoutIndex = source.indexOf("caratBankCheckout:");
     expect(caratBankCheckoutIndex).toBeGreaterThan(-1);

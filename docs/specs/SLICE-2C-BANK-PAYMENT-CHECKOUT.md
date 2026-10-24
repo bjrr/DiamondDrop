@@ -22,6 +22,32 @@ Predecessor: Stage 2B, accepted and closed at `34bc303`
 in place rather than deleted, so the change stays legible; implement §13's
 versions.
 
+> **2026-10-24 — D12 / D15 (owner-approved).** Wherever this spec says the
+> customer receives or is redirected to a Shopify draft-order **invoice**, that
+> is superseded for Buy Now Bank Payment:
+>
+> - **No Shopify invoice and no redirect.** `apps.carat.bank-checkout` no
+>   longer calls `sendInvoice`, and the storefront no longer sends the customer
+>   to `invoiceUrl`. The invoice carried no payment coordinates (D12), and its
+>   "Confirm order" button could turn the draft into a real PENDING order with
+>   committed inventory before staff verified payment (D15, CLAUDE.md #22),
+>   which also broke `completeOrder.server.ts`. The draft order is still
+>   created and remains the staff-side record that verification completes.
+> - **Our own instructions email.** After the order rows are committed the
+>   route emails the customer (`buyNowPaymentInstructionsEmail.ts`): amount
+>   due, order reference, the 24-hour guarantee deadline, Zelle and domestic
+>   wire coordinates, and the guarantee / not-committed sentences. A send
+>   failure or unconfigured email never undoes the order.
+> - **Zelle on screen.** The success response carries
+>   `paymentInstructions.zelleRecipient` and `formattedAmountDue`, built per
+>   request and never persisted in the idempotency `resultPayload`; the form
+>   shows them in the owner-approved success text.
+> - **Fail closed.** If payment coordinates are not configured the route
+>   returns 503 `checkout_unavailable` before any Shopify call.
+> - The not-committed disclosure (criterion 84) and success copy were
+>   re-approved with the new wording; the invoice custom message
+>   (criterion 85) no longer exists, its words now live in the email.
+
 ---
 
 ## 1. Outcome

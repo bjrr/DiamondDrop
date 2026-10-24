@@ -3,23 +3,15 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  buildInvoiceCustomMessage,
-  NOT_COMMITTED_DISCLOSURE,
-  NOT_COMMITTED_DISCLOSURE_LOCALE_PATH,
-} from "./notCommittedDisclosure";
+import { NOT_COMMITTED_DISCLOSURE, NOT_COMMITTED_DISCLOSURE_LOCALE_PATH } from "./notCommittedDisclosure";
 
 /**
- * The §22 disclosure has to say the same thing in two places built by two
- * different technologies — the storefront form (Liquid, via a locale key) and
- * the invoice email (server-side, via Shopify's `customMessage`). Two copies
- * of material customer terms drift: one gets edited, the other does not, and a
- * customer is told two different things about whether their order exists.
- *
- * So this file's job is not to pin the wording — the owner has not approved
- * any wording yet, and pinning a draft would dress it as a decision. Its job
- * is to pin the INVARIANTS that survive an approval edit: the two surfaces
- * agree, and neither carries a term the merchandise-only savings rule forbids.
+ * The §22 disclosure lives in a TypeScript constant and in the theme's locale
+ * file (Liquid cannot import TypeScript). Two copies of material customer
+ * terms drift, so this file pins the INVARIANTS that survive an approval
+ * edit: the two surfaces agree, and the text carries no term the
+ * merchandise-only savings rule forbids. (The Shopify invoice custom message
+ * was removed with D12/D15, 2026-10-24.)
  */
 
 function localeString(path: readonly string[]): unknown {
@@ -33,12 +25,11 @@ function localeString(path: readonly string[]): unknown {
 }
 
 describe("the §22 not-committed disclosure", () => {
-  it("is character-for-character identical on the storefront and in the invoice email", () => {
+  it("is character-for-character identical in the constant and the storefront locale", () => {
     const fromTheme = localeString(NOT_COMMITTED_DISCLOSURE_LOCALE_PATH);
 
     expect(typeof fromTheme).toBe("string");
     expect(fromTheme).toBe(NOT_COMMITTED_DISCLOSURE);
-    expect(buildInvoiceCustomMessage()).toBe(NOT_COMMITTED_DISCLOSURE);
   });
 
   /**

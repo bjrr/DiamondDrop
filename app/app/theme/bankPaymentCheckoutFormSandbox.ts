@@ -41,6 +41,7 @@ export interface BankPaymentCheckoutModule {
     };
     buildRequestLines(cart: unknown): Array<{ shopifyVariantId: string; quantity: number }>;
     messageKeyForFailure(status: number, body: unknown): string;
+    buildSuccessMessage(template: string, dto: unknown): string | null;
   };
 }
 
