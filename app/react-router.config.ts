@@ -4,6 +4,7 @@ import {
   formatOriginDiagnostic,
   resolveAllowedActionOrigins,
 } from "./app/lib/devActionOrigins";
+import { PRODUCTION_APP_HOST } from "./app/lib/productionActionOrigin";
 
 // Defaults (appDirectory: "app", ssr: true) match the existing layout, so
 // there is nothing to override yet. The file is optional in React Router 7
@@ -99,5 +100,13 @@ export default {
   // currently using, never a family of hosts — but the option is confirmed
   // available if a future slice needs it for something other than resource
   // routes.
-  allowedActionOrigins: resolveAllowedActionOrigins(process.env),
+  //
+  // REGISTER D11 (2026-10-24) — the paragraph above was wrong about production
+  // in one respect. The resource-route exemption covers App Proxy, webhooks and
+  // cron, but the EMBEDDED ADMIN's own forms are UI routes, and in production
+  // they were rejected too: Fly terminates TLS, so `request.url` is http:// while
+  // the browser's Origin is https://, and the guard compares full origins. The
+  // app's own host is therefore always allowed — see productionActionOrigin.ts.
+  // The dev-tunnel host, when there is one, is added alongside it.
+  allowedActionOrigins: [PRODUCTION_APP_HOST, ...resolveAllowedActionOrigins(process.env)],
 } satisfies Config;
