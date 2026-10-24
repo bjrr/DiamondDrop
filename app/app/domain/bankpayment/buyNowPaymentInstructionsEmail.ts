@@ -1,7 +1,7 @@
 import type { BankPaymentCoordinates } from "~/lib/payments/bankPaymentCoordinates.server";
 
 /**
- * The Buy Now Bank Payment instructions email (D12, owner-approved 2026-10-24).
+ * The Buy Now Bank Payment instructions email (D12; fix approved by owner 2026-10-24, body text pending owner approval).
  *
  * WHY THIS EXISTS. Buy Now used to rely on Shopify's draft-order invoice to
  * carry payment instructions, and that invoice carried no payment coordinates
