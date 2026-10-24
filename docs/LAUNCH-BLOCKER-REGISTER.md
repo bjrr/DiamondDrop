@@ -109,7 +109,7 @@ nothing to re-register and no way to create duplicates.
 | N4 | Why Buy From Us copy | 🔴 BLOCKER | Draft written and grounded in README + locked pricing policy. Not approved; no page created |
 | N5 | FAQ entries | 🔴 BLOCKER | Definition and page now exist (S4); **no entries** — there is no approved FAQ copy, so the FAQ page shows only its title |
 | N6 | Contact mailbox | 🟢 DONE | `orders@caratforus.com`, owner-confirmed, fenced repo-wide. `CUSTOMER_SERVICE_EMAIL` is deliberately *not* a Fly secret — nothing reads it at runtime. Do not set it |
-| N7 | Contact page + form routing | 🟡 PARTIAL | `/pages/contact` (template `contact`) carries the **owner-approved wording verbatim**; Shopify's contact form renders below it. Store contact email is `orders@caratforus.com`. **Not GREEN until a real test submission is seen arriving in the monitored inbox.** Note: Dawn's form shows an optional "Phone number" input — collected, not advertised as support |
+| N7 | Contact page + form routing | 🟢 DONE (live-tested) | `/pages/contact` (template `contact`) carries the **owner-approved wording verbatim**; Shopify's contact form renders below it; store contact email `orders@caratforus.com`. **Delivery proven 2026-10-24:** a test submission (marker `CONTACT-FORM-TEST-20261024-1546`) was accepted by Shopify ("Thanks for contacting us") and the **owner confirmed it arrived in the monitored `orders@caratforus.com` inbox**. Note: Dawn's form shows an optional "Phone number" input — collected, not advertised as support |
 
 ---
 
@@ -335,9 +335,7 @@ Remaining, in order:
 3. **Tax** — nexus, registrations, Shopify configuration (owner facts).
 4. **Shipping** (C6) — rates, zones, packages, full-value insurance and an
    operational mechanism for the $100 signature rule.
-5. **Contact form** (N7) — one real test submission, seen in the monitored
-   inbox.
-6. **Approved copy** — N2–N5, then C4/C5.
+5. **Approved copy** — N2–N5, then C4/C5.
 
 ### Track B — the first real product
 
