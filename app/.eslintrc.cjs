@@ -121,6 +121,17 @@ module.exports = {
       },
     },
     {
+      // Node preloads, loaded with `node --require` before the server starts
+      // (Dockerfile CMD). They are CommonJS by necessity — `--require` loads
+      // CJS — so `require()` is the correct import form here, not a style
+      // lapse. See server/redactRequestLog.cjs.
+      files: ["server/**/*.cjs"],
+      parserOptions: { sourceType: "script" },
+      rules: {
+        "@typescript-eslint/no-var-requires": "off",
+      },
+    },
+    {
       // Theme app extension assets run in a SHOPPER'S BROWSER, not in Node.
       // Without this they are linted against Node globals and every DOM
       // reference is reported as undefined — which would push someone towards
