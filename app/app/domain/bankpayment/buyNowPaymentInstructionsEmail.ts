@@ -77,10 +77,10 @@ export function buildBuyNowPaymentInstructionsEmail(
       `  Account number: ${wire.accountNumber}`,
       `  Reference: ${input.bankPaymentOrderId}`,
       "",
-      // OWNER-APPROVED VERBATIM, 2026-10-24.
+      // PENDING OWNER APPROVAL (D12 email body, proposed 2026-10-24) -- not yet approved.
       "Your Bank Payment Price is guaranteed for 24 hours. After that, your order stays open only while the price is unchanged; if the price changes before your payment arrives, we’ll cancel the order and email you.",
       "",
-      // OWNER-APPROVED VERBATIM, 2026-10-24.
+      // PENDING OWNER APPROVAL (D12 email body, proposed 2026-10-24) -- not yet approved.
       "Your order is not committed and availability is not guaranteed until your Bank Payment is received and verified. We’ll email you once that is done.",
       "",
       "CaratForUs",
