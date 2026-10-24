@@ -140,16 +140,36 @@ the three real senders cannot be triggered without inventing data:
 - milestone emails fire only for a real campaign at a real milestone.
 
 Fabricating any of those would recreate exactly the fixture rows we just
-finished clearing, so none was done. Three honest options, for the owner
-to choose:
+finished clearing, so none was done.
 
-1. **Let the first real event prove it** — the earliest is a bank-payment
-   order's instructions email, which is also the one whose failure would
-   hurt most.
-2. **Accept the risk** on the grounds that the provider is reachable and
-   the From address is verified.
-3. **Add a small authenticated test-send action.** New engineering, and
-   the scope freeze excludes it unless the owner lifts it for this.
+**Owner decision 2026-10-24: prove it on the first real event.** No
+test-send action will be built.
+
+### What to watch, because this failure is silent to the customer
+
+The earliest real send is the Group Buy bank-payment instructions email,
+and its failure mode is deliberately quiet: the send is wrapped so that a
+provider outage **cannot lose the order**. The order is created, the units
+count, the price is locked — and the email failure is logged at error for
+staff to handle by hand. That is the right trade, but it means a customer
+can end up with an open order and no idea where to send money, with
+nothing on screen indicating anything went wrong.
+
+So on the first real bank-payment order, check the log for exactly one of:
+
+```
+group_buy_bank_checkout.instructions_email_sent     ← delivered
+group_buy_bank_checkout.instructions_email_failed   ← send by hand, now
+```
+
+Neither line appearing at all means the email was never attempted —
+`instructions_email_unconfigured`, a configuration fault rather than a
+provider one.
+
+The same applies to the other senders, which log
+`group_buy_milestone.email_failed` and the admin-alert equivalents. The
+milestone sweep additionally reports `emailsFailed` in its returned
+summary, so a scheduled run's failures are visible without reading logs.
 
 ---
 
