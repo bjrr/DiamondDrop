@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { buildBankCheckoutLineResultDto, buildBankCheckoutResultDto, type QuotedLineForResult } from "./checkoutResponseDto";
+import {
+  buildBankCheckoutLineResultDto,
+  buildBankCheckoutResponseDto,
+  buildBankCheckoutResultDto,
+  resolveFormattedAmountDue,
+  type StoredBankCheckoutResult,
+  type QuotedLineForResult,
+} from "./checkoutResponseDto";
 
 /**
  * THE RESPONSE FENCE — same discipline as ruling R10's
@@ -60,9 +67,9 @@ describe("R10-style fence — the Bank Payment Checkout result DTO never leaks i
     const dto = buildBankCheckoutResultDto({
       bankPaymentOrderId: "order-1",
       draftOrderGid: "gid://shopify/DraftOrder/1",
-      invoiceUrl: "https://example.myshopify.com/invoice/1",
       quotedAt: new Date("2026-09-21T00:00:00.000Z"),
       guaranteeExpiresAt: new Date("2026-09-22T00:00:00.000Z"),
+      formattedAmountDue: "2080.00 USD",
       lines: [line(), line({ shopifyVariantGid: "gid://shopify/ProductVariant/456", eligibleAtQuoteTime: false })],
     });
 
@@ -91,9 +98,9 @@ describe("R10-style fence — the Bank Payment Checkout result DTO never leaks i
     const dto = buildBankCheckoutResultDto({
       bankPaymentOrderId: "order-1",
       draftOrderGid: "gid://shopify/DraftOrder/1",
-      invoiceUrl: null,
       quotedAt: new Date("2026-09-21T12:34:56.000Z"),
       guaranteeExpiresAt: new Date("2026-09-22T12:34:56.000Z"),
+      formattedAmountDue: "2000.00 USD",
       lines: [line()],
     });
 
@@ -116,18 +123,121 @@ describe("R10-style fence — the Bank Payment Checkout result DTO never leaks i
     });
   });
 
-  it("a null invoiceUrl is preserved as null, not dropped or coerced", () => {
+  it("the PERSISTED result carries formattedAmountDue, no invoiceUrl and no payment coordinate of any kind", () => {
     const dto = buildBankCheckoutResultDto({
       bankPaymentOrderId: "order-1",
       draftOrderGid: "gid://shopify/DraftOrder/1",
-      invoiceUrl: null,
       quotedAt: new Date("2026-09-21T00:00:00.000Z"),
       guaranteeExpiresAt: new Date("2026-09-22T00:00:00.000Z"),
+      formattedAmountDue: "2000.00 USD",
       lines: [line()],
     });
 
-    expect(dto.invoiceUrl).toBeNull();
-    expect(JSON.stringify(dto)).toContain('"invoiceUrl":null');
+    expect(dto.formattedAmountDue).toBe("2000.00 USD");
+    const json = JSON.stringify(dto);
+    expect(json).not.toContain("invoiceUrl");
+    expect(json).not.toContain("paymentInstructions");
+    expect(json).not.toContain("zelle");
+  });
+});
+
+const ZELLE = "test-pay@example.invalid";
+
+function storedResult(): StoredBankCheckoutResult {
+  return buildBankCheckoutResultDto({
+    bankPaymentOrderId: "order-1",
+    draftOrderGid: "gid://shopify/DraftOrder/1",
+    quotedAt: new Date("2026-09-21T00:00:00.000Z"),
+    guaranteeExpiresAt: new Date("2026-09-22T00:00:00.000Z"),
+    formattedAmountDue: "2000.00 USD",
+    lines: [line()],
+  });
+}
+
+describe("buildBankCheckoutResponseDto — the customer-facing body, built per request and never persisted", () => {
+  it("returns exactly the documented fields, with the Zelle recipient only under paymentInstructions", () => {
+    const dto = buildBankCheckoutResponseDto(storedResult(), { zelleRecipient: ZELLE });
+    expect(dto).not.toBeNull();
+    expect(Object.keys(dto!).sort()).toEqual(
+      [
+        "bankPaymentOrderId",
+        "draftOrderGid",
+        "formattedAmountDue",
+        "guaranteeExpiresAt",
+        "lines",
+        "paymentInstructions",
+        "quotedAt",
+      ].sort()
+    );
+    expect(dto!.paymentInstructions).toEqual({ zelleRecipient: ZELLE });
+    expect(dto!.formattedAmountDue).toBe("2000.00 USD");
+    assertNoForbiddenFields(dto);
+  });
+
+  it("contains no wire coordinate and no invoice URL", () => {
+    const json = JSON.stringify(buildBankCheckoutResponseDto(storedResult(), { zelleRecipient: ZELLE }));
+    for (const term of ["invoiceUrl", "routing", "accountNumber", "bankName", "accountName"]) {
+      expect(json).not.toContain(term);
+    }
+  });
+
+  it("the stored result itself is not mutated by building a response", () => {
+    const stored = storedResult();
+    const before = JSON.stringify(stored);
+    buildBankCheckoutResponseDto(stored, { zelleRecipient: ZELLE });
+    expect(JSON.stringify(stored)).toBe(before);
+    expect(before).not.toContain(ZELLE);
+  });
+});
+
+describe("replay of an OLD stored payload (pre-D12: has invoiceUrl, lacks formattedAmountDue)", () => {
+  function oldPayload(lines: unknown): StoredBankCheckoutResult {
+    return {
+      bankPaymentOrderId: "order-old",
+      draftOrderGid: "gid://shopify/DraftOrder/old",
+      invoiceUrl: "https://example.myshopify.com/invoice/old",
+      quotedAt: "2026-09-21T00:00:00.000Z",
+      guaranteeExpiresAt: "2026-09-22T00:00:00.000Z",
+      lines,
+    } as unknown as StoredBankCheckoutResult;
+  }
+
+  const OLD_LINES = [
+    // eligible: charged at the bank price -> 2 x 1000.00
+    { shopifyVariantId: "v1", quantity: 2, quotedBankPaymentPriceMinorUnits: "100000", quotedRegularCardPriceMinorUnits: "104000", currency: "USD", eligibleAtQuoteTime: true },
+    // ineligible: charged at the card price -> 1 x 2080.05
+    { shopifyVariantId: "v2", quantity: 1, quotedBankPaymentPriceMinorUnits: "200000", quotedRegularCardPriceMinorUnits: "208005", currency: "USD", eligibleAtQuoteTime: false },
+  ];
+
+  it("does not crash and does not leak invoiceUrl", () => {
+    const dto = buildBankCheckoutResponseDto(oldPayload(OLD_LINES), { zelleRecipient: ZELLE });
+    expect(dto).not.toBeNull();
+    expect(JSON.stringify(dto)).not.toContain("invoiceUrl");
+    expect(JSON.stringify(dto)).not.toContain("example.myshopify.com/invoice");
+  });
+
+  it("recomputes the amount due from the stored lines using the CHARGED price (bank if eligible, card if not) in bigint", () => {
+    const dto = buildBankCheckoutResponseDto(oldPayload(OLD_LINES), { zelleRecipient: ZELLE });
+    expect(dto!.formattedAmountDue).toBe("4080.05 USD");
+  });
+
+  it("prefers a stored formattedAmountDue over recomputing", () => {
+    expect(resolveFormattedAmountDue(storedResult())).toBe("2000.00 USD");
+  });
+
+  it("returns null (no half-built panel) when the lines are unusable", () => {
+    expect(buildBankCheckoutResponseDto(oldPayload([]), { zelleRecipient: ZELLE })).toBeNull();
+    expect(
+      buildBankCheckoutResponseDto(
+        oldPayload([{ ...OLD_LINES[0], quotedBankPaymentPriceMinorUnits: "not-a-number" }]),
+        { zelleRecipient: ZELLE }
+      )
+    ).toBeNull();
+    expect(
+      buildBankCheckoutResponseDto(oldPayload([OLD_LINES[0], { ...OLD_LINES[1], currency: "EUR" }]), {
+        zelleRecipient: ZELLE,
+      })
+    ).toBeNull();
   });
 });
 

@@ -36,15 +36,37 @@ export interface BankCheckoutLineResultDto {
   readonly eligibleAtQuoteTime: boolean;
 }
 
+/**
+ * THE PERSISTED SHAPE — what `executeIdempotent` stores as `resultPayload`.
+ *
+ * D12/D15 (2026-10-24): `invoiceUrl` was removed (Buy Now no longer sends a
+ * Shopify invoice or redirects to one) and `formattedAmountDue` added. Nothing
+ * in this type may EVER carry a payment coordinate (Zelle recipient, wire
+ * details): this object is written to Postgres and replayed verbatim.
+ * Coordinates reach the customer only through `BankCheckoutResponseDto`,
+ * which is built per request and never persisted.
+ */
 export interface BankCheckoutResultDto {
   readonly bankPaymentOrderId: string;
   readonly draftOrderGid: string;
-  readonly invoiceUrl: string | null;
   /** ISO-8601. The instant the 24-hour guarantee starts counting from. */
   readonly quotedAt: string;
   /** ISO-8601. `quotedAt` + 24 hours. */
   readonly guaranteeExpiresAt: string;
+  /** e.g. "1062.00 USD" — sum of CHARGED unit price x quantity. Not secret. */
+  readonly formattedAmountDue: string;
   readonly lines: readonly BankCheckoutLineResultDto[];
+}
+
+/** The customer-facing success body: the persisted result plus the Zelle recipient, never stored. */
+export interface BankCheckoutResponseDto {
+  readonly bankPaymentOrderId: string;
+  readonly draftOrderGid: string;
+  readonly quotedAt: string;
+  readonly guaranteeExpiresAt: string;
+  readonly formattedAmountDue: string;
+  readonly lines: readonly BankCheckoutLineResultDto[];
+  readonly paymentInstructions: { readonly zelleRecipient: string };
 }
 
 export interface QuotedLineForResult {
@@ -78,17 +100,107 @@ export function buildBankCheckoutLineResultDto(line: QuotedLineForResult): BankC
 export function buildBankCheckoutResultDto(input: {
   bankPaymentOrderId: string;
   draftOrderGid: string;
-  invoiceUrl: string | null;
   quotedAt: Date;
   guaranteeExpiresAt: Date;
+  formattedAmountDue: string;
   lines: readonly QuotedLineForResult[];
 }): BankCheckoutResultDto {
   return {
     bankPaymentOrderId: input.bankPaymentOrderId,
     draftOrderGid: input.draftOrderGid,
-    invoiceUrl: input.invoiceUrl,
     quotedAt: input.quotedAt.toISOString(),
     guaranteeExpiresAt: input.guaranteeExpiresAt.toISOString(),
+    formattedAmountDue: input.formattedAmountDue,
     lines: input.lines.map(buildBankCheckoutLineResultDto),
+  };
+}
+
+/**
+ * What a stored `resultPayload` may look like when read back. Payloads
+ * written before D12/D15 have `invoiceUrl` and no `formattedAmountDue`; a
+ * replay of one must neither crash nor leak the invoice URL.
+ */
+export type StoredBankCheckoutResult = BankCheckoutResultDto | (Omit<BankCheckoutResultDto, "formattedAmountDue"> & {
+  readonly formattedAmountDue?: undefined;
+  readonly invoiceUrl?: unknown;
+});
+
+/**
+ * Minimal decimal formatting of a minor-unit bigint ("106200n" -> "1062.00").
+ * Integer arithmetic only. Duplicates `minorUnitsToDecimalString` from the
+ * Shopify price adapter so this pure domain module stays free of adapter
+ * imports; the route uses the adapter's helper for fresh results and this
+ * only serves the old-payload recompute path (both are exact for USD's two
+ * minor-unit digits, which is every currency this storefront sells in).
+ */
+function decimalFromMinorUnits(minor: bigint): string {
+  const negative = minor < 0n;
+  const abs = negative ? -minor : minor;
+  const whole = abs / 100n;
+  const cents = (abs % 100n).toString().padStart(2, "0");
+  return `${negative ? "-" : ""}${whole.toString()}.${cents}`;
+}
+
+/**
+ * OLD-PAYLOAD REPLAY POLICY (design choice, 2026-10-24): RECOMPUTE, don't omit.
+ * If a stored result lacks `formattedAmountDue`, derive it from the stored
+ * lines using the same rule as a fresh checkout — the CHARGED unit price
+ * (Bank Payment Price if `eligibleAtQuoteTime`, else Regular/Card Price)
+ * times quantity, summed as BigInt — so the customer still gets a working
+ * Zelle panel on a resubmission. Returns `null` (caller omits nothing; the
+ * theme then shows its existing "unavailable" message) if the lines are
+ * unusable.
+ */
+export function resolveFormattedAmountDue(stored: StoredBankCheckoutResult): string | null {
+  if (typeof stored.formattedAmountDue === "string" && stored.formattedAmountDue.length > 0) {
+    return stored.formattedAmountDue;
+  }
+  const lines = stored.lines;
+  if (!Array.isArray(lines) || lines.length === 0) return null;
+  try {
+    let total = 0n;
+    const currency = lines[0]!.currency;
+    for (const line of lines) {
+      if (line.currency !== currency) return null;
+      const unit = BigInt(line.eligibleAtQuoteTime ? line.quotedBankPaymentPriceMinorUnits : line.quotedRegularCardPriceMinorUnits);
+      total += unit * BigInt(line.quantity);
+    }
+    return `${decimalFromMinorUnits(total)} ${currency}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * THE ONLY WAY a Bank Payment Checkout HTTP success body may be produced.
+ * Field-by-field, NO SPREAD: a stored payload (possibly an old one carrying
+ * `invoiceUrl`) is never copied wholesale, so a stale or unexpected key can
+ * never reach the customer. The Zelle recipient is supplied per request from
+ * the environment and is never part of anything persisted.
+ *
+ * Returns `null` when an amount due cannot be determined (see
+ * `resolveFormattedAmountDue`).
+ */
+export function buildBankCheckoutResponseDto(
+  result: StoredBankCheckoutResult,
+  payment: { zelleRecipient: string }
+): BankCheckoutResponseDto | null {
+  const formattedAmountDue = resolveFormattedAmountDue(result);
+  if (formattedAmountDue === null) return null;
+  return {
+    bankPaymentOrderId: result.bankPaymentOrderId,
+    draftOrderGid: result.draftOrderGid,
+    quotedAt: result.quotedAt,
+    guaranteeExpiresAt: result.guaranteeExpiresAt,
+    formattedAmountDue,
+    lines: result.lines.map((line) => ({
+      shopifyVariantId: line.shopifyVariantId,
+      quantity: line.quantity,
+      quotedBankPaymentPriceMinorUnits: line.quotedBankPaymentPriceMinorUnits,
+      quotedRegularCardPriceMinorUnits: line.quotedRegularCardPriceMinorUnits,
+      currency: line.currency,
+      eligibleAtQuoteTime: line.eligibleAtQuoteTime,
+    })),
+    paymentInstructions: { zelleRecipient: payment.zelleRecipient },
   };
 }

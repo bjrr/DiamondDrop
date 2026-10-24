@@ -2,19 +2,21 @@
  * The §22 "not committed until payment is verified" disclosure — criteria 84
  * and 85.
  *
- * THE SINGLE SOURCE FOR TWO SURFACES, and that is the whole point of this
- * module existing rather than the text living where each surface needs it.
- * The same words must appear on the storefront checkout form (Liquid, so it
- * needs a locale key) and in the invoice email Shopify sends on our behalf
- * (server-side, so it needs a string here). Two copies of material customer
- * terms drift — one gets edited, the other does not, and a customer is told
- * two different things about whether their order exists.
+ * THE SINGLE SOURCE for the storefront checkout form's disclosure (Liquid, so
+ * it needs a locale key). Two copies of material customer terms drift — one
+ * gets edited, the other does not — so this is the source, and
+ * `notCommittedDisclosure.test.ts` asserts that `theme/locales/en.default.json`'s
+ * key is character-for-character identical. Edit one without the other and
+ * the test fails.
  *
- * So this is the source, and `notCommittedDisclosure.test.ts` asserts that
- * `theme/locales/en.default.json`'s key is character-for-character identical.
- * Edit one without the other and the test fails.
+ * D12/D15 (2026-10-24): Buy Now no longer sends a Shopify draft-order invoice
+ * (its "Confirm order" button could commit inventory before verification), so
+ * there is no invoice custom message any more. Payment instructions are shown
+ * on screen and sent in our own email
+ * (`buyNowPaymentInstructionsEmail.ts`), which carries its own owner-approved
+ * not-committed sentence.
  *
- * OWNER-APPROVED 2026-09-22, and pinned character-for-character in
+ * OWNER-APPROVED 2026-09-22, text revised and re-approved 2026-10-24 (D12), and pinned character-for-character in
  * `app/theme/ownerApprovedCopy.test.ts` alongside the cart strings. Criterion
  * 84 is satisfied by this exact wording and nothing else — an edit here is new
  * unapproved copy however small, and it must go back for approval.
@@ -34,17 +36,4 @@ export const NOT_COMMITTED_DISCLOSURE_LOCALE_PATH = [
 ] as const;
 
 export const NOT_COMMITTED_DISCLOSURE =
-  "Your Bank Payment Price is guaranteed for 24 hours. Submitting this form does not complete your order or reserve your items. Your order is not committed and availability is not guaranteed until your Bank Payment is received and verified. We’ll email you an invoice with payment instructions, and nothing is charged when you submit this form.";
-
-/**
- * What rides along with the Shopify-sent invoice (criterion 85).
- *
- * Shopify composes and sends that email; `customMessage` is the only place we
- * can put words into it. So the disclosure travels as the custom message
- * rather than as a separate email of our own — a second email would arrive
- * detached from the invoice it qualifies, which is precisely when a customer
- * would miss it.
- */
-export function buildInvoiceCustomMessage(): string {
-  return NOT_COMMITTED_DISCLOSURE;
-}
+  "Your Bank Payment Price is guaranteed for 24 hours. Submitting this form does not complete your order or reserve your items. Your order is not committed and availability is not guaranteed until your Bank Payment is received and verified. We’ll show your payment instructions on the next screen and email you a copy, and nothing is charged when you submit this form.";
