@@ -139,11 +139,11 @@ row below refers to **`caratforus.myshopify.com`**, live theme
 | S3 | Slice 13 theme files pushed | 🟢 DONE — **production** | `templates/page.past-group-buys.json` and its section are live. **D12/D15 theme files are also live**, pushed 2026-10-25: 5 new files (`page.bank-payment-orders.json`, `sections/bank-payment-orders.liquid`, its JS and CSS, `snippets/group-buy-bank-payment-form.liquid`) and 8 modified. `config/settings_data.json` was deliberately NOT pushed — it holds theme-editor state |
 | S4 | `faq_entry` metaobject definition | 🔴 BLOCKER | Exact handles in `docs/specs/SLICE-12-CONTENT.md` §4.2. A wrong field key renders blank entries with no error anywhere |
 | S5 | `carat.faq_entries` product metafield | 🟡 PARTIAL (optional for launch) | `product-faq.liquid` is implemented but deliberately unwired pending an owner decision on PDP placement |
-| S6 | A `past-group-buys` page using the new template | 🔴 BLOCKER | Template ships in `5f33f0e`; the page must be created in Admin |
+| S6 | A `past-group-buys` page using the new template | 🟢 DONE — **production** | `/pages/past-group-buys` returns 200 on the live storefront. The page already exists; the earlier "must be created" claim was stale |
 | S7 | Policy pages published | 🔴 BLOCKER | Deliberately hidden until N2 |
 | S8 | App installed, OAuth valid, App Proxy routing | 🟢 DONE — **production** | The app is installed on the production shop (sessions keyed on its canonical domain `nnb1th-cm.myshopify.com` — §2). App Proxy verified end to end on 2026-10-25: `GET https://caratforus.myshopify.com/apps/carat/bank-payment-orders` reaches the Fly app and returns our `{"error":"unauthorized"}`, not a Shopify 404 |
 | S9 | **`bank-payment-orders` page** | 🟢 DONE — **production**, one check deferred | Created and **published** by the owner with handle `bank-payment-orders` and template `bank-payment-orders`. Verified live 2026-10-25 — see §4.1. The one unverified item needs a signed-in customer and is named there |
-| S10 | Link the page from account + footer navigation | 🟡 PARTIAL | Both checkout confirmations link to `/pages/bank-payment-orders` and that works. It is not yet reachable from the account page or the footer, so a customer who did not keep the confirmation open has no route to it except the emailed link. Navigation work — belongs to the storefront/navigation phase, not to engineering |
+| S10 | Link Bank Payment Orders from navigation | 🟡 PARTIAL — **blocked on Admin menus** | Now linked from the **homepage** ("Your Bank Payment orders"), plus both checkout confirmations. Still not in header or footer navigation: in Dawn those come from Shopify **navigation menus configured in Admin**, not from theme files, and the app has no `write_content` scope. The footer currently carries only "CaratForUs / Powered by Shopify / Privacy policy" — the stock Dawn default. Needs an Admin menu structure; see §4.2 |
 
 ---
 
@@ -192,6 +192,87 @@ That third outcome is the real risk and the reason this is worth running
 before launch rather than assuming: the dev store exercised this path, but
 whether `logged_in_customer_id` is populated under **new** customer accounts
 has not been observed on this store, and no local test can observe it.
+
+---
+
+### 4.2 Storefront build — what exists, what is blocked (phase A)
+
+#### Which pages actually exist on production
+
+Probed on the live storefront 2026-10-25. This matters because a
+navigation menu or homepage link pointing at a missing page 404s a customer.
+
+| Exists (200) | Missing or unpublished (404) |
+|---|---|
+| `faq` | `about` |
+| `contact` | `why-buy-from-us` |
+| `group-buy` | **`warranty-claim`** |
+| `custom-jewelry` | the six `policy-*` pages |
+| `let-us-beat-your-quote` | |
+| `luxury-steals` | |
+| `past-group-buys` | |
+| `bank-payment-orders` | |
+
+The six policy pages 404ing is **expected** and consistent with S7 — they
+are deliberately unpublished until N2 supplies their bodies.
+
+⚠️ **`warranty-claim` is not.** `templates/page.warranty-claim.json` and its
+form section ship in the live theme, but no page serves them, so the entire
+warranty claim intake is unreachable by a customer. Slice 5 built the form,
+the route, the uploads and the evidence trail; none of it can be used
+without that page. Needs an Admin page at handle `warranty-claim` with that
+template — the same thing S9 needed.
+
+#### Homepage — built and live
+
+`templates/index.json` was stock Dawn: an image banner and a featured
+collection, both pointing at content that does not exist (no images, no
+collections), so the homepage rendered as empty placeholders.
+
+Replaced with five sections built only from components that need neither
+images nor a catalogue — because neither exists yet:
+
+1. **Hero** — positioning, and the two things a visitor can actually do today
+2. **Three ways to buy** — Buy Now, Group Buy, Custom Jewelry
+3. **Two more ways to pay less** — Luxury Steals (Final Sale stated up front), Let Us Beat Your Quote
+4. **Pay by bank, pay less** — and a link to the Bank Payment orders page
+5. **What you get either way** — warranty, insurance, the $100 signature rule, honest image labelling, support address
+
+Copy is drafted from `docs/content/MVP1-STOREFRONT-COPY.md` Part 3, which is
+itself grounded in README and `docs/BANK-CARD-PRICING.md`, rather than
+invented — the bank-payment sentence reuses Part 3's approved phrasing
+verbatim. **Still draft pending owner approval**, same standing as the rest
+of this theme's customer-facing copy.
+
+Verified live: no forbidden pricing language (`cash discount`, `card fee`,
+`surcharge`, `cash`), no percentage shown, and all six internal links return
+200. Buy Now deliberately has **no link** — there is no catalogue to send
+anyone to, and `/collections/all` is empty.
+
+One defect found and fixed in the same pass: Dawn's `multicolumn` has a
+section-level button whose schema default renders the literal text "Button
+label" when unset. It appeared three times on the first push.
+
+#### Blocked on Shopify Admin, not on engineering
+
+| Item | Why |
+|---|---|
+| Header + footer navigation menus (S10) | Dawn reads these from Shopify **navigation menus**. They are Admin data, not theme files. Header is still the stock `Home / Catalog / Contact`; "Catalog" points at an empty collection |
+| Announcement bar still says "Welcome to our store" | Stock Dawn placeholder |
+| `warranty-claim` page | See above |
+| `about`, `why-buy-from-us` pages | Need creating before their drafted copy (Parts 2–3) can be placed |
+| Policy page bodies (N2) | Pages exist but unpublished; bodies are drafted in Part 1 |
+
+The app holds least-privilege scopes with no `write_content`, so none of
+these can be done from here. They need either an owner session in Admin or
+an explicit decision to widen scopes.
+
+**Proposed navigation, for approval** — deliberately not every policy page
+in the primary nav:
+
+- **Header:** Shop · Group Buy · Custom Jewelry · Luxury Steals · Beat Your Quote · FAQ
+- **Footer — Orders:** Bank Payment Orders · Warranty Claim · Contact
+- **Footer — Policies:** the six `policy-*` pages, Terms, Privacy
 
 ---
 

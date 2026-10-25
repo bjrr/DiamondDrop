@@ -1,75 +1,235 @@
 {
   "sections": {
-    "image_banner": {
-      "type": "image-banner",
+    "hero": {
+      "type": "rich-text",
       "blocks": {
         "heading": {
           "type": "heading",
           "settings": {
-            "heading": "Browse our latest products",
+            "heading": "Fine jewelry, priced from what it actually costs",
             "heading_size": "h0"
           }
         },
-        "button": {
-          "type": "buttons",
+        "body": {
+          "type": "text",
           "settings": {
-            "button_label_1": "Shop all",
-            "button_link_1": "shopify://collections/all",
-            "button_style_secondary_1": true,
-            "button_label_2": "",
-            "button_link_2": "",
-            "button_style_secondary_2": false
+            "text": "<p>We price from the real cost of the metal and the stones, plus a margin we can defend — not from an invented list price to discount against. Buy at today's price, join a Group Buy and watch the price fall as more people join, or have something made that does not exist yet.</p>"
+          }
+        },
+        "actions": {
+          "type": "button",
+          "settings": {
+            "button_label": "See the current Group Buy",
+            "button_link": "/pages/group-buy",
+            "button_style_secondary": false,
+            "button_label_2": "Design something custom",
+            "button_link_2": "/pages/custom-jewelry",
+            "button_style_secondary_2": true
           }
         }
       },
       "block_order": [
         "heading",
-        "button"
+        "body",
+        "actions"
       ],
       "settings": {
-        "image_overlay_opacity": 40,
-        "image_height": "large",
-        "desktop_content_position": "bottom-center",
-        "show_text_box": false,
-        "image_behavior": "none",
-        "desktop_content_alignment": "center",
-        "color_scheme": "scheme-3",
-        "mobile_content_alignment": "center",
-        "stack_images_on_mobile": false,
-        "show_text_below": false
+        "desktop_content_position": "center",
+        "content_alignment": "center",
+        "color_scheme": "scheme-1",
+        "full_width": true,
+        "padding_top": 60,
+        "padding_bottom": 40
       }
     },
-    "featured_collection": {
-      "type": "featured-collection",
+    "ways_to_buy": {
+      "type": "multicolumn",
+      "blocks": {
+        "buy_now": {
+          "type": "column",
+          "settings": {
+            "title": "Buy Now",
+            "text": "<p>A finished piece at today's calculated price. You see the price for the exact configuration you choose before you add it to your cart.</p>"
+          }
+        },
+        "group_buy": {
+          "type": "column",
+          "settings": {
+            "title": "Group Buy",
+            "text": "<p>One design, one window. The more people who join, the lower the price goes for everyone — and the price you are shown when you join is the price you are held to.</p>",
+            "link_label": "How Group Buy works",
+            "link": "/pages/group-buy"
+          }
+        },
+        "custom": {
+          "type": "column",
+          "settings": {
+            "title": "Custom Jewelry",
+            "text": "<p>Tell us what you want made. A $49 design deposit starts the work, and nothing is produced until you approve the design.</p>",
+            "link_label": "Start a custom piece",
+            "link": "/pages/custom-jewelry"
+          }
+        }
+      },
+      "block_order": [
+        "buy_now",
+        "group_buy",
+        "custom"
+      ],
       "settings": {
-        "title": "Featured products",
-        "heading_size": "h2",
-        "description": "",
-        "show_description": false,
-        "description_style": "body",
-        "collection": "all",
-        "products_to_show": 8,
-        "columns_desktop": 4,
-        "color_scheme": "scheme-1",
-        "full_width": false,
-        "show_view_all": true,
-        "view_all_style": "solid",
-        "enable_desktop_slider": false,
-        "swipe_on_mobile": false,
+        "title": "Three ways to buy",
+        "heading_size": "h1",
+        "image_width": "full",
         "image_ratio": "adapt",
-        "image_shape": "default",
-        "show_secondary_image": true,
-        "show_vendor": false,
-        "show_rating": false,
-        "quick_add": "none",
-        "columns_mobile": "2",
-        "padding_top": 44,
-        "padding_bottom": 36
+        "columns_desktop": 3,
+        "column_alignment": "left",
+        "background_style": "none",
+        "color_scheme": "scheme-1",
+        "columns_mobile": "1",
+        "swipe_on_mobile": false,
+        "padding_top": 36,
+        "padding_bottom": 20,
+        "button_label": "",
+        "button_link": ""
+      }
+    },
+    "programs": {
+      "type": "multicolumn",
+      "blocks": {
+        "luxury_steals": {
+          "type": "column",
+          "settings": {
+            "title": "Luxury Steals",
+            "text": "<p>A small number of pieces at a price we will not repeat. Limited quantities, and every Luxury Steal is <strong>Final Sale</strong> — no returns, exchanges or refunds. Your warranty rights are unaffected.</p>",
+            "link_label": "See Luxury Steals",
+            "link": "/pages/luxury-steals"
+          }
+        },
+        "beat_quote": {
+          "type": "column",
+          "settings": {
+            "title": "Let Us Beat Your Quote",
+            "text": "<p>Have a recent written quote for a custom piece? Send it to us and we will review it. Qualifying quotes are covered by our guarantee; everything else we will still look at honestly.</p>",
+            "link_label": "Submit a quote",
+            "link": "/pages/let-us-beat-your-quote"
+          }
+        }
+      },
+      "block_order": [
+        "luxury_steals",
+        "beat_quote"
+      ],
+      "settings": {
+        "title": "Two more ways to pay less",
+        "heading_size": "h1",
+        "image_width": "full",
+        "image_ratio": "adapt",
+        "columns_desktop": 2,
+        "column_alignment": "left",
+        "background_style": "primary",
+        "color_scheme": "scheme-1",
+        "columns_mobile": "1",
+        "swipe_on_mobile": false,
+        "padding_top": 36,
+        "padding_bottom": 36,
+        "button_label": "",
+        "button_link": ""
+      }
+    },
+    "bank_payment": {
+      "type": "rich-text",
+      "blocks": {
+        "heading": {
+          "type": "heading",
+          "settings": {
+            "heading": "Pay by bank, pay less",
+            "heading_size": "h1"
+          }
+        },
+        "body": {
+          "type": "text",
+          "settings": {
+            "text": "<p>When you pay by bank instead of card, the price is lower — because our costs are, and we pass that through rather than keeping it. Zelle, ACH, bank transfer and wire all qualify. You see both prices before you commit, and nothing is charged when you choose bank payment: we show you where to send it, and your order is not confirmed until the funds arrive and we verify them.</p>"
+          }
+        },
+        "actions": {
+          "type": "button",
+          "settings": {
+            "button_label": "Your Bank Payment orders",
+            "button_link": "/pages/bank-payment-orders",
+            "button_style_secondary": true
+          }
+        }
+      },
+      "block_order": [
+        "heading",
+        "body",
+        "actions"
+      ],
+      "settings": {
+        "desktop_content_position": "center",
+        "content_alignment": "center",
+        "color_scheme": "scheme-1",
+        "full_width": true,
+        "padding_top": 40,
+        "padding_bottom": 40
+      }
+    },
+    "assurances": {
+      "type": "multicolumn",
+      "blocks": {
+        "covered": {
+          "type": "column",
+          "settings": {
+            "title": "It is covered",
+            "text": "<p>One year against manufacturing faults. Every outbound shipment is tracked and insured for its full value, and anything over $100 needs a signature — yours, not a doorstep.</p>"
+          }
+        },
+        "honest_images": {
+          "type": "column",
+          "settings": {
+            "title": "You see it before it ships",
+            "text": "<p>Renders are labelled as renders, photographs as photographs, and AI visualisations as AI visualisations. What you are looking at is never in doubt.</p>"
+          }
+        },
+        "answers": {
+          "type": "column",
+          "settings": {
+            "title": "Somebody answers",
+            "text": "<p>Email orders@caratforus.com and a person here replies. Returns, warranty claims and questions are handled by the same company that sold you the piece.</p>",
+            "link_label": "Questions and answers",
+            "link": "/pages/faq"
+          }
+        }
+      },
+      "block_order": [
+        "covered",
+        "honest_images",
+        "answers"
+      ],
+      "settings": {
+        "title": "What you get either way",
+        "heading_size": "h1",
+        "image_width": "full",
+        "image_ratio": "adapt",
+        "columns_desktop": 3,
+        "column_alignment": "left",
+        "background_style": "none",
+        "color_scheme": "scheme-1",
+        "columns_mobile": "1",
+        "swipe_on_mobile": false,
+        "padding_top": 20,
+        "padding_bottom": 52,
+        "button_label": "",
+        "button_link": ""
       }
     }
   },
   "order": [
-    "image_banner",
-    "featured_collection"
+    "hero",
+    "ways_to_buy",
+    "programs",
+    "bank_payment",
+    "assurances"
   ]
 }
