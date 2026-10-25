@@ -53,6 +53,8 @@
  */
 window.CaratBankPaymentCheckout = (function () {
   var PROXY_PATH = '/apps/carat/bank-checkout';
+  /** The authenticated durable instructions page — `templates/page.bank-payment-orders.json`. */
+  var ORDERS_PAGE_PATH = '/pages/bank-payment-orders';
   var MODAL_ID = 'CaratBankCheckoutModal';
   var TRIGGER_SELECTOR = '[data-carat-checkout-action="bank-payment"]';
   var DISMISS_SELECTOR = '[data-carat-bank-checkout-dismiss]';
@@ -380,6 +382,24 @@ window.CaratBankPaymentCheckout = (function () {
     }
 
     panel.appendChild(el('p', 'carat-bank-confirmation__include', ins.includeWithPayment));
+
+    /**
+     * THE DURABLE SURFACE. This panel disappears the moment the customer
+     * closes the dialog, and that was half of register D12: a customer who
+     * navigated away had nothing but an email. The orders page is
+     * authenticated, bookmarkable and reachable from another device, and
+     * saying so here is what makes it findable.
+     *
+     * An anchor, not a redirect: nothing should navigate the customer away
+     * from instructions they may still be reading.
+     */
+    var durable = el('p', 'carat-bank-confirmation__durable');
+    var link = el('a', 'carat-bank-confirmation__durable-link', localeString('confirmation_view_orders_link'));
+    link.setAttribute('href', ORDERS_PAGE_PATH);
+    durable.appendChild(document.createTextNode(localeString('confirmation_view_orders') + ' '));
+    durable.appendChild(link);
+    panel.appendChild(durable);
+
     panel.appendChild(
       el('p', 'carat-bank-confirmation__support', localeString('confirmation_support') + ' ' + ins.supportEmail)
     );

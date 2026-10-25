@@ -1,0 +1,192 @@
+{% comment %}
+  THE DURABLE HALF OF THE BANK PAYMENT INSTRUCTIONS (register D12).
+
+  Reads `GET /apps/carat/bank-payment-orders`
+  (app/app/routes/apps.carat.bank-payment-orders.tsx) through
+  `assets/bank-payment-orders.js` and renders the signed-in customer's own
+  Bank Payment orders -- Buy Now and Group Buy -- with full payment
+  instructions for the ones still awaiting money.
+
+  WHY THIS PAGE EXISTS. Payment instructions used to reach the customer
+  through exactly one channel, an email. An email-provider outage therefore
+  produced a customer holding a real order with no idea where to send funds.
+  The checkout confirmation panel covers the moment of checkout; this page
+  covers every moment after it -- a bookmarkable place the customer can
+  return to, days later, on a different device.
+
+  AUTHORIZATION IS SERVER-SIDE AND IS NOT THIS FILE'S JOB. The Liquid
+  `customer` branch below is a COURTESY ONLY: it avoids showing a signed-out
+  shopper a panel that can only ever fail. It is not a security control and
+  must never be treated as one. The route authorizes on
+  `logged_in_customer_id` from the SIGNED App Proxy parameters, matched
+  exactly against the order's stored `customerGid`. Nothing this template or
+  its JS sends -- no email, no order id, no customer id -- participates in
+  that decision, and the fetch below deliberately passes no identity
+  parameter at all. Same pattern and same reasoning as
+  `sections/warranty-claim-form.liquid`'s signed-out branch.
+
+  NO COORDINATES ARE EVER BAKED INTO THIS TEMPLATE. Zelle recipient, bank
+  name, routing and account numbers arrive per request in the JSON response
+  and are written with `textContent` by the JS. They are never rendered by
+  Liquid, never cached, and never stored (`paymentInstructionsView.ts`: "THIS
+  OBJECT IS NEVER PERSISTED. NOT ANYWHERE."). A theme file is a public,
+  cacheable asset; a payment destination does not belong in one.
+
+  COPY STATUS. The sign-in gate sentence carries the exact owner-approved
+  sentence from `docs/REQUIRED-CUSTOMER-ACCOUNTS.md` section 4 ("Please sign
+  in or create a CaratForUs account to continue."), pinned in
+  `app/app/theme/ownerApprovedCopy.test.ts` alongside the identical sentence
+  in `snippets/bank-payment-checkout-dialog.liquid` and
+  `sections/warranty-claim-form.liquid`. The commitment notice, the
+  still-required sentence and the include-with-payment sentence are NOT in
+  this file's locale keys at all -- they are composed server-side by
+  `buildPaymentInstructionsView` so that one approved wording serves the
+  confirmation panel, this page and the email. Every other string here is
+  draft labelling copy, same status as the rest of this theme's
+  `bank_payment_checkout_form.*` keys.
+{% endcomment %}
+
+{{ 'component-bank-payment-orders.css' | asset_url | stylesheet_tag }}
+
+<div class="color-{{ section.settings.color_scheme }} isolate gradient">
+  <div
+    class="carat-bank-orders section-{{ section.id }}-padding page-width"
+    data-carat-bank-orders-section
+  >
+    {%- if section.settings.heading != blank -%}
+      <h2 class="carat-bank-orders__heading {{ section.settings.heading_size }}">
+        {{ section.settings.heading | escape }}
+      </h2>
+    {%- endif -%}
+
+    {%- if customer -%}
+      <p class="carat-bank-orders__intro">
+        {{- 'templates.bank_payment_orders.intro' | t -}}
+      </p>
+
+      {%- comment -%}
+        The JS replaces this region entirely. Until it does, the customer sees
+        a loading line rather than an empty page -- and if the script fails to
+        load at all, the noscript fallback below still names where to ask.
+      {%- endcomment -%}
+      <div
+        class="carat-bank-orders__results"
+        data-carat-bank-orders-results
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <p class="carat-bank-orders__loading" data-carat-bank-orders-loading>
+          {{- 'templates.bank_payment_orders.loading' | t -}}
+        </p>
+      </div>
+
+      <noscript>
+        <p class="carat-bank-orders__noscript">
+          {{- 'templates.bank_payment_orders.noscript' | t -}}
+        </p>
+      </noscript>
+    {%- else -%}
+      {%- comment -%}
+        Signed out. Courtesy branch -- see this section's header comment.
+      {%- endcomment -%}
+      <div class="carat-bank-orders__signin-required" data-carat-bank-orders-signin-required>
+        <h3 class="carat-bank-orders__signin-heading">
+          {{- 'templates.bank_payment_orders.sign_in_required_heading' | t -}}
+        </h3>
+        <p class="carat-bank-orders__signin-message">
+          {{- 'templates.bank_payment_orders.sign_in_required_message' | t -}}
+        </p>
+        <div class="carat-bank-orders__actions">
+          <a
+            href="{{ routes.account_login_url }}?return_url={{ request.path | url_encode }}"
+            class="button"
+            data-carat-bank-orders-signin-link
+          >
+            {{- 'customer.log_in' | t -}}
+          </a>
+        </div>
+      </div>
+    {%- endif -%}
+  </div>
+</div>
+
+<script src="{{ 'bank-payment-orders.js' | asset_url }}" defer="defer"></script>
+
+{% style %}
+  .section-{{ section.id }}-padding {
+    padding-top: {{ section.settings.padding_top | times: 0.75 | round: 0 }}px;
+    padding-bottom: {{ section.settings.padding_bottom | times: 0.75 | round: 0 }}px;
+  }
+
+  @media screen and (min-width: 750px) {
+    .section-{{ section.id }}-padding {
+      padding-top: {{ section.settings.padding_top }}px;
+      padding-bottom: {{ section.settings.padding_bottom }}px;
+    }
+  }
+{% endstyle %}
+
+{% schema %}
+{
+  "name": "Bank Payment orders",
+  "tag": "section",
+  "class": "section",
+  "disabled_on": {
+    "groups": ["header", "footer"]
+  },
+  "settings": [
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading"
+    },
+    {
+      "type": "select",
+      "id": "heading_size",
+      "options": [
+        { "value": "h2", "label": "Small" },
+        { "value": "h1", "label": "Medium" },
+        { "value": "h0", "label": "Large" }
+      ],
+      "default": "h1",
+      "label": "Heading size"
+    },
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "Color scheme",
+      "default": "scheme-1"
+    },
+    {
+      "type": "header",
+      "content": "Section padding"
+    },
+    {
+      "type": "range",
+      "id": "padding_top",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "Top padding",
+      "default": 36
+    },
+    {
+      "type": "range",
+      "id": "padding_bottom",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "Bottom padding",
+      "default": 36
+    }
+  ],
+  "presets": [
+    {
+      "name": "Bank Payment orders"
+    }
+  ]
+}
+{% endschema %}

@@ -165,3 +165,99 @@
 .carat-bank-checkout-modal__signin-message {
   margin: 0 0 1.5rem;
 }
+
+/* ===========================================================================
+   THE PAYMENT CONFIRMATION PANEL (register D12)
+   ===========================================================================
+   Rendered by `bank-payment-checkout.js`'s `renderPaymentInstructions` in
+   place of the submitted form. These are the payment instructions
+   themselves, not a receipt — the customer reads a bank account number off
+   this panel and types it into their bank, so legibility is a correctness
+   concern, not a decorative one.
+
+   `.carat-bank-confirmation__value` is monospaced and selectable for exactly
+   that reason: a routing number in a proportional face with ligatures is a
+   transcription error waiting to happen.
+
+   The same visual vocabulary is reused by the durable orders page under its
+   own prefix (`component-bank-payment-orders.css`). Duplicated rather than
+   shared because the two live in different documents with different
+   surrounding scales, same precedent as this file's own header comment. */
+
+.carat-bank-confirmation {
+  margin: 0;
+}
+
+.carat-bank-confirmation__heading {
+  margin: 0 0 1.5rem;
+}
+
+.carat-bank-confirmation__still-required,
+.carat-bank-confirmation__commitment,
+.carat-bank-confirmation__extension,
+.carat-bank-confirmation__include,
+.carat-bank-confirmation__support {
+  margin: 0 0 1.2rem;
+}
+
+/* The commitment notice is material terms — never visually de-emphasised
+   (CLAUDE.md: "Never hide material final-sale, cancellation, pricing ...
+   terms"). */
+.carat-bank-confirmation__commitment {
+  font-weight: 600;
+  border-left: 0.3rem solid rgba(var(--color-foreground), 0.3);
+  padding-left: 1.2rem;
+}
+
+.carat-bank-confirmation__summary,
+.carat-bank-confirmation__method-fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.6rem 1.5rem;
+  margin: 0 0 2rem;
+}
+
+.carat-bank-confirmation__label {
+  margin: 0;
+  font-weight: 600;
+}
+
+.carat-bank-confirmation__value {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-word;
+  user-select: all;
+}
+
+.carat-bank-confirmation__methods-heading {
+  margin: 2rem 0 1.2rem;
+}
+
+.carat-bank-confirmation__method {
+  border: 0.1rem solid rgba(var(--color-foreground), 0.15);
+  border-radius: var(--text-boxes-radius);
+  padding: 1.5rem;
+  margin: 0 0 1.5rem;
+}
+
+.carat-bank-confirmation__method-name {
+  margin: 0 0 1.2rem;
+}
+
+.carat-bank-confirmation__method-fields {
+  margin: 0;
+}
+
+@media screen and (max-width: 749px) {
+  /* Stacked on narrow screens so an account number is never squeezed into a
+     column that forces a mid-number wrap. */
+  .carat-bank-confirmation__summary,
+  .carat-bank-confirmation__method-fields {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+
+  .carat-bank-confirmation__value {
+    margin-bottom: 0.8rem;
+  }
+}

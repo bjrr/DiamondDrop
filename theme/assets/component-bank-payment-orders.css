@@ -1,0 +1,152 @@
+/**
+ * The authenticated Bank Payment orders page (register D12) —
+ * `sections/bank-payment-orders.liquid` + `assets/bank-payment-orders.js`.
+ *
+ * Shares the confirmation panel's visual vocabulary under its own prefix,
+ * deliberately duplicated rather than reused: that panel is a modal-scale
+ * block replacing a form, this is a full page listing several orders, and
+ * the two need different outer spacing and heading scales. Same precedent
+ * `component-bank-payment-checkout.css` documents for not reusing
+ * `.product-popup-modal`.
+ *
+ * MONOSPACED, SELECTABLE VALUES. The customer reads a routing number and a
+ * bank account number off this page and types them into their bank. A
+ * transcription error here costs real money and real support time, so
+ * legibility of those values is a correctness requirement, not styling.
+ */
+
+.carat-bank-orders__heading {
+  margin: 0 0 1.5rem;
+}
+
+.carat-bank-orders__intro,
+.carat-bank-orders__loading,
+.carat-bank-orders__empty,
+.carat-bank-orders__noscript {
+  margin: 0 0 2rem;
+}
+
+/* Not an error — the orders are real, we just cannot state a destination
+   right now. Styled as a notice, not as a failure. */
+.carat-bank-orders__coordinates-missing {
+  margin: 0 0 2rem;
+  padding: 1.2rem 1.5rem;
+  border-left: 0.3rem solid rgba(var(--color-foreground), 0.3);
+  background-color: rgba(var(--color-foreground), 0.04);
+}
+
+.carat-bank-orders__error {
+  margin: 0 0 2rem;
+  color: rgb(var(--color-foreground));
+}
+
+.carat-bank-orders__group-heading {
+  margin: 3rem 0 1.5rem;
+}
+
+.carat-bank-orders__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 2rem;
+}
+
+.carat-bank-orders__order {
+  border: 0.1rem solid rgba(var(--color-foreground), 0.15);
+  border-radius: var(--text-boxes-radius);
+  padding: 2rem;
+}
+
+.carat-bank-orders__order-heading {
+  margin: 0 0 1.5rem;
+}
+
+.carat-bank-orders__summary,
+.carat-bank-orders__method-fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.6rem 1.5rem;
+  margin: 0 0 2rem;
+}
+
+.carat-bank-orders__label {
+  margin: 0;
+  font-weight: 600;
+}
+
+.carat-bank-orders__value {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-word;
+  user-select: all;
+}
+
+.carat-bank-orders__still-required,
+.carat-bank-orders__extension,
+.carat-bank-orders__include,
+.carat-bank-orders__support,
+.carat-bank-orders__no-instructions {
+  margin: 0 0 1.2rem;
+}
+
+/* Material terms — never visually de-emphasised (CLAUDE.md customer
+   experience rules). */
+.carat-bank-orders__commitment {
+  margin: 0 0 1.2rem;
+  font-weight: 600;
+  border-left: 0.3rem solid rgba(var(--color-foreground), 0.3);
+  padding-left: 1.2rem;
+}
+
+.carat-bank-orders__methods-heading {
+  margin: 2rem 0 1.2rem;
+}
+
+.carat-bank-orders__method {
+  border: 0.1rem solid rgba(var(--color-foreground), 0.15);
+  border-radius: var(--text-boxes-radius);
+  padding: 1.5rem;
+  margin: 0 0 1.5rem;
+}
+
+.carat-bank-orders__method-name {
+  margin: 0 0 1.2rem;
+}
+
+.carat-bank-orders__method-fields {
+  margin: 0;
+}
+
+.carat-bank-orders__signin-heading {
+  margin: 0 0 1.2rem;
+}
+
+.carat-bank-orders__signin-message {
+  margin: 0 0 1.5rem;
+}
+
+.carat-bank-orders__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  align-items: center;
+}
+
+@media screen and (max-width: 749px) {
+  /* Stacked so an account number is never squeezed into a column that
+     forces a mid-number wrap. */
+  .carat-bank-orders__summary,
+  .carat-bank-orders__method-fields {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+
+  .carat-bank-orders__value {
+    margin-bottom: 0.8rem;
+  }
+
+  .carat-bank-orders__order {
+    padding: 1.5rem;
+  }
+}

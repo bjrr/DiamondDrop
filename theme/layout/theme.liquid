@@ -401,6 +401,8 @@
           confirmation_account_number: `{{ 'sections.cart.bank_payment_checkout_form.confirmation_account_number' | t }}`,
           confirmation_reference_label: `{{ 'sections.cart.bank_payment_checkout_form.confirmation_reference_label' | t }}`,
           confirmation_support: `{{ 'sections.cart.bank_payment_checkout_form.confirmation_support' | t }}`,
+          confirmation_view_orders: `{{ 'sections.cart.bank_payment_checkout_form.confirmation_view_orders' | t }}`,
+          confirmation_view_orders_link: `{{ 'sections.cart.bank_payment_checkout_form.confirmation_view_orders_link' | t }}`,
         },
       };
 
@@ -433,6 +435,58 @@
         error_upload_too_large: `{{ 'templates.warranty_claim.form.error_upload_too_large' | t }}`,
         error_upload_type: `{{ 'templates.warranty_claim.form.error_upload_type' | t }}`,
         error_upload_failed: `{{ 'templates.warranty_claim.form.error_upload_failed' | t }}`,
+      };
+
+      // The authenticated Bank Payment orders page (register D12). Labels
+      // only -- the commitment notice, the still-required sentence and the
+      // include-with-payment sentence are NOT here: they are composed
+      // server-side by buildPaymentInstructionsView so one approved wording
+      // serves the confirmation panel, this page and the email.
+      //
+      // NO COORDINATES. A Zelle recipient or an account number must never
+      // appear in this object -- theme.liquid is public and cacheable.
+      window.bankPaymentOrdersStrings = {
+        intro: `{{ 'templates.bank_payment_orders.intro' | t }}`,
+        loading: `{{ 'templates.bank_payment_orders.loading' | t }}`,
+        empty: `{{ 'templates.bank_payment_orders.empty' | t }}`,
+        buy_now_heading: `{{ 'templates.bank_payment_orders.buy_now_heading' | t }}`,
+        group_buy_heading: `{{ 'templates.bank_payment_orders.group_buy_heading' | t }}`,
+        buy_now_order: `{{ 'templates.bank_payment_orders.buy_now_order' | t }}`,
+        group_buy_order: `{{ 'templates.bank_payment_orders.group_buy_order' | t }}`,
+        field_reference: `{{ 'templates.bank_payment_orders.field_reference' | t }}`,
+        field_status: `{{ 'templates.bank_payment_orders.field_status' | t }}`,
+        field_amount: `{{ 'templates.bank_payment_orders.field_amount' | t }}`,
+        field_placed: `{{ 'templates.bank_payment_orders.field_placed' | t }}`,
+        field_guarantee: `{{ 'templates.bank_payment_orders.field_guarantee' | t }}`,
+        field_campaign: `{{ 'templates.bank_payment_orders.field_campaign' | t }}`,
+        field_tier: `{{ 'templates.bank_payment_orders.field_tier' | t }}`,
+        field_payment_deadline: `{{ 'templates.bank_payment_orders.field_payment_deadline' | t }}`,
+        no_instructions: `{{ 'templates.bank_payment_orders.no_instructions' | t }}`,
+        lapsed_reactivate: `{{ 'templates.bank_payment_orders.lapsed_reactivate' | t }}`,
+        coordinates_unavailable: `{{ 'templates.bank_payment_orders.coordinates_unavailable' | t }}`,
+        error_authentication_required: `{{ 'templates.bank_payment_orders.error_authentication_required' | t }}`,
+        error_not_found: `{{ 'templates.bank_payment_orders.error_not_found' | t }}`,
+        error_generic: `{{ 'templates.bank_payment_orders.error_generic' | t }}`,
+        error_network: `{{ 'templates.bank_payment_orders.error_network' | t }}`,
+        status_buy_now_open: `{{ 'templates.bank_payment_orders.status_buy_now_open' | t }}`,
+        status_buy_now_paid: `{{ 'templates.bank_payment_orders.status_buy_now_paid' | t }}`,
+        status_buy_now_cancelled: `{{ 'templates.bank_payment_orders.status_buy_now_cancelled' | t }}`,
+        status_buy_now_expired: `{{ 'templates.bank_payment_orders.status_buy_now_expired' | t }}`,
+        status_group_buy_active: `{{ 'templates.bank_payment_orders.status_group_buy_active' | t }}`,
+        status_group_buy_paid: `{{ 'templates.bank_payment_orders.status_group_buy_paid' | t }}`,
+        status_group_buy_inactive: `{{ 'templates.bank_payment_orders.status_group_buy_inactive' | t }}`,
+        status_group_buy_cancelled: `{{ 'templates.bank_payment_orders.status_group_buy_cancelled' | t }}`,
+        confirmation_methods: `{{ 'templates.bank_payment_orders.confirmation_methods' | t }}`,
+        confirmation_zelle: `{{ 'templates.bank_payment_orders.confirmation_zelle' | t }}`,
+        confirmation_send_to: `{{ 'templates.bank_payment_orders.confirmation_send_to' | t }}`,
+        confirmation_memo: `{{ 'templates.bank_payment_orders.confirmation_memo' | t }}`,
+        confirmation_wire: `{{ 'templates.bank_payment_orders.confirmation_wire' | t }}`,
+        confirmation_bank_name: `{{ 'templates.bank_payment_orders.confirmation_bank_name' | t }}`,
+        confirmation_account_name: `{{ 'templates.bank_payment_orders.confirmation_account_name' | t }}`,
+        confirmation_routing: `{{ 'templates.bank_payment_orders.confirmation_routing' | t }}`,
+        confirmation_account_number: `{{ 'templates.bank_payment_orders.confirmation_account_number' | t }}`,
+        confirmation_reference_label: `{{ 'templates.bank_payment_orders.confirmation_reference_label' | t }}`,
+        confirmation_support: `{{ 'templates.bank_payment_orders.confirmation_support' | t }}`,
       };
 
       window.variantStrings = {
