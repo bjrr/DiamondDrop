@@ -186,13 +186,13 @@ row below refers to **`caratforus.myshopify.com`**, live theme
 | S1 | Slice 12 policy theme files pushed | 🟢 DONE — **production** | Live on #187633434842, verified by pulling the live theme and diffing against the repo |
 | S2 | FAQ theme files pushed | 🟢 DONE — **production** | `templates/page.faq.json` and its section are live. (The earlier "never pushed" claim was stale: the theme had already been pushed to production.) The FAQ page still renders nothing until S4/N5 supply entries — that is a content gap, not a theme gap |
 | S3 | Slice 13 theme files pushed | 🟢 DONE — **production** | `templates/page.past-group-buys.json` and its section are live. **D12/D15 theme files are also live**, pushed 2026-10-25: 5 new files (`page.bank-payment-orders.json`, `sections/bank-payment-orders.liquid`, its JS and CSS, `snippets/group-buy-bank-payment-form.liquid`) and 8 modified. `config/settings_data.json` was deliberately NOT pushed — it holds theme-editor state |
-| S4 | `faq_entry` metaobject definition | 🔴 BLOCKER | Exact handles in `docs/specs/SLICE-12-CONTENT.md` §4.2. A wrong field key renders blank entries with no error anywhere |
+| S4 | `faq_entry` metaobject definition | 🔴 BLOCKER — next up | Exact handles in `docs/specs/SLICE-12-CONTENT.md` §4.2. A wrong field key renders blank entries with no error anywhere |
 | S5 | `carat.faq_entries` product metafield | 🟡 PARTIAL (optional for launch) | `product-faq.liquid` is implemented but deliberately unwired pending an owner decision on PDP placement |
 | S6 | A `past-group-buys` page using the new template | 🟢 DONE — **production** | `/pages/past-group-buys` returns 200 on the live storefront. The page already exists; the earlier "must be created" claim was stale |
-| S7 | Policy pages published | 🔴 BLOCKER | Deliberately hidden until N2. All six `policy-*` handles 404 on the live storefront today — confirmed 2026-10-25. **This blocks two of the approved footer links** (Returns and Cancellations, Warranty): they cannot be added until the pages are published, or they will 404 for customers |
+| S7 | Policy pages published | 🟡 PARTIAL — **they are published; the bodies are the gap** | **Correction 2026-10-25:** the policy pages are live and Visible under their own handles — `/pages/warranty` and `/pages/returns-and-cancellations` both return 200. An earlier probe used `policy-*` handles (the TEMPLATE names) and wrongly concluded the pages were unpublished. They are safe to link from the footer. What is still missing is their **content** (N2) |
 | S8 | App installed, OAuth valid, App Proxy routing | 🟢 DONE — **production** | The app is installed on the production shop (sessions keyed on its canonical domain `nnb1th-cm.myshopify.com` — §2). App Proxy verified end to end on 2026-10-25: `GET https://caratforus.myshopify.com/apps/carat/bank-payment-orders` reaches the Fly app and returns our `{"error":"unauthorized"}`, not a Shopify 404 |
 | S9 | **`bank-payment-orders` page** | 🟢 **FULLY DONE — production, end to end** | Created and published by the owner. All nine checks green, including the signed-in customer case closed by the owner 2026-10-25: a real production customer account saw exactly *"You have no Bank Payment orders on this account."* See §4.1 |
-| S10 | Link Bank Payment Orders from navigation | 🟡 PARTIAL — **blocked on Admin menus** | Now linked from the **homepage** ("Your Bank Payment orders"), plus both checkout confirmations. Still not in header or footer navigation: in Dawn those come from Shopify **navigation menus configured in Admin**, not from theme files, and the app has no `write_content` scope. The footer currently carries only "CaratForUs / Powered by Shopify / Privacy policy" — the stock Dawn default. Needs an Admin menu structure; see §4.2 |
+| S10 | Link Bank Payment Orders from navigation | 🟡 PARTIAL — **unblocked, not yet done** | Linked from the homepage and both checkout confirmations. Header/footer menus are Shopify Admin data, and Admin is now reachable through an authenticated browser session, so this is actionable. 13 of the 14 approved footer links resolve 200 today; only Terms of Service is genuinely absent |
 
 ---
 
@@ -341,6 +341,65 @@ in the primary nav:
 - **Header:** Shop · Group Buy · Custom Jewelry · Luxury Steals · Beat Your Quote · FAQ
 - **Footer — Orders:** Bank Payment Orders · Warranty Claim · Contact
 - **Footer — Policies:** the six `policy-*` pages, Terms, Privacy
+
+---
+
+### 4.3 Admin work — the CLI token was never needed
+
+`shopify store auth` failed four times: it opens an approval page in a
+browser tab outside the controlled group, logs only the redirect URI and
+never the authorize URL, and times out after ~2 minutes. Three separate
+techniques to recover the URL (verbose logging, process command-line
+inspection, tab enumeration) all failed — the browser-launcher process
+exits before it can be read, and Chrome holds the URL internally.
+
+**It turned out to be unnecessary.** `admin.shopify.com` is reachable in an
+authenticated browser session, so the Admin UI does everything the token
+would have. Recorded because the next person will otherwise burn the same
+hour on the CLI.
+
+#### Pages created and verified, 2026-10-25
+
+| Page | Handle | Template | Verified |
+|---|---|---|---|
+| **Warranty Claim** | `warranty-claim` | `warranty-claim` | 200; form renders, JS + CSS load; **no shipping instruction and no local-jeweller mention** (criteria 156/165) |
+| **About Us** | `about-us` | default | 200; 7 paragraphs |
+| **Why Buy From Us** | `why-buy-from-us` | default | 200; 5 paragraphs |
+
+All three Visible; the storefront password still gates public access. No
+forbidden pricing language and no percentage on any of them.
+
+Copy is taken from `MVP1-STOREFRONT-COPY.md` Parts 2 and 3 — not invented.
+**Still draft pending owner approval**, and Part 2 carries an open item the
+owner has not answered: the About page has no founder story, no photograph
+and no founding year, because none exist in the source. It reads completely
+without them; it would read better with them.
+
+Warranty Claim closes a real gap — the Slice 5 intake form, route, uploads
+and evidence trail shipped in the live theme with **no page serving them**,
+so none of it was reachable by a customer.
+
+#### Correction: the policy pages were never unpublished
+
+An earlier probe reported all six `policy-*` handles 404ing and concluded
+the pages were hidden pending N2. That was wrong — `policy-*` are the
+**template** names. The pages exist, are Visible, and resolve under their
+own handles: `/pages/warranty` and `/pages/returns-and-cancellations` both
+return 200.
+
+So the footer plan is not blocked. **13 of the 14 approved footer links
+resolve today**; only Terms of Service is genuinely absent, and per the
+owner it stays out until approved legal text exists rather than shipping
+placeholder legal copy.
+
+#### Still to do in Admin
+
+| Item | Note |
+|---|---|
+| FAQ metaobject + 38 entries | The definition does not exist yet. Copy is owner-approved (N5). 38 entries x 4 fields through a UI is the slow part, not the uncertain part |
+| Main + footer menus | Structure approved; 13 footer links available |
+| "Powered by Shopify" | Remove if the theme/plan exposes the setting |
+| Customer-account navigation | New customer accounts are Shopify-hosted; only worth doing if a no-code menu surface exists. **Not** building a UI extension for it |
 
 ---
 
