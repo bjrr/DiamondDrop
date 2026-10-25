@@ -1,8 +1,13 @@
 # MVP1 Launch Blocker Register
 
-**Current as of 2026-10-25. Production runs `0638578`, deployed and
-live-proven.** `main` carries one commit on top of it adding a live-test
-script and this document — no application code, so nothing to redeploy.
+**Current as of 2026-10-25.**
+
+- **Fly app:** production runs `0638578`, deployed and live-proven. Commits
+  on `main` above it are a live-test script and this document — no
+  application code, so there is nothing to redeploy.
+- **Shopify:** production store `caratforus.myshopify.com` (§2), live theme
+  `CaratForUs MVP1` #187633434842, D12/D15 theme files pushed 2026-10-25,
+  S9 page created and verified (§4.1).
 
 The single authoritative list of what stands between CaratForUs and taking
 a real customer's money.
@@ -15,15 +20,19 @@ live in §9 as history, never as open items.
 
 ## The one-paragraph answer
 
-**The platform is ready; the business is not.** The app is deployed and
-healthy, fully migrated, operator-configurable, and all four scheduled jobs
-run and have been individually proven. The last two engineering gaps —
-D15's unsafe Shopify invoice and D12's email-only payment instructions —
-are fixed, deployed and live-proven (§7). What is missing is commercial:
-`caratforus-dev` is a development store that **cannot be converted** to a
-paid storefront, so a new production store must be created; there is no
-real catalogue; and every cost input in the database is still placeholder
-data. No amount of further engineering changes any of that.
+**The platform is ready and now sits on a real production store; the
+business is not ready.** The app is deployed, healthy, fully migrated,
+operator-configurable, and all four scheduled jobs run and have been
+individually proven. The last two engineering gaps — D15's unsafe Shopify
+invoice and D12's email-only payment instructions — are fixed, deployed and
+live-proven (§7). The production store exists (`caratforus.myshopify.com`,
+Grow plan) with the app installed, the theme live and the storefront
+password protected.
+
+What is missing is commercial and editorial: **no card gateway is
+activated**, there is no catalogue, no Terms or Privacy Policy, the FAQ is
+empty, and every cost input in the database is still placeholder data. No
+amount of further engineering changes any of that.
 
 ---
 
@@ -42,45 +51,63 @@ data. No amount of further engineering changes any of that.
 
 | # | Item | Status | Evidence / note |
 |---|---|---|---|
-| C1 | **A real catalogue** — no sellable product exists | 🔴 BLOCKER | Blocked behind C2 by choice: no Shopify product, mapping, metaobject or collection is created in a store we are about to abandon. See §8 Track B |
-| C2 | **A payment-capable store** | 🔴 BLOCKER | **Determined 2026-10-15: `caratforus-dev` cannot be transferred or upgraded. A new production store is required.** See §2 |
+| C1 | **A real catalogue** — no sellable product exists | 🔴 BLOCKER | No longer blocked by anything but the work itself: the production store exists. See §8 Track B |
+| C2 | **A production store** | 🟢 **RESOLVED 2026-10-25** | `caratforus.myshopify.com` (canonical `nnb1th-cm.myshopify.com`) — **Production, Grow plan**, app installed, theme live, storefront password protected. See §2 |
 | C3 | **Bank payment coordinates** | 🟢 DONE | All five `PAYMENT_*` secrets set and Deployed. **Resolved 2026-10-24:** the digest `PAYMENT_ZELLE_RECIPIENT` shares with `STAFF_EMAIL_ALLOWLIST` is because both are `orders@caratforus.com`. The allowlist holds a **single address with no commas**, so the Zelle recipient is a valid one — the failure mode I flagged does not apply |
 | C4 | **Terms of Service** | 🔴 BLOCKER | Does not exist. Four business decisions needed first — `docs/content/MVP1-STOREFRONT-COPY.md` Part 4 |
 | C5 | **Privacy Policy** | 🔴 BLOCKER | Does not exist. Append-only evidence tables interact with deletion requests and need a lawful stated answer — Part 5 |
-| C6 | **Shipping configuration in Shopify** | ❓ UNKNOWN | Policy locked in README; Shopify-side configuration not visible from here. Moot until C2 |
-| C7 | **Payment gateway and tax** | ❓ UNKNOWN | Not visible from here. Moot until C2 |
+| C6 | **Shipping configuration in Shopify** | ❓ UNKNOWN | Policy locked in README; not yet verified in the production store. No longer blocked — C2 is resolved |
+| C7 | **Payment gateway and tax** | 🔴 BLOCKER | **Shopify Payments / card-gateway activation is its own commerce-launch blocker** and is NOT implied by C2. Tax configuration likewise unverified |
 
 ---
 
-## 2. The store determination (C2)
+## 2. The production store — RESOLVED
 
-Checked in the authenticated Shopify session, three independent places:
-
-| Source | Result |
+| Fact | Value |
 |---|---|
-| `shopify store info` (CLI) | `Type: Dev`, Plan Basic, created 2026-09-17, org "My Store" (236195662) |
-| Admin → Settings → **Plan** | "Basic" with a **Development store** badge. Only action on the page: **Delete store**. No plan selection, no upgrade |
-| Dev Dashboard → Stores → ⋮ | Exactly two actions: **Log in**, **Delete store**. **No "Transfer ownership"** |
+| Public store URL | `caratforus.myshopify.com` |
+| Shopify canonical/internal domain | `nnb1th-cm.myshopify.com` |
+| **These are the same shop** | Shop id `gid://shopify/Shop/85082865882` |
+| Type / Plan | **Production, Grow** |
+| Store owner | Brian Jishi (`orders@caratforus.com`) |
+| Storefront | **Password protected** — `/` and every page 302 to `/password` |
 
-**`caratforus-dev` is a development store created for app/theme testing,
-with no self-serve route to a paid public storefront.** A transferable
-store exposes a transfer action; this one exposes deletion. It must be
-replaced, not upgraded. Creating a store requires a plan purchase and is an
-owner action — nothing further can be prepared from here.
+**C2 is closed.** A production merchant store exists on a paid plan. The
+earlier determination — that `caratforus-dev` was a development store with
+no self-serve upgrade path — was correct about `caratforus-dev` and is now
+simply irrelevant: a separate production store was created rather than
+converting that one. Do not reopen "create a production store" as a
+blocker.
 
-### What survives the move, and what does not
+### The two domains are one shop — read this before debugging anything
 
-| Survives untouched | Must be redone |
+Shopify assigns a permanent internal `*.myshopify.com` handle that does not
+change when the store URL does. For this shop that handle is
+`nnb1th-cm.myshopify.com`, and it is what appears in API payloads, OAuth
+sessions and the `Session.shop` column. `caratforus.myshopify.com` is the
+same shop under its chosen name.
+
+This has already caused one wrong conclusion: a session-table dump showing
+`nnb1th-cm.myshopify.com` was read as "some other store", and the absence
+of a literal `caratforus.myshopify.com` row as "the app is not installed on
+production". Both were wrong. **The CaratForUs app IS installed on the
+production store.**
+
+### What is live on production today
+
+| Item | State |
 |---|---|
-| All 15 policy terms (they live in Postgres, not Shopify) | App install + OAuth grant |
-| The entire database and all 90 migrations | App Proxy subpath + storefront routing |
-| 24 of 25 Fly secrets (only `SHOPIFY_SHOP_DOMAIN` changes) | Webhook registration |
-| The Fly app, Postgres, all four cron machines | Theme push |
-| Pricing settings and every pricing value | Six policy page shells |
+| CaratForUs app | **Installed**; offline + online sessions present |
+| App Proxy `/apps/carat/*` | **Routing** — verified end to end, see §7 |
+| Theme `CaratForUs MVP1` (#187633434842) | **Live** |
+| Slice 12 policy templates | **Live** |
+| Slice 13 templates (FAQ, past Group Buys) | **Live** |
+| D12/D15 theme files | **Live** — pushed 2026-10-25, see §4 S1–S3 |
+| `bank-payment-orders` page | **Created, published, template assigned** (S9) |
 
-**Now is the cheapest possible moment to move** — there is still no
-catalogue, no FAQ metaobject and no collection to lose. That stops being
-true the moment Product #1 is created.
+`caratforus-dev.myshopify.com` still exists and the app is still installed
+there. It is now a test store only. See §5 D4 for the one configuration
+consequence of that, which is **not** cosmetic.
 
 ---
 
@@ -99,20 +126,70 @@ true the moment Product #1 is created.
 
 ## 4. Shopify Admin setup
 
-Everything here is **blocked behind C2** and should be done once, in the
-production store.
+C2 is resolved, so nothing here is blocked by the store any more. Every
+row below refers to **`caratforus.myshopify.com`**, live theme
+`CaratForUs MVP1` (#187633434842), unless it says otherwise.
 
 | # | Item | Status | Evidence / note |
 |---|---|---|---|
-| S1 | Slice 12 policy theme files pushed | 🟢 DONE (dev store) | Theme `182948626733`. Must be re-pushed to the production store |
-| S2 | FAQ theme files pushed | 🔴 BLOCKER | Committed `a764887`, never pushed to Shopify |
-| S3 | Slice 13 theme files pushed | 🔴 BLOCKER | Committed `5f33f0e`, never pushed |
+| S1 | Slice 12 policy theme files pushed | 🟢 DONE — **production** | Live on #187633434842, verified by pulling the live theme and diffing against the repo |
+| S2 | FAQ theme files pushed | 🟢 DONE — **production** | `templates/page.faq.json` and its section are live. (The earlier "never pushed" claim was stale: the theme had already been pushed to production.) The FAQ page still renders nothing until S4/N5 supply entries — that is a content gap, not a theme gap |
+| S3 | Slice 13 theme files pushed | 🟢 DONE — **production** | `templates/page.past-group-buys.json` and its section are live. **D12/D15 theme files are also live**, pushed 2026-10-25: 5 new files (`page.bank-payment-orders.json`, `sections/bank-payment-orders.liquid`, its JS and CSS, `snippets/group-buy-bank-payment-form.liquid`) and 8 modified. `config/settings_data.json` was deliberately NOT pushed — it holds theme-editor state |
 | S4 | `faq_entry` metaobject definition | 🔴 BLOCKER | Exact handles in `docs/specs/SLICE-12-CONTENT.md` §4.2. A wrong field key renders blank entries with no error anywhere |
 | S5 | `carat.faq_entries` product metafield | 🟡 PARTIAL (optional for launch) | `product-faq.liquid` is implemented but deliberately unwired pending an owner decision on PDP placement |
 | S6 | A `past-group-buys` page using the new template | 🔴 BLOCKER | Template ships in `5f33f0e`; the page must be created in Admin |
 | S7 | Policy pages published | 🔴 BLOCKER | Deliberately hidden until N2 |
-| S8 | App installed, OAuth valid, App Proxy routing | 🟢 DONE (dev store) | Working today — the embedded admin and signed App Proxy both verified. **All of it must be redone in the production store** |
-| S9 | **A `bank-payment-orders` page using the new template** | 🔴 BLOCKER | The durable Bank Payment instructions page (D12). Template `page.bank-payment-orders.json` ships in `main`; the Admin page must be created with the handle **exactly** `bank-payment-orders` and that template assigned. Both checkout confirmations link to `/pages/bank-payment-orders`, so a wrong handle produces a 404 at the one moment a customer is looking for payment details. Link it from the account page and the footer too |
+| S8 | App installed, OAuth valid, App Proxy routing | 🟢 DONE — **production** | The app is installed on the production shop (sessions keyed on its canonical domain `nnb1th-cm.myshopify.com` — §2). App Proxy verified end to end on 2026-10-25: `GET https://caratforus.myshopify.com/apps/carat/bank-payment-orders` reaches the Fly app and returns our `{"error":"unauthorized"}`, not a Shopify 404 |
+| S9 | **`bank-payment-orders` page** | 🟢 DONE — **production**, one check deferred | Created and **published** by the owner with handle `bank-payment-orders` and template `bank-payment-orders`. Verified live 2026-10-25 — see §4.1. The one unverified item needs a signed-in customer and is named there |
+| S10 | Link the page from account + footer navigation | 🟡 PARTIAL | Both checkout confirmations link to `/pages/bank-payment-orders` and that works. It is not yet reachable from the account page or the footer, so a customer who did not keep the confirmation open has no route to it except the emailed link. Navigation work — belongs to the storefront/navigation phase, not to engineering |
+
+---
+
+### 4.1 S9 verification evidence (2026-10-25, against production)
+
+`https://caratforus.myshopify.com/pages/bank-payment-orders`, live theme
+#187633434842.
+
+| # | Checked | Result |
+|---|---|---|
+| 1 | Page exists, title/handle/template | 🟢 Renders as **Bank Payment Orders – CaratForUs**; the `bank-payment-orders` section renders, which only happens if the template is assigned |
+| 2 | Template + D12 assets load | 🟢 `component-bank-payment-orders.css` **200**, `bank-payment-orders.js` **200**, `window.CaratBankPaymentOrders._internal` present, `window.bankPaymentOrdersStrings` bound. **No console errors** (only Shopify's benign hot-reload notice) |
+| 3 | Signed-out state | 🟢 Renders the sign-in gate with the owner-approved sentence — *"Please sign in or create a CaratForUs account to continue."* — and a Log in link. The results container is correctly **absent**, so the script makes no request at all |
+| 4 | App Proxy reaches `/apps/carat/bank-payment-orders` | 🟢 `GET https://caratforus.myshopify.com/apps/carat/bank-payment-orders` returns our `{"error":"unauthorized"}`. That body can only come from our Fly app — a missing proxy returns Shopify's HTML 404 |
+| 5 | Authorization basis unchanged | 🟢 Signed `logged_in_customer_id` → `normalizeCustomerGid` → Prisma `where: { customerGid }`. The route reads no identity from the query string or body, and `verifyAppProxySignature` does not pin a shop domain, so it verifies production traffic correctly. Refusals re-proven live: unsigned, wrong signature, signed-but-anonymous, and signed-with-empty-customer-id all **401** |
+| 6 | No coordinates before authorization | 🟢 The delivered HTML (144 KB) contains **no coordinate value**. The only occurrences of `Zelle` / `Routing` are the UI *label* strings (`confirmation_zelle: "Zelle"`, `confirmation_routing: "Routing number"`); no 9-digit routing-like number appears at all. Structurally guaranteed too: no Liquid path emits a coordinate — the only emitter is the authenticated JSON endpoint |
+| 7 | No internal references exposed | 🟢 No `gid://shopify/...` of any kind, no `draftOrderGid` / `shopifyOrderGid`, no `priceCalculationId`, no idempotency key. The only email in the page is the public `orders@caratforus.com` |
+| 8 | Storefront password protection | 🟢 Still enabled. From a clean context with no cookies, both `/` and `/pages/bank-payment-orders` **302 to `/password`** |
+| 9 | **Signed-in customer with no orders → clean empty state** | 🟡 **DEFERRED — needs a signed-in customer** |
+
+**Why item 9 is deferred and not failed.** It needs a real customer session
+on the production store. Production uses Shopify's **new customer accounts**
+(`shopify.com/authentication/85082865882/...`), which sign in by emailed
+one-time code — I do not create accounts or handle sign-in credentials, so
+this is the owner's to run.
+
+Everything that can be verified without that session is verified. Against
+the **production asset itself**, the empty-state decision and copy are
+correct: `summarize({buyNow:[],groupBuy:[],coordinatesAvailable:true})`
+returns `isEmpty: true`; the bound copy is *"You have no Bank Payment orders
+on this account."*; a 401 maps to *"Please sign in to see your Bank Payment
+orders."*; and the status labels match the real Prisma enums
+(`open`/`cancelled`/`completed`, `active`/`inactive`) with an unknown status
+falling through to its raw value rather than rendering blank.
+
+**The 30-second owner test, and how to read it.** Sign in as any customer,
+then load `/pages/bank-payment-orders`. Three distinguishable outcomes:
+
+| What you see | Meaning |
+|---|---|
+| *"You have no Bank Payment orders on this account."* | 🟢 Fully green. Closes item 9 |
+| *"Sign in required"* while actually signed in | Liquid's `customer` object is not populated under new customer accounts — a theme-level gate problem |
+| *"Please sign in to see your Bank Payment orders."* while signed in | **The one that matters.** That is the JS rendering a 401, meaning `logged_in_customer_id` is not reaching the App Proxy. Authorization would be failing closed — safe, but the feature would not work for anyone |
+
+That third outcome is the real risk and the reason this is worth running
+before launch rather than assuming: the dev store exercised this path, but
+whether `logged_in_customer_id` is populated under **new** customer accounts
+has not been observed on this store, and no local test can observe it.
 
 ---
 
@@ -123,11 +200,65 @@ production store.
 | D1 | App deployed to Fly and healthy | 🟢 DONE | **Production runs `main` (`0638578`)**, deployed 2026-10-25 with the D12/D15 work. `/health` ok, database ok, **90 applied / 0 pending, matching the 90 in the repo exactly** |
 | D2 | Postgres attached and migrated | 🟢 DONE | **90 migrations applied, 0 pending** — identical to the 90 in the repo |
 | D3 | Core secrets | 🟢 DONE | `DATABASE_URL`, `DIRECT_URL`, `SESSION_SECRET`, `CRON_SECRET`, `APP_ENV` all Deployed. **Do not recreate these** — regenerating `CRON_SECRET` would silently break all four cron jobs |
-| D4 | Shopify secrets | 🟢 DONE (store-dependent) | All seven `SHOPIFY_*` set and working. `SHOPIFY_SHOP_DOMAIN` must change when the production store exists; API key/secret change too if a new app is created |
+| D4 | Shopify secrets | 🔴 **BLOCKER — `SHOPIFY_SHOP_DOMAIN` still points at the dev store** | All seven `SHOPIFY_*` are set, but production has `SHOPIFY_SHOP_DOMAIN=caratforus-dev.myshopify.com`. See the warning below — this is money-critical and is **not** cosmetic |
 | D5 | Email provider | 🟡 PARTIAL | Addresses verified 2026-10-24: `EMAIL_FROM` is `CaratForUs <orders@caratforus.com>` (display-name format, correct address) and `STAFF_EMAIL_ALLOWLIST` is `orders@caratforus.com`. The provider is reachable — the milestone job's attempts got to it and were rejected only because the fixture recipients were `@example.com`. **Still unproven: no successful delivery to a real address has been observed.** See below |
 | D6 | Object storage | 🟡 PARTIAL | All four `STORAGE_*` Deployed. No upload performed from here |
 | D7 | **All four scheduled jobs** | 🟢 DONE | `cron-guarantee-sweep` (hourly), `cron-price-recalculation` (daily), `cron-group-buy-bank-payment-window` (hourly), `cron-group-buy-milestones` (hourly). Each invoked authenticated and verified by **its own returned evidence**, not by an exit code — see §6 |
 | D8 | Production reference data exists | 🟢 DONE | A pricing profile, three labor sources, 15 cost components, three metal references and five stone-cost rows all exist. Nothing is missing. Their *values* are placeholder — that is P3, not this |
+
+---
+
+### 🔴 D4 — `SHOPIFY_SHOP_DOMAIN` points at the dev store, and the app will not notice
+
+Found 2026-10-25 while verifying S9. **Not fixed — it needs an owner
+decision, because applying it restarts the machine and changes which store
+real orders are created on.**
+
+Production currently has:
+
+```
+SHOPIFY_SHOP_DOMAIN = caratforus-dev.myshopify.com
+```
+
+Four routes resolve their Admin API session from that value:
+
+| Route | What it does with it |
+|---|---|
+| `apps.carat.bank-checkout.tsx` | `unauthenticated.admin(SHOPIFY_SHOP_DOMAIN)` → **creates the Buy Now draft order** |
+| `apps.carat.group-buy-bank-checkout.tsx` | same → **creates and completes a real Group Buy order** |
+| `apps.carat.rma-intake.tsx` | same → order lookup for RMA eligibility |
+| `apps.carat.beat-quote-redeem.tsx` | same → benefit redemption draft order |
+
+**Why this fails silently rather than loudly.** The app is still installed
+on `caratforus-dev.myshopify.com` and a valid offline session for it is
+still in the database. So `unauthenticated.admin()` does **not** throw — it
+succeeds, against the wrong store. A production customer's Bank Payment
+order would be created in the dev store: invisible in production Admin,
+counted against nothing, and discoverable only by someone wondering where
+the order went.
+
+**The fix** is to set the value to the shop the production session is keyed
+on — the canonical domain, not the vanity one:
+
+```
+flyctl secrets set SHOPIFY_SHOP_DOMAIN=nnb1th-cm.myshopify.com --app caratforus
+```
+
+Confirm first that the production offline session's `Session.shop` really is
+that exact string; `unauthenticated.admin()` matches it literally, so a
+vanity domain that does not match any session row will throw instead of
+mis-targeting. Both failure modes are worth avoiding, and only one of them
+is noisy.
+
+**S9 and the D12 retrieval page are unaffected.**
+`apps.carat.bank-payment-orders.tsx` makes no Admin API call and never reads
+`SHOPIFY_SHOP_DOMAIN` — it reads Postgres directly, scoped by the
+authenticated `customerGid`. That is why S9 verified green while this was
+true.
+
+**Retiring the dev store would also close this**, by removing the session
+that makes the mis-target silent. Until then, treat this row as the single
+most dangerous open configuration item in the register.
 
 ---
 
@@ -416,11 +547,11 @@ Run `npx tsx tests/live/bankPaymentOrdersRoute.ts` after any deploy.
 customer id that owns nothing, so its success case is 200 with two empty
 lists. It therefore does not prove the rendering of a real payable order,
 the confirmation panel, or the Group Buy storefront form — those need a
-real order placed by a real signed-in customer in a store that can take
-payment, which does not exist yet (C2). They are covered by the integration
-suite against real Postgres and by the theme unit tests; the first
-end-to-end proof belongs to launch testing in the production store, and
-S9's page must exist before that test is meaningful.
+real order placed by a real signed-in customer, and no card gateway is
+activated yet (C7). They are covered by the integration suite against real
+Postgres and by the theme unit tests; the first end-to-end proof belongs to
+launch rehearsal. S9's page now exists and is verified (§4.1), so that
+prerequisite is met.
 
 ### Fixture catalogue cleanup — proposed, NOT executed
 
@@ -451,18 +582,20 @@ but **the Postgres fixtures still need archiving either way.**
 
 ## 8. The two parallel tracks
 
-### Track A — production store (owner)
+### Track A — commerce activation (owner)
 
-1. **Create the production Shopify store.** `caratforus-dev` cannot be
-   converted (§2). Requires a plan purchase — owner only.
-2. **Payment gateway** — activated and able to take a live card.
-3. **Tax** — registration and Shopify configuration.
-4. **Shipping** (C6) — rates, full-value insurance, the $100 signature rule.
-5. **Confirm the Zelle recipient** (C3).
-6. **Re-establish the app in the new store**: update `SHOPIFY_SHOP_DOMAIN`
-   (and API key/secret if a new app), reinstall and re-grant scopes,
-   reconfigure the App Proxy and verify routing **through the storefront**,
-   re-register webhooks, re-push the theme, recreate the six policy pages.
+The store itself is **done** (§2): created, Grow plan, app installed, theme
+live, App Proxy verified, policy pages and the S9 page in place. What
+remains is commerce configuration.
+
+1. **Payment gateway** (C7) — Shopify Payments or equivalent, activated and
+   able to take a live card. Nothing about the store existing implies this.
+2. **Tax** — registration and Shopify configuration.
+3. **Shipping** (C6) — rates, full-value insurance, the $100 signature rule.
+4. **Fix `SHOPIFY_SHOP_DOMAIN`** (§5 D4) — currently the dev store, which
+   silently mis-targets every Admin API write. Most dangerous open item.
+5. **Custom domain** — not yet pointed at the store.
+6. **Lift the storefront password** — last, after a full launch rehearsal.
 
 ### Track B — the first real product
 
@@ -478,8 +611,10 @@ per-size price surface.
 `pure_price_per_gram × fineness × grams`, so one gold reference row serves
 10k/14k/18k.
 
-**Blocked on Track A step 1**, deliberately — so Shopify IDs are not minted
-in a store we are about to abandon.
+**No longer blocked** — the production store exists, so Shopify IDs minted
+now are minted in the right place. Worth doing before the gateway is live:
+a product can be built and priced end to end while the storefront stays
+password protected.
 
 **Owner inputs needed:** product name; finished 14K weight in grams;
 whether a chain is included and if so its length and weight; stone shape;
