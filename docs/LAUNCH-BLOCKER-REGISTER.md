@@ -108,6 +108,7 @@ production store.
 | S6 | A `past-group-buys` page using the new template | 🔴 BLOCKER | Template ships in `5f33f0e`; the page must be created in Admin |
 | S7 | Policy pages published | 🔴 BLOCKER | Deliberately hidden until N2 |
 | S8 | App installed, OAuth valid, App Proxy routing | 🟢 DONE (dev store) | Working today — the embedded admin and signed App Proxy both verified. **All of it must be redone in the production store** |
+| S9 | **A `bank-payment-orders` page using the new template** | 🔴 BLOCKER | The durable Bank Payment instructions page (D12). Template `page.bank-payment-orders.json` ships in `main`; the Admin page must be created with the handle **exactly** `bank-payment-orders` and that template assigned. Both checkout confirmations link to `/pages/bank-payment-orders`, so a wrong handle produces a 404 at the one moment a customer is looking for payment details. Link it from the account page and the footer too |
 
 ---
 
@@ -170,6 +171,57 @@ The same applies to the other senders, which log
 `group_buy_milestone.email_failed` and the admin-alert equivalents. The
 milestone sweep additionally reports `emailsFailed` in its returned
 summary, so a scheduled run's failures are visible without reading logs.
+
+**This is no longer the only channel.** As of D12 the customer sees the full
+instructions on screen at checkout and can return to them at any time on the
+authenticated `/pages/bank-payment-orders` page. The log lines above still
+matter — a failed email is still worth sending by hand — but an email outage
+no longer strands a customer.
+
+---
+
+### ⚠️ Operations constraint — do not rotate bank coordinates while unpaid orders are open
+
+The Zelle recipient and wire details live **only** in Fly secrets
+(`PAYMENT_ZELLE_RECIPIENT`, `PAYMENT_WIRE_*`). They are resolved per request
+and deliberately never persisted — not in `BankPaymentOrder`, not in
+`GroupBuyBankPaymentOrder`, not in a snapshot, an audit event, an
+idempotency payload, a Shopify note, or a log line. That boundary is
+enforced by tests on both checkout routes and by
+`bankPaymentCoordinates.server.ts`'s own header.
+
+The consequence is a real operational rule:
+
+> **Bank Payment coordinates must not be changed while unpaid Bank Payment
+> orders are outstanding, unless staff deliberately reconcile those open
+> orders.**
+
+Because nothing is stored, every surface shows the CURRENT coordinates.
+Rotate them and a customer who placed an order yesterday — and who returns
+to the orders page, or who was emailed the old ones — now has two different
+destinations, and staff have no record of which one any given order was
+shown.
+
+**Do not "fix" this by persisting the coordinates.** A copy in Postgres is a
+second place to secure, retain and eventually redact, and the whole point of
+the boundary is that it does not exist. The fix is procedural:
+
+1. Before rotating, list open orders:
+   `BankPaymentOrder` where `status = 'open'`, and
+   `GroupBuyBankPaymentOrder` where `status IN ('active','inactive')`.
+2. If any exist, either wait for them to settle, or contact those customers
+   directly with the new destination and record that you did.
+3. Then rotate. Payments to the old destination after that point are
+   reconciled by hand against the order reference, which is the one thing
+   every payment carries.
+
+If the coordinates are unset or partially set, both checkout routes refuse
+with `503 checkout_unavailable` **before** any Shopify call — no order is
+created that cannot be paid. The orders page degrades differently and
+deliberately: it still lists the orders, their references, amounts and
+deadlines, and tells the customer to email `orders@caratforus.com` for the
+destination. Hiding their orders because a secret is unset would turn a
+configuration problem into a lost customer.
 
 ---
 
@@ -327,9 +379,12 @@ would be speculative.
 | E3 | Slice 13 theme surfaces | 🟢 DONE (in `main`) | `5f33f0e`. Not yet pushed to Shopify — see S3 |
 | E4 | CI green on `main` | 🟢 DONE | Green on `c01b944`. 180 unit files / 3195 tests and 101 integration files / 1622 tests also pass locally |
 | E5 | Live Shopify proof for Group Buy refund execution | 🟢 DONE | 15/15 assertions against the real store |
+| E6 | **D15 — the Buy Now Bank Payment invoice** | 🟢 FIXED in `main` | Buy Now sent Shopify's draft-order invoice, whose **Confirm order** action let the customer advance a draft that must stay staff-held until funds are verified. `sendInvoice` is gone, the invoice URL is out of the contract, and `bankCheckoutInvoiceFence.test.ts` fails if a usable one returns. `sendInvoice` now has **zero callers** anywhere |
+| E7 | **D12 — bank instructions depended solely on email** | 🟢 FIXED in `main` | Three surfaces now state the same server-composed instructions: the checkout confirmation panel, the authenticated `/pages/bank-payment-orders` page, and the email (now secondary). Group Buy Bank Payment ordering is wired to its real endpoint for the first time — the storefront previously offered a "Contact us" link. Coordinates still never persist; see §5 |
 
-**Feature development is frozen.** No further engineering until the
-production-store migration or launch testing exposes an actual defect.
+**Feature development is frozen again** as of the D12/D15 work. No further
+engineering until the production-store migration or launch testing exposes
+an actual defect.
 
 ### Fixture catalogue cleanup — proposed, NOT executed
 
