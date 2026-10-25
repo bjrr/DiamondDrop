@@ -121,7 +121,7 @@ should be cleared before launch.
 | N2 | Policy page bodies are empty | 🔴 BLOCKER | Drafts written — `MVP1-STOREFRONT-COPY.md` Part 1 |
 | N3 | About page copy | 🔴 BLOCKER | Draft written; needs 2–3 sentences only the owner has |
 | N4 | Why Buy From Us copy | 🔴 BLOCKER | Draft written and grounded in README + locked pricing policy |
-| N5 | FAQ entries | 🔴 BLOCKER | No `faq_entry` metaobject definition or entries exist, so the FAQ page renders nothing |
+| N5 | FAQ entries | 🔴 BLOCKER — **content is ready, publication is not** | The copy is **owner-approved**: `docs/specs/SLICE-12-FAQ-COPY-PROPOSAL.md`, approved 2026-10-12, 38 entries across ten categories, with material terms quoted rather than paraphrased. What is missing is the `faq_entry` metaobject definition and the entries themselves in Admin, so `/pages/faq` renders nothing. This is a data-entry task, not a writing task |
 | N6 | Contact mailbox | 🟢 DONE | `orders@caratforus.com`, owner-confirmed, fenced repo-wide. `CUSTOMER_SERVICE_EMAIL` is deliberately *not* a Fly secret — nothing reads it at runtime. Do not set it |
 
 ---
@@ -189,7 +189,7 @@ row below refers to **`caratforus.myshopify.com`**, live theme
 | S4 | `faq_entry` metaobject definition | 🔴 BLOCKER | Exact handles in `docs/specs/SLICE-12-CONTENT.md` §4.2. A wrong field key renders blank entries with no error anywhere |
 | S5 | `carat.faq_entries` product metafield | 🟡 PARTIAL (optional for launch) | `product-faq.liquid` is implemented but deliberately unwired pending an owner decision on PDP placement |
 | S6 | A `past-group-buys` page using the new template | 🟢 DONE — **production** | `/pages/past-group-buys` returns 200 on the live storefront. The page already exists; the earlier "must be created" claim was stale |
-| S7 | Policy pages published | 🔴 BLOCKER | Deliberately hidden until N2 |
+| S7 | Policy pages published | 🔴 BLOCKER | Deliberately hidden until N2. All six `policy-*` handles 404 on the live storefront today — confirmed 2026-10-25. **This blocks two of the approved footer links** (Returns and Cancellations, Warranty): they cannot be added until the pages are published, or they will 404 for customers |
 | S8 | App installed, OAuth valid, App Proxy routing | 🟢 DONE — **production** | The app is installed on the production shop (sessions keyed on its canonical domain `nnb1th-cm.myshopify.com` — §2). App Proxy verified end to end on 2026-10-25: `GET https://caratforus.myshopify.com/apps/carat/bank-payment-orders` reaches the Fly app and returns our `{"error":"unauthorized"}`, not a Shopify 404 |
 | S9 | **`bank-payment-orders` page** | 🟢 **FULLY DONE — production, end to end** | Created and published by the owner. All nine checks green, including the signed-in customer case closed by the owner 2026-10-25: a real production customer account saw exactly *"You have no Bank Payment orders on this account."* See §4.1 |
 | S10 | Link Bank Payment Orders from navigation | 🟡 PARTIAL — **blocked on Admin menus** | Now linked from the **homepage** ("Your Bank Payment orders"), plus both checkout confirmations. Still not in header or footer navigation: in Dawn those come from Shopify **navigation menus configured in Admin**, not from theme files, and the app has no `write_content` scope. The footer currently carries only "CaratForUs / Powered by Shopify / Privacy policy" — the stock Dawn default. Needs an Admin menu structure; see §4.2 |
