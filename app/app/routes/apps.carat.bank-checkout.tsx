@@ -298,9 +298,15 @@ async function performBankCheckout(input: {
   // Both are fixed by the same decision: CaratForUs owns the confirmation
   // surface, renders the instructions itself, and the draft is never exposed.
   //
-  // `sendInvoice` remains on the port because the Custom Jewelry deposit and
-  // final-purchase flows legitimately invoice through Shopify — those ARE
-  // card payments the customer is meant to complete. Bank Payment is not.
+  // `sendInvoice` remains on the DraftOrderPort as a faithful adapter of the
+  // Shopify mutation, but it now has NO CALLER anywhere in the app. Custom
+  // Jewelry's $49 deposit does not use it either — `issueDepositInvoice`
+  // calls `createServiceDraftOrder` and surfaces the returned `invoiceUrl`
+  // to staff. (An earlier version of this comment claimed Custom Jewelry
+  // invoiced through `sendInvoice`; it does not, and the claim is corrected
+  // here rather than left to mislead the next reader.)
+  //
+  // `bankCheckoutInvoiceFence.test.ts` asserts no Bank Payment path calls it.
 
   const quotedAt = new Date();
   const guaranteeExpiresAt = new Date(quotedAt.getTime() + GUARANTEE_DURATION_MS);

@@ -4,22 +4,27 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  buildInvoiceCustomMessage,
+
   NOT_COMMITTED_DISCLOSURE,
   NOT_COMMITTED_DISCLOSURE_LOCALE_PATH,
 } from "./notCommittedDisclosure";
 
 /**
- * The §22 disclosure has to say the same thing in two places built by two
- * different technologies — the storefront form (Liquid, via a locale key) and
- * the invoice email (server-side, via Shopify's `customMessage`). Two copies
- * of material customer terms drift: one gets edited, the other does not, and a
- * customer is told two different things about whether their order exists.
+ * The §22 disclosure exists in two artefacts built by two different
+ * technologies — the storefront form (Liquid, via a locale key) and the
+ * TypeScript constant. Liquid cannot import the constant, so the theme's
+ * copy is genuinely a second artefact, and two copies of material customer
+ * terms drift: one gets edited, the other does not, and a customer is told
+ * two different things about whether their order exists.
  *
- * So this file's job is not to pin the wording — the owner has not approved
- * any wording yet, and pinning a draft would dress it as a decision. Its job
- * is to pin the INVARIANTS that survive an approval edit: the two surfaces
- * agree, and neither carries a term the merchandise-only savings rule forbids.
+ * This file pins the INVARIANTS rather than only the wording: the two
+ * surfaces agree, the material clauses survive, and neither carries a term
+ * the merchandise-only savings rule forbids. `ownerApprovedCopy.test.ts`
+ * pins the exact approved words separately — identical-but-wrong and
+ * approved-but-divergent are different failures and need different tests.
+ *
+ * (The second surface was once Shopify's invoice email, via `customMessage`.
+ * Bank Payment no longer sends one — register D15.)
  */
 
 function localeString(path: readonly string[]): unknown {
@@ -33,12 +38,38 @@ function localeString(path: readonly string[]): unknown {
 }
 
 describe("the §22 not-committed disclosure", () => {
-  it("is character-for-character identical on the storefront and in the invoice email", () => {
+  it("is character-for-character identical on the storefront and in the constant", () => {
+    // The third assertion here used to compare `buildInvoiceCustomMessage()`
+    // against the constant. That helper existed only to put the disclosure
+    // into Shopify's draft-order invoice email, and Bank Payment no longer
+    // sends one (register D15), so the helper is gone and with it the
+    // surface it synchronised.
     const fromTheme = localeString(NOT_COMMITTED_DISCLOSURE_LOCALE_PATH);
 
     expect(typeof fromTheme).toBe("string");
     expect(fromTheme).toBe(NOT_COMMITTED_DISCLOSURE);
-    expect(buildInvoiceCustomMessage()).toBe(NOT_COMMITTED_DISCLOSURE);
+  });
+
+  it("no longer promises a Shopify invoice, because none is sent", () => {
+    // The clause superseded on 2026-10-24. Asserted as an absence so the old
+    // promise cannot drift back in alongside the new one.
+    expect(NOT_COMMITTED_DISCLOSURE).not.toMatch(/invoice/i);
+    expect(NOT_COMMITTED_DISCLOSURE).toContain("We’ll show you payment instructions here");
+  });
+
+  it("keeps every other approved clause unchanged", () => {
+    // The supersession was scoped to the delivery promise. These three are
+    // the material terms and must survive it verbatim.
+    expect(NOT_COMMITTED_DISCLOSURE).toContain(
+      "Your Bank Payment Price is guaranteed for 24 hours."
+    );
+    expect(NOT_COMMITTED_DISCLOSURE).toContain(
+      "Submitting this form does not complete your order or reserve your items."
+    );
+    expect(NOT_COMMITTED_DISCLOSURE).toContain(
+      "Your order is not committed and availability is not guaranteed until your Bank Payment is received and verified."
+    );
+    expect(NOT_COMMITTED_DISCLOSURE).toContain("Nothing is charged when you submit this form.");
   });
 
   /**

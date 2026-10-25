@@ -5,10 +5,15 @@
  * THE SINGLE SOURCE FOR TWO SURFACES, and that is the whole point of this
  * module existing rather than the text living where each surface needs it.
  * The same words must appear on the storefront checkout form (Liquid, so it
- * needs a locale key) and in the invoice email Shopify sends on our behalf
- * (server-side, so it needs a string here). Two copies of material customer
- * terms drift — one gets edited, the other does not, and a customer is told
- * two different things about whether their order exists.
+ * needs a locale key) and server-side, where it is asserted against that
+ * key. Two copies of material customer terms drift — one gets edited, the
+ * other does not, and a customer is told two different things about whether
+ * their order exists.
+ *
+ * It used to need a server-side copy because the same words rode along with
+ * Shopify's draft-order invoice as its `customMessage`. That invoice is gone
+ * (register D15); the constant remains as the authority the theme key is
+ * tested against.
  *
  * So this is the source, and `notCommittedDisclosure.test.ts` asserts that
  * `theme/locales/en.default.json`'s key is character-for-character identical.
@@ -34,17 +39,18 @@ export const NOT_COMMITTED_DISCLOSURE_LOCALE_PATH = [
 ] as const;
 
 export const NOT_COMMITTED_DISCLOSURE =
-  "Your Bank Payment Price is guaranteed for 24 hours. Submitting this form does not complete your order or reserve your items. Your order is not committed and availability is not guaranteed until your Bank Payment is received and verified. We’ll email you an invoice with payment instructions, and nothing is charged when you submit this form.";
+  "Your Bank Payment Price is guaranteed for 24 hours. Submitting this form does not complete your order or reserve your items. Your order is not committed and availability is not guaranteed until your Bank Payment is received and verified. We’ll show you payment instructions here, and we’ll also attempt to email you a copy. Nothing is charged when you submit this form.";
 
 /**
- * What rides along with the Shopify-sent invoice (criterion 85).
+ * REMOVED — `buildInvoiceCustomMessage()` (criterion 85).
  *
- * Shopify composes and sends that email; `customMessage` is the only place we
- * can put words into it. So the disclosure travels as the custom message
- * rather than as a separate email of our own — a second email would arrive
- * detached from the invoice it qualifies, which is precisely when a customer
- * would miss it.
+ * It existed to put the disclosure into the Shopify-sent draft-order
+ * invoice, because `customMessage` was the only place we could put words
+ * into an email Shopify composed. Bank Payment no longer sends that invoice
+ * at all (register D15), so there is no custom message and nothing to carry
+ * it: the disclosure now appears on the checkout form before submission and
+ * the full instructions on the CaratForUs confirmation after it.
+ *
+ * Deliberately deleted rather than left as an unused export — a helper named
+ * for a flow that no longer exists is an invitation to reinstate the flow.
  */
-export function buildInvoiceCustomMessage(): string {
-  return NOT_COMMITTED_DISCLOSURE;
-}

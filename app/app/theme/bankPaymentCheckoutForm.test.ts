@@ -386,8 +386,15 @@ describe("forbidden terminology — CLAUDE.md merchandise-only savings rule", ()
     "error_invalid_request",
     "error_generic",
     "error_network",
-    "success_check_email",
-    "redirecting",
+    // `success_check_email` and `redirecting` were RETIRED 2026-10-24 along
+    // with the Shopify invoice they described (register D12/D15). The
+    // confirmation keys below replaced them.
+    "confirmation_heading",
+    "confirmation_reference",
+    "confirmation_amount_due",
+    "confirmation_deadline",
+    "confirmation_methods",
+    "success_no_instructions",
   ];
 
   it.each(NEW_KEYS)("sections.cart.bank_payment_checkout_form.%s exists, is non-empty, and uses no forbidden term", (key) => {
@@ -512,8 +519,15 @@ describe("the dialog and its script/style are loaded unconditionally, everywhere
       "error_generic",
       "error_network",
       "submitting",
-      "redirecting",
-      "success_check_email",
+      "confirmation_heading",
+      "confirmation_reference",
+      "confirmation_amount_due",
+      "confirmation_deadline",
+      "confirmation_methods",
+      "confirmation_zelle",
+      "confirmation_wire",
+      "confirmation_support",
+      "success_no_instructions",
     ];
     const caratBankCheckoutIndex = source.indexOf("caratBankCheckout:");
     expect(caratBankCheckoutIndex).toBeGreaterThan(-1);

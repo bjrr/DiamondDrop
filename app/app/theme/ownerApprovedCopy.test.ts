@@ -67,9 +67,18 @@ const APPROVED: ReadonlyArray<readonly [string, string]> = [
   // is worse than either alone, so the wording now says a REQUEST was
   // submitted.
   ["sections.cart.bank_payment_checkout_note", "Choosing Bank Payment switches your entire cart to Bank Payment pricing. Eligible items will use their Bank Payment Price."],
+  // SUPERSEDED 2026-10-24, owner-approved, and only in its final sentence.
+  //
+  // The 2026-09-22 wording ended "We’ll email you an invoice with payment
+  // instructions, and nothing is charged when you submit this form." Bank
+  // Payment no longer sends a Shopify invoice (register D15) and no longer
+  // depends on email to deliver instructions at all (register D12), so that
+  // clause had become false. The guarantee, does-not-complete,
+  // not-committed and nothing-charged language is unchanged — only the
+  // delivery promise was restated to match what actually happens.
   [
     "sections.cart.bank_payment_checkout_form.not_committed_disclosure",
-    "Your Bank Payment Price is guaranteed for 24 hours. Submitting this form does not complete your order or reserve your items. Your order is not committed and availability is not guaranteed until your Bank Payment is received and verified. We’ll email you an invoice with payment instructions, and nothing is charged when you submit this form.",
+    "Your Bank Payment Price is guaranteed for 24 hours. Submitting this form does not complete your order or reserve your items. Your order is not committed and availability is not guaranteed until your Bank Payment is received and verified. We’ll show you payment instructions here, and we’ll also attempt to email you a copy. Nothing is charged when you submit this form.",
   ],
   [
     "sections.cart.bank_payment_checkout_form.error_unpurchasable_lines",
@@ -79,10 +88,19 @@ const APPROVED: ReadonlyArray<readonly [string, string]> = [
     "sections.cart.bank_payment_checkout_form.error_group_buy_variant_present",
     "Your cart includes a Group Buy item. Group Buy purchases are placed separately and can’t be combined with Buy Now Bank Payment Checkout. Please remove the Group Buy item from this cart to continue.",
   ],
-  [
-    "sections.cart.bank_payment_checkout_form.success_check_email",
-    "Your Bank Payment request was submitted. We’ve emailed you an invoice with payment instructions. Your order is not committed and your items are not reserved until your Bank Payment is received and verified.",
-  ],
+  // RETIRED 2026-10-24 — `success_check_email` and `redirecting` are gone.
+  //
+  // `success_check_email` said "We’ve emailed you an invoice with payment
+  // instructions", which after D12/D15 is false twice over: there is no
+  // Shopify invoice, and email is no longer how instructions reach the
+  // customer. `redirecting` announced the navigation to that invoice.
+  //
+  // Both keys are DELETED rather than reworded. Nothing renders them —
+  // the confirmation surface replaced the whole success path — and a pinned
+  // string asserting something untrue is worse than no string, because the
+  // pin makes it look deliberate. The not-committed language they carried
+  // survives in `not_committed_disclosure` and in the confirmation's own
+  // commitment notice.
   // docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4, owner-approved 2026-09-26. Two
   // independent renders of the SAME sentence — the Bank Payment Checkout
   // dialog's sign-in gate and the Warranty Claim Form's sign-in gate
