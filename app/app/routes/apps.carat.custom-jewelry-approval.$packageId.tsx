@@ -93,12 +93,13 @@ function decimalString(minorUnits: bigint): string {
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const url = new URL(request.url);
-  const { verified, loggedInCustomerId } = verifyAppProxySignature(
+  const { verified, loggedInCustomerId, shop, reason } = verifyAppProxySignature(
     url.searchParams,
-    getEnv().SHOPIFY_API_SECRET
+    getEnv().SHOPIFY_API_SECRET,
+    getEnv().SHOPIFY_SHOP_DOMAIN
   );
   if (!verified) {
-    logger.warn("custom_jewelry_approval.proxy_rejected", { reason: "invalid_or_missing_signature" });
+    logger.warn("custom_jewelry_approval.proxy_rejected", { reason, signedShop: shop });
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 

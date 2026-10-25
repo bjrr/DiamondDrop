@@ -48,7 +48,27 @@ import { createHmac } from "node:crypto";
 const BASE = process.env.SMOKE_BASE_URL ?? "https://caratforus.fly.dev";
 const PATH = "/apps/carat/bank-payment-orders";
 const SECRET = process.env.SHOPIFY_API_SECRET;
-const SHOP = process.env.SHOPIFY_SHOP_DOMAIN ?? "caratforus-dev.myshopify.com";
+
+/**
+ * THE CANONICAL `myshopifyDomain` OF THE PRODUCTION SHOP — what Shopify
+ * signs into the App Proxy `shop` parameter, and what the deployed
+ * `SHOPIFY_SHOP_DOMAIN` must equal (register D4).
+ *
+ * NOT `caratforus.myshopify.com`. That is the shop's `primaryDomain`, the
+ * storefront URL customers see. The Admin API reports
+ * `myshopifyDomain: "nnb1th-cm.myshopify.com"` for the same shop
+ * (id 85082865882), and the offline Admin session is keyed on that string.
+ * Binding to the pretty one would reject every genuine request.
+ *
+ * Defaulted rather than read from the local `.env`, because the local file
+ * points at the DEV store — running this gate against production with the
+ * dev domain would prove nothing except that the binding works.
+ */
+const SHOP = process.env.SMOKE_SHOP ?? "nnb1th-cm.myshopify.com";
+/** The shop's public storefront alias. Correctly signed requests naming it must still be refused. */
+const SHOP_ALIAS = "caratforus.myshopify.com";
+/** A DIFFERENT shop that also has this app installed, signing with the SAME secret. */
+const OTHER_INSTALLED_SHOP = "caratforus-dev.myshopify.com";
 /** An id that owns nothing. Do not point this at a real customer. */
 const SMOKE_CUSTOMER_ID = process.env.SMOKE_CUSTOMER_ID ?? "999000111";
 
@@ -81,7 +101,8 @@ function check(name: string, pass: boolean, detail = ""): void {
 }
 
 async function main(): Promise<void> {
-  console.log(`LIVE GATE — ${BASE}${PATH}\n`);
+  console.log(`LIVE GATE — ${BASE}${PATH}`);
+  console.log(`signing as shop: ${SHOP}\n`);
 
   // ---- Fails closed. A signature proves the request came through the
   // proxy; it does not prove who is asking. ----
@@ -102,8 +123,27 @@ async function main(): Promise<void> {
   response = await fetch(signed({ shop: SHOP, logged_in_customer_id: "" }));
   check("a signed request with an EMPTY customer id is refused", response.status === 401, `status ${response.status}`);
 
+  // ---- Shop binding (register D4). Both requests below are GENUINELY and
+  // CORRECTLY signed — that is the point. A valid signature proves Shopify
+  // sent it, not which shop it came from. ----
+
+  response = await fetch(signed({ shop: OTHER_INSTALLED_SHOP, logged_in_customer_id: SMOKE_CUSTOMER_ID }));
+  check(
+    "a VALIDLY SIGNED request from a DIFFERENT installed shop is refused",
+    response.status === 401,
+    `status ${response.status}`
+  );
+
+  response = await fetch(signed({ shop: SHOP_ALIAS, logged_in_customer_id: SMOKE_CUSTOMER_ID }));
+  check(
+    "a validly signed request naming the storefront ALIAS is refused (binding is to the canonical domain)",
+    response.status === 401,
+    `status ${response.status}`
+  );
+
   // ---- Succeeds for a real authenticated caller. A 200 here also proves
-  // the deployed secret matches the one signing above. ----
+  // the deployed secret matches the one signing above, AND that the
+  // deployed SHOPIFY_SHOP_DOMAIN equals SHOP. ----
 
   response = await fetch(signed({ shop: SHOP, logged_in_customer_id: SMOKE_CUSTOMER_ID }));
   const authenticated = response.status === 200;

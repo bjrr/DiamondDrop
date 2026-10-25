@@ -67,9 +67,9 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   const url = new URL(request.url);
-  const { verified } = verifyAppProxySignature(url.searchParams, getEnv().SHOPIFY_API_SECRET);
+  const { verified, shop, reason } = verifyAppProxySignature(url.searchParams, getEnv().SHOPIFY_API_SECRET, getEnv().SHOPIFY_SHOP_DOMAIN);
   if (!verified) {
-    logger.warn("groupbuy.interest_proxy_rejected", { reason: "invalid_or_missing_signature" });
+    logger.warn("groupbuy.interest_proxy_rejected", { reason, signedShop: shop });
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 

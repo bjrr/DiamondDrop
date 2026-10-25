@@ -88,12 +88,24 @@ function unauthorized() {
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
-  const { verified, loggedInCustomerId } = verifyAppProxySignature(
+  const { verified, loggedInCustomerId, shop, reason } = verifyAppProxySignature(
     url.searchParams,
-    getEnv().SHOPIFY_API_SECRET
+    getEnv().SHOPIFY_API_SECRET,
+    getEnv().SHOPIFY_SHOP_DOMAIN
   );
   if (!verified) {
-    logger.warn("bank_payment_orders.proxy_rejected", { reason: "invalid_or_missing_signature" });
+    // THE PRECISE REASON, AND THE SIGNED SHOP WHEN THERE IS ONE.
+    //
+    // A shop mismatch and a bad signature are the same 401 to the caller and
+    // must stay that way. They are not the same thing to whoever is reading
+    // the logs: one is a stray or hostile request, the other means this
+    // deployment's SHOPIFY_SHOP_DOMAIN disagrees with what Shopify signs,
+    // and every storefront request is failing. Without the reason those are
+    // indistinguishable, and the second looks like "nobody is using it".
+    //
+    // The shop domain is public, not a secret — unlike `signature` and
+    // `logged_in_customer_id`, which are never logged (D9).
+    logger.warn("bank_payment_orders.proxy_rejected", { reason, signedShop: shop });
     return unauthorized();
   }
 
