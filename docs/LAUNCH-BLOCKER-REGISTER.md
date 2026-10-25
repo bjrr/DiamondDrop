@@ -321,6 +321,84 @@ six hours.
 
 ---
 
+### Dev-store rows in the production database — classified, not deleted
+
+Both shops have always shared one database, so gate runs against
+`caratforus-dev` left rows behind. **Nothing here is customer data and
+nothing should be deleted** — this project preserves evidence by design,
+and these rows are the audit trail of real verification runs.
+
+The question is only whether they can be told apart from real business
+activity. They can, three ways, none of which needs a schema change.
+
+#### 1. Every one of them belongs to a customer that does not exist in production
+
+Resolved read-only against the production Admin API, 2026-10-25:
+
+| Rows | Customer GID | Resolves in production? |
+|---|---|---|
+| 1 Buy Now order | `gid://shopify/Customer/0` | **No** — a backfill placeholder, not a person |
+| 5 Group Buy orders, 1 RMA | `gid://shopify/Customer/31226131382573` | **No** — a dev-store customer |
+
+This is the authoritative test: a Shopify customer GID is minted per shop,
+so a GID that does not resolve in the production shop did not come from it.
+Any real production order will resolve.
+
+#### 2. They are already excluded from every operational surface, by status
+
+This is the part that matters, and it is already true — no filtering needs
+to be added:
+
+| Surface | Selects | Fixture rows are | Shown? |
+|---|---|---|---|
+| Staff Bank Payment verification list | `status: "open"` | `cancelled` | **No** |
+| Guarantee sweep (hourly cron) | `status: "open"` | `cancelled` | **Not touched** |
+| Group Buy inactivation sweep (hourly cron) | `status: "active"` | all 5 `inactive` | **Not touched** |
+| Campaign settlement | scoped by `campaignId` | dev campaigns only | Contained |
+| Customer retrieval page | scoped by authenticated `customerGid` | unreachable — those customers cannot sign in to production, and shop binding (D4) now refuses dev-store proxy requests | **No** |
+
+Every fixture row is in a terminal or inactive state. The existing
+status-based filtering already does the work a cleanup migration would
+have been invented to do.
+
+#### 3. What is NOT protected: naive counts
+
+A bare `SELECT count(*)` — in launch reporting, a future dashboard, or an
+answer to "how many orders do we have" — will include them, because the
+business tables carry **no shop column**. `WebhookEvent` and `Session` have
+one; `BankPaymentOrder`, `GroupBuyBankPaymentOrder`, `RmaRequest` and
+`Acknowledgment` do not. They were built single-merchant.
+
+**Reported rather than fixed, per the owner's instruction.** Adding a
+nullable `shopDomain` to those tables and backfilling the seven rows would
+be the clean mechanism, but it is a schema change and the model genuinely
+cannot distinguish them today. The honest position before launch:
+
+- do not quote a raw order count as a business figure until either real
+  orders exist or that column does;
+- when the first real order is placed, it will be trivially separable by
+  customer GID resolution (§1) regardless.
+
+#### Related: six test campaigns, three of them OPEN
+
+`GroupBuyCampaign` holds six `ZZ LIVE GATE TEST CAMPAIGN — DO NOT PUBLISH`
+rows: three `draft`, **three `open`**.
+
+Not customer-visible today — a Group Buy campaign renders only where a
+merchant has bound a page to its code, and no such page exists. But an open
+campaign is live state: `OpenCampaignExclusionSource` excludes its variants
+from Buy Now pricing recalculation, which is exactly the fixture-catalogue
+noise already recorded in §7.
+
+The non-destructive lever is the existing `cancelled` status — distinct
+from `closed`, which triggers settlement and refund computation and must
+not be used here. **Not actioned:** changing campaign state on production is
+a real state transition, and the owner's instruction covered the order rows,
+not campaigns. Recommended before launch rehearsal, so no test campaign can
+be bound to a page by accident.
+
+---
+
 ### Email delivery is configured but unproven, and there is no safe test path
 
 Every outbound address is `orders@caratforus.com`, a monitored mailbox, so
@@ -652,10 +730,10 @@ remains is commerce configuration.
 2. **Tax** — registration and Shopify configuration.
 3. **Shipping** (C6) — rates, full-value insurance, the $100 signature rule.
 4. **Custom domain** — not yet pointed at the store.
-5. **Clear dev-store test rows from the production database** (§5 D4) —
-   1 Buy Now order, 5 Group Buy orders, 1 RMA, 23 acknowledgments, all from
-   dev-store gate runs. Harmless to serving now that shop binding is in
-   place, but they will distort any count of real orders.
+5. **Cancel the three OPEN test campaigns** (§5) — use the existing
+   `cancelled` status, never `closed` (which triggers settlement) and never
+   deletion. Dev-store order rows themselves are already excluded from every
+   operational surface by status and need no cleanup; see §5.
 6. **Lift the storefront password** — last, after a full launch rehearsal.
 
 ### Track B — the first real product
