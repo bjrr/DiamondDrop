@@ -1,6 +1,6 @@
 # MVP1 Launch Blocker Register
 
-**Current as of 2026-10-24. `main` = `c01b944`, deployed.**
+**Current as of 2026-10-25. `main` = `0638578`, deployed and smoke-tested.**
 
 The single authoritative list of what stands between CaratForUs and taking
 a real customer's money.
@@ -15,7 +15,9 @@ live in §9 as history, never as open items.
 
 **The platform is ready; the business is not.** The app is deployed and
 healthy, fully migrated, operator-configurable, and all four scheduled jobs
-run and have been individually proven. What is missing is commercial:
+run and have been individually proven. The last two engineering gaps —
+D15's unsafe Shopify invoice and D12's email-only payment instructions —
+are fixed, deployed and live-proven (§7). What is missing is commercial:
 `caratforus-dev` is a development store that **cannot be converted** to a
 paid storefront, so a new production store must be created; there is no
 real catalogue; and every cost input in the database is still placeholder
@@ -116,7 +118,7 @@ production store.
 
 | # | Item | Status | Evidence / note |
 |---|---|---|---|
-| D1 | App deployed to Fly and healthy | 🟢 DONE | **Production runs `main` (`c01b944`)**, deployed 2026-10-24 with the D11 and D9 fixes. `/health` ok, database ok, 90 migrations applied / 0 pending |
+| D1 | App deployed to Fly and healthy | 🟢 DONE | **Production runs `main` (`0638578`)**, deployed 2026-10-25 with the D12/D15 work. `/health` ok, database ok, **90 applied / 0 pending, matching the 90 in the repo exactly** |
 | D2 | Postgres attached and migrated | 🟢 DONE | **90 migrations applied, 0 pending** — identical to the 90 in the repo |
 | D3 | Core secrets | 🟢 DONE | `DATABASE_URL`, `DIRECT_URL`, `SESSION_SECRET`, `CRON_SECRET`, `APP_ENV` all Deployed. **Do not recreate these** — regenerating `CRON_SECRET` would silently break all four cron jobs |
 | D4 | Shopify secrets | 🟢 DONE (store-dependent) | All seven `SHOPIFY_*` set and working. `SHOPIFY_SHOP_DOMAIN` must change when the production store exists; API key/secret change too if a new app is created |
@@ -380,11 +382,43 @@ would be speculative.
 | E4 | CI green on `main` | 🟢 DONE | Green on `c01b944`. 180 unit files / 3195 tests and 101 integration files / 1622 tests also pass locally |
 | E5 | Live Shopify proof for Group Buy refund execution | 🟢 DONE | 15/15 assertions against the real store |
 | E6 | **D15 — the Buy Now Bank Payment invoice** | 🟢 FIXED in `main` | Buy Now sent Shopify's draft-order invoice, whose **Confirm order** action let the customer advance a draft that must stay staff-held until funds are verified. `sendInvoice` is gone, the invoice URL is out of the contract, and `bankCheckoutInvoiceFence.test.ts` fails if a usable one returns. `sendInvoice` now has **zero callers** anywhere |
-| E7 | **D12 — bank instructions depended solely on email** | 🟢 FIXED in `main` | Three surfaces now state the same server-composed instructions: the checkout confirmation panel, the authenticated `/pages/bank-payment-orders` page, and the email (now secondary). Group Buy Bank Payment ordering is wired to its real endpoint for the first time — the storefront previously offered a "Contact us" link. Coordinates still never persist; see §5 |
+| E7 | **D12 — bank instructions depended solely on email** | 🟢 FIXED, **deployed and live-proven** | Three surfaces now state the same server-composed instructions: the checkout confirmation panel, the authenticated `/pages/bank-payment-orders` page, and the email (now secondary). Group Buy Bank Payment ordering is wired to its real endpoint for the first time — the storefront previously offered a "Contact us" link. Coordinates still never persist; see §5. **Live gate 10/10 against production 2026-10-25** — see below |
 
 **Feature development is frozen again** as of the D12/D15 work. No further
 engineering until the production-store migration or launch testing exposes
 an actual defect.
+
+### What was actually proven in production, and what was not
+
+Run `npx tsx tests/live/bankPaymentOrdersRoute.ts` after any deploy.
+
+**Proven against `https://caratforus.fly.dev`, 2026-10-25, 10/10:**
+
+- the route is deployed and routable — it is not shadowed by a redirect,
+  a CSRF guard or an error page, which is exactly the class of fault D11
+  was (every `/app` action 400'd in production for nine days while every
+  local test passed);
+- it fails closed on an unsigned request, a wrong signature, a validly
+  signed **anonymous** request, and a signed request with an **empty**
+  `logged_in_customer_id` — the last being what Shopify actually sends for
+  a signed-out visitor, and it is part of the signed message, so that
+  request is genuinely well-formed;
+- a signed, authenticated request returns 200 with both lifecycles reported
+  separately and `Cache-Control: no-store`;
+- the deployed `SHOPIFY_API_SECRET` is the one the storefront signs with —
+  implied by that 200;
+- **payment coordinates are configured in production** (`coordinatesAvailable:
+  true`), which is what makes instructions statable without an email at all.
+
+**NOT proven, and deliberately so.** The gate is read-only and uses a
+customer id that owns nothing, so its success case is 200 with two empty
+lists. It therefore does not prove the rendering of a real payable order,
+the confirmation panel, or the Group Buy storefront form — those need a
+real order placed by a real signed-in customer in a store that can take
+payment, which does not exist yet (C2). They are covered by the integration
+suite against real Postgres and by the theme unit tests; the first
+end-to-end proof belongs to launch testing in the production store, and
+S9's page must exist before that test is meaningful.
 
 ### Fixture catalogue cleanup — proposed, NOT executed
 
