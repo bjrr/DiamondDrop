@@ -302,7 +302,12 @@
         <small class="copyright__content"
           >&copy; {{ 'now' | date: '%Y' }}, {{ shop.name | link_to: routes.root_url -}}
         </small>
-        <small class="copyright__content">{{ powered_by_link }}</small>
+        {%- comment -%}
+          "Powered by Shopify" removed deliberately (launch readiness,
+          2026-10-25). Permitted on a paid plan, and Dawn exposes no setting
+          for it — removing the one `powered_by_link` output is the clean
+          way, rather than hiding it with CSS.
+        {%- endcomment -%}
         {%- if section.settings.show_policy -%}
           <ul class="policies list-unstyled">
             {%- for policy in shop.policies -%}

@@ -192,7 +192,7 @@ row below refers to **`caratforus.myshopify.com`**, live theme
 | S7 | Policy pages published | 🟡 PARTIAL — **they are published; the bodies are the gap** | **Correction 2026-10-25:** the policy pages are live and Visible under their own handles — `/pages/warranty` and `/pages/returns-and-cancellations` both return 200. An earlier probe used `policy-*` handles (the TEMPLATE names) and wrongly concluded the pages were unpublished. They are safe to link from the footer. What is still missing is their **content** (N2) |
 | S8 | App installed, OAuth valid, App Proxy routing | 🟢 DONE — **production** | The app is installed on the production shop (sessions keyed on its canonical domain `nnb1th-cm.myshopify.com` — §2). App Proxy verified end to end on 2026-10-25: `GET https://caratforus.myshopify.com/apps/carat/bank-payment-orders` reaches the Fly app and returns our `{"error":"unauthorized"}`, not a Shopify 404 |
 | S9 | **`bank-payment-orders` page** | 🟢 **FULLY DONE — production, end to end** | Created and published by the owner. All nine checks green, including the signed-in customer case closed by the owner 2026-10-25: a real production customer account saw exactly *"You have no Bank Payment orders on this account."* See §4.1 |
-| S10 | Link Bank Payment Orders from navigation | 🟡 PARTIAL — **unblocked, not yet done** | Linked from the homepage and both checkout confirmations. Header/footer menus are Shopify Admin data, and Admin is now reachable through an authenticated browser session, so this is actionable. 13 of the 14 approved footer links resolve 200 today; only Terms of Service is genuinely absent |
+| S10 | Link Bank Payment Orders from navigation | 🟢 **DONE — production** | In the **footer on every page**, in the **customer account menu**, on the homepage, and in both checkout confirmations. Shopify exposes the account menu as no-code navigation, so no UI extension was needed. See §4.4 |
 
 ---
 
@@ -400,6 +400,74 @@ placeholder legal copy.
 | Main + footer menus | Structure approved; 13 footer links available |
 | "Powered by Shopify" | Remove if the theme/plan exposes the setting |
 | Customer-account navigation | New customer accounts are Shopify-hosted; only worth doing if a no-code menu surface exists. **Not** building a UI extension for it |
+
+---
+
+### 4.4 Navigation — built and verified, 2026-10-25
+
+Three Shopify menus set in Admin, plus one theme change without which the
+footer menu would not have rendered at all.
+
+#### Main menu — 8 items, in the approved order
+
+Home · Catalog · Group Buy · Custom Jewelry · Luxury Steals ·
+Let Us Beat Your Quote · FAQ · Contact
+
+The stock `Home / Catalog / Contact` is gone. No legal or policy page
+appears in the header, as instructed.
+
+#### Footer menu — 14 items
+
+About Us · Why Buy From Us · Contact · FAQ · Returns and Cancellations ·
+Warranty · **Warranty Claim** · Group Buy · Custom Jewelry ·
+Let Us Beat Your Quote · Past Group Buys · **Bank Payment Orders** ·
+Privacy Policy · Your Privacy Choices
+
+**Terms of Service is deliberately absent** — it does not exist, and a
+placeholder legal link is worse than a missing one.
+
+**"Your Privacy Choices" was kept**, though it was not on the approved
+list. It was already in the stock footer menu and is a privacy opt-out
+link rather than Dawn clutter; removing it could be a compliance
+regression. Flagged rather than silently dropped. "Search" was removed.
+
+#### The theme change the menus needed
+
+Dawn renders footer links from a `link_list` **block**, and
+`footer-group.json` had **no blocks at all** — so creating the Shopify menu
+alone would have changed nothing on the page. Added one `link_list` block
+bound to the `footer` menu handle. This is why the footer previously showed
+only "CaratForUs / Powered by Shopify / Privacy policy".
+
+#### S10 closed
+
+**Bank Payment Orders now appears in the footer on every page.** It is also
+in the **customer account menu** — Shopify exposes
+`Customer account main menu` as plain no-code navigation (it already held
+Orders and Profile), so no customer-account UI extension was needed and
+none was built.
+
+#### "Powered by Shopify" removed
+
+Dawn exposes no setting for it; the one `powered_by_link` output in
+`sections/footer.liquid` was removed, which is the clean way rather than
+hiding it with CSS. Permitted on a paid plan.
+
+#### Verification — all green
+
+| Check | Result |
+|---|---|
+| Desktop header | 8 approved items, stock menu gone |
+| Mobile menu | `header-drawer` carries the same 8 items |
+| Footer | 14 items render |
+| **Every destination** | **16 URLs fetched, all 200, zero 404s** |
+| Terms of Service | absent |
+| Bank Payment Orders | present in footer **and** account menu |
+| "Powered by Shopify" | gone |
+| Password protection | still on — `/`, `/pages/bank-payment-orders`, `/pages/warranty-claim`, `/pages/about-us` all 302 to `/password` from a clean context |
+
+Not re-enabled, per instruction: newsletter, payment icons, social
+placeholders, international selectors, announcement copy.
 
 ---
 

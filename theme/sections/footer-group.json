@@ -4,8 +4,18 @@
   "sections": {
     "footer": {
       "type": "footer",
-      "blocks": {},
-      "block_order": [],
+      "blocks": {
+        "quick_links": {
+          "type": "link_list",
+          "settings": {
+            "heading": "CaratForUs",
+            "menu": "footer"
+          }
+        }
+      },
+      "block_order": [
+        "quick_links"
+      ],
       "settings": {
         "color_scheme": "scheme-1",
         "newsletter_enable": false,
