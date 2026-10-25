@@ -26,7 +26,8 @@
       },
       "block_order": [
         "announcement-bar-0"
-      ]
+      ],
+      "disabled": true
     },
     "header": {
       "type": "header",
@@ -38,8 +39,8 @@
         "menu_type_desktop": "dropdown",
         "sticky_header_type": "on-scroll-up",
         "show_line_separator": true,
-        "enable_country_selector": true,
-        "enable_language_selector": true,
+        "enable_country_selector": false,
+        "enable_language_selector": false,
         "mobile_logo_position": "center",
         "margin_bottom": 0,
         "padding_top": 20,

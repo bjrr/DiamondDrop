@@ -53,8 +53,8 @@ amount of further engineering changes any of that.
 | C1 | **A real catalogue** — no sellable product exists | 🔴 BLOCKER | No longer blocked by anything but the work itself: the production store exists. See §8 Track B |
 | C2 | **A production store** | 🟢 **RESOLVED 2026-10-25** | `caratforus.myshopify.com` (canonical `nnb1th-cm.myshopify.com`) — **Production, Grow plan**, app installed, theme live, storefront password protected. See §2 |
 | C3 | **Bank payment coordinates** | 🟢 DONE | All five `PAYMENT_*` secrets set and Deployed. **Resolved 2026-10-24:** the digest `PAYMENT_ZELLE_RECIPIENT` shares with `STAFF_EMAIL_ALLOWLIST` is because both are `orders@caratforus.com`. The allowlist holds a **single address with no commas**, so the Zelle recipient is a valid one — the failure mode I flagged does not apply |
-| C4 | **Terms of Service** | 🔴 BLOCKER | Does not exist. Four business decisions needed first — `docs/content/MVP1-STOREFRONT-COPY.md` Part 4 |
-| C5 | **Privacy Policy** | 🔴 BLOCKER | Does not exist. Append-only evidence tables interact with deletion requests and need a lawful stated answer — Part 5 |
+| C4 | **Terms of Service** | 🔴 BLOCKER | Confirmed absent: `/policies/terms-of-service` 404s, as do refund, shipping and contact-information policies. Four business decisions needed first — `docs/content/MVP1-STOREFRONT-COPY.md` Part 4 |
+| C5 | **Privacy Policy** | 🔴 BLOCKER — **and it is already LIVE**, which is worse than absent | A Shopify-generated policy (15,757 chars, dated 2026-10-22) is **published and linked in the footer right now** at `/policies/privacy-policy`. The earlier "does not exist" was wrong. Two problems: it reads *"please call  or email us"* with an empty phone number, and it has **not** been reviewed against our append-only evidence tables — it makes generic deletion/retention promises we may not be able to keep. See §3.1 |
 | C6 | **Shipping configuration in Shopify** | ❓ UNKNOWN | Policy locked in README; not yet verified in the production store. No longer blocked — C2 is resolved |
 | C7 | **Payment gateway and tax** | 🔴 BLOCKER | **Shopify Payments / card-gateway activation is its own commerce-launch blocker** and is NOT implied by C2. Tax configuration likewise unverified |
 
@@ -126,6 +126,55 @@ should be cleared before launch.
 
 ---
 
+### 3.1 ⚠️ A Privacy Policy is already published — reviewed 2026-10-25
+
+The register previously recorded C5 as "does not exist". That was wrong,
+and the truth is more urgent: Shopify's generated Privacy Policy is **live,
+published, and linked from every page footer** at
+`/policies/privacy-policy` — 15,757 characters, dated 2026-10-22.
+
+A published policy is a commitment. An absent one is a gap. The second is
+easier to fix safely, so this is worth treating as the higher risk, not the
+lower.
+
+**What it gets right:** names CaratForUs, reaches `orders@caratforus.com`,
+no unreplaced template placeholders, and it does address deletion rights
+and retention in general terms.
+
+**Two problems.**
+
+1. **A visible defect on a live legal page.** The contact section reads
+   *"please call  or email us at orders@caratforus.com"* — with an empty
+   gap where a phone number would go. The fix is to **remove the "call"
+   phrasing**, not to add a number: phone, chat and support hours are not
+   approved (owner instruction, 2026-10-25). Settings → Policies in Admin.
+
+2. **It has not been reconciled with our evidence model, which is the exact
+   question C5 was raised for.** The policy says retention "depends on
+   different factors". Our schema is stronger than that and in one
+   direction only: `metal_reference_price`, `stone_cost`, `cost_component`,
+   `pricing_profile` and `labor_rate` carry `no_update`/`no_delete`
+   triggers, and acknowledgments, RMA history and warranty evidence are
+   retained deliberately as dispute evidence. A deletion request cannot be
+   honoured against those tables by design.
+
+   That is a defensible position — evidence of what a customer agreed to,
+   kept to resolve disputes — but it has to be **stated**, and the current
+   generic wording does not state it. `MVP1-STOREFRONT-COPY.md` Part 5
+   drafts this; it needs legal review, not a developer's judgement.
+
+**Not actioned from here.** Store policies live in Shopify Admin, the app
+holds no `write_content` scope, and policy text is a legal decision.
+Recorded so it is fixed deliberately rather than discovered by a customer
+exercising a right we cannot honour.
+
+**Also confirmed absent** (all 404): `terms-of-service`, `refund-policy`,
+`shipping-policy`, `contact-information`. Those four are Shopify's own
+native policy slots and are separate from our six custom `policy-*` pages,
+which exist but stay unpublished pending N2.
+
+---
+
 ## 4. Shopify Admin setup
 
 C2 is resolved, so nothing here is blocked by the store any more. Every
@@ -142,7 +191,7 @@ row below refers to **`caratforus.myshopify.com`**, live theme
 | S6 | A `past-group-buys` page using the new template | 🟢 DONE — **production** | `/pages/past-group-buys` returns 200 on the live storefront. The page already exists; the earlier "must be created" claim was stale |
 | S7 | Policy pages published | 🔴 BLOCKER | Deliberately hidden until N2 |
 | S8 | App installed, OAuth valid, App Proxy routing | 🟢 DONE — **production** | The app is installed on the production shop (sessions keyed on its canonical domain `nnb1th-cm.myshopify.com` — §2). App Proxy verified end to end on 2026-10-25: `GET https://caratforus.myshopify.com/apps/carat/bank-payment-orders` reaches the Fly app and returns our `{"error":"unauthorized"}`, not a Shopify 404 |
-| S9 | **`bank-payment-orders` page** | 🟢 DONE — **production**, one check deferred | Created and **published** by the owner with handle `bank-payment-orders` and template `bank-payment-orders`. Verified live 2026-10-25 — see §4.1. The one unverified item needs a signed-in customer and is named there |
+| S9 | **`bank-payment-orders` page** | 🟢 **FULLY DONE — production, end to end** | Created and published by the owner. All nine checks green, including the signed-in customer case closed by the owner 2026-10-25: a real production customer account saw exactly *"You have no Bank Payment orders on this account."* See §4.1 |
 | S10 | Link Bank Payment Orders from navigation | 🟡 PARTIAL — **blocked on Admin menus** | Now linked from the **homepage** ("Your Bank Payment orders"), plus both checkout confirmations. Still not in header or footer navigation: in Dawn those come from Shopify **navigation menus configured in Admin**, not from theme files, and the app has no `write_content` scope. The footer currently carries only "CaratForUs / Powered by Shopify / Privacy policy" — the stock Dawn default. Needs an Admin menu structure; see §4.2 |
 
 ---
@@ -162,36 +211,34 @@ row below refers to **`caratforus.myshopify.com`**, live theme
 | 6 | No coordinates before authorization | 🟢 The delivered HTML (144 KB) contains **no coordinate value**. The only occurrences of `Zelle` / `Routing` are the UI *label* strings (`confirmation_zelle: "Zelle"`, `confirmation_routing: "Routing number"`); no 9-digit routing-like number appears at all. Structurally guaranteed too: no Liquid path emits a coordinate — the only emitter is the authenticated JSON endpoint |
 | 7 | No internal references exposed | 🟢 No `gid://shopify/...` of any kind, no `draftOrderGid` / `shopifyOrderGid`, no `priceCalculationId`, no idempotency key. The only email in the page is the public `orders@caratforus.com` |
 | 8 | Storefront password protection | 🟢 Still enabled. From a clean context with no cookies, both `/` and `/pages/bank-payment-orders` **302 to `/password`** |
-| 9 | **Signed-in customer with no orders → clean empty state** | 🟡 **DEFERRED — needs a signed-in customer** |
+| 9 | **Signed-in customer with no orders → clean empty state** | 🟢 **CLOSED by the owner 2026-10-25** — a real production customer account saw exactly *"You have no Bank Payment orders on this account."* |
 
-**Why item 9 is deferred and not failed.** It needs a real customer session
-on the production store. Production uses Shopify's **new customer accounts**
+**How item 9 was closed.** It needed a real customer session, and
+production uses Shopify's **new customer accounts**
 (`shopify.com/authentication/85082865882/...`), which sign in by emailed
-one-time code — I do not create accounts or handle sign-in credentials, so
-this is the owner's to run.
+one-time code — so it was the owner's to run, not mine. Closed 2026-10-25:
+a real production customer account loaded the page and saw exactly
 
-Everything that can be verified without that session is verified. Against
-the **production asset itself**, the empty-state decision and copy are
-correct: `summarize({buyNow:[],groupBuy:[],coordinatesAvailable:true})`
-returns `isEmpty: true`; the bound copy is *"You have no Bank Payment orders
-on this account."*; a 401 maps to *"Please sign in to see your Bank Payment
-orders."*; and the status labels match the real Prisma enums
-(`open`/`cancelled`/`completed`, `active`/`inactive`) with an unknown status
-falling through to its raw value rather than rendering blank.
+> You have no Bank Payment orders on this account.
 
-**The 30-second owner test, and how to read it.** Sign in as any customer,
-then load `/pages/bank-payment-orders`. Three distinguishable outcomes:
+That single observation closes four questions at once, which is why it was
+worth running rather than assuming:
 
-| What you see | Meaning |
-|---|---|
-| *"You have no Bank Payment orders on this account."* | 🟢 Fully green. Closes item 9 |
-| *"Sign in required"* while actually signed in | Liquid's `customer` object is not populated under new customer accounts — a theme-level gate problem |
-| *"Please sign in to see your Bank Payment orders."* while signed in | **The one that matters.** That is the JS rendering a 401, meaning `logged_in_customer_id` is not reaching the App Proxy. Authorization would be failing closed — safe, but the feature would not work for anyone |
+- Shopify's **new** customer accounts do populate Liquid's `customer`
+  object, so the theme's sign-in gate opens;
+- the App Proxy sends `logged_in_customer_id` under that scheme — the open
+  risk, and the one no local test could ever have answered;
+- the D4 shop binding passes for genuine **signed-in** traffic, not only
+  the anonymous case already proven;
+- the route authorizes that customer and renders the correct empty state.
 
-That third outcome is the real risk and the reason this is worth running
-before launch rather than assuming: the dev store exercised this path, but
-whether `logged_in_customer_id` is populated under **new** customer accounts
-has not been observed on this store, and no local test can observe it.
+Against the production asset itself the same decisions were already
+verified before any customer existed: `summarize` returns `isEmpty: true`,
+the bound copy matches the sentence above, a 401 maps to *"Please sign in
+to see your Bank Payment orders."*, and the status labels match the real
+Prisma enums (`open`/`cancelled`/`completed`, `active`/`inactive`) with an
+unknown status falling through to its raw value rather than rendering
+blank.
 
 ---
 
@@ -252,6 +299,27 @@ anyone to, and `/collections/all` is empty.
 One defect found and fixed in the same pass: Dawn's `multicolumn` has a
 section-level button whose schema default renders the literal text "Button
 label" when unset. It appeared three times on the first push.
+
+#### Storefront chrome cleanup — done, live
+
+Stock Dawn shipped several surfaces that were either placeholder or made
+promises the business cannot yet keep. All theme-side, all now off:
+
+| Removed | Why |
+|---|---|
+| Announcement bar "Welcome to our store" | Placeholder. Disabled rather than replaced — inventing promotional copy nobody approved is worse than showing none |
+| **Footer newsletter signup** | It collected email addresses. See the Privacy Policy finding below — a signup field is a PII collection surface, and this one was live |
+| Footer payment icons | Advertised card brands while **no gateway is activated** (C7) |
+| Follow-on-Shop button | Implies a Shop presence that does not exist |
+| Footer social links | No accounts configured — rendered empty |
+| Country + language selectors (header and footer) | Imply international selling. One market, and tax/shipping are unverified (C6/C7) |
+
+Verified live afterwards: no announcement bar, no newsletter, zero email
+inputs in the footer, homepage intact.
+
+**Mobile:** every homepage section is set to `columns_mobile: "1"`, Dawn's
+single-column behaviour. Configured, **not yet visually verified** on a
+real viewport — that belongs in the rehearsal (F).
 
 #### Blocked on Shopify Admin, not on engineering
 
