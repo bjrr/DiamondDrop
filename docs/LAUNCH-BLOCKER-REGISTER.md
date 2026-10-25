@@ -1,6 +1,8 @@
 # MVP1 Launch Blocker Register
 
-**Current as of 2026-10-25. `main` = `0638578`, deployed and smoke-tested.**
+**Current as of 2026-10-25. Production runs `0638578`, deployed and
+live-proven.** `main` carries one commit on top of it adding a live-test
+script and this document — no application code, so nothing to redeploy.
 
 The single authoritative list of what stands between CaratForUs and taking
 a real customer's money.
