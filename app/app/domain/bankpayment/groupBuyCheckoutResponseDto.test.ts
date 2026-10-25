@@ -21,6 +21,7 @@ describe("buildGroupBuyBankCheckoutResultDto", () => {
       shopifyOrderGid: "gid://shopify/Order/1",
       tierNumber: 2,
       quotedAt,
+      formattedAmountDue: "1800.00",
       lines: [LINE],
     });
 
@@ -56,6 +57,7 @@ describe("buildGroupBuyBankCheckoutResultDto", () => {
       shopifyOrderGid: "gid://shopify/Order/1",
       tierNumber: 1,
       quotedAt: new Date(),
+      formattedAmountDue: "1800.00",
       lines: [LINE],
     });
     const json = JSON.stringify(dto).toLowerCase();

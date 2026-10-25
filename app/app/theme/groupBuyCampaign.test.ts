@@ -255,6 +255,193 @@ describe("CaratGroupBuyCampaign._internal — pure logic", () => {
       ).toBe(false);
     });
   });
+
+  /**
+   * GROUP BUY BANK PAYMENT ORDERING (register D12).
+   *
+   * The endpoint existed and was tested for weeks with nothing calling it;
+   * the storefront offered "Contact us to arrange payment". These pin the
+   * body the storefront now builds — particularly the two things a wrong
+   * edit would get wrong quietly: sending an acknowledgment the customer
+   * did not give, and sending an acknowledgment id the route must not
+   * accept from a browser.
+   */
+  describe("buildBankRequestBody — what the Bank Payment path actually sends", () => {
+    const FULL = {
+      email: "  Buyer@Example.com  ",
+      firstName: "Ada",
+      lastName: "Lovelace",
+      address1: "1 Main St",
+      address2: "Apt 2",
+      city: "Austin",
+      provinceCode: "TX",
+      zip: "78701",
+      countryCode: "US",
+      phone: "+15125550000",
+    };
+
+    it("sends cancellationAcknowledgmentAccepted: true ONLY when the box was actually ticked", () => {
+      const { _internal } = loadGroupBuyCampaign();
+      const accepted = _internal.buildBankRequestBody({
+        campaignCode: "SUMMER26",
+        shopifyVariantId: 101,
+        values: FULL,
+        acknowledged: true,
+      });
+      expect(accepted.cancellationAcknowledgmentAccepted).toBe(true);
+
+      const refused = _internal.buildBankRequestBody({
+        campaignCode: "SUMMER26",
+        shopifyVariantId: 101,
+        values: FULL,
+        acknowledged: false,
+      });
+      // The route's schema is `z.literal(true)` and will reject this with a
+      // 400. That is the DESIRED behaviour, preserved rather than worked
+      // around: a false value must never be laundered into a true one here.
+      expect(refused.cancellationAcknowledgmentAccepted).toBe(false);
+    });
+
+    it("never sends an acknowledgment id from the browser — the Bank mechanism does not have one", () => {
+      const { _internal } = loadGroupBuyCampaign();
+      const body = _internal.buildBankRequestBody({
+        campaignCode: "SUMMER26",
+        shopifyVariantId: 101,
+        values: FULL,
+        acknowledged: true,
+      });
+      const raw = JSON.stringify(body);
+      expect(raw).not.toContain("acknowledgmentId");
+      expect(raw).not.toContain("_carat_gb_cancel_ack");
+    });
+
+    it("never sends a customer identity — authorization is the signed logged_in_customer_id", () => {
+      const { _internal } = loadGroupBuyCampaign();
+      const raw = JSON.stringify(
+        _internal.buildBankRequestBody({
+          campaignCode: "SUMMER26",
+          shopifyVariantId: 101,
+          values: FULL,
+          acknowledged: true,
+        })
+      );
+      expect(raw).not.toContain("customerGid");
+      expect(raw).not.toContain("logged_in_customer_id");
+    });
+
+    it("declares mode 'bank' and exactly one line of quantity 1", () => {
+      const { _internal } = loadGroupBuyCampaign();
+      const body = _internal.buildBankRequestBody({
+        campaignCode: "SUMMER26",
+        shopifyVariantId: 101,
+        values: FULL,
+        acknowledged: true,
+      });
+      expect(body.mode).toBe("bank");
+      expect(body.campaignCode).toBe("SUMMER26");
+      expect(body.lines).toEqual([{ shopifyVariantId: "101", quantity: 1 }]);
+    });
+
+    it("trims the email and sends every supplied address field", () => {
+      const { _internal } = loadGroupBuyCampaign();
+      const body = _internal.buildBankRequestBody({
+        campaignCode: "SUMMER26",
+        shopifyVariantId: 101,
+        values: FULL,
+        acknowledged: true,
+      });
+      expect(body.email).toBe("Buyer@Example.com");
+      expect(body.shippingAddress).toEqual({
+        address1: "1 Main St",
+        city: "Austin",
+        zip: "78701",
+        countryCode: "US",
+        firstName: "Ada",
+        lastName: "Lovelace",
+        address2: "Apt 2",
+        provinceCode: "TX",
+        phone: "+15125550000",
+      });
+    });
+
+    it("OMITS an empty optional field rather than sending an empty string", () => {
+      // The route's schema requires `.min(1)` on every optional address
+      // field, so sending "" is a 400 for a customer who simply has no
+      // apartment number.
+      const { _internal } = loadGroupBuyCampaign();
+      const body = _internal.buildBankRequestBody({
+        campaignCode: "SUMMER26",
+        shopifyVariantId: 101,
+        values: { ...FULL, address2: "", provinceCode: "   ", phone: "" },
+        acknowledged: true,
+      });
+      expect(body.shippingAddress).not.toHaveProperty("address2");
+      expect(body.shippingAddress).not.toHaveProperty("provinceCode");
+      expect(body.shippingAddress).not.toHaveProperty("phone");
+      expect(body.shippingAddress.address1).toBe("1 Main St");
+    });
+  });
+
+  describe("validateBankValues — saves a round trip, decides nothing", () => {
+    it("names every missing required field", () => {
+      const { _internal } = loadGroupBuyCampaign();
+      const errors = _internal.validateBankValues(_internal.normalizeBankValues({}));
+      expect(errors.map((e) => e.field).sort()).toEqual(
+        ["address1", "city", "countryCode", "email", "zip"].sort()
+      );
+    });
+
+    it("accepts a complete set", () => {
+      const { _internal } = loadGroupBuyCampaign();
+      const values = _internal.normalizeBankValues({
+        email: "a@b.com",
+        address1: "1 Main St",
+        city: "Austin",
+        zip: "78701",
+        countryCode: "US",
+      });
+      expect(_internal.validateBankValues(values)).toEqual([]);
+    });
+
+    it("treats a whitespace-only required field as missing", () => {
+      const { _internal } = loadGroupBuyCampaign();
+      const values = _internal.normalizeBankValues({
+        email: "a@b.com",
+        address1: "   ",
+        city: "Austin",
+        zip: "78701",
+        countryCode: "US",
+      });
+      expect(values.address1).toBe("");
+      expect(_internal.validateBankValues(values).map((e) => e.field)).toEqual(["address1"]);
+    });
+  });
+
+  describe("messageKeyForBankFailure — never surfaces a server detail", () => {
+    it.each([
+      [401, {}, "bank_error_authentication_required"],
+      [409, {}, "bank_error_unresolved"],
+      [400, { error: "campaign_not_open" }, "bank_error_campaign_not_open"],
+      [400, { error: "unpurchasable_lines" }, "bank_error_unpurchasable"],
+      [503, { error: "checkout_unavailable" }, "bank_error_unavailable"],
+      [503, { error: "acknowledgment_copy_pending_approval" }, "bank_error_unavailable"],
+      [400, { error: "invalid_request", reason: "lines" }, "bank_error_invalid_request"],
+      [500, null, "bank_error_generic"],
+    ])("maps %i / %o to %s", (status, body, expected) => {
+      const { _internal } = loadGroupBuyCampaign();
+      expect(_internal.messageKeyForBankFailure(status as number, body)).toBe(expected);
+    });
+
+    it("never echoes the server's own reason string back to the customer", () => {
+      const { _internal } = loadGroupBuyCampaign();
+      const key = _internal.messageKeyForBankFailure(400, {
+        error: "invalid_request",
+        reason: "lines.0.shopifyVariantId must match /^gid/",
+      });
+      expect(key).toBe("bank_error_invalid_request");
+      expect(key).not.toContain("gid");
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -296,7 +483,6 @@ describe("the account-required gate (docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4) —
           padding_top: 36,
           padding_bottom: 36,
           campaign_options_json: "",
-          bank_payment_contact_url: "",
         },
       },
     };
@@ -312,9 +498,20 @@ describe("the account-required gate (docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4) —
    * spinner markup is irrelevant to every branch this file asserts on.
    */
   class NoopRenderTag {
-    parse(_tagToken: TagToken): void {}
+    private snippet = "";
+
+    parse(tagToken: TagToken): void {
+      // Capture WHICH snippet was asked for. The markup is still not
+      // rendered — resolving it from disk is what this stub exists to avoid
+      // — but which snippet a branch includes is exactly the kind of
+      // control-flow fact this file is for, and asserting on a bare empty
+      // string could not tell the Bank Payment form apart from the spinner.
+      const match = /^\s*['"]([^'"]+)['"]/.exec(tagToken.args || "");
+      this.snippet = match ? match[1]! : "";
+    }
+
     render(): string {
-      return "";
+      return this.snippet ? "<!--render:" + this.snippet + "-->" : "";
     }
   }
 
@@ -355,7 +552,7 @@ describe("the account-required gate (docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4) —
       const out = await renderSection(SIGNED_IN_CUSTOMER);
       expect(out).toContain("data-carat-gb-order");
       expect(out).toContain("data-carat-gb-add-to-cart-form");
-      expect(out).toContain("data-carat-gb-bank-contact");
+      expect(out).toContain("<!--render:group-buy-bank-payment-form-->");
       expect(out).not.toContain("data-carat-gb-signin-required");
     });
 
@@ -374,7 +571,7 @@ describe("the account-required gate (docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4) —
       expect(out).toContain("data-carat-gb-signin-link");
       expect(out).not.toContain("data-carat-gb-order");
       expect(out).not.toContain("data-carat-gb-add-to-cart-form");
-      expect(out).not.toContain("data-carat-gb-bank-contact");
+      expect(out).not.toContain("<!--render:group-buy-bank-payment-form-->");
     });
 
     it("the sign-in link returns the shopper to this exact page", async () => {
@@ -467,7 +664,11 @@ describe("templates.group_buy_campaign — new locale keys resolve", () => {
     "order_heading",
     "order_hint",
     "add_to_cart",
-    "bank_contact_cta",
+    "bank_form_heading",
+    "bank_form_intro",
+    "bank_shipping_legend",
+    "bank_submit",
+    "bank_confirmation_heading",
     "sign_in_required_heading",
     "sign_in_required_message",
     "cancellation_disclosure",

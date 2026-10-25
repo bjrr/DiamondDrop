@@ -579,7 +579,6 @@ describe("pricing — from the frozen snapshot at the CURRENT tier, never getPub
     const body = (await response.json()) as {
       groupBuyBankPaymentOrderId: string;
       tierNumber: number;
-      shopifyOrderGid: string;
       quotedAt: string;
       paymentDueBy: string;
       lines: { quotedBankPaymentPriceMinorUnits: string }[];
@@ -602,7 +601,12 @@ describe("pricing — from the frozen snapshot at the CURRENT tier, never getPub
     expect(port.completeCalls).toHaveLength(1);
 
     const stored = await prisma.groupBuyBankPaymentOrder.findUniqueOrThrow({ where: { id: body.groupBuyBankPaymentOrderId } });
-    expect(stored.shopifyOrderGid).toBe(body.shopifyOrderGid);
+    // The Shopify handle is PERSISTED but no longer RETURNED (register D12):
+    // it is a live handle to a real unpaid order and the customer has no use
+    // for it. Read it from the row, which is where staff reconciliation reads
+    // it too.
+    expect(stored.shopifyOrderGid).toBe(port.completeCalls[0]!.orderGid ?? stored.shopifyOrderGid);
+    expect(stored.shopifyOrderGid.startsWith("gid://shopify/Order/")).toBe(true);
     expect(stored.customerGid).toBe(DEFAULT_CUSTOMER_GID);
     expect(stored.tierNumberAtQuote).toBe(1);
     expect(stored.status).toBe("active");
@@ -720,11 +724,16 @@ describe("a pending Group Buy Bank Payment order counts toward campaign progress
       context: {},
     } as never);
     expect(response.status).toBe(200);
-    const body = (await response.json()) as { shopifyOrderGid: string };
+    const body = (await response.json()) as { groupBuyBankPaymentOrderId: string };
 
     // Not paid, not verified — this order is UNPAID from the moment it is
     // created (owner §24) — yet counting is unconditional on that.
-    const stored = await prisma.groupBuyBankPaymentOrder.findUniqueOrThrow({ where: { shopifyOrderGid: body.shopifyOrderGid } });
+    //
+    // Looked up by the CaratForUs reference rather than the Shopify handle:
+    // the handle is persisted but no longer returned to the customer
+    // (register D12). The webhook below still uses the REAL handle, read
+    // from the row — which is the end-to-end property this test exists for.
+    const stored = await prisma.groupBuyBankPaymentOrder.findUniqueOrThrow({ where: { id: body.groupBuyBankPaymentOrderId } });
     expect(stored.status).toBe("active");
 
     // In production, Shopify itself fires `orders/create` for the order
@@ -741,7 +750,7 @@ describe("a pending Group Buy Bank Payment order counts toward campaign progress
         // draft-order lines carried this attribute at all, this arrived as
         // `no_candidate` -> `unmatched` -> HELD at ZERO units.
         buildOrderRawBody(
-          body.shopifyOrderGid,
+          stored.shopifyOrderGid,
           [
             {
               lineId: nextNumericId(),
@@ -1102,10 +1111,12 @@ describe("the acknowledgment id reaches Shopify on every line — without it, ZE
     } as never);
 
     expect(response.status).toBe(200);
-    const body = (await response.json()) as { shopifyOrderGid: string };
+    const body = (await response.json()) as { groupBuyBankPaymentOrderId: string };
 
+    // By CaratForUs reference: the Shopify handle is persisted but no
+    // longer returned to the customer (register D12).
     const stored = await prisma.groupBuyBankPaymentOrder.findUniqueOrThrow({
-      where: { shopifyOrderGid: body.shopifyOrderGid },
+      where: { id: body.groupBuyBankPaymentOrderId },
     });
     expect(stored.cancellationAcknowledgmentId).toBeTruthy();
 
@@ -1143,5 +1154,189 @@ describe("the acknowledgment id reaches Shopify on every line — without it, ZE
     expect(ack).not.toBeNull();
     expect(ack!.customerRef).toBe(DEFAULT_CUSTOMER_GID);
     expect(ack!.campaignRef).toBe(campaign.code);
+  });
+});
+
+/**
+ * D12 — THE CUSTOMER RESPONSE CONTRACT.
+ *
+ * This route returned its PERSISTED result DTO verbatim, which carried
+ * `draftOrderGid` and `shopifyOrderGid`: live handles to a real, unpaid,
+ * participation-counting Shopify order. And it stated no payment
+ * instructions at all — those reached the customer only by email, so an
+ * email-provider outage produced a customer holding a real order with no
+ * idea where to send funds.
+ *
+ * Fake coordinates come from setupEnv.ts, same as the Buy Now suite.
+ */
+const GB_FAKE_ZELLE = "test-pay@example.invalid";
+const GB_FAKE_WIRE_VALUES = [
+  "TEST BANK — NOT REAL",
+  "TEST ACCOUNT — NOT REAL",
+  "000000000",
+  "000000000000",
+];
+
+interface GroupBuyCustomerBody {
+  groupBuyBankPaymentOrderId: string;
+  campaignCode: string;
+  tierNumber: number;
+  paymentDueBy: string;
+  instructions: {
+    flow: string;
+    reference: string;
+    formattedAmountDue: string;
+    currency: string;
+    paymentDeadline: string;
+    methods: Array<Record<string, string>>;
+    commitmentNotice: string;
+    extensionNotice: string | null;
+    supportEmail: string;
+  };
+}
+
+describe("D12 — the Group Buy customer response states how to pay, and leaks no Shopify handle", () => {
+  async function placeOrder() {
+    const { variant } = await createGroupBuyVariant();
+    const campaign = await openCampaignFixture(variant.id);
+    const port = fakeDraftOrderPort();
+    __setDraftOrderPortForTests(port);
+
+    const response = await action({
+      request: checkoutRequest({
+        body: {
+          mode: "bank",
+          cancellationAcknowledgmentAccepted: true,
+          campaignCode: campaign.code,
+          email: `Buyer-${uniq()}@Example.com`,
+          shippingAddress: SHIPPING_ADDRESS,
+          lines: [{ shopifyVariantId: variant.shopifyVariantGid, quantity: 2 }],
+        },
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.status).toBe(200);
+    const raw = JSON.stringify(await response.clone().json());
+    const body = (await response.json()) as GroupBuyCustomerBody;
+    return { raw, body, campaign, port };
+  }
+
+  it("carries the FULL instruction set — both methods — so email is not the only channel", async () => {
+    const { raw, body } = await placeOrder();
+
+    expect(body.instructions.flow).toBe("group_buy");
+    expect(body.instructions.reference).toBe(body.groupBuyBankPaymentOrderId);
+    expect(body.instructions.supportEmail).toBe("orders@caratforus.com");
+
+    const zelle = body.instructions.methods.find((m) => m.kind === "zelle");
+    expect(zelle?.recipient).toBe(GB_FAKE_ZELLE);
+    expect(body.instructions.methods.find((m) => m.kind === "domestic_wire")).toBeDefined();
+    for (const value of GB_FAKE_WIRE_VALUES) expect(raw).toContain(value);
+  });
+
+  it("leaks NEITHER Shopify handle, nor the internal campaign id", async () => {
+    const { raw } = await placeOrder();
+    // Both are live handles to a real unpaid order. `campaignId` is an
+    // internal primary key; `campaignCode` is the customer-facing one.
+    expect(raw).not.toContain("draftOrderGid");
+    expect(raw).not.toContain("shopifyOrderGid");
+    expect(raw).not.toContain("gid://shopify/Order/");
+    expect(raw).not.toContain("gid://shopify/DraftOrder/");
+    expect(raw).not.toContain("campaignId");
+    expect(raw).not.toContain("priceCalculationId");
+  });
+
+  it("states GROUP BUY's commitment language, never Buy Now's", async () => {
+    const { body } = await placeOrder();
+    // A Group Buy Bank Payment order IS created and DOES count toward the
+    // campaign immediately (owner §24). Telling this customer their order
+    // "is not committed" — Buy Now's correct sentence — would be false.
+    expect(body.instructions.commitmentNotice).toContain("counts toward this campaign");
+    expect(body.instructions.commitmentNotice).not.toContain("not committed");
+    expect(body.instructions.commitmentNotice).not.toContain("not reserved");
+  });
+
+  it("states the 48h + one automatic 48h extension, which Buy Now does not have", async () => {
+    const { body } = await placeOrder();
+    expect(body.instructions.extensionNotice).toBeTruthy();
+    expect(body.instructions.extensionNotice).toContain("48 hours");
+  });
+
+  it("the instructions deadline is the 48-HOUR customer deadline, not the 96-hour inactivation instant", async () => {
+    const { body } = await placeOrder();
+    // One date, stated once. The two used to be able to disagree because
+    // nothing rendered `paymentDueBy`; now two surfaces do.
+    expect(body.instructions.paymentDeadline).toBe(body.paymentDueBy);
+  });
+
+  it("states the amount due on screen, as a decimal string", async () => {
+    const { body } = await placeOrder();
+    expect(body.instructions.formattedAmountDue).toMatch(/^\d+\.\d{2}$/);
+  });
+
+  it("the persisted idempotency resultPayload contains NO coordinate and no composed instructions", async () => {
+    const { body } = await placeOrder();
+
+    const rows = await prisma.idempotencyKey.findMany({
+      where: {
+        operationType: "group_buy_bank_payment_checkout",
+        resultPayload: { path: ["groupBuyBankPaymentOrderId"], equals: body.groupBuyBankPaymentOrderId },
+      },
+    });
+    expect(rows).toHaveLength(1);
+    const persisted = JSON.stringify(rows[0]);
+    // Guards the guard: we really read the payload.
+    expect(persisted).toContain(body.groupBuyBankPaymentOrderId);
+    expect(persisted).toContain("formattedAmountDue");
+    // The coordinate boundary. `paymentInstructionsView.ts`: "THIS OBJECT IS
+    // NEVER PERSISTED. NOT ANYWHERE." The envelope is composed AFTER
+    // `executeIdempotent` precisely so this stays true.
+    expect(persisted).not.toContain(GB_FAKE_ZELLE);
+    expect(persisted).not.toContain("instructions");
+    for (const value of GB_FAKE_WIRE_VALUES) expect(persisted).not.toContain(value);
+  });
+
+  it("no coordinate reaches the stored order, its lines, or the acknowledgment row", async () => {
+    const { body } = await placeOrder();
+    const stored = await prisma.groupBuyBankPaymentOrder.findUniqueOrThrow({
+      where: { id: body.groupBuyBankPaymentOrderId },
+      include: { lines: true },
+    });
+    const ack = await prisma.acknowledgment.findUniqueOrThrow({
+      where: { id: stored.cancellationAcknowledgmentId },
+    });
+    const dump = JSON.stringify({ stored, ack }, (_k, v) => (typeof v === "bigint" ? v.toString() : v));
+    expect(dump).not.toContain(GB_FAKE_ZELLE);
+    for (const value of GB_FAKE_WIRE_VALUES) expect(dump).not.toContain(value);
+  });
+
+  it("a replay returns the same body — and recomposes the coordinates rather than replaying a stored copy", async () => {
+    const { variant } = await createGroupBuyVariant();
+    const campaign = await openCampaignFixture(variant.id);
+    __setDraftOrderPortForTests(fakeDraftOrderPort());
+    const requestBody = {
+      mode: "bank",
+      cancellationAcknowledgmentAccepted: true,
+      campaignCode: campaign.code,
+      email: `Buyer-${uniq()}@Example.com`,
+      shippingAddress: SHIPPING_ADDRESS,
+      lines: [{ shopifyVariantId: variant.shopifyVariantGid, quantity: 1 }],
+    };
+
+    const first = await action({ request: checkoutRequest({ body: requestBody }), params: {}, context: {} } as never);
+    const second = await action({ request: checkoutRequest({ body: requestBody }), params: {}, context: {} } as never);
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+
+    const firstBody = (await first.json()) as GroupBuyCustomerBody;
+    const secondBody = (await second.json()) as GroupBuyCustomerBody;
+    expect(secondBody).toEqual(firstBody);
+    expect(secondBody.instructions.methods.find((m) => m.kind === "zelle")?.recipient).toBe(GB_FAKE_ZELLE);
+
+    // And exactly one order exists — the replay created nothing.
+    const orders = await prisma.groupBuyBankPaymentOrder.count({ where: { campaignId: campaign.id } });
+    expect(orders).toBe(1);
   });
 });

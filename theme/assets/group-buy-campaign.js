@@ -217,6 +217,100 @@
   }
 
   // ---------------------------------------------------------------------
+  // Group Buy Bank Payment ordering (register D12) — pure half
+  // ---------------------------------------------------------------------
+
+  /**
+   * Bank Payment copy, bound in `theme.liquid` as
+   * `window.groupBuyCampaignStrings`.
+   *
+   * WHY A FALLBACK AT ALL. The rest of this file hardcodes its English
+   * strings ("Sold out", "Select"), which predates this work; a payment
+   * surface rendering a bare key would be worse than any of those. The
+   * fallback is the key itself only when the binding is missing entirely,
+   * which is a theme deployment error, not a translation gap.
+   */
+  function localeString(key) {
+    var strings = window.groupBuyCampaignStrings;
+    if (strings && typeof strings[key] === "string" && strings[key].length > 0) return strings[key];
+    return key;
+  }
+
+  var BANK_REQUIRED_FIELDS = ["email", "address1", "city", "zip", "countryCode"];
+  var BANK_OPTIONAL_FIELDS = ["firstName", "lastName", "address2", "provinceCode", "phone"];
+
+  /** Trims every value and drops anything the form did not provide. */
+  function normalizeBankValues(raw) {
+    var out = {};
+    if (!raw) return out;
+    BANK_REQUIRED_FIELDS.concat(BANK_OPTIONAL_FIELDS).forEach(function (name) {
+      var value = raw[name];
+      out[name] = typeof value === "string" ? value.trim() : "";
+    });
+    return out;
+  }
+
+  /**
+   * Client-side validation, which exists ONLY to save a round trip. The
+   * route revalidates everything with zod and is the authority; nothing
+   * here may be relied on for correctness.
+   */
+  function validateBankValues(values) {
+    var errors = [];
+    BANK_REQUIRED_FIELDS.forEach(function (name) {
+      if (!values[name]) errors.push({ field: name, messageKey: "bank_error_" + name + "_required" });
+    });
+    if (values.email && values.email.indexOf("@") === -1) {
+      errors.push({ field: "email", messageKey: "bank_error_email_required" });
+    }
+    return errors;
+  }
+
+  /**
+   * THE ONLY PLACE A GROUP BUY BANK REQUEST BODY IS BUILT.
+   *
+   * `cancellationAcknowledgmentAccepted` is passed in as a separate
+   * argument rather than read off the form, so the caller has to state
+   * explicitly that the box was ticked. It is emitted as the literal `true`
+   * only in that case — the route's zod schema is `z.literal(true)` and
+   * will reject anything else, which is the behaviour we want preserved,
+   * not worked around.
+   *
+   * NO ACKNOWLEDGMENT ID IS SENT. Not an omission — see the snippet header.
+   * Optional address fields are omitted entirely when empty rather than
+   * sent as "", because the route's schema requires `.min(1)` on each.
+   */
+  function buildBankRequestBody(input) {
+    var values = normalizeBankValues(input.values);
+    var address = { address1: values.address1, city: values.city, zip: values.zip, countryCode: values.countryCode };
+    BANK_OPTIONAL_FIELDS.forEach(function (name) {
+      if (values[name]) address[name] = values[name];
+    });
+    return {
+      mode: "bank",
+      campaignCode: input.campaignCode,
+      email: values.email,
+      shippingAddress: address,
+      lines: [{ shopifyVariantId: String(input.shopifyVariantId), quantity: 1 }],
+      cancellationAcknowledgmentAccepted: input.acknowledged === true ? true : false,
+    };
+  }
+
+  /** Maps a failed submit to a locale key. Never surfaces a server detail. */
+  function messageKeyForBankFailure(status, body) {
+    var error = body && typeof body.error === "string" ? body.error : "";
+    if (status === 401) return "bank_error_authentication_required";
+    if (status === 409) return "bank_error_unresolved";
+    if (error === "campaign_not_open") return "bank_error_campaign_not_open";
+    if (error === "unpurchasable_lines") return "bank_error_unpurchasable";
+    if (error === "checkout_unavailable" || error === "acknowledgment_copy_pending_approval") {
+      return "bank_error_unavailable";
+    }
+    if (status === 400) return "bank_error_invalid_request";
+    return "bank_error_generic";
+  }
+
+  // ---------------------------------------------------------------------
   // DOM helpers
   // ---------------------------------------------------------------------
 
@@ -410,34 +504,36 @@
     var paymentTypeInputs = Array.prototype.slice.call(root.querySelectorAll("[data-carat-gb-payment-type]"));
     var variantIdInput = root.querySelector("[data-carat-gb-variant-id]");
     var addToCartButton = root.querySelector('[data-carat-gb-payment-type-target="card"]');
-    var bankContactLink = root.querySelector('[data-carat-gb-payment-type-target="bank"]');
     var addToCartForm = root.querySelector("[data-carat-gb-add-to-cart-form]");
     var cancelAckCheckbox = root.querySelector("[data-carat-gb-cancel-ack-checkbox]");
     var cancelAckInput = root.querySelector("[data-carat-gb-cancel-ack-input]");
     var cancelAckStatus = root.querySelector("[data-carat-gb-cancel-ack-status]");
     var cancelAckError = root.querySelector("[data-carat-gb-cancel-ack-error]");
-
-    // Unlike a <button disabled>, a plain <a> stays clickable regardless of
-    // `aria-disabled` — this is the one place that matters, since the link
-    // only merely NAVIGATES TO A CONTACT PAGE rather than submitting an
-    // order, but it should still honestly reflect "disabled" rather than
-    // silently work anyway.
-    if (bankContactLink) {
-      bankContactLink.addEventListener("click", function (evt) {
-        if (bankContactLink.getAttribute("aria-disabled") === "true") evt.preventDefault();
-      });
-    }
+    // Bank Payment ordering (register D12). Replaced the contact link.
+    var bankPanel = root.querySelector("[data-carat-gb-bank]");
+    var bankForm = root.querySelector("[data-carat-gb-bank-form]");
+    var bankSubmit = root.querySelector("[data-carat-gb-bank-submit]");
+    var bankStatus = root.querySelector("[data-carat-gb-bank-status]");
+    var bankErrorSummary = root.querySelector("[data-carat-gb-bank-error-summary]");
+    var bankConfirmation = root.querySelector("[data-carat-gb-bank-confirmation]");
 
     var state = {
       variant: firstAvailableOrFirstVariant(variants),
       paymentType: null,
       lastData: null,
       hasEverLoaded: false,
-      signedIn: !!(addToCartButton || bankContactLink),
+      signedIn: !!(addToCartButton || bankPanel),
       // Owner spec 2026-09-27/28 — never pre-checked, never inferred. See
       // `canSubmitOrder`'s own comment on why this gates both actions and
       // why it is a UX gate, not enforcement.
       acknowledged: false,
+      /**
+       * Set once the Bank order has been placed, so a double submit cannot
+       * create a second real, participation-counting Shopify order. The
+       * route is idempotent and would collapse a true duplicate anyway —
+       * this is the cheap front-line guard, not the correctness one.
+       */
+      bankOrderPlaced: false,
     };
 
     function updateOrderControls() {
@@ -458,13 +554,15 @@
         addToCartButton.hidden = state.paymentType !== "card";
         addToCartButton.disabled = !(state.paymentType === "card" && canCard);
       }
-      if (bankContactLink) {
-        bankContactLink.hidden = state.paymentType !== "bank";
-        if (!(state.paymentType === "bank" && canBank)) {
-          bankContactLink.setAttribute("aria-disabled", "true");
-        } else {
-          bankContactLink.removeAttribute("aria-disabled");
-        }
+      if (bankPanel) {
+        // Hidden until Bank Payment is explicitly chosen (owner §9/§10:
+        // Payment Type is a required, never-defaulted selection), and
+        // retired entirely once the order exists so the confirmation is
+        // the only thing on screen.
+        bankPanel.hidden = state.paymentType !== "bank" || state.bankOrderPlaced;
+      }
+      if (bankSubmit) {
+        bankSubmit.disabled = !(state.paymentType === "bank" && canBank) || state.bankOrderPlaced;
       }
       if (variantIdInput) variantIdInput.value = state.variant ? state.variant.id : "";
 
@@ -538,19 +636,100 @@
         state.paymentType = input.value;
         renderActivePrice(activePriceEl, state.lastData, moneyFormat, state.paymentType);
         updateOrderControls();
+
+        /**
+         * SWITCHING BANK -> CARD AFTER TICKING THE BOX.
+         *
+         * The Bank branch deliberately captures nothing, so a customer who
+         * ticked under Bank and then chose Card has an acknowledgment the
+         * Card path cannot carry — native checkout needs the id on the cart
+         * line. Capture it now rather than silently letting them add to cart
+         * with an empty `_carat_gb_cancel_ack`.
+         *
+         * The reverse direction needs nothing: a captured id is simply never
+         * sent to the Bank route.
+         */
+        if (cancelAckCheckbox && cancelAckCheckbox.checked && cardCaptureOutstanding()) {
+          captureCardAcknowledgment();
+        }
       });
     });
 
     // -----------------------------------------------------------------
-    // Group Buy cancellation-policy acknowledgment (owner spec 2026-09-27/28).
-    // CAPTURE ONLY, NOT ENFORCEMENT — see `canSubmitOrder`'s own comment and
-    // `groupBuyOrderHandler.server.ts`'s module comment for the binding
-    // control this gate feeds evidence to but cannot replace. Mirrors
+    // GROUP BUY CANCELLATION-POLICY ACKNOWLEDGMENT (owner spec 2026-09-27/28).
+    //
+    // ONE CHECKBOX, TWO MECHANISMS — AND THEY STAY SEPARATE.
+    //
+    // CARD: captures evidence NOW, through
+    // `/apps/carat/group-buy-cancellation-acknowledgment`, and carries the
+    // returned id on the cart line. It must work this way because native
+    // Shopify checkout creates the order, so the evidence has to exist
+    // before the order does and travel with it. Mirrors
     // `luxury-steal-gate.js`'s checkbox -> capture-endpoint -> hidden-input
     // shape, simplified: this acknowledgment is CAMPAIGN-scoped, not
-    // per-variant, so — unlike that gate — nothing here resets it on an
-    // option/variant change within the same page load.
+    // per-variant, so nothing here resets it on an option change.
+    //
+    // BANK: captures NOTHING here. No call to that endpoint, no id in the
+    // browser. The checkbox only records that the customer ticked it, and
+    // the bank submit sends `cancellationAcknowledgmentAccepted: true`.
+    // `apps.carat.group-buy-bank-checkout.tsx` writes the Acknowledgment row
+    // itself, in the same transaction as the order, bound to the
+    // AUTHENTICATED customerGid, behind a NOT NULL foreign key.
+    //
+    // Unifying these for symmetry would mean either sending the Card path's
+    // id to the Bank route (a browser-supplied identity the route is right
+    // to refuse) or dropping the Card path's pre-capture (which native
+    // checkout cannot do without). The MECHANISMS differ because the two
+    // order-creation paths differ. The EVIDENCE STANDARD does not, and
+    // `groupBuyAcknowledgmentEvidenceParity.test.ts` pins that.
+    //
+    // NEITHER IS ENFORCEMENT. See `canSubmitOrder`'s own comment and
+    // `groupBuyOrderHandler.server.ts`.
     // -----------------------------------------------------------------
+
+    /** True when the Card path still needs a captured id it does not have. */
+    function cardCaptureOutstanding() {
+      return state.paymentType === "card" && !(cancelAckInput && cancelAckInput.value);
+    }
+
+    function captureCardAcknowledgment() {
+      cancelAckCheckbox.disabled = true;
+      if (cancelAckError) cancelAckError.hidden = true;
+      if (cancelAckStatus) cancelAckStatus.hidden = true;
+
+      return fetch("/apps/carat/group-buy-cancellation-acknowledgment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          campaignCode: code,
+          shopifyVariantId: state.variant ? state.variant.id : undefined,
+        }),
+      })
+        .then(function (response) {
+          if (!response.ok) throw new Error("status " + response.status);
+          return response.json();
+        })
+        .then(function (data) {
+          if (!data || !data.acknowledgmentId) throw new Error("acknowledgment response missing acknowledgmentId");
+          if (cancelAckInput) cancelAckInput.value = data.acknowledgmentId;
+          state.acknowledged = true;
+          updateOrderControls();
+        })
+        .catch(function () {
+          // The click did not result in recorded evidence, so the checkbox
+          // must not be left showing "checked" — that would visually claim
+          // an acknowledgment that was never captured.
+          cancelAckCheckbox.checked = false;
+          state.acknowledged = false;
+          if (cancelAckInput) cancelAckInput.value = "";
+          updateOrderControls();
+          if (cancelAckError) cancelAckError.hidden = false;
+        })
+        .finally(function () {
+          cancelAckCheckbox.disabled = false;
+        });
+    }
+
     if (cancelAckCheckbox) {
       // NEVER PRE-CHECKED — defensive reset against bfcache restoring stale
       // form state, same discipline `luxury-steal-gate.js` documents for its
@@ -568,41 +747,19 @@
           return;
         }
 
-        cancelAckCheckbox.disabled = true;
-        if (cancelAckError) cancelAckError.hidden = true;
-        if (cancelAckStatus) cancelAckStatus.hidden = true;
+        if (state.paymentType === "bank") {
+          // NO NETWORK CALL. The tick is the affirmative action; the
+          // evidence is written server-side at order time.
+          state.acknowledged = true;
+          if (cancelAckError) cancelAckError.hidden = true;
+          updateOrderControls();
+          return;
+        }
 
-        fetch("/apps/carat/group-buy-cancellation-acknowledgment", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({
-            campaignCode: code,
-            shopifyVariantId: state.variant ? state.variant.id : undefined,
-          }),
-        })
-          .then(function (response) {
-            if (!response.ok) throw new Error("status " + response.status);
-            return response.json();
-          })
-          .then(function (data) {
-            if (!data || !data.acknowledgmentId) throw new Error("acknowledgment response missing acknowledgmentId");
-            if (cancelAckInput) cancelAckInput.value = data.acknowledgmentId;
-            state.acknowledged = true;
-            updateOrderControls();
-          })
-          .catch(function () {
-            // The click did not result in recorded evidence, so the checkbox
-            // must not be left showing "checked" — that would visually claim
-            // an acknowledgment that was never captured.
-            cancelAckCheckbox.checked = false;
-            state.acknowledged = false;
-            if (cancelAckInput) cancelAckInput.value = "";
-            updateOrderControls();
-            if (cancelAckError) cancelAckError.hidden = false;
-          })
-          .finally(function () {
-            cancelAckCheckbox.disabled = false;
-          });
+        // Card, or no payment type chosen yet. Capturing eagerly keeps the
+        // existing behaviour for the Card path; if the customer later picks
+        // Bank, the captured id is simply never sent.
+        captureCardAcknowledgment();
       });
     }
 
@@ -641,6 +798,237 @@
               variantStatus.setAttribute("data-carat-gb-status-unavailable", "true");
               variantStatus.hidden = false;
             }
+          });
+      });
+    }
+
+    // ---- Group Buy Bank Payment ordering (register D12) -------------------
+
+    function bankFieldErrorNode(name) {
+      var input = bankForm ? bankForm.querySelector('[name="' + name + '"]') : null;
+      if (!input) return null;
+      var describedBy = input.getAttribute("aria-describedby");
+      return describedBy ? document.getElementById(describedBy) : null;
+    }
+
+    function clearBankFieldErrors() {
+      if (!bankForm) return;
+      BANK_REQUIRED_FIELDS.concat(BANK_OPTIONAL_FIELDS).forEach(function (name) {
+        var input = bankForm.querySelector('[name="' + name + '"]');
+        if (input) input.removeAttribute("aria-invalid");
+        var node = bankFieldErrorNode(name);
+        if (node) node.hidden = true;
+      });
+      if (bankErrorSummary) {
+        bankErrorSummary.hidden = true;
+        bankErrorSummary.textContent = "";
+      }
+    }
+
+    function showBankErrors(errors) {
+      if (!bankErrorSummary) return;
+      bankErrorSummary.textContent = "";
+      var heading = el("p", "form-status caption-large text-body", localeString("bank_error_summary_heading"));
+      var list = el("ul");
+      list.setAttribute("role", "list");
+      errors.forEach(function (entry) {
+        var message = localeString(entry.messageKey);
+        list.appendChild(el("li", null, message));
+        var input = bankForm ? bankForm.querySelector('[name="' + entry.field + '"]') : null;
+        if (input) input.setAttribute("aria-invalid", "true");
+        var node = bankFieldErrorNode(entry.field);
+        if (node) {
+          var text = node.querySelector("[data-carat-gb-bank-field-error-text]");
+          if (text) text.textContent = message;
+          node.hidden = false;
+        }
+      });
+      bankErrorSummary.appendChild(heading);
+      bankErrorSummary.appendChild(list);
+      bankErrorSummary.hidden = false;
+      bankErrorSummary.focus();
+    }
+
+    function showBankMessage(messageKey) {
+      showBankErrors([{ field: "__form", messageKey: messageKey }]);
+    }
+
+    /** ISO instant to a readable UTC string. No arithmetic — the server decided it. */
+    function formatBankDeadline(iso) {
+      var parsed = new Date(iso);
+      if (isNaN(parsed.getTime())) return iso;
+      var text = parsed.toISOString();
+      return text.slice(0, 10) + " " + text.slice(11, 16) + " UTC";
+    }
+
+    /**
+     * The Group Buy confirmation (register D12).
+     *
+     * EVERY VALUE COMES FROM THE SERVER RESPONSE — no price arithmetic, no
+     * deadline arithmetic. `commitmentNotice` and `extensionNotice` are
+     * composed server-side by `buildPaymentInstructionsView` and say
+     * materially different things from Buy Now's, deliberately: a Group Buy
+     * Bank Payment order is a REAL unpaid order that already counts toward
+     * the campaign and has a locked price, with 48h plus one automatic 48h
+     * extension. Rewording either here would make this screen disagree with
+     * the email and the orders page.
+     *
+     * textContent throughout — a bank account number must never be able to
+     * introduce markup.
+     */
+    function renderBankConfirmation(dto) {
+      if (!bankConfirmation) return;
+      var ins = dto.instructions;
+
+      function row(dl, label, value) {
+        dl.appendChild(el("dt", "carat-bank-confirmation__label", label));
+        dl.appendChild(el("dd", "carat-bank-confirmation__value", value));
+      }
+
+      bankConfirmation.textContent = "";
+      bankConfirmation.setAttribute("role", "status");
+      bankConfirmation.setAttribute("aria-live", "polite");
+
+      var panel = el("div", "carat-bank-confirmation");
+      panel.appendChild(el("h3", "carat-bank-confirmation__heading", localeString("bank_confirmation_heading")));
+      panel.appendChild(el("p", "carat-bank-confirmation__still-required", ins.paymentStillRequired));
+      panel.appendChild(el("p", "carat-bank-confirmation__commitment", ins.commitmentNotice));
+
+      var summary = el("dl", "carat-bank-confirmation__summary");
+      row(summary, localeString("bank_confirmation_reference"), ins.reference);
+      row(summary, localeString("bank_confirmation_campaign"), dto.campaignCode);
+      row(summary, localeString("bank_confirmation_tier"), String(dto.tierNumber));
+      row(summary, localeString("bank_confirmation_amount_due"), ins.formattedAmountDue + " " + ins.currency);
+      row(summary, localeString("bank_confirmation_deadline"), formatBankDeadline(ins.paymentDeadline));
+      panel.appendChild(summary);
+
+      if (ins.extensionNotice) {
+        panel.appendChild(el("p", "carat-bank-confirmation__extension", ins.extensionNotice));
+      }
+
+      panel.appendChild(el("h4", "carat-bank-confirmation__methods-heading", localeString("bank_confirmation_methods")));
+      ins.methods.forEach(function (m) {
+        var block = el("div", "carat-bank-confirmation__method");
+        var fields = el("dl", "carat-bank-confirmation__method-fields");
+        if (m.kind === "zelle") {
+          block.appendChild(el("h5", "carat-bank-confirmation__method-name", localeString("bank_confirmation_zelle")));
+          row(fields, localeString("bank_confirmation_send_to"), m.recipient);
+          row(fields, localeString("bank_confirmation_memo"), m.memo);
+        } else {
+          block.appendChild(el("h5", "carat-bank-confirmation__method-name", localeString("bank_confirmation_wire")));
+          row(fields, localeString("bank_confirmation_bank_name"), m.bankName);
+          row(fields, localeString("bank_confirmation_account_name"), m.accountName);
+          row(fields, localeString("bank_confirmation_routing"), m.routingNumber);
+          row(fields, localeString("bank_confirmation_account_number"), m.accountNumber);
+          row(fields, localeString("bank_confirmation_reference_label"), m.reference);
+        }
+        block.appendChild(fields);
+        panel.appendChild(block);
+      });
+
+      panel.appendChild(el("p", "carat-bank-confirmation__include", ins.includeWithPayment));
+
+      // The durable surface, same as the Buy Now confirmation offers.
+      var durable = el("p", "carat-bank-confirmation__durable");
+      var link = el("a", "carat-bank-confirmation__durable-link", localeString("bank_confirmation_view_orders_link"));
+      link.setAttribute("href", "/pages/bank-payment-orders");
+      durable.appendChild(document.createTextNode(localeString("bank_confirmation_view_orders") + " "));
+      durable.appendChild(link);
+      panel.appendChild(durable);
+
+      panel.appendChild(
+        el(
+          "p",
+          "carat-bank-confirmation__support",
+          localeString("bank_confirmation_support") + " " + ins.supportEmail
+        )
+      );
+
+      bankConfirmation.appendChild(panel);
+      bankConfirmation.hidden = false;
+    }
+
+    if (bankForm) {
+      bankForm.addEventListener("submit", function (evt) {
+        evt.preventDefault();
+        if (state.bankOrderPlaced) return;
+        if (
+          !canSubmitOrder({
+            variant: state.variant,
+            paymentType: "bank",
+            signedIn: state.signedIn,
+            acknowledged: state.acknowledged,
+          })
+        ) {
+          return;
+        }
+
+        clearBankFieldErrors();
+
+        var raw = {};
+        BANK_REQUIRED_FIELDS.concat(BANK_OPTIONAL_FIELDS).forEach(function (name) {
+          var input = bankForm.querySelector('[name="' + name + '"]');
+          raw[name] = input ? input.value : "";
+        });
+        var values = normalizeBankValues(raw);
+        var errors = validateBankValues(values);
+        if (errors.length > 0) {
+          showBankErrors(errors);
+          return;
+        }
+
+        if (bankSubmit) bankSubmit.disabled = true;
+        if (bankStatus) {
+          bankStatus.textContent = localeString("bank_submitting");
+          bankStatus.hidden = false;
+        }
+
+        var body = buildBankRequestBody({
+          campaignCode: code,
+          shopifyVariantId: state.variant.id,
+          values: values,
+          // ONLY true because the checkbox was actually ticked —
+          // `state.acknowledged` is set nowhere else, and `canSubmitOrder`
+          // above already refused to get here without it.
+          acknowledged: state.acknowledged === true,
+        });
+
+        fetch("/apps/carat/group-buy-bank-checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(body),
+        })
+          .then(function (response) {
+            return response
+              .json()
+              .catch(function () {
+                return null;
+              })
+              .then(function (parsed) {
+                return { ok: response.ok, status: response.status, body: parsed };
+              });
+          })
+          .then(function (result) {
+            if (!result.ok || !result.body || !result.body.instructions) {
+              if (bankStatus) bankStatus.hidden = true;
+              if (bankSubmit) bankSubmit.disabled = false;
+              showBankMessage(
+                result.ok ? "bank_error_generic" : messageKeyForBankFailure(result.status, result.body)
+              );
+              return;
+            }
+            // The order exists. Retire the form so a second submit cannot
+            // create a second real, participation-counting order.
+            state.bankOrderPlaced = true;
+            if (bankStatus) bankStatus.hidden = true;
+            renderBankConfirmation(result.body);
+            updateOrderControls();
+          })
+          .catch(function () {
+            if (bankStatus) bankStatus.hidden = true;
+            if (bankSubmit) bankSubmit.disabled = false;
+            showBankMessage("bank_error_network");
           });
       });
     }
@@ -746,6 +1134,10 @@
       resolveVariantForOptionValues: resolveVariantForOptionValues,
       firstAvailableOrFirstVariant: firstAvailableOrFirstVariant,
       canSubmitOrder: canSubmitOrder,
+      normalizeBankValues: normalizeBankValues,
+      validateBankValues: validateBankValues,
+      buildBankRequestBody: buildBankRequestBody,
+      messageKeyForBankFailure: messageKeyForBankFailure,
     },
   };
 })();

@@ -437,6 +437,55 @@
         error_upload_failed: `{{ 'templates.warranty_claim.form.error_upload_failed' | t }}`,
       };
 
+      // Group Buy Bank Payment ordering and confirmation (register D12).
+      // Labels and error copy only -- the commitment notice, the
+      // still-required sentence, the extension notice and the
+      // include-with-payment sentence come from the server so one wording
+      // serves this screen, the email and the orders page.
+      //
+      // NO COORDINATES. theme.liquid is public and cacheable.
+      window.groupBuyCampaignStrings = {
+        bank_note: `{{ 'templates.group_buy_campaign.bank_note' | t }}`,
+        bank_form_heading: `{{ 'templates.group_buy_campaign.bank_form_heading' | t }}`,
+        bank_form_intro: `{{ 'templates.group_buy_campaign.bank_form_intro' | t }}`,
+        bank_shipping_legend: `{{ 'templates.group_buy_campaign.bank_shipping_legend' | t }}`,
+        bank_submit: `{{ 'templates.group_buy_campaign.bank_submit' | t }}`,
+        bank_submitting: `{{ 'templates.group_buy_campaign.bank_submitting' | t }}`,
+        bank_error_summary_heading: `{{ 'templates.group_buy_campaign.bank_error_summary_heading' | t }}`,
+        bank_error_email_required: `{{ 'templates.group_buy_campaign.bank_error_email_required' | t }}`,
+        bank_error_address1_required: `{{ 'templates.group_buy_campaign.bank_error_address1_required' | t }}`,
+        bank_error_city_required: `{{ 'templates.group_buy_campaign.bank_error_city_required' | t }}`,
+        bank_error_zip_required: `{{ 'templates.group_buy_campaign.bank_error_zip_required' | t }}`,
+        bank_error_countryCode_required: `{{ 'templates.group_buy_campaign.bank_error_countryCode_required' | t }}`,
+        bank_error_authentication_required: `{{ 'templates.group_buy_campaign.bank_error_authentication_required' | t }}`,
+        bank_error_campaign_not_open: `{{ 'templates.group_buy_campaign.bank_error_campaign_not_open' | t }}`,
+        bank_error_unpurchasable: `{{ 'templates.group_buy_campaign.bank_error_unpurchasable' | t }}`,
+        bank_error_unresolved: `{{ 'templates.group_buy_campaign.bank_error_unresolved' | t }}`,
+        bank_error_unavailable: `{{ 'templates.group_buy_campaign.bank_error_unavailable' | t }}`,
+        bank_error_invalid_request: `{{ 'templates.group_buy_campaign.bank_error_invalid_request' | t }}`,
+        bank_error_generic: `{{ 'templates.group_buy_campaign.bank_error_generic' | t }}`,
+        bank_error_network: `{{ 'templates.group_buy_campaign.bank_error_network' | t }}`,
+        bank_confirmation_heading: `{{ 'templates.group_buy_campaign.bank_confirmation_heading' | t }}`,
+        bank_confirmation_reference: `{{ 'templates.group_buy_campaign.bank_confirmation_reference' | t }}`,
+        bank_confirmation_campaign: `{{ 'templates.group_buy_campaign.bank_confirmation_campaign' | t }}`,
+        bank_confirmation_tier: `{{ 'templates.group_buy_campaign.bank_confirmation_tier' | t }}`,
+        bank_confirmation_amount_due: `{{ 'templates.group_buy_campaign.bank_confirmation_amount_due' | t }}`,
+        bank_confirmation_deadline: `{{ 'templates.group_buy_campaign.bank_confirmation_deadline' | t }}`,
+        bank_confirmation_methods: `{{ 'templates.group_buy_campaign.bank_confirmation_methods' | t }}`,
+        bank_confirmation_zelle: `{{ 'templates.group_buy_campaign.bank_confirmation_zelle' | t }}`,
+        bank_confirmation_send_to: `{{ 'templates.group_buy_campaign.bank_confirmation_send_to' | t }}`,
+        bank_confirmation_memo: `{{ 'templates.group_buy_campaign.bank_confirmation_memo' | t }}`,
+        bank_confirmation_wire: `{{ 'templates.group_buy_campaign.bank_confirmation_wire' | t }}`,
+        bank_confirmation_bank_name: `{{ 'templates.group_buy_campaign.bank_confirmation_bank_name' | t }}`,
+        bank_confirmation_account_name: `{{ 'templates.group_buy_campaign.bank_confirmation_account_name' | t }}`,
+        bank_confirmation_routing: `{{ 'templates.group_buy_campaign.bank_confirmation_routing' | t }}`,
+        bank_confirmation_account_number: `{{ 'templates.group_buy_campaign.bank_confirmation_account_number' | t }}`,
+        bank_confirmation_reference_label: `{{ 'templates.group_buy_campaign.bank_confirmation_reference_label' | t }}`,
+        bank_confirmation_support: `{{ 'templates.group_buy_campaign.bank_confirmation_support' | t }}`,
+        bank_confirmation_view_orders: `{{ 'templates.group_buy_campaign.bank_confirmation_view_orders' | t }}`,
+        bank_confirmation_view_orders_link: `{{ 'templates.group_buy_campaign.bank_confirmation_view_orders_link' | t }}`,
+      };
+
       // The authenticated Bank Payment orders page (register D12). Labels
       // only -- the commitment notice, the still-required sentence and the
       // include-with-payment sentence are NOT here: they are composed

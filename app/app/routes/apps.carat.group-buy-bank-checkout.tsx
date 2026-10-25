@@ -9,9 +9,12 @@ import { idempotencyKeyRepository } from "~/db/repositories/idempotencyKeyReposi
 import { coalesceCheckoutLines, type RawCheckoutLine } from "~/domain/bankpayment/coalesceLines";
 import {
   buildGroupBuyBankCheckoutResultDto,
+  resolveGroupBuyFormattedAmountDue,
+  toGroupBuyCustomerResponse,
   type GroupBuyBankCheckoutResultDto,
   type QuotedGroupBuyLineForResult,
 } from "~/domain/bankpayment/groupBuyCheckoutResponseDto";
+import { buildPaymentInstructionsView } from "~/domain/bankpayment/paymentInstructionsView";
 import { computeGroupBuyBankCheckoutIdempotencyKey } from "~/domain/bankpayment/groupBuyCheckoutIdempotencyKey";
 import { computeGroupBuyTierLinePrice, type GroupBuyTierPricingProfile } from "~/domain/bankpayment/groupBuyTierPrice";
 import {
@@ -420,7 +423,34 @@ async function performGroupBuyBankCheckout(input: {
     lineCount: input.quotedLines.length,
   });
 
-  // PAYMENT INSTRUCTIONS — the email the storefront promises (§1.5).
+  /**
+   * THE AMOUNT DUE, COMPUTED ONCE (register D12).
+   *
+   * BIGINT THROUGHOUT. Quantity is multiplied into the unit price in minor
+   * units and summed; the decimal string is produced once, at the end, by
+   * the same helper the Shopify price path uses. No float ever touches this.
+   *
+   * HOISTED OUT OF THE EMAIL BRANCH DELIBERATELY. It used to be computed
+   * inside the `if (emailResolution.configured)` block, which was correct
+   * while email was the only surface that stated an amount. Email is now the
+   * SECONDARY channel: the on-screen confirmation and the durable orders
+   * page both state this figure too, and they must state the same one. If
+   * this stayed inside that branch, an unconfigured mail provider would
+   * silently leave the customer's screen without an amount — the exact
+   * email dependency D12 exists to remove.
+   *
+   * EVERY LINE IS CHARGED AT ITS BANK PAYMENT PRICE. Unlike Buy Now there is
+   * no per-line eligibility flag to honour here: the whole order is one
+   * payment basis, chosen at placement.
+   */
+  const totalDueMinorUnits = input.quotedLines.reduce(
+    (sum, line) => sum + line.quotedBankPaymentPriceMinorUnits * BigInt(line.quantity),
+    0n
+  );
+  const formattedAmountDue = minorUnitsToDecimalString(totalDueMinorUnits);
+  const amountCurrency = input.quotedLines[0]!.currency;
+
+  // PAYMENT INSTRUCTIONS — the email, now the SECONDARY channel (§1.5).
   //
   // Coordinates were already proven present before any Shopify call, so this
   // cannot produce a partial email; the resolution is passed in rather than
@@ -444,21 +474,12 @@ async function performGroupBuyBankCheckout(input: {
         reason: emailResolution.reason,
       });
     } else {
-      // BIGINT THROUGHOUT. Quantity is multiplied into the unit price in
-      // minor units and summed; the decimal string is produced once, at the
-      // end, by the same helper the Shopify price path uses. No float ever
-      // touches this, which is why it is computed here rather than in the
-      // email module — that module formats nothing.
-      const totalDueMinorUnits = input.quotedLines.reduce(
-        (sum, line) => sum + line.quotedBankPaymentPriceMinorUnits * BigInt(line.quantity),
-        0n
-      );
-      const currency = input.quotedLines[0]!.currency;
-
+      // The SAME figure the on-screen confirmation and the orders page
+      // state — computed once above, never recomputed per surface.
       const content = buildGroupBuyPaymentInstructionsEmail({
         bankPaymentOrderId: groupBuyBankPaymentOrder.id,
         campaignCode: input.campaignCode,
-        formattedAmountDue: `${minorUnitsToDecimalString(totalDueMinorUnits)} ${currency}`,
+        formattedAmountDue: `${formattedAmountDue} ${amountCurrency}`,
         // THE 48-HOUR CUSTOMER DEADLINE, not the 96-hour inactivation instant.
         // The email states "You have 48 hours to send payment" immediately
         // below this date; printing the 96-hour value there told the customer
@@ -498,6 +519,7 @@ async function performGroupBuyBankCheckout(input: {
     shopifyOrderGid: completed.orderGid,
     tierNumber: input.tierNumber,
     quotedAt,
+    formattedAmountDue,
     lines: input.quotedLines,
   });
 }
@@ -751,7 +773,46 @@ export async function action({ request }: ActionFunctionArgs) {
           paymentCoordinates: paymentCoordinates.coordinates,
         })
     );
-    return Response.json(result, { status: 200 });
+    /**
+     * THE CUSTOMER ENVELOPE, COMPOSED AFTER THE IDEMPOTENT TRANSACTION
+     * (register D12).
+     *
+     * Deliberately NOT inside `performGroupBuyBankCheckout`. Whatever that
+     * function returns is what `executeIdempotent` WRITES TO POSTGRES as
+     * `resultPayload`, and these instructions carry bank coordinates —
+     * `bankPaymentCoordinates.server.ts` says "NOT PERSISTED, EVER". Composing
+     * here means a replay re-reads the coordinates from configuration rather
+     * than from a stored copy, which is also why rotating them is safe for
+     * the mechanism and unsafe for OPEN ORDERS (see this route's operations
+     * note in docs/LAUNCH-BLOCKER-REGISTER.md).
+     *
+     * `result` was previously returned raw, exposing `draftOrderGid` and
+     * `shopifyOrderGid` to the browser. Those are live handles to a real
+     * unpaid order; the customer has the only reference that matters.
+     */
+    const resolvedAmountDue = resolveGroupBuyFormattedAmountDue(result);
+    if (resolvedAmountDue === null) {
+      // An old payload whose lines cannot produce an amount. Fail closed
+      // rather than render a panel with a blank figure next to a bank
+      // account number — the order exists and staff can see it.
+      logger.error("group_buy_bank_checkout.replay_response_unbuildable", {
+        groupBuyBankPaymentOrderId: result.groupBuyBankPaymentOrderId,
+      });
+      return Response.json({ error: "checkout_unavailable" }, { status: 503 });
+    }
+
+    const instructions = buildPaymentInstructionsView({
+      flow: "group_buy",
+      reference: result.groupBuyBankPaymentOrderId,
+      formattedAmountDue: resolvedAmountDue,
+      currency: result.lines[0]?.currency ?? quotedLines[0]!.currency,
+      // The 48-HOUR customer deadline the result already carries — not the
+      // 96-hour inactivation instant. See `paymentDueBy`'s own comment.
+      paymentDeadline: new Date(result.paymentDueBy),
+      coordinates: paymentCoordinates.coordinates,
+    });
+
+    return Response.json(toGroupBuyCustomerResponse(result, instructions), { status: 200 });
   } catch (error) {
     if (error instanceof InDoubtIdempotencyError) {
       logger.warn("group_buy_bank_checkout.idempotency_in_doubt", { key: idempotencyKey });

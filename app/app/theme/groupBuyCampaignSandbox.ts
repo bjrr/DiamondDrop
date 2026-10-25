@@ -50,6 +50,23 @@ export interface GroupBuyCampaignModule {
       signedIn: boolean;
       acknowledged: boolean;
     }): boolean;
+    /** Group Buy Bank Payment ordering (register D12). */
+    normalizeBankValues(raw: Record<string, unknown> | null | undefined): Record<string, string>;
+    validateBankValues(values: Record<string, string>): Array<{ field: string; messageKey: string }>;
+    buildBankRequestBody(input: {
+      campaignCode: string;
+      shopifyVariantId: string | number;
+      values: Record<string, unknown>;
+      acknowledged: boolean;
+    }): {
+      mode: "bank";
+      campaignCode: string;
+      email: string;
+      shippingAddress: Record<string, string>;
+      lines: Array<{ shopifyVariantId: string; quantity: number }>;
+      cancellationAcknowledgmentAccepted: boolean;
+    };
+    messageKeyForBankFailure(status: number, body: unknown): string;
   };
 }
 

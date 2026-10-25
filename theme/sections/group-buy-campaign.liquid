@@ -63,21 +63,29 @@
   task, and any future Group Buy order-creation route must independently
   reject an unauthenticated request.
 
-  ORDERING ACTION — DELIBERATELY MODEST, FLAGGED FOR ARCHITECT REVIEW. There
-  is currently no Group Buy order-creation endpoint in this codebase (only
-  the read-only progress endpoint above exists; see this task's handoff).
-  So the Credit/Debit Card path uses Shopify's own native `/cart/add` —the
-  bound product/variant is an ordinary Shopify product, and native cart/
-  checkout is the correct default per CLAUDE.md's "prefer Shopify-native
-  capabilities" principle — while the Bank Payment path, which cannot change
-  the payable checkout total (the same platform limitation documented in
-  `docs/BANK-PAYMENT-CHECKOUT-FINDINGS.md` and already reflected in
-  `group-buy-progress.js`'s "Contact us to arrange payment" copy), surfaces a
-  plain contact link rather than a fabricated submission this task has no
-  backend to fulfil. Do not read this as a final design for Group Buy
-  checkout — it is the honest MVP1 shape given what exists today, and a
-  dedicated Group Buy order/Bank-Payment-request route is exactly the kind
-  of decision CLAUDE.md reserves for the architect.
+  TWO ORDERING PATHS, TWO MECHANISMS — BOTH REAL NOW.
+
+  The Credit/Debit Card path uses Shopify's own native `/cart/add`: the bound
+  product/variant is an ordinary Shopify product and native cart/checkout is
+  the correct default per CLAUDE.md's "prefer Shopify-native capabilities"
+  principle.
+
+  The Bank Payment path cannot use it. Native checkout cannot vary the
+  payable total by payment method (`docs/BANK-PAYMENT-CHECKOUT-FINDINGS.md`),
+  so a customer choosing Bank Payment had no way to be charged the Bank
+  Payment Price. This file therefore used to show a plain "Contact us to
+  arrange payment" link — honest at the time, because no Group Buy Bank
+  Payment endpoint existed to call.
+
+  THAT IS NO LONGER TRUE, AND THE LINK IS GONE (register D12).
+  `POST /apps/carat/group-buy-bank-checkout` creates a server-priced, real,
+  unpaid Shopify order at the frozen campaign tier, and
+  `snippets/group-buy-bank-payment-form.liquid` calls it. Read that snippet's
+  header before touching the acknowledgment handling: the Card and Bank
+  acknowledgment MECHANISMS are deliberately different (the Card path must
+  carry an id into native checkout; the Bank path must not accept one from
+  the browser), while the EVIDENCE STANDARD is identical and pinned by
+  `groupBuyAcknowledgmentEvidenceParity.test.ts`.
 
   THIS SECTION DOES NOT USE `<product-form>`/`assets/product-form.js`. That
   component's second submit button switches the CART-WIDE Buy Now Bank
@@ -108,7 +116,6 @@
   assign campaign_code = section.settings.campaign_code | strip
   assign gb_product = section.settings.product
   assign campaign_options_raw = section.settings.campaign_options_json | strip
-  assign bank_contact_url = section.settings.bank_payment_contact_url | default: '/pages/contact'
 -%}
 
 <div class="color-{{ section.settings.color_scheme }} gradient">
@@ -133,7 +140,6 @@
         data-money-format="{{ shop.money_format | escape }}"
         data-cart-add-url="{{ routes.cart_add_url }}"
         data-cart-url="{{ routes.cart_url }}"
-        data-bank-contact-url="{{ bank_contact_url | escape }}"
         {%- if campaign_options_raw != blank -%}
           data-campaign-options="{{ campaign_options_raw | escape }}"
         {%- endif -%}
@@ -402,15 +408,22 @@
                 </button>
               </form>
 
-              <a
-                class="button button--secondary"
-                data-carat-gb-bank-contact
-                data-carat-gb-payment-type-target="bank"
-                href="{{ bank_contact_url }}"
-                hidden
-              >
-                {{ 'templates.group_buy_campaign.bank_contact_cta' | t }}
-              </a>
+              {%- comment -%}
+                BANK PAYMENT — a real ordering path as of register D12.
+                This was a "Contact us to arrange payment" link for as long
+                as no Group Buy Bank Payment endpoint existed. One exists now
+                (`POST /apps/carat/group-buy-bank-checkout`) and this form
+                calls it. See the snippet's own header for why its
+                acknowledgment mechanism is deliberately NOT the Card path's.
+              {%- endcomment -%}
+              {%- render 'group-buy-bank-payment-form', section: section -%}
+
+              {%- comment -%}
+                The confirmation replaces the form on success. Built by JS
+                from the server-composed instructions object — never by
+                Liquid, because it carries bank coordinates.
+              {%- endcomment -%}
+              <div class="carat-gb-bank-confirmation" data-carat-gb-bank-confirmation hidden></div>
             </div>
           {%- else -%}
             <div class="carat-gb-campaign__signin-required" data-carat-gb-signin-required>
@@ -498,12 +511,6 @@
       "id": "campaign_options_json",
       "label": "Campaign options JSON (advanced)",
       "info": "Optional. The versioned Group Buy campaign-options JSON (schemaVersion, optionDimensions, tableView, orderingFlow — see app/app/domain/groupbuy/campaignOptions.ts). Used only to choose which of the product's own options appear as table columns and in what order. Leave blank to show every product option."
-    },
-    {
-      "type": "url",
-      "id": "bank_payment_contact_url",
-      "label": "Bank Payment contact link",
-      "info": "Where the Bank Payment action sends a shopper, since checkout cannot vary the payable total by payment method. Defaults to /pages/contact."
     },
     {
       "type": "header",

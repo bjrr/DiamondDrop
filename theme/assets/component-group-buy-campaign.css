@@ -229,3 +229,152 @@
   font-style: italic;
   margin-top: 1rem;
 }
+
+/* ===========================================================================
+   GROUP BUY BANK PAYMENT ORDERING (register D12)
+   ===========================================================================
+   `snippets/group-buy-bank-payment-form.liquid` + the confirmation panel
+   that replaces it. Field styling reuses base.css's global `.field`/
+   `.field__input`/`.field__label`/`.form__message` classes directly rather
+   than redefining them, same as the Buy Now dialog.
+
+   The confirmation reuses the `.carat-bank-confirmation__*` class names
+   from `component-bank-payment-checkout.css`, but that stylesheet is loaded
+   by the CART dialog and is not guaranteed to be on a Group Buy campaign
+   page at all. So the rules that panel needs are repeated at the bottom of
+   this file under the same names. Duplicated deliberately:
+   a payment destination rendering unstyled because a stylesheet happened not
+   to be on the page is a legibility failure on the one screen where
+   legibility is a correctness requirement. */
+
+.carat-gb-bank {
+  margin-top: 2rem;
+}
+
+.carat-gb-bank__heading {
+  margin: 0 0 1.2rem;
+}
+
+.carat-gb-bank__intro {
+  margin: 0 0 2rem;
+}
+
+.carat-gb-bank__error-summary[hidden] {
+  display: none;
+}
+
+.carat-gb-bank__error-summary {
+  margin: 0 0 2rem;
+}
+
+.carat-gb-bank__fieldset {
+  border: none;
+  padding: 0;
+  margin: 2rem 0 0;
+}
+
+.carat-gb-bank__legend {
+  padding: 0;
+  margin: 0 0 1.2rem;
+  font-weight: 600;
+}
+
+.carat-gb-bank__field {
+  margin-bottom: 1.5rem;
+}
+
+.carat-gb-bank__field-error[hidden] {
+  display: none;
+}
+
+.carat-gb-bank__actions {
+  margin-top: 2.5rem;
+}
+
+.carat-gb-bank__status[hidden] {
+  display: none;
+}
+
+.carat-gb-bank__status {
+  margin: 1.5rem 0 0;
+}
+
+/* ---- Confirmation panel. Same class names, same rules, as
+   component-bank-payment-checkout.css — see the note above on why this is
+   repeated rather than assumed. ---- */
+
+.carat-gb-bank-confirmation[hidden] {
+  display: none;
+}
+
+.carat-bank-confirmation__heading {
+  margin: 0 0 1.5rem;
+}
+
+.carat-bank-confirmation__still-required,
+.carat-bank-confirmation__extension,
+.carat-bank-confirmation__include,
+.carat-bank-confirmation__durable,
+.carat-bank-confirmation__support {
+  margin: 0 0 1.2rem;
+}
+
+/* Material terms — never visually de-emphasised. */
+.carat-bank-confirmation__commitment {
+  margin: 0 0 1.2rem;
+  font-weight: 600;
+  border-left: 0.3rem solid rgba(var(--color-foreground), 0.3);
+  padding-left: 1.2rem;
+}
+
+.carat-bank-confirmation__summary,
+.carat-bank-confirmation__method-fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.6rem 1.5rem;
+  margin: 0 0 2rem;
+}
+
+.carat-bank-confirmation__label {
+  margin: 0;
+  font-weight: 600;
+}
+
+/* Monospaced and selectable: the customer transcribes these into their bank. */
+.carat-bank-confirmation__value {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  word-break: break-word;
+  user-select: all;
+}
+
+.carat-bank-confirmation__methods-heading {
+  margin: 2rem 0 1.2rem;
+}
+
+.carat-bank-confirmation__method {
+  border: 0.1rem solid rgba(var(--color-foreground), 0.15);
+  border-radius: var(--text-boxes-radius);
+  padding: 1.5rem;
+  margin: 0 0 1.5rem;
+}
+
+.carat-bank-confirmation__method-name {
+  margin: 0 0 1.2rem;
+}
+
+.carat-bank-confirmation__method-fields {
+  margin: 0;
+}
+
+@media screen and (max-width: 749px) {
+  .carat-bank-confirmation__summary,
+  .carat-bank-confirmation__method-fields {
+    grid-template-columns: 1fr;
+    gap: 0.2rem;
+  }
+
+  .carat-bank-confirmation__value {
+    margin-bottom: 0.8rem;
+  }
+}

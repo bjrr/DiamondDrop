@@ -1,0 +1,314 @@
+{%- comment -%}
+  GROUP BUY BANK PAYMENT ORDERING (register D12, owner decision: this is a
+  launch blocker, not deferrable).
+
+  Replaces the "Contact us to arrange payment" link that stood here while no
+  Group Buy Bank Payment endpoint existed. One does now —
+  `POST /apps/carat/group-buy-bank-checkout`
+  (app/app/routes/apps.carat.group-buy-bank-checkout.tsx) — and it has been
+  live and tested for some time with nothing calling it. This snippet is the
+  caller.
+
+  ============================================================================
+  THE CARD AND BANK ACKNOWLEDGMENT MECHANISMS ARE SEPARATE, DELIBERATELY
+  ============================================================================
+  The Card path captures its acknowledgment up front through
+  `/apps/carat/group-buy-cancellation-acknowledgment`, receives an
+  acknowledgment id, and carries it on the cart line as
+  `properties[_carat_gb_cancel_ack]` — because native Shopify checkout
+  creates the order, so the evidence must exist BEFORE the order does and
+  must travel with it.
+
+  The Bank path does NOT do that, and must not be "unified" with it for
+  symmetry. It calls no capture endpoint and sends no acknowledgment id from
+  the browser. It sends one thing: `cancellationAcknowledgmentAccepted: true`,
+  and only after the customer has actually checked the box. The route builds
+  the `Acknowledgment` row server-side, inside the same transaction as the
+  order, with the AUTHENTICATED `customerGid` — and
+  `GroupBuyBankPaymentOrder.cancellationAcknowledgmentId` is a NOT NULL
+  foreign key to it, so an order cannot exist in Postgres without one.
+
+  A browser-supplied acknowledgment id would be strictly weaker here: it
+  would let a caller present an id they did not earn. The two mechanisms
+  differ because the two order-creation paths differ; the EVIDENCE STANDARD
+  does not differ, and `groupBuyAcknowledgmentEvidenceParity.test.ts` pins
+  that (same policy slug, same current policy version, same exact approved
+  copy, same affirmative-action label, authenticated customerGid, same
+  campaign reference, campaign must be open, fail closed when policy
+  configuration is unavailable).
+
+  ============================================================================
+  THE CHECKBOX IS A UX GATE, NOT THE ENFORCEMENT
+  ============================================================================
+  Same as the Card path's own comment: this markup cannot stop a direct POST.
+  The route's `z.literal(true)` and its NOT NULL FK are the enforcement. What
+  this file must get right is narrower and still matters — never send
+  `true` for a box the customer did not tick.
+
+  ============================================================================
+  NO COORDINATES HERE
+  ============================================================================
+  Zelle recipient, bank name, routing and account numbers are never rendered
+  by Liquid. They arrive in the response and are written with `textContent`
+  by `group-buy-campaign.js`. A theme file is public and cacheable.
+
+  Field markup follows `snippets/bank-payment-checkout-dialog.liquid`
+  exactly — `.field`/`.field__input`/`.field__label`/`.form__message` are
+  existing Dawn classes reused, not reinvented — and the field LABELS reuse
+  that dialog's `sections.cart.bank_payment_checkout_form.*` keys, because
+  they are literally the same fields asking for the same thing. Only the
+  Group-Buy-specific copy is new.
+{%- endcomment -%}
+
+<div class="carat-gb-bank" data-carat-gb-bank hidden>
+  <h3 class="carat-gb-bank__heading">
+    {{- 'templates.group_buy_campaign.bank_form_heading' | t -}}
+  </h3>
+  <p class="carat-gb-bank__intro">
+    {{- 'templates.group_buy_campaign.bank_form_intro' | t -}}
+  </p>
+
+  {%- comment -%}
+    Starts empty and hidden; never removed from the DOM, so JS only ever
+    toggles `hidden` and writes into the same node.
+  {%- endcomment -%}
+  <div
+    id="CaratGbBankErrorSummary-{{ section.id }}"
+    class="carat-gb-bank__error-summary form-status-list"
+    role="alert"
+    tabindex="-1"
+    hidden
+    data-carat-gb-bank-error-summary
+  ></div>
+
+  <form id="CaratGbBankForm-{{ section.id }}" novalidate data-carat-gb-bank-form>
+    <div class="carat-gb-bank__field field field--with-error">
+      <input
+        type="email"
+        id="CaratGbBankEmail-{{ section.id }}"
+        name="email"
+        class="field__input"
+        autocomplete="email"
+        spellcheck="false"
+        autocapitalize="off"
+        required
+        placeholder="{{ 'sections.cart.bank_payment_checkout_form.email_label' | t }}"
+        value="{{ customer.email | escape }}"
+        aria-describedby="CaratGbBankEmail-{{ section.id }}-error"
+      >
+      <label class="field__label" for="CaratGbBankEmail-{{ section.id }}">
+        {{- 'sections.cart.bank_payment_checkout_form.email_label' | t }}
+        <span aria-hidden="true">*</span></label
+      >
+      <small
+        id="CaratGbBankEmail-{{ section.id }}-error"
+        class="carat-gb-bank__field-error form__message"
+        hidden
+        data-carat-gb-bank-field-error
+      >
+        <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+        <span data-carat-gb-bank-field-error-text></span>
+      </small>
+    </div>
+
+    <fieldset class="carat-gb-bank__fieldset">
+      <legend class="carat-gb-bank__legend">
+        {{- 'templates.group_buy_campaign.bank_shipping_legend' | t -}}
+      </legend>
+
+      <div class="carat-gb-bank__field field field--with-error">
+        <input
+          type="text"
+          id="CaratGbBankFirstName-{{ section.id }}"
+          name="firstName"
+          class="field__input"
+          autocomplete="given-name"
+          placeholder="{{ 'sections.cart.bank_payment_checkout_form.first_name_label' | t }}"
+          value="{{ customer.first_name | escape }}"
+        >
+        <label class="field__label" for="CaratGbBankFirstName-{{ section.id }}">
+          {{- 'sections.cart.bank_payment_checkout_form.first_name_label' | t -}}
+        </label>
+      </div>
+
+      <div class="carat-gb-bank__field field field--with-error">
+        <input
+          type="text"
+          id="CaratGbBankLastName-{{ section.id }}"
+          name="lastName"
+          class="field__input"
+          autocomplete="family-name"
+          placeholder="{{ 'sections.cart.bank_payment_checkout_form.last_name_label' | t }}"
+          value="{{ customer.last_name | escape }}"
+        >
+        <label class="field__label" for="CaratGbBankLastName-{{ section.id }}">
+          {{- 'sections.cart.bank_payment_checkout_form.last_name_label' | t -}}
+        </label>
+      </div>
+
+      <div class="carat-gb-bank__field field field--with-error">
+        <input
+          type="text"
+          id="CaratGbBankAddress1-{{ section.id }}"
+          name="address1"
+          class="field__input"
+          autocomplete="address-line1"
+          required
+          placeholder="{{ 'sections.cart.bank_payment_checkout_form.address1_label' | t }}"
+          value="{{ customer.default_address.address1 | escape }}"
+          aria-describedby="CaratGbBankAddress1-{{ section.id }}-error"
+        >
+        <label class="field__label" for="CaratGbBankAddress1-{{ section.id }}">
+          {{- 'sections.cart.bank_payment_checkout_form.address1_label' | t }}
+          <span aria-hidden="true">*</span></label
+        >
+        <small
+          id="CaratGbBankAddress1-{{ section.id }}-error"
+          class="carat-gb-bank__field-error form__message"
+          hidden
+          data-carat-gb-bank-field-error
+        >
+          <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+          <span data-carat-gb-bank-field-error-text></span>
+        </small>
+      </div>
+
+      <div class="carat-gb-bank__field field field--with-error">
+        <input
+          type="text"
+          id="CaratGbBankAddress2-{{ section.id }}"
+          name="address2"
+          class="field__input"
+          autocomplete="address-line2"
+          placeholder="{{ 'sections.cart.bank_payment_checkout_form.address2_label' | t }}"
+          value="{{ customer.default_address.address2 | escape }}"
+        >
+        <label class="field__label" for="CaratGbBankAddress2-{{ section.id }}">
+          {{- 'sections.cart.bank_payment_checkout_form.address2_label' | t -}}
+        </label>
+      </div>
+
+      <div class="carat-gb-bank__field field field--with-error">
+        <input
+          type="text"
+          id="CaratGbBankCity-{{ section.id }}"
+          name="city"
+          class="field__input"
+          autocomplete="address-level2"
+          required
+          placeholder="{{ 'sections.cart.bank_payment_checkout_form.city_label' | t }}"
+          value="{{ customer.default_address.city | escape }}"
+          aria-describedby="CaratGbBankCity-{{ section.id }}-error"
+        >
+        <label class="field__label" for="CaratGbBankCity-{{ section.id }}">
+          {{- 'sections.cart.bank_payment_checkout_form.city_label' | t }}
+          <span aria-hidden="true">*</span></label
+        >
+        <small
+          id="CaratGbBankCity-{{ section.id }}-error"
+          class="carat-gb-bank__field-error form__message"
+          hidden
+          data-carat-gb-bank-field-error
+        >
+          <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+          <span data-carat-gb-bank-field-error-text></span>
+        </small>
+      </div>
+
+      <div class="carat-gb-bank__field field field--with-error">
+        <input
+          type="text"
+          id="CaratGbBankProvince-{{ section.id }}"
+          name="provinceCode"
+          class="field__input"
+          autocomplete="address-level1"
+          placeholder="{{ 'sections.cart.bank_payment_checkout_form.province_label' | t }}"
+          value="{{ customer.default_address.province_code | escape }}"
+        >
+        <label class="field__label" for="CaratGbBankProvince-{{ section.id }}">
+          {{- 'sections.cart.bank_payment_checkout_form.province_label' | t -}}
+        </label>
+      </div>
+
+      <div class="carat-gb-bank__field field field--with-error">
+        <input
+          type="text"
+          id="CaratGbBankZip-{{ section.id }}"
+          name="zip"
+          class="field__input"
+          autocomplete="postal-code"
+          required
+          placeholder="{{ 'sections.cart.bank_payment_checkout_form.zip_label' | t }}"
+          value="{{ customer.default_address.zip | escape }}"
+          aria-describedby="CaratGbBankZip-{{ section.id }}-error"
+        >
+        <label class="field__label" for="CaratGbBankZip-{{ section.id }}">
+          {{- 'sections.cart.bank_payment_checkout_form.zip_label' | t }}
+          <span aria-hidden="true">*</span></label
+        >
+        <small
+          id="CaratGbBankZip-{{ section.id }}-error"
+          class="carat-gb-bank__field-error form__message"
+          hidden
+          data-carat-gb-bank-field-error
+        >
+          <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+          <span data-carat-gb-bank-field-error-text></span>
+        </small>
+      </div>
+
+      <div class="carat-gb-bank__field field field--with-error">
+        <label class="field__label" for="CaratGbBankCountry-{{ section.id }}">
+          {{- 'sections.cart.bank_payment_checkout_form.country_label' | t }}
+          <span aria-hidden="true">*</span></label
+        >
+        <div class="select">
+          <select
+            id="CaratGbBankCountry-{{ section.id }}"
+            name="countryCode"
+            class="select__select"
+            autocomplete="country"
+            required
+            aria-describedby="CaratGbBankCountry-{{ section.id }}-error"
+          >
+            {% render 'bank-checkout-country-options', selected_country_code: customer.default_address.country_code %}
+          </select>
+          <span class="svg-wrapper">{{- 'icon-caret.svg' | inline_asset_content -}}</span>
+        </div>
+        <small
+          id="CaratGbBankCountry-{{ section.id }}-error"
+          class="carat-gb-bank__field-error form__message"
+          hidden
+          data-carat-gb-bank-field-error
+        >
+          <span class="svg-wrapper">{{- 'icon-error.svg' | inline_asset_content -}}</span>
+          <span data-carat-gb-bank-field-error-text></span>
+        </small>
+      </div>
+
+      <div class="carat-gb-bank__field field field--with-error">
+        <input
+          type="tel"
+          id="CaratGbBankPhone-{{ section.id }}"
+          name="phone"
+          class="field__input"
+          autocomplete="tel"
+          placeholder="{{ 'sections.cart.bank_payment_checkout_form.phone_label' | t }}"
+          value="{{ customer.default_address.phone | escape }}"
+        >
+        <label class="field__label" for="CaratGbBankPhone-{{ section.id }}">
+          {{- 'sections.cart.bank_payment_checkout_form.phone_label' | t -}}
+        </label>
+      </div>
+    </fieldset>
+
+    <div class="carat-gb-bank__actions">
+      <button type="submit" class="button button--full-width" data-carat-gb-bank-submit disabled>
+        <span>{{ 'templates.group_buy_campaign.bank_submit' | t }}</span>
+        {%- render 'loading-spinner' -%}
+      </button>
+    </div>
+
+    <p class="carat-gb-bank__status" role="status" data-carat-gb-bank-status hidden></p>
+  </form>
+</div>
