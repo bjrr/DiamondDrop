@@ -15,6 +15,7 @@ import type {
   SendDraftOrderInvoiceInput,
 } from "~/shopify/admin/draftOrderAdapter.server";
 import { action, __setDraftOrderPortForTests } from "~/routes/apps.carat.bank-checkout";
+import { loader as ordersLoader } from "~/routes/apps.carat.bank-payment-orders";
 
 /**
  * Slice 2C task 2C-3 — the Bank Payment Checkout route, against real
@@ -1296,5 +1297,323 @@ describe("criterion 77 — quote and guarantee timestamps", () => {
     const quotedAt = new Date(body.quotedAt).getTime();
     const guaranteeExpiresAt = new Date(body.guaranteeExpiresAt).getTime();
     expect(guaranteeExpiresAt - quotedAt).toBe(24 * 60 * 60 * 1000);
+  });
+});
+
+/**
+ * GET /apps/carat/bank-payment-orders — the DURABLE Bank Payment
+ * instructions surface (register D12).
+ *
+ * Lives in this file because its fixtures are real orders created through
+ * the real checkout action above, not hand-built rows: `BankPaymentOrderLine`
+ * carries a CHECK requiring either a catalogue variant with a price
+ * calculation or an approved custom package, and faking either would prove
+ * less than exercising the path that actually creates them.
+ *
+ * ============================================================================
+ * THE PROPERTY THESE TESTS EXIST FOR
+ * ============================================================================
+ * This route hands a customer a list of their orders and, for the payable
+ * ones, where to send money. Exactly one thing decides whose list that is:
+ * `logged_in_customer_id`, taken from the SIGNED App Proxy parameters and
+ * matched against the order's stored `customerGid`.
+ *
+ * A signature proves the request came through Shopify's proxy. It does NOT
+ * prove who is asking — every storefront visitor's requests are signed. Most
+ * of the effort below is on that distinction, including the case that
+ * matters most and is easiest to get wrong: a valid signature from a
+ * different, real customer.
+ */
+
+function signedGet(params: Record<string, string>): Request {
+  const secret = process.env.SHOPIFY_API_SECRET as string;
+  const message = Object.entries(params)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([k, v]) => `${k}=${v}`)
+    .join("");
+  const signature = createHmac("sha256", secret).update(message, "utf8").digest("hex");
+
+  const url = new URL("https://shop.example.com/apps/carat/bank-payment-orders");
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  url.searchParams.set("signature", signature);
+  return new Request(url, { method: "GET" });
+}
+
+function listOrders(request: Request) {
+  return ordersLoader({ request, params: {}, context: {} } as never);
+}
+
+interface OrdersListBody {
+  buyNow: Array<{
+    reference: string;
+    status: string;
+    formattedAmountDue: string;
+    currency: string;
+    guaranteeExpiresAt: string;
+    instructions: { flow: string; methods: Array<Record<string, string>> } | null;
+  }>;
+  groupBuy: unknown[];
+  coordinatesAvailable: boolean;
+}
+
+/** Places a REAL Buy Now Bank Payment order as the given numeric customer. */
+async function placeOrderAs(customerNumericId: string, bankPriceMinorUnits = 60_000n, quantity = 2) {
+  const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: bankPriceMinorUnits });
+  __setDraftOrderPortForTests(fakeDraftOrderPort());
+  const response = await action({
+    request: signedPost(
+      "/apps/carat/bank-checkout",
+      { shop: SHOP, logged_in_customer_id: customerNumericId },
+      bankBody(variant.variant.shopifyVariantGid, quantity)
+    ),
+    params: {},
+    context: {},
+  } as never);
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as { bankPaymentOrderId: string };
+  return body.bankPaymentOrderId;
+}
+
+/**
+ * The DB-coherent shape of a terminal status. See
+ * .
+ */
+/**
+ * The DB-coherent shape of a terminal status.
+ *
+ * TWO constraints apply, and both are the point.
+ * `bank_payment_order_status_coherent`: a cancelled row needs
+ * `cancelled_at`; a completed one needs `completed_at`, `verified_at` AND
+ * `shopify_order_gid`. `bank_payment_order_verification_pairing`: a
+ * `verified_at` obliges the whole verification record — the AUTHENTICATED
+ * staff identity (Shopify user id and email, never a free-typed name) and
+ * the amount, currency and method they actually saw. There is no way to
+ * record "verified" in this schema without recording who verified it and
+ * what they saw.
+ *
+ * Satisfying them is not ceremony — it is what makes these fixtures states
+ * the production system can actually reach.
+ */
+function terminalState(status: "cancelled" | "completed") {
+  const now = new Date();
+  if (status === "cancelled") {
+    return { status, cancelledAt: now, cancellationReason: "test fixture" } as const;
+  }
+  return {
+    status,
+    completedAt: now,
+    shopifyOrderGid: "gid://shopify/Order/orders-route-" + uniq(),
+    verifiedAt: now,
+    verifiedByShopifyUserId: 1n,
+    verifiedByEmail: "staff@example.invalid",
+    verifiedPaymentAmountMinorUnits: 120_000n,
+    verifiedPaymentCurrency: "USD",
+    verifiedPaymentMethod: "zelle",
+  } as const;
+}
+
+let ordersCustomerSeq = 0;
+/** A distinct numeric customer id per test, so lists never bleed together. */
+function freshCustomerId(): string {
+  ordersCustomerSeq += 1;
+  return `7${String(Date.now() % 100_000).padStart(5, "0")}${ordersCustomerSeq}`;
+}
+
+describe("bank-payment-orders — authorization is the signed logged_in_customer_id, and nothing else", () => {
+  it("401s an UNSIGNED request", async () => {
+    const url = new URL("https://shop.example.com/apps/carat/bank-payment-orders");
+    url.searchParams.set("shop", SHOP);
+    url.searchParams.set("logged_in_customer_id", freshCustomerId());
+    expect((await listOrders(new Request(url, { method: "GET" }))).status).toBe(401);
+  });
+
+  it("401s a request whose signature does not match", async () => {
+    const url = new URL("https://shop.example.com/apps/carat/bank-payment-orders");
+    url.searchParams.set("shop", SHOP);
+    url.searchParams.set("logged_in_customer_id", freshCustomerId());
+    url.searchParams.set("signature", "0".repeat(64));
+    expect((await listOrders(new Request(url, { method: "GET" }))).status).toBe(401);
+  });
+
+  it("401s a VALIDLY SIGNED but ANONYMOUS request — a signature is not an identity", async () => {
+    expect((await listOrders(signedGet({ shop: SHOP }))).status).toBe(401);
+  });
+
+  it("401s when logged_in_customer_id is present but EMPTY", async () => {
+    // Shopify sends the parameter with an empty value for a signed-out
+    // visitor, and it IS part of the signed message — so this request is
+    // genuinely well-formed and must still be refused.
+    expect((await listOrders(signedGet({ shop: SHOP, logged_in_customer_id: "" }))).status).toBe(401);
+  });
+
+  it("returns the caller's OWN order", async () => {
+    const customer = freshCustomerId();
+    const orderId = await placeOrderAs(customer);
+
+    const response = await listOrders(signedGet({ shop: SHOP, logged_in_customer_id: customer }));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as OrdersListBody;
+    expect(body.buyNow.map((o) => o.reference)).toContain(orderId);
+  });
+
+  it("does NOT return another customer's order to a validly signed DIFFERENT customer", async () => {
+    // The case that matters most: two real, authenticated customers.
+    const alice = freshCustomerId();
+    const mallory = freshCustomerId();
+    const aliceOrder = await placeOrderAs(alice);
+
+    const response = await listOrders(signedGet({ shop: SHOP, logged_in_customer_id: mallory }));
+    expect(response.status).toBe(200);
+    const raw = JSON.stringify(await response.json());
+    expect(raw).not.toContain(aliceOrder);
+  });
+
+  it("an order reference in the query string grants nothing", async () => {
+    const alice = freshCustomerId();
+    const mallory = freshCustomerId();
+    const aliceOrder = await placeOrderAs(alice);
+
+    const response = await listOrders(
+      signedGet({ shop: SHOP, logged_in_customer_id: mallory, reference: aliceOrder })
+    );
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(await response.json())).not.toContain(aliceOrder);
+  });
+
+  it("an email in the query string grants nothing", async () => {
+    const alice = freshCustomerId();
+    const mallory = freshCustomerId();
+    const aliceOrder = await placeOrderAs(alice);
+    const stored = await prisma.bankPaymentOrder.findUniqueOrThrow({ where: { id: aliceOrder } });
+
+    const response = await listOrders(
+      signedGet({ shop: SHOP, logged_in_customer_id: mallory, email: stored.customerEmail })
+    );
+    expect(response.status).toBe(200);
+    const raw = JSON.stringify(await response.json());
+    expect(raw).not.toContain(aliceOrder);
+    expect(raw).not.toContain(stored.customerEmail);
+  });
+
+  it("returns empty lists, not an error, for a customer with no orders", async () => {
+    const response = await listOrders(signedGet({ shop: SHOP, logged_in_customer_id: freshCustomerId() }));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as OrdersListBody;
+    expect(body.buyNow).toEqual([]);
+    expect(body.groupBuy).toEqual([]);
+  });
+});
+
+describe("bank-payment-orders — instructions are attached only while payment is actionable", () => {
+  it("an OPEN order carries the full instruction set and its own amount", async () => {
+    const customer = freshCustomerId();
+    const orderId = await placeOrderAs(customer, 60_000n, 2);
+
+    const response = await listOrders(signedGet({ shop: SHOP, logged_in_customer_id: customer }));
+    const body = (await response.json()) as OrdersListBody;
+    const row = body.buyNow.find((o) => o.reference === orderId);
+
+    expect(row).toBeDefined();
+    expect(row!.status).toBe("open");
+    expect(row!.formattedAmountDue).toBe("1200.00"); // 2 x 600.00
+    expect(row!.currency).toBe("USD");
+    expect(row!.instructions).not.toBeNull();
+    expect(row!.instructions!.flow).toBe("buy_now");
+    expect(row!.instructions!.methods.find((m) => m.kind === "zelle")?.recipient).toBe(FAKE_ZELLE);
+    expect(row!.instructions!.methods.find((m) => m.kind === "domestic_wire")).toBeDefined();
+  });
+
+  it.each([["cancelled"], ["completed"]] as const)(
+    "a %s order shows its status and NO payment destination",
+    async (status) => {
+      // Telling someone where to send money for a cancelled order is worse
+      // than telling them nothing.
+      const customer = freshCustomerId();
+      const orderId = await placeOrderAs(customer);
+      await prisma.bankPaymentOrder.update({ where: { id: orderId }, data: terminalState(status) });
+
+      const response = await listOrders(signedGet({ shop: SHOP, logged_in_customer_id: customer }));
+      const body = (await response.json()) as OrdersListBody;
+      const row = body.buyNow.find((o) => o.reference === orderId);
+
+      expect(row).toBeDefined();
+      expect(row!.status).toBe(status);
+      expect(row!.instructions).toBeNull();
+    }
+  );
+
+  it("a cancelled order's row still shows the reference and amount — the customer may need to ask about it", async () => {
+    const customer = freshCustomerId();
+    const orderId = await placeOrderAs(customer, 60_000n, 2);
+    await prisma.bankPaymentOrder.update({ where: { id: orderId }, data: terminalState("cancelled") });
+
+    const response = await listOrders(signedGet({ shop: SHOP, logged_in_customer_id: customer }));
+    const body = (await response.json()) as OrdersListBody;
+    const row = body.buyNow.find((o) => o.reference === orderId);
+    expect(row!.formattedAmountDue).toBe("1200.00");
+    expect(row!.guaranteeExpiresAt).toBeTruthy();
+  });
+});
+
+describe("bank-payment-orders — private, uncacheable, and leaks nothing it should not", () => {
+  it("sets Cache-Control: no-store", async () => {
+    // Scoped to one customer and carrying payment destinations; a shared
+    // cache would be a disclosure.
+    const response = await listOrders(signedGet({ shop: SHOP, logged_in_customer_id: freshCustomerId() }));
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  it("carries no Shopify draft handle, no email, and no internal pricing identifier", async () => {
+    const customer = freshCustomerId();
+    await placeOrderAs(customer);
+
+    const raw = JSON.stringify(
+      await (await listOrders(signedGet({ shop: SHOP, logged_in_customer_id: customer }))).json()
+    );
+    expect(raw).not.toContain("shopifyDraftOrderGid");
+    expect(raw).not.toContain("gid://shopify/DraftOrder/");
+    expect(raw).not.toContain("priceCalculationId");
+    expect(raw).not.toContain("customerEmail");
+  });
+
+  it("reading the page writes NO audit event — and certainly no coordinate", async () => {
+    const customer = freshCustomerId();
+    await placeOrderAs(customer);
+
+    const before = await prisma.auditEvent.count();
+    expect((await listOrders(signedGet({ shop: SHOP, logged_in_customer_id: customer }))).status).toBe(200);
+    // A read path that wrote evidence would be a surprise on its own; one
+    // that wrote COORDINATES would be the boundary violation.
+    expect(await prisma.auditEvent.count()).toBe(before);
+  });
+
+  it("with coordinates unconfigured: the orders are STILL listed, just without a destination", async () => {
+    // An unconfigured provider is a staff problem. Hiding a customer's
+    // orders because a Fly secret is unset would turn a configuration
+    // fault into a lost customer.
+    const customer = freshCustomerId();
+    const orderId = await placeOrderAs(customer);
+
+    const saved = COORDINATE_ENV_KEYS.map((key) => [key, process.env[key]] as const);
+    try {
+      process.env.PAYMENT_ZELLE_RECIPIENT = "";
+      __resetEnvCacheForTests();
+
+      const response = await listOrders(signedGet({ shop: SHOP, logged_in_customer_id: customer }));
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as OrdersListBody;
+      expect(body.coordinatesAvailable).toBe(false);
+
+      const row = body.buyNow.find((o) => o.reference === orderId);
+      expect(row).toBeDefined();
+      expect(row!.formattedAmountDue).toBe("1200.00");
+      expect(row!.instructions).toBeNull();
+    } finally {
+      for (const [key, value] of saved) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      __resetEnvCacheForTests();
+    }
   });
 });

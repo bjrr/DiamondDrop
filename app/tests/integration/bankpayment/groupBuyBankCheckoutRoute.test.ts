@@ -47,6 +47,7 @@ vi.mock("~/db/repositories/policyVersionRepository.server", async (importOrigina
   };
 });
 import { action, __setDraftOrderPortForTests } from "~/routes/apps.carat.group-buy-bank-checkout";
+import { loader as ordersLoader } from "~/routes/apps.carat.bank-payment-orders";
 import {
   action as bankCheckoutAction,
   __setDraftOrderPortForTests as __setBankCheckoutDraftOrderPortForTests,
@@ -605,8 +606,10 @@ describe("pricing — from the frozen snapshot at the CURRENT tier, never getPub
     // it is a live handle to a real unpaid order and the customer has no use
     // for it. Read it from the row, which is where staff reconciliation reads
     // it too.
-    expect(stored.shopifyOrderGid).toBe(port.completeCalls[0]!.orderGid ?? stored.shopifyOrderGid);
     expect(stored.shopifyOrderGid.startsWith("gid://shopify/Order/")).toBe(true);
+    // And it is the draft this request created that was completed — the row
+    // is not merely well-formed, it is bound to this call.
+    expect(port.completeCalls[0]!.draftOrderGid).toBe(stored.shopifyDraftOrderGid);
     expect(stored.customerGid).toBe(DEFAULT_CUSTOMER_GID);
     expect(stored.tierNumberAtQuote).toBe(1);
     expect(stored.status).toBe("active");
@@ -1338,5 +1341,175 @@ describe("D12 — the Group Buy customer response states how to pay, and leaks n
     // And exactly one order exists — the replay created nothing.
     const orders = await prisma.groupBuyBankPaymentOrder.count({ where: { campaignId: campaign.id } });
     expect(orders).toBe(1);
+  });
+});
+
+/**
+ * GET /apps/carat/bank-payment-orders — the GROUP BUY half (register D12).
+ *
+ * The Buy Now half is covered in `bankCheckoutRoute.test.ts`, which owns
+ * that route's fixtures. This file covers what only it can: a REAL Group
+ * Buy Bank Payment order, created by the real route, read back by the
+ * authenticated customer — and NOT read back by anyone else.
+ *
+ * The two lifecycles are reported separately and shaped differently on
+ * purpose. A Buy Now order is a staff-held draft that commits nothing; a
+ * Group Buy order is a real unpaid Shopify order that already counts toward
+ * the campaign. Collapsing them would require lying about one.
+ */
+
+function signedOrdersGet(params: Record<string, string>): Request {
+  const secret = process.env.SHOPIFY_API_SECRET as string;
+  const message = Object.entries(params)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([k, v]) => `${k}=${v}`)
+    .join("");
+  const signature = createHmac("sha256", secret).update(message, "utf8").digest("hex");
+
+  const url = new URL("https://shop.example.com/apps/carat/bank-payment-orders");
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  url.searchParams.set("signature", signature);
+  return new Request(url, { method: "GET" });
+}
+
+interface GroupBuyOrdersListBody {
+  buyNow: unknown[];
+  groupBuy: Array<{
+    reference: string;
+    status: string;
+    campaignCode: string;
+    campaignName: string;
+    tierNumberAtQuote: number;
+    formattedAmountDue: string;
+    paymentDeadline: string;
+    inactivatedAt: string | null;
+    instructions: { flow: string; extensionNotice: string | null; methods: Array<Record<string, string>> } | null;
+  }>;
+  coordinatesAvailable: boolean;
+}
+
+describe("bank-payment-orders — the Group Buy half", () => {
+  async function placeGroupBuyOrderAs(customerNumericId: string) {
+    const { variant } = await createGroupBuyVariant();
+    const campaign = await openCampaignFixture(variant.id);
+    __setDraftOrderPortForTests(fakeDraftOrderPort());
+
+    const response = await action({
+      request: signedPost(
+        "/apps/carat/group-buy-bank-checkout",
+        { shop: SHOP, logged_in_customer_id: customerNumericId },
+        {
+          mode: "bank",
+          cancellationAcknowledgmentAccepted: true,
+          campaignCode: campaign.code,
+          email: `Buyer-${uniq()}@Example.com`,
+          shippingAddress: SHIPPING_ADDRESS,
+          lines: [{ shopifyVariantId: variant.shopifyVariantGid, quantity: 2 }],
+        }
+      ),
+      params: {},
+      context: {},
+    } as never);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { groupBuyBankPaymentOrderId: string };
+    return { orderId: body.groupBuyBankPaymentOrderId, campaign };
+  }
+
+  function listAs(customerNumericId: string) {
+    return ordersLoader({
+      request: signedOrdersGet({ shop: SHOP, logged_in_customer_id: customerNumericId }),
+      params: {},
+      context: {},
+    } as never);
+  }
+
+  let gbCustomerSeq = 0;
+  function freshGbCustomerId(): string {
+    gbCustomerSeq += 1;
+    return `8${String(Date.now() % 100_000).padStart(5, "0")}${gbCustomerSeq}`;
+  }
+
+  it("an ACTIVE order appears under groupBuy, not buyNow, with Group Buy's own instructions", async () => {
+    const customer = freshGbCustomerId();
+    const { orderId, campaign } = await placeGroupBuyOrderAs(customer);
+
+    const response = await listAs(customer);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as GroupBuyOrdersListBody;
+
+    expect(body.buyNow).toEqual([]);
+    const row = body.groupBuy.find((o) => o.reference === orderId);
+    expect(row).toBeDefined();
+    expect(row!.status).toBe("active");
+    expect(row!.campaignCode).toBe(campaign.code);
+    expect(row!.instructions).not.toBeNull();
+    expect(row!.instructions!.flow).toBe("group_buy");
+    // The 48h + automatic 48h extension — Group Buy's lifecycle, which Buy
+    // Now does not have.
+    expect(row!.instructions!.extensionNotice).toBeTruthy();
+    expect(row!.instructions!.methods.find((m) => m.kind === "domestic_wire")).toBeDefined();
+  });
+
+  it("does NOT return a Group Buy order to a validly signed DIFFERENT customer", async () => {
+    const alice = freshGbCustomerId();
+    const mallory = freshGbCustomerId();
+    const { orderId } = await placeGroupBuyOrderAs(alice);
+
+    const response = await listAs(mallory);
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(await response.json())).not.toContain(orderId);
+  });
+
+  it("an INACTIVE order (the 96-hour lapse) shows its status and NO payment destination", async () => {
+    // The Shopify order still exists and its units still count — neither is
+    // undone by this status. But we do not tell the customer to send money
+    // against a window that has closed; reactivation is a staff decision.
+    const customer = freshGbCustomerId();
+    const { orderId } = await placeGroupBuyOrderAs(customer);
+    await prisma.groupBuyBankPaymentOrder.update({
+      where: { id: orderId },
+      data: { status: "inactive", inactivatedAt: new Date() },
+    });
+
+    const response = await listAs(customer);
+    const body = (await response.json()) as GroupBuyOrdersListBody;
+    const row = body.groupBuy.find((o) => o.reference === orderId);
+
+    expect(row).toBeDefined();
+    expect(row!.status).toBe("inactive");
+    expect(row!.instructions).toBeNull();
+    // The page needs this to offer reactivation rather than guess.
+    expect(row!.inactivatedAt).toBeTruthy();
+    // And the reference and amount are still shown — the customer may need
+    // to quote them when asking for reactivation.
+    expect(row!.formattedAmountDue).toBeTruthy();
+  });
+
+  it("the deadline shown is the 48-HOUR customer deadline, not the 96-hour inactivation instant", async () => {
+    const customer = freshGbCustomerId();
+    const { orderId } = await placeGroupBuyOrderAs(customer);
+
+    const body = (await (await listAs(customer)).json()) as GroupBuyOrdersListBody;
+    const row = body.groupBuy.find((o) => o.reference === orderId)!;
+    const stored = await prisma.groupBuyBankPaymentOrder.findUniqueOrThrow({ where: { id: orderId } });
+
+    const delta = new Date(row.paymentDeadline).getTime() - stored.quotedAt.getTime();
+    expect(delta).toBe(48 * 60 * 60 * 1000);
+    expect(delta).not.toBe(96 * 60 * 60 * 1000);
+  });
+
+  it("leaks no Shopify handle for an order that really has one", async () => {
+    // Unlike Buy Now, this order IS a real Shopify order — so the handle
+    // genuinely exists and genuinely must not be handed over.
+    const customer = freshGbCustomerId();
+    const { orderId } = await placeGroupBuyOrderAs(customer);
+    const stored = await prisma.groupBuyBankPaymentOrder.findUniqueOrThrow({ where: { id: orderId } });
+    expect(stored.shopifyOrderGid).toBeTruthy();
+
+    const raw = JSON.stringify(await (await listAs(customer)).json());
+    expect(raw).toContain(orderId);
+    expect(raw).not.toContain(stored.shopifyOrderGid);
+    expect(raw).not.toContain(stored.shopifyDraftOrderGid);
+    expect(raw).not.toContain(stored.customerEmail);
   });
 });

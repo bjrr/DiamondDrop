@@ -464,13 +464,9 @@
       "error_generic": "We could not load your Bank Payment orders. Please try again, or email orders@caratforus.com.",
       "error_network": "We could not reach CaratForUs. Please check your connection and try again.",
       "status_buy_now_open": "Awaiting your payment",
-      "status_buy_now_paid": "Payment received and verified",
       "status_buy_now_cancelled": "Cancelled",
-      "status_buy_now_expired": "Expired",
       "status_group_buy_active": "Awaiting your payment",
-      "status_group_buy_paid": "Payment received and verified",
       "status_group_buy_inactive": "Inactive — payment window passed",
-      "status_group_buy_cancelled": "Cancelled",
       "confirmation_methods": "Choose ONE of these methods",
       "confirmation_zelle": "Zelle",
       "confirmation_send_to": "Send to",
@@ -481,7 +477,8 @@
       "confirmation_routing": "Routing number",
       "confirmation_account_number": "Account number",
       "confirmation_reference_label": "Reference",
-      "confirmation_support": "Questions about payment? Email"
+      "confirmation_support": "Questions about payment? Email",
+      "status_buy_now_completed": "Payment received and verified"
     }
   },
   "sections": {
