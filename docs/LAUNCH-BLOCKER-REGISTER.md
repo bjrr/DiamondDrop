@@ -2,9 +2,8 @@
 
 **Current as of 2026-10-25.**
 
-- **Fly app:** production runs `0638578`, deployed and live-proven. Commits
-  on `main` above it are a live-test script and this document — no
-  application code, so there is nothing to redeploy.
+- **Fly app:** production runs `ddf8f79` (D4 App Proxy shop binding),
+  deployed and live-proven 2026-10-25.
 - **Shopify:** production store `caratforus.myshopify.com` (§2), live theme
   `CaratForUs MVP1` #187633434842, D12/D15 theme files pushed 2026-10-25,
   S9 page created and verified (§4.1).
@@ -105,9 +104,12 @@ production store.**
 | D12/D15 theme files | **Live** — pushed 2026-10-25, see §4 S1–S3 |
 | `bank-payment-orders` page | **Created, published, template assigned** (S9) |
 
-`caratforus-dev.myshopify.com` still exists and the app is still installed
-there. It is now a test store only. See §5 D4 for the one configuration
-consequence of that, which is **not** cosmetic.
+`caratforus-dev.myshopify.com` still exists, the app is still installed
+there, and **both shops share one database**. That had two consequences,
+both now closed — see §5 D4: the Admin target pointed at the dev store, and
+a correctly signed dev-store App Proxy request would have been served by
+production. Dev-store test rows remain in the production database and
+should be cleared before launch.
 
 ---
 
@@ -197,10 +199,10 @@ has not been observed on this store, and no local test can observe it.
 
 | # | Item | Status | Evidence / note |
 |---|---|---|---|
-| D1 | App deployed to Fly and healthy | 🟢 DONE | **Production runs `main` (`0638578`)**, deployed 2026-10-25 with the D12/D15 work. `/health` ok, database ok, **90 applied / 0 pending, matching the 90 in the repo exactly** |
+| D1 | App deployed to Fly and healthy | 🟢 DONE | **Production runs `ddf8f79`**, deployed 2026-10-25 with the D12/D15 work and the D4 shop binding. `/health` ok, database ok, **90 applied / 0 pending, matching the 90 in the repo exactly** |
 | D2 | Postgres attached and migrated | 🟢 DONE | **90 migrations applied, 0 pending** — identical to the 90 in the repo |
 | D3 | Core secrets | 🟢 DONE | `DATABASE_URL`, `DIRECT_URL`, `SESSION_SECRET`, `CRON_SECRET`, `APP_ENV` all Deployed. **Do not recreate these** — regenerating `CRON_SECRET` would silently break all four cron jobs |
-| D4 | Shopify secrets | 🔴 **BLOCKER — `SHOPIFY_SHOP_DOMAIN` still points at the dev store** | All seven `SHOPIFY_*` are set, but production has `SHOPIFY_SHOP_DOMAIN=caratforus-dev.myshopify.com`. See the warning below — this is money-critical and is **not** cosmetic |
+| D4 | Shopify secrets + App Proxy shop binding | 🟢 **RESOLVED 2026-10-25** | `SHOPIFY_SHOP_DOMAIN=nnb1th-cm.myshopify.com` on **all five machines**, proven by a read-only Admin probe to resolve production shop `85082865882`. App Proxy requests are now additionally bound to that signed shop. Live gate 12/12. See below |
 | D5 | Email provider | 🟡 PARTIAL | Addresses verified 2026-10-24: `EMAIL_FROM` is `CaratForUs <orders@caratforus.com>` (display-name format, correct address) and `STAFF_EMAIL_ALLOWLIST` is `orders@caratforus.com`. The provider is reachable — the milestone job's attempts got to it and were rejected only because the fixture recipients were `@example.com`. **Still unproven: no successful delivery to a real address has been observed.** See below |
 | D6 | Object storage | 🟡 PARTIAL | All four `STORAGE_*` Deployed. No upload performed from here |
 | D7 | **All four scheduled jobs** | 🟢 DONE | `cron-guarantee-sweep` (hourly), `cron-price-recalculation` (daily), `cron-group-buy-bank-payment-window` (hourly), `cron-group-buy-milestones` (hourly). Each invoked authenticated and verified by **its own returned evidence**, not by an exit code — see §6 |
@@ -208,57 +210,114 @@ has not been observed on this store, and no local test can observe it.
 
 ---
 
-### 🔴 D4 — `SHOPIFY_SHOP_DOMAIN` points at the dev store, and the app will not notice
+### D4 — RESOLVED 2026-10-25: Admin target corrected, and the proxy now binds to the shop
 
-Found 2026-10-25 while verifying S9. **Not fixed — it needs an owner
-decision, because applying it restarts the machine and changes which store
-real orders are created on.**
+Two defects, found together while verifying S9. Both fixed and proven in
+production.
 
-Production currently has:
+#### Part 1 — the Admin target pointed at the dev store
 
-```
-SHOPIFY_SHOP_DOMAIN = caratforus-dev.myshopify.com
-```
+Production ran `SHOPIFY_SHOP_DOMAIN=caratforus-dev.myshopify.com`. Four
+routes resolve their Admin session from it — Buy Now Bank Payment, Group
+Buy Bank Payment, RMA intake, quote redemption — via
+`unauthenticated.admin(getEnv().SHOPIFY_SHOP_DOMAIN)`.
 
-Four routes resolve their Admin API session from that value:
+It failed **silently**: a valid dev-store offline session still exists in
+the same database, so the call succeeded against the wrong shop rather than
+throwing. A production customer's Bank Payment order would have been
+created in the dev store.
 
-| Route | What it does with it |
+Now `nnb1th-cm.myshopify.com`. Proven by a read-only probe on the app
+machine that performs the same session lookup those routes perform and then
+asks the Admin API to identify itself:
+
+| Field | Value |
 |---|---|
-| `apps.carat.bank-checkout.tsx` | `unauthenticated.admin(SHOPIFY_SHOP_DOMAIN)` → **creates the Buy Now draft order** |
-| `apps.carat.group-buy-bank-checkout.tsx` | same → **creates and completes a real Group Buy order** |
-| `apps.carat.rma-intake.tsx` | same → order lookup for RMA eligibility |
-| `apps.carat.beat-quote-redeem.tsx` | same → benefit redemption draft order |
+| configured `SHOPIFY_SHOP_DOMAIN` | `nnb1th-cm.myshopify.com` |
+| offline session found | yes |
+| Admin API `shop.id` | `gid://shopify/Shop/85082865882` ✅ production |
+| Admin API `shop.name` | CaratForUs |
+| Admin API `myshopifyDomain` | `nnb1th-cm.myshopify.com` — agrees with the configured key |
+| `primaryDomain.host` | `caratforus.myshopify.com` |
+| `plan.partnerDevelopment` | **false** — not a development store |
+| verdict | **PASS** |
 
-**Why this fails silently rather than loudly.** The app is still installed
-on `caratforus-dev.myshopify.com` and a valid offline session for it is
-still in the database. So `unauthenticated.admin()` does **not** throw — it
-succeeds, against the wrong store. A production customer's Bank Payment
-order would be created in the dev store: invisible in production Admin,
-counted against nothing, and discoverable only by someone wondering where
-the order went.
+Before the change the identical probe returned shop id
+`96250560813`, "CaratForUs Dev", `partnerDevelopment: true` — which is what
+makes this a demonstrated defect rather than a theoretical one.
 
-**The fix** is to set the value to the shop the production session is keyed
-on — the canonical domain, not the vanity one:
+**All five Fly machines were updated, not just one.** `flyctl secrets set`
+only updates machines in the `app` process group; the four standalone cron
+machines were left on the old value and were updated explicitly with
+`flyctl machine update`. Two of them are thin `curl` callers that invoke
+`/internal/jobs/...` on the app machine, so the job logic executes with the
+app machine's environment either way.
 
-```
-flyctl secrets set SHOPIFY_SHOP_DOMAIN=nnb1th-cm.myshopify.com --app caratforus
-```
+#### Part 2 — a valid signature did not prove WHICH shop
 
-Confirm first that the production offline session's `Session.shop` really is
-that exact string; `unauthenticated.admin()` matches it literally, so a
-vanity domain that does not match any session row will throw instead of
-mis-targeting. Both failure modes are worth avoiding, and only one of them
-is noisy.
+`verifyAppProxySignature()` verified the HMAC and returned
+`logged_in_customer_id`, but never checked which shop signed the request.
+Every store with this app installed signs with the **same app secret**, so
+a genuine, correctly signed request from one installed shop verified
+against the other's backend.
 
-**S9 and the D12 retrieval page are unaffected.**
-`apps.carat.bank-payment-orders.tsx` makes no Admin API call and never reads
-`SHOPIFY_SHOP_DOMAIN` — it reads Postgres directly, scoped by the
-authenticated `customerGid`. That is why S9 verified green while this was
-true.
+Not theoretical: this app is installed on two shops sharing one database,
+and Shopify customer ids are unique **per shop**, not globally. Dev-store
+customer 123 and production customer 123 are the same `customerGid` to
+every `where: { customerGid }` query in the codebase.
 
-**Retiring the dev store would also close this**, by removing the session
-that makes the mis-target silent. Until then, treat this row as the single
-most dangerous open configuration item in the register.
+The verifier now requires the **signed** `shop` to equal the configured
+shop exactly (case-insensitive, no suffix matching), after the HMAC
+verifies. It fails closed on a missing `shop` and on an unconfigured
+expectation. Headers are never consulted — Fly rewrites `Host` and
+`X-Forwarded-Host` and nothing signs them.
+
+`expectedShop` is a required parameter, so the compiler forced all 22 call
+sites; `shopBindingFence.test.ts` additionally asserts each route passes
+`getEnv().SHOPIFY_SHOP_DOMAIN` rather than a literal or a request-derived
+value, because a required parameter can still be fed the wrong thing.
+
+`logged_in_customer_id` remains the only basis for which customer's data a
+request may see, and is null on every refusal path.
+
+#### Production evidence
+
+Live gate `npx tsx tests/live/bankPaymentOrdersRoute.ts` — **12/12**:
+
+| Request | Result |
+|---|---|
+| unsigned | 401 |
+| wrong signature | 401 |
+| validly signed, anonymous | 401 |
+| validly signed, empty customer id | 401 |
+| **validly signed from `caratforus-dev.myshopify.com`** | **401 — shop binding** |
+| **validly signed naming the alias `caratforus.myshopify.com`** | **401 — binding is to the canonical domain** |
+| validly signed as `nnb1th-cm.myshopify.com`, authenticated | 200, `Cache-Control: no-store` |
+
+**And genuine Shopify traffic still passes.** A real browser request through
+the live App Proxy at
+`https://caratforus.myshopify.com/apps/carat/bank-payment-orders` logged
+`bank_payment_orders.anonymous_rejected` — *not* `shop_mismatch`. The
+signature verified and the binding passed; it was refused only because
+nobody was signed in. That is the proof that Shopify signs the **canonical**
+`nnb1th-cm.myshopify.com`, and the reason the alias must not be configured
+here.
+
+The two deliberate cross-shop refusals appear in the same log window as
+`reason: "shop_mismatch"` with the signed shop recorded — a mismatch and a
+bad signature are the same 401 to a caller, and must stay that way, but
+they are not the same thing to whoever is reading the logs.
+
+**No order was created during any of this.** Verification was read-only
+throughout. Counts in production: 1 Buy Now order (newest 2026-09-22), 5
+Group Buy orders (newest 2026-10-05), 0 of either created in the preceding
+six hours.
+
+> ⚠️ Those existing rows are **dev-store test data in the production
+> database** — both shops have always shared one database. They are not
+> customer orders. Worth clearing before launch; now harmless to serving,
+> because shop binding stops a dev-store request reaching them, but they
+> will distort any "how many orders do we have" question.
 
 ---
 
@@ -592,9 +651,11 @@ remains is commerce configuration.
    able to take a live card. Nothing about the store existing implies this.
 2. **Tax** — registration and Shopify configuration.
 3. **Shipping** (C6) — rates, full-value insurance, the $100 signature rule.
-4. **Fix `SHOPIFY_SHOP_DOMAIN`** (§5 D4) — currently the dev store, which
-   silently mis-targets every Admin API write. Most dangerous open item.
-5. **Custom domain** — not yet pointed at the store.
+4. **Custom domain** — not yet pointed at the store.
+5. **Clear dev-store test rows from the production database** (§5 D4) —
+   1 Buy Now order, 5 Group Buy orders, 1 RMA, 23 acknowledgments, all from
+   dev-store gate runs. Harmless to serving now that shop binding is in
+   place, but they will distort any count of real orders.
 6. **Lift the storefront password** — last, after a full launch rehearsal.
 
 ### Track B — the first real product
