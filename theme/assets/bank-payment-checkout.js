@@ -220,6 +220,24 @@ window.CaratBankPaymentCheckout = (function () {
     }
   }
 
+  function nonEmptyString(value) {
+    return typeof value === 'string' && value.length > 0;
+  }
+
+  /**
+   * REMOVED — `replaceAll` / `buildSuccessMessage`.
+   *
+   * They filled a one-line success template with the amount, the Zelle
+   * recipient and the reference. `renderPaymentInstructions` below supersedes
+   * that: it renders the full panel — Zelle AND domestic wire, the deadline,
+   * what reference to include, the commitment notice and the support address
+   * — from the server-composed instructions object.
+   *
+   * The one-liner told the customer their wire details had been emailed,
+   * which is precisely the email dependency D12 exists to remove: a customer
+   * paying by wire had nothing on screen to act on.
+   */
+
   function fetchCart() {
     var cartUrl = (typeof routes !== 'undefined' && routes && routes.cart_url) || '/cart';
     return fetch(cartUrl + '.js', { headers: { Accept: 'application/json' } }).then(function (response) {

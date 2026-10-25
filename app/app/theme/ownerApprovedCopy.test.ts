@@ -101,6 +101,12 @@ const APPROVED: ReadonlyArray<readonly [string, string]> = [
   // pin makes it look deliberate. The not-committed language they carried
   // survives in `not_committed_disclosure` and in the confirmation's own
   // commitment notice.
+  //
+  // The submit label below is kept from the parallel D12/D15 branch. The
+  // previous label was "Continue to Bank Payment Invoice", which promised an
+  // invoice that no longer exists; this one is accurate, neutral, and makes
+  // no delivery promise that could contradict the disclosure above.
+  ["sections.cart.bank_payment_checkout_form.submit", "Submit Bank Payment Request"],
   // docs/REQUIRED-CUSTOMER-ACCOUNTS.md §4, owner-approved 2026-09-26. Two
   // independent renders of the SAME sentence — the Bank Payment Checkout
   // dialog's sign-in gate and the Warranty Claim Form's sign-in gate

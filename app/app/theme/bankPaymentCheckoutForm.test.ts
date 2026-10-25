@@ -305,6 +305,74 @@ describe("error-code coverage against the real apps.carat.bank-checkout.tsx rout
 });
 
 // -----------------------------------------------------------------------
+// 2b. D12/D15 (2026-10-24): success shows our own payment instructions; there
+//     is no Shopify invoice and no redirect to one.
+// -----------------------------------------------------------------------
+
+describe("D12/D15 — success renders the full payment instructions panel, with no invoice redirect", () => {
+  /**
+   * RETARGETED. The parallel D12/D15 branch delivered a one-line success
+   * message built by a `buildSuccessMessage` helper from a template with
+   * three placeholders. That told the customer their WIRE details had been
+   * emailed, which is the email dependency D12 exists to remove, so the
+   * full panel supersedes it and the helper is gone.
+   *
+   * What those tests were protecting — no redirect, textContent only,
+   * submit stays disabled, nothing half-rendered — is kept here against the
+   * surviving renderer.
+   */
+  it("renders from the server-supplied instructions object", () => {
+    const source = readFileSync(join(THEME_ROOT, "assets", "bank-payment-checkout.js"), "utf8");
+    expect(source).toContain("renderPaymentInstructions(");
+    expect(source).toContain("dto.instructions");
+  });
+
+  it("shows BOTH payment methods, not Zelle alone", () => {
+    const source = readFileSync(join(THEME_ROOT, "assets", "bank-payment-checkout.js"), "utf8");
+    expect(source).toContain("confirmation_zelle");
+    expect(source).toContain("confirmation_wire");
+    expect(source).toContain("confirmation_routing");
+    expect(source).toContain("confirmation_account_number");
+  });
+
+  it("shows the deadline, the reference and the support address", () => {
+    const source = readFileSync(join(THEME_ROOT, "assets", "bank-payment-checkout.js"), "utf8");
+    expect(source).toContain("confirmation_deadline");
+    expect(source).toContain("confirmation_reference");
+    expect(source).toContain("confirmation_support");
+    expect(source).toContain("ins.includeWithPayment");
+  });
+
+  it("never redirects and never reads an invoice URL", () => {
+    const source = readFileSync(join(THEME_ROOT, "assets", "bank-payment-checkout.js"), "utf8");
+    expect(source).not.toContain("window.location.href =");
+    expect(source).not.toContain("invoiceUrl");
+  });
+
+  it("writes every server value with textContent, never innerHTML", () => {
+    const source = readFileSync(join(THEME_ROOT, "assets", "bank-payment-checkout.js"), "utf8");
+    const render = source.slice(
+      source.indexOf("function renderPaymentInstructions"),
+      source.indexOf("function formatDeadline")
+    );
+    expect(render.length).toBeGreaterThan(200);
+    expect(render).toContain("textContent");
+    expect(render).not.toContain("innerHTML");
+  });
+
+  it("the retired locale keys are gone", () => {
+    expect(at("sections.cart.bank_payment_checkout_form.success_check_email")).toBeUndefined();
+    expect(at("sections.cart.bank_payment_checkout_form.redirecting")).toBeUndefined();
+    expect(at("sections.cart.bank_payment_checkout_form.success_payment_instructions")).toBeUndefined();
+  });
+
+  it("hides the form so the customer cannot resubmit over their own confirmation", () => {
+    const source = readFileSync(join(THEME_ROOT, "assets", "bank-payment-checkout.js"), "utf8");
+    expect(source).toContain("form.hidden = true");
+  });
+});
+
+// -----------------------------------------------------------------------
 // 3. The not-committed disclosure (criterion 84) is present and never hidden.
 // -----------------------------------------------------------------------
 

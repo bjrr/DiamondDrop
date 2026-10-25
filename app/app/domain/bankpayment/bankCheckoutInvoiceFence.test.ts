@@ -80,8 +80,24 @@ describe("the Buy Now Bank Payment route sends no invoice", () => {
 });
 
 describe("the response contract carries no invoice", () => {
-  it("declares no invoiceUrl field", () => {
-    expect(DTO).not.toMatch(/invoiceUrl/);
+  it("declares no invoiceUrl field on any CURRENT type", () => {
+    /**
+     * Narrowed deliberately. `StoredBankCheckoutResult` names `invoiceUrl`
+     * on purpose: payloads persisted before D15 still contain one, and that
+     * union is how a replay reads them without crashing. Banning the word
+     * outright would forbid the type whose whole job is to describe the
+     * legacy shape safely.
+     *
+     * What must stay true is that no field a NEW result or a CUSTOMER
+     * response can carry is called that.
+     */
+    const current = DTO.slice(0, DTO.indexOf("export type StoredBankCheckoutResult"));
+    expect(current.length).toBeGreaterThan(200);
+    expect(current).not.toMatch(/invoiceUrl/);
+
+    // And the legacy union may only ever READ it — never hand it onward.
+    const legacy = DTO.slice(DTO.indexOf("export type StoredBankCheckoutResult"));
+    expect(legacy).not.toMatch(/invoiceUrl:\s*(result|stored)\./);
   });
 
   it("does not leak the Shopify draft handle to the customer", () => {

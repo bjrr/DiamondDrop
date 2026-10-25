@@ -5,23 +5,16 @@ import { prisma } from "~/db/client.server";
 import { idempotencyKeyRepository } from "~/db/repositories/idempotencyKeyRepository.server";
 import { getPublishedVariantPrice } from "~/db/repositories/publishedPriceRepository.server";
 import { coalesceCheckoutLines, type RawCheckoutLine } from "~/domain/bankpayment/coalesceLines";
+import { buildBuyNowPaymentInstructionsEmail } from "~/domain/bankpayment/buyNowPaymentInstructionsEmail";
 import {
   buildBankCheckoutResultDto,
+  resolveFormattedAmountDue,
   toCustomerResponse,
   type BankCheckoutResultDto,
   type QuotedLineForResult,
 } from "~/domain/bankpayment/checkoutResponseDto";
 import { buildPaymentInstructionsView } from "~/domain/bankpayment/paymentInstructionsView";
-import { resolveBankPaymentCoordinates } from "~/lib/payments/bankPaymentCoordinates.server";
-import { minorUnitsToDecimalString } from "~/shopify/admin/priceSyncAdapter.server";
 import { computeBankCheckoutIdempotencyKey } from "~/domain/bankpayment/idempotencyKey";
-// `buildInvoiceCustomMessage` is no longer imported: there is no Shopify
-// invoice to attach it to (register D15). `NOT_COMMITTED_DISCLOSURE` itself
-// is still live — it is the storefront form's pre-submit copy — but one of
-// its clauses ("We’ll email you an invoice with payment instructions") is now
-// factually wrong. That text is owner-approved and pinned
-// character-for-character by two tests, so it is NOT edited here; it is
-// flagged for approval.
 import { normalizeShopifyVariantGid } from "~/domain/cart/shopifyVariantId";
 import {
   executeIdempotent,
@@ -29,8 +22,14 @@ import {
   InDoubtIdempotencyError,
 } from "~/domain/idempotency";
 import { Money } from "~/domain/money/money";
+import { resolveEmailPort } from "~/lib/email/configuredPort.server";
 import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
+import {
+  resolveBankPaymentCoordinates,
+  type BankPaymentCoordinates,
+} from "~/lib/payments/bankPaymentCoordinates.server";
+import { minorUnitsToDecimalString } from "~/shopify/admin/priceSyncAdapter.server";
 import type {
   DraftOrderLineItemInput,
   DraftOrderPort,
@@ -244,13 +243,24 @@ interface QuotedCheckoutLine extends QuotedLineForResult {
 
 /**
  * The idempotent operation itself (criteria 75, 106): create the draft
- * order, send the invoice, then persist `BankPaymentOrder` +
- * `BankPaymentOrderLine` in one transaction. Returns the fully JSON-safe
- * result DTO that `executeIdempotent` stores as `resultPayload` and a
- * replay returns verbatim — see checkoutResponseDto.ts's header comment.
+ * order, persist `BankPaymentOrder` + `BankPaymentOrderLine` in one
+ * transaction, then email our own payment instructions. Returns the fully
+ * JSON-safe result DTO that `executeIdempotent` stores as `resultPayload` and
+ * a replay returns — see checkoutResponseDto.ts's header comment.
+ *
+ * D12/D15 (2026-10-24): NO Shopify invoice is sent. The invoice carried no
+ * payment coordinates (D12) and its "Confirm order" button could commit the
+ * draft as a real order before staff verified payment (D15, CLAUDE.md #22).
+ * The draft remains the staff-side record that `completeOrder.server.ts`
+ * completes after verification.
+ *
+ * THE RETURN VALUE IS PERSISTED, so it never carries a payment coordinate;
+ * `action()` adds the Zelle recipient to the HTTP response separately.
  */
 async function performBankCheckout(input: {
   draftOrderPort: DraftOrderPort;
+  /** Proven present before any Shopify call. Used only to build the email; never logged, persisted or thrown. */
+  paymentCoordinates: BankPaymentCoordinates;
   resolvedEmail: string;
   /** THE AUTHORIZATION BASIS (docs/REQUIRED-CUSTOMER-ACCOUNTS.md) — the authenticated Shopify customer identity, never the browser-supplied email. */
   customerGid: string;
@@ -272,10 +282,10 @@ async function performBankCheckout(input: {
     //
     // If the transaction below fails after Shopify has already accepted the
     // draft, `executeIdempotent` correctly leaves the key `in_doubt` and
-    // refuses to retry. But without something of ours written onto the
-    // Shopify record, the admin clearing that key has a draft order
-    // somewhere in the shop and no way to find it except by guessing at an
-    // email and a timestamp.
+    // refuses to retry — we must not create a second draft. But
+    // without something of ours written onto the Shopify record, the admin
+    // clearing that key has a draft order somewhere in the shop and no way
+    // to find it except by guessing at an email and a timestamp.
     //
     // Tags, not `note`: tags are staff-only, whereas a note can surface to
     // the customer on the order, and an internal correlation id is not
@@ -346,11 +356,60 @@ async function performBankCheckout(input: {
     lineCount: input.quotedLines.length,
   });
 
+  // BIGINT THROUGHOUT. Amount due = sum of each line's CHARGED unit price
+  // (bank price if eligible, card price if ineligible — criterion 71) times
+  // quantity, formatted once at the end exactly as Group Buy does.
+  const totalDueMinorUnits = input.quotedLines.reduce(
+    (sum, line) => sum + line.unitPriceMinorUnits * BigInt(line.quantity),
+    0n
+  );
+  const currency = input.quotedLines[0]!.currency;
+  const formattedAmountDue = `${minorUnitsToDecimalString(totalDueMinorUnits)} ${currency}`;
+
+  // PAYMENT INSTRUCTIONS EMAIL — after the order is committed. A send failure
+  // or an unconfigured email port does NOT undo the order (the draft exists,
+  // the row is written, the price is quoted); it is logged at error with ids
+  // and the error name only so staff can send instructions by hand. The
+  // customer also sees the Zelle instructions on screen.
+  //
+  // NOTHING ABOUT THE COORDINATES IS LOGGED, THROWN OR PERSISTED.
+  try {
+    const emailResolution = resolveEmailPort();
+    if (!emailResolution.configured) {
+      logger.error("bank_checkout.instructions_email_unconfigured", {
+        bankPaymentOrderId: bankPaymentOrder.id,
+        reason: emailResolution.reason,
+      });
+    } else {
+      const content = buildBuyNowPaymentInstructionsEmail({
+        bankPaymentOrderId: bankPaymentOrder.id,
+        formattedAmountDue,
+        guaranteeExpiresAt,
+        coordinates: input.paymentCoordinates,
+      });
+      await emailResolution.port.send({
+        from: emailResolution.from,
+        to: [input.resolvedEmail],
+        subject: content.subject,
+        text: content.text,
+      });
+      logger.info("bank_checkout.instructions_email_sent", {
+        bankPaymentOrderId: bankPaymentOrder.id,
+      });
+    }
+  } catch (error) {
+    logger.error("bank_checkout.instructions_email_failed", {
+      bankPaymentOrderId: bankPaymentOrder.id,
+      errorName: error instanceof Error ? error.name : "unknown",
+    });
+  }
+
   return buildBankCheckoutResultDto({
     bankPaymentOrderId: bankPaymentOrder.id,
     draftOrderGid: created.draftOrderGid,
     quotedAt,
     guaranteeExpiresAt,
+    formattedAmountDue,
     lines: input.quotedLines,
   });
 }
@@ -428,6 +487,22 @@ export async function action({ request }: ActionFunctionArgs) {
   }
   const { mode, lines: requestLines, shippingAddress } = parsed.data;
   const resolvedEmail = parsed.data.email.toLowerCase();
+
+  // --- PAYMENT COORDINATES MUST EXIST BEFORE ANY DRAFT ORDER DOES (D12). ---
+  //
+  // Same gate, same reasoning as `apps.carat.group-buy-bank-checkout.tsx`:
+  // this route produces an order the customer then pays for, and since the
+  // Shopify invoice was removed our own instructions are the ONLY way they
+  // learn where to send money. Checked here, before any Shopify call, so a
+  // misconfigured deployment creates nothing. The log reason names MISSING
+  // VARIABLES only, and the response carries no detail at all.
+  const paymentCoordinates = resolveBankPaymentCoordinates();
+  if (!paymentCoordinates.configured) {
+    logger.error("bank_checkout.payment_coordinates_unconfigured", {
+      reason: paymentCoordinates.reason,
+    });
+    return Response.json({ error: "checkout_unavailable" }, { status: 503 });
+  }
 
   // --- Resolve every requested Shopify variant id to a master_variant row,
   // one query rather than one round trip per line. ---
@@ -543,26 +618,10 @@ export async function action({ request }: ActionFunctionArgs) {
     }))
   );
 
-  // ==========================================================================
-  // FAIL BEFORE ANYTHING EXISTS IF WE CANNOT SAY HOW TO PAY (register D12).
-  // ==========================================================================
-  // Buy Now did not gate on this before, because the Shopify invoice carried
-  // the payment affordance and our coordinates were only ever needed by the
-  // email. Now that CaratForUs owns the instructions, creating a draft and a
-  // BankPaymentOrder we cannot give the customer a destination for would
-  // leave exactly the dead end this work exists to remove.
-  //
-  // Same shape as the Group Buy gate: the log names MISSING VARIABLES only,
-  // never a coordinate value, and the response carries no detail — a customer
-  // cannot act on our configuration problem, and an attacker should not learn
-  // our state from it.
-  const paymentCoordinates = resolveBankPaymentCoordinates();
-  if (!paymentCoordinates.configured) {
-    logger.error("bank_checkout.payment_coordinates_unconfigured", {
-      reason: paymentCoordinates.reason,
-    });
-    return Response.json({ error: "checkout_unavailable" }, { status: 503 });
-  }
+  // The coordinate gate lives further up, before the first Shopify call —
+  // both D12/D15 branches added one, and the earlier placement wins because
+  // a misconfigured deployment should create nothing at all, not a draft it
+  // cannot give the customer a destination for.
 
   let draftOrderPort: DraftOrderPort;
   try {
@@ -587,6 +646,7 @@ export async function action({ request }: ActionFunctionArgs) {
       () =>
         performBankCheckout({
           draftOrderPort,
+          paymentCoordinates: paymentCoordinates.coordinates,
           resolvedEmail,
           customerGid,
           shippingAddress,
@@ -606,15 +666,25 @@ export async function action({ request }: ActionFunctionArgs) {
     // working instructions: the stored result comes back, fresh coordinates
     // are resolved, and the customer sees the same page rather than a bare
     // record of something that already happened.
-    const totalDueMinorUnits = quotedLines.reduce(
-      (sum, line) => sum + line.quotedBankPaymentPriceMinorUnits * BigInt(line.quantity),
-      0n
-    );
+    // THE AMOUNT COMES FROM THE STORED RESULT, NOT THE LIVE REQUEST, so a
+    // replay quotes what was actually agreed rather than re-deriving it from
+    // whatever the browser just sent. `resolveFormattedAmountDue` also covers
+    // payloads written BEFORE this change, which have no `formattedAmountDue`
+    // at all: it recomputes from the stored lines using the charged unit
+    // price, and never copies the `invoiceUrl` those old payloads still carry.
+    const formattedAmountDue = resolveFormattedAmountDue(result);
+    if (formattedAmountDue === null) {
+      // An old payload whose lines are unusable. Refuse rather than render
+      // half-built instructions with a missing amount.
+      logger.error("bank_checkout.replay_response_unbuildable", {});
+      return Response.json({ error: "checkout_unavailable" }, { status: 503 });
+    }
+
     const instructions = buildPaymentInstructionsView({
       flow: "buy_now",
       reference: result.bankPaymentOrderId,
-      formattedAmountDue: minorUnitsToDecimalString(totalDueMinorUnits),
-      currency: quotedLines[0]!.currency,
+      formattedAmountDue,
+      currency: result.lines[0]?.currency ?? quotedLines[0]!.currency,
       paymentDeadline: new Date(result.guaranteeExpiresAt),
       coordinates: paymentCoordinates.coordinates,
     });

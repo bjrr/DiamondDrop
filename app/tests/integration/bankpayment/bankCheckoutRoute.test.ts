@@ -1,8 +1,10 @@
 import { createHmac, randomUUID } from "node:crypto";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { prisma } from "~/db/client.server";
+import type { SendEmailInput } from "~/lib/email/port";
+import { __resetEnvCacheForTests } from "~/lib/env.server";
 import type {
   CompleteDraftOrderInput,
   CompletedDraftOrder,
@@ -31,6 +33,51 @@ import { action, __setDraftOrderPortForTests } from "~/routes/apps.carat.bank-ch
  * REQUIRED-CUSTOMER-ACCOUNTS.md" describe block below for the tests that
  * specifically exercise the auth gate itself.
  */
+
+/**
+ * D12/D15 (2026-10-24): the route now sends OUR instructions email via
+ * `resolveEmailPort()`. The harness (setupEnv.ts) deliberately blanks the
+ * email credentials, so the real resolver would always say "unconfigured";
+ * this fake replaces ONLY that resolver so a test can observe the send, make
+ * it fail, or leave email unconfigured.
+ */
+const emailControl = vi.hoisted(() => ({
+  mode: "ok" as "ok" | "fail" | "unconfigured",
+  sent: [] as Array<{ from: string; to: string[]; subject: string; text: string }>,
+}));
+
+vi.mock("~/lib/email/configuredPort.server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("~/lib/email/configuredPort.server")>();
+  return {
+    ...actual,
+    resolveEmailPort: () => {
+      if (emailControl.mode === "unconfigured") {
+        return { configured: false as const, reason: "email not configured: missing EMAIL_API_KEY" };
+      }
+      return {
+        configured: true as const,
+        from: "orders@example.invalid",
+        recipients: ["staff@example.invalid"],
+        port: {
+          async send(input: SendEmailInput) {
+            if (emailControl.mode === "fail") {
+              const error = new Error("provider exploded with secret-ish detail");
+              error.name = "EmailSendError";
+              throw error;
+            }
+            emailControl.sent.push(input);
+            return { providerMessageId: "fake-message-id" };
+          },
+        },
+      };
+    },
+  };
+});
+
+beforeEach(() => {
+  emailControl.mode = "ok";
+  emailControl.sent.length = 0;
+});
 
 let fixtureSequence = 0;
 const uniq = (): string => `${Date.now() % 900_000}-${(fixtureSequence += 1)}`;
@@ -729,7 +776,7 @@ describe("an in_doubt key stays resolvable — the draft carries our correlation
 });
 
 describe("criteria 75/105/106 — idempotent replay", () => {
-  it("a repeated identical submission returns the SAME draft order and sends no second invoice", async () => {
+  it("a repeated identical submission returns the SAME draft order and sends no second email", async () => {
     const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 60_000n });
     const port = fakeDraftOrderPort();
     __setDraftOrderPortForTests(port);
@@ -760,12 +807,349 @@ describe("criteria 75/105/106 — idempotent replay", () => {
     expect(secondBody).toEqual(firstBody);
 
     expect(port.createCalls).toHaveLength(1);
-    expect(port.invoiceCalls).toHaveLength(1);
+    expect(port.invoiceCalls).toHaveLength(0);
+    expect(emailControl.sent).toHaveLength(1);
 
     const orders = await prisma.bankPaymentOrder.count({
       where: { customerEmail: email.toLowerCase() },
     });
     expect(orders).toBe(1);
+  });
+});
+
+/**
+ * D12/D15 (2026-10-24). Fake coordinates come from setupEnv.ts.
+ */
+const FAKE_ZELLE = "test-pay@example.invalid";
+const FAKE_WIRE_VALUES = [
+  "TEST BANK — NOT REAL",
+  "TEST ACCOUNT — NOT REAL",
+  "000000000",
+  "000000000000",
+];
+const COORDINATE_ENV_KEYS = [
+  "PAYMENT_ZELLE_RECIPIENT",
+  "PAYMENT_WIRE_BANK_NAME",
+  "PAYMENT_WIRE_ACCOUNT_NAME",
+  "PAYMENT_WIRE_ROUTING_NUMBER",
+  "PAYMENT_WIRE_ACCOUNT_NUMBER",
+] as const;
+
+function bankBody(shopifyVariantGid: string | null, quantity = 1, email = `Buyer-${uniq()}@Example.com`) {
+  return {
+    mode: "bank",
+    email,
+    shippingAddress: SHIPPING_ADDRESS,
+    lines: [{ shopifyVariantId: shopifyVariantGid, quantity }],
+  };
+}
+
+describe("D12/D15 — no Shopify invoice; our own payment instructions", () => {
+  it("never calls sendInvoice, and the response has no invoiceUrl", async () => {
+    const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 60_000n });
+    const port = fakeDraftOrderPort();
+    __setDraftOrderPortForTests(port);
+
+    const response = await action({
+      request: checkoutRequest({ body: bankBody(variant.variant.shopifyVariantGid) }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.status).toBe(200);
+    expect(port.createCalls).toHaveLength(1);
+    expect(port.invoiceCalls).toHaveLength(0);
+    expect(JSON.stringify(await response.json())).not.toContain("invoice");
+  });
+
+  it("sends the instructions email once, to the resolved email, with the fake Zelle and wire values", async () => {
+    const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 60_000n });
+    __setDraftOrderPortForTests(fakeDraftOrderPort());
+    const email = `Buyer-${uniq()}@Example.com`;
+
+    const response = await action({
+      request: checkoutRequest({ body: bankBody(variant.variant.shopifyVariantGid, 1, email) }),
+      params: {},
+      context: {},
+    } as never);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { bankPaymentOrderId: string };
+
+    expect(emailControl.sent).toHaveLength(1);
+    const sent = emailControl.sent[0]!;
+    expect(sent.to).toEqual([email.toLowerCase()]);
+    expect(sent.subject).toBe(`Payment instructions for your CaratForUs order (${body.bankPaymentOrderId})`);
+    expect(sent.text).toContain(FAKE_ZELLE);
+    for (const value of FAKE_WIRE_VALUES) expect(sent.text).toContain(value);
+    expect(sent.text).toContain(`Order reference: ${body.bankPaymentOrderId}`);
+    expect(sent.text).toContain("Amount due: 600.00 USD");
+  });
+
+  it("the HTTP response carries the FULL instruction set — both methods — and no Shopify internals", async () => {
+    /**
+     * D12: the response is the primary delivery of payment instructions, so
+     * it carries BOTH methods. An earlier draft of this test asserted the
+     * wire details were absent from the body — that was the email-only model
+     * D12 exists to remove. Email is secondary now; what the customer can see
+     * on screen must be sufficient to pay.
+     *
+     * What must still be absent is anything Shopify-internal (register D15).
+     */
+    const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 60_000n });
+    __setDraftOrderPortForTests(fakeDraftOrderPort());
+
+    const response = await action({
+      request: checkoutRequest({ body: bankBody(variant.variant.shopifyVariantGid, 2) }),
+      params: {},
+      context: {},
+    } as never);
+    const raw = JSON.stringify(await response.clone().json());
+    const body = (await response.json()) as {
+      instructions: {
+        flow: string;
+        formattedAmountDue: string;
+        reference: string;
+        methods: readonly Record<string, string>[];
+        supportEmail: string;
+        extensionNotice: string | null;
+      };
+      bankPaymentOrderId: string;
+    };
+
+    expect(body.instructions.flow).toBe("buy_now");
+    expect(body.instructions.formattedAmountDue).toBe("1200.00 USD"); // 2 x 600.00
+    expect(body.instructions.reference).toBe(body.bankPaymentOrderId);
+    expect(body.instructions.supportEmail).toBe("orders@caratforus.com");
+    // Buy Now has no automatic extension; that is Group Buy's lifecycle.
+    expect(body.instructions.extensionNotice).toBeNull();
+
+    const zelle = body.instructions.methods.find((m) => m.kind === "zelle");
+    expect(zelle?.recipient).toBe(FAKE_ZELLE);
+    const wire = body.instructions.methods.find((m) => m.kind === "domestic_wire");
+    expect(wire).toBeDefined();
+    for (const value of FAKE_WIRE_VALUES) expect(raw).toContain(value);
+
+    // D15: no draft handle, no invoice, no internal identifiers.
+    expect(raw).not.toContain("draftOrderGid");
+    expect(raw).not.toContain("invoiceUrl");
+    expect(raw).not.toContain("priceCalculationId");
+  });
+
+  it("the persisted idempotency resultPayload contains no Zelle recipient and no wire value", async () => {
+    const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 60_000n });
+    __setDraftOrderPortForTests(fakeDraftOrderPort());
+
+    const response = await action({
+      request: checkoutRequest({ body: bankBody(variant.variant.shopifyVariantGid) }),
+      params: {},
+      context: {},
+    } as never);
+    const body = (await response.json()) as { bankPaymentOrderId: string };
+
+    const rows = await prisma.idempotencyKey.findMany({
+      where: {
+        operationType: "bank_payment_checkout",
+        resultPayload: { path: ["bankPaymentOrderId"], equals: body.bankPaymentOrderId },
+      },
+    });
+    expect(rows).toHaveLength(1);
+    const persisted = JSON.stringify(rows[0]);
+    expect(persisted).toContain(body.bankPaymentOrderId); // guards the guard: we really read the payload
+    expect(persisted).toContain("formattedAmountDue");
+    expect(persisted).not.toContain(FAKE_ZELLE);
+    // The composed instruction view must never be written down — it is the
+    // one object carrying coordinates (`paymentInstructionsView.ts`).
+    expect(persisted).not.toContain("instructions");
+    expect(persisted).not.toContain("invoiceUrl");
+    for (const value of FAKE_WIRE_VALUES) expect(persisted).not.toContain(value);
+  });
+
+  it("with coordinates unconfigured: 503 checkout_unavailable and NO draft order is created", async () => {
+    const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 60_000n });
+    const port = fakeDraftOrderPort();
+    __setDraftOrderPortForTests(port);
+
+    const saved = COORDINATE_ENV_KEYS.map((key) => [key, process.env[key]] as const);
+    try {
+      process.env.PAYMENT_ZELLE_RECIPIENT = "";
+      __resetEnvCacheForTests();
+
+      const response = await action({
+        request: checkoutRequest({ body: bankBody(variant.variant.shopifyVariantGid) }),
+        params: {},
+        context: {},
+      } as never);
+
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "checkout_unavailable" });
+      expect(port.createCalls).toHaveLength(0);
+      expect(emailControl.sent).toHaveLength(0);
+    } finally {
+      for (const [key, value] of saved) process.env[key] = value;
+      __resetEnvCacheForTests();
+    }
+  });
+
+  it("an email send failure still returns 200 and the order row exists", async () => {
+    const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 60_000n });
+    __setDraftOrderPortForTests(fakeDraftOrderPort());
+    emailControl.mode = "fail";
+
+    const response = await action({
+      request: checkoutRequest({ body: bankBody(variant.variant.shopifyVariantGid) }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { bankPaymentOrderId: string };
+    const stored = await prisma.bankPaymentOrder.findUnique({ where: { id: body.bankPaymentOrderId } });
+    expect(stored).not.toBeNull();
+    expect(emailControl.sent).toHaveLength(0);
+  });
+
+  it("unconfigured email also still returns 200 and the order row exists", async () => {
+    const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 60_000n });
+    __setDraftOrderPortForTests(fakeDraftOrderPort());
+    emailControl.mode = "unconfigured";
+
+    const response = await action({
+      request: checkoutRequest({ body: bankBody(variant.variant.shopifyVariantGid) }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { bankPaymentOrderId: string };
+    expect(await prisma.bankPaymentOrder.findUnique({ where: { id: body.bankPaymentOrderId } })).not.toBeNull();
+  });
+
+  it("a replay sends no second email, creates no second draft, and still returns full instructions", async () => {
+    const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 60_000n });
+    const port = fakeDraftOrderPort();
+    __setDraftOrderPortForTests(port);
+    const body = bankBody(variant.variant.shopifyVariantGid);
+
+    const first = await action({ request: checkoutRequest({ body }), params: {}, context: {} } as never);
+    const second = await action({ request: checkoutRequest({ body }), params: {}, context: {} } as never);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    type Envelope = { instructions: { methods: readonly Record<string, string>[] } };
+    const firstBody = (await first.json()) as Envelope;
+    const secondBody = (await second.json()) as Envelope;
+    expect(secondBody).toEqual(firstBody);
+    // Coordinates are recomposed per request from configuration — they are
+    // not replayed out of the stored payload, but the customer still gets
+    // them, which is the point of composing after `executeIdempotent`.
+    expect(secondBody.instructions.methods.find((m) => m.kind === "zelle")?.recipient).toBe(FAKE_ZELLE);
+    expect(emailControl.sent).toHaveLength(1);
+    expect(port.createCalls).toHaveLength(1);
+  });
+
+  it("a replay of an OLD stored payload (invoiceUrl, no formattedAmountDue) does not crash or leak invoiceUrl, and recomputes the amount", async () => {
+    const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 60_000n });
+    __setDraftOrderPortForTests(fakeDraftOrderPort());
+    const body = bankBody(variant.variant.shopifyVariantGid, 2);
+
+    const first = await action({ request: checkoutRequest({ body }), params: {}, context: {} } as never);
+    const firstBody = (await first.json()) as {
+      bankPaymentOrderId: string;
+      instructions: { formattedAmountDue: string };
+    };
+
+    // Rewrite the stored payload into its pre-D12 shape.
+    const row = await prisma.idempotencyKey.findFirstOrThrow({
+      where: {
+        operationType: "bank_payment_checkout",
+        resultPayload: { path: ["bankPaymentOrderId"], equals: firstBody.bankPaymentOrderId },
+      },
+    });
+    const legacy = { ...(row.resultPayload as unknown as Record<string, unknown>) };
+    delete legacy.formattedAmountDue;
+    legacy.invoiceUrl = "https://example.invalid/invoice/legacy";
+    await prisma.idempotencyKey.update({
+      where: { id: row.id },
+      data: { resultPayload: legacy as never },
+    });
+
+    const replay = await action({ request: checkoutRequest({ body }), params: {}, context: {} } as never);
+    expect(replay.status).toBe(200);
+    const replayRaw = JSON.stringify(await replay.clone().json());
+    const replayBody = (await replay.json()) as { instructions: { formattedAmountDue: string } };
+    expect(replayRaw).not.toContain("invoiceUrl");
+    expect(replayRaw).not.toContain("legacy");
+    expect(replayBody.instructions.formattedAmountDue).toBe(firstBody.instructions.formattedAmountDue);
+    expect(emailControl.sent).toHaveLength(1);
+  });
+
+  it("the amount due uses the CARD price for an ineligible line and the bank price for an eligible one", async () => {
+    const eligible = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 100_000n, bankPaymentDiscountEligible: true });
+    const ineligible = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 200_000n, bankPaymentDiscountEligible: false });
+    __setDraftOrderPortForTests(fakeDraftOrderPort());
+
+    const response = await action({
+      request: checkoutRequest({
+        body: {
+          mode: "bank",
+          email: `Buyer-${uniq()}@Example.com`,
+          shippingAddress: SHIPPING_ADDRESS,
+          lines: [
+            { shopifyVariantId: eligible.variant.shopifyVariantGid, quantity: 2 },
+            { shopifyVariantId: ineligible.variant.shopifyVariantGid, quantity: 1 },
+          ],
+        },
+      }),
+      params: {},
+      context: {},
+    } as never);
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { instructions: { formattedAmountDue: string } };
+    // 2 x 1000.00 (bank) + 1 x 2080.00 (card: $2,000 at the 4.0% tier) = 4080.00
+    expect(body.instructions.formattedAmountDue).toBe("4080.00 USD");
+    expect(emailControl.sent[0]!.text).toContain("Amount due: 4080.00 USD");
+  });
+
+  it("no log line contains any coordinate value", async () => {
+    const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 60_000n });
+    __setDraftOrderPortForTests(fakeDraftOrderPort());
+    const captured: string[] = [];
+    const capture = (...args: unknown[]) => {
+      captured.push(args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" "));
+    };
+    const spies = [
+      vi.spyOn(console, "log").mockImplementation(capture),
+      vi.spyOn(console, "warn").mockImplementation(capture),
+      vi.spyOn(console, "error").mockImplementation(capture),
+    ];
+
+    try {
+      // One run that succeeds, one whose email send fails: both log paths.
+      const ok = await action({
+        request: checkoutRequest({ body: bankBody(variant.variant.shopifyVariantGid) }),
+        params: {},
+        context: {},
+      } as never);
+      expect(ok.status).toBe(200);
+
+      emailControl.mode = "fail";
+      const variant2 = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 70_000n });
+      const failed = await action({
+        request: checkoutRequest({ body: bankBody(variant2.variant.shopifyVariantGid) }),
+        params: {},
+        context: {},
+      } as never);
+      expect(failed.status).toBe(200);
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+
+    const logs = captured.join("\n");
+    expect(logs).toContain("bank_checkout.instructions_email_sent"); // guards the guard
+    expect(logs).toContain("bank_checkout.instructions_email_failed");
+    expect(logs).not.toContain(FAKE_ZELLE);
+    for (const value of FAKE_WIRE_VALUES) expect(logs).not.toContain(value);
   });
 });
 

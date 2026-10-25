@@ -2,24 +2,21 @@
  * The §22 "not committed until payment is verified" disclosure — criteria 84
  * and 85.
  *
- * THE SINGLE SOURCE FOR TWO SURFACES, and that is the whole point of this
- * module existing rather than the text living where each surface needs it.
- * The same words must appear on the storefront checkout form (Liquid, so it
- * needs a locale key) and server-side, where it is asserted against that
- * key. Two copies of material customer terms drift — one gets edited, the
- * other does not, and a customer is told two different things about whether
- * their order exists.
+ * THE SINGLE SOURCE for the storefront checkout form's disclosure (Liquid, so
+ * it needs a locale key). Two copies of material customer terms drift — one
+ * gets edited, the other does not — so this is the source, and
+ * `notCommittedDisclosure.test.ts` asserts that `theme/locales/en.default.json`'s
+ * key is character-for-character identical. Edit one without the other and
+ * the test fails.
  *
- * It used to need a server-side copy because the same words rode along with
- * Shopify's draft-order invoice as its `customMessage`. That invoice is gone
- * (register D15); the constant remains as the authority the theme key is
- * tested against.
+ * D12/D15 (2026-10-24): Buy Now no longer sends a Shopify draft-order invoice
+ * (its "Confirm order" button could commit inventory before verification), so
+ * there is no invoice custom message any more. Payment instructions are shown
+ * on screen and sent in our own email
+ * (`buyNowPaymentInstructionsEmail.ts`), which carries its own owner-approved
+ * not-committed sentence.
  *
- * So this is the source, and `notCommittedDisclosure.test.ts` asserts that
- * `theme/locales/en.default.json`'s key is character-for-character identical.
- * Edit one without the other and the test fails.
- *
- * OWNER-APPROVED 2026-09-22, and pinned character-for-character in
+ * OWNER-APPROVED 2026-09-22, text revised and re-approved 2026-10-24 (D12), and pinned character-for-character in
  * `app/theme/ownerApprovedCopy.test.ts` alongside the cart strings. Criterion
  * 84 is satisfied by this exact wording and nothing else — an edit here is new
  * unapproved copy however small, and it must go back for approval.

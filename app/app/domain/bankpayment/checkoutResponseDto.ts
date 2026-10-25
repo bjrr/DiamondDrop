@@ -48,6 +48,16 @@ export interface BankCheckoutLineResultDto {
   readonly eligibleAtQuoteTime: boolean;
 }
 
+/**
+ * THE PERSISTED SHAPE — what `executeIdempotent` stores as `resultPayload`.
+ *
+ * D12/D15 (2026-10-24): `invoiceUrl` was removed (Buy Now no longer sends a
+ * Shopify invoice or redirects to one) and `formattedAmountDue` added. Nothing
+ * in this type may EVER carry a payment coordinate (Zelle recipient, wire
+ * details): this object is written to Postgres and replayed verbatim.
+ * Coordinates reach the customer only through `BankCheckoutCustomerResponse`,
+ * which is built per request and never persisted.
+ */
 export interface BankCheckoutResultDto {
   readonly bankPaymentOrderId: string;
   readonly draftOrderGid: string;
@@ -69,8 +79,31 @@ export interface BankCheckoutResultDto {
   readonly quotedAt: string;
   /** ISO-8601. `quotedAt` + 24 hours. */
   readonly guaranteeExpiresAt: string;
+  /** e.g. "1062.00 USD" — sum of CHARGED unit price x quantity. Not secret. */
+  readonly formattedAmountDue: string;
   readonly lines: readonly BankCheckoutLineResultDto[];
 }
+
+/**
+ * SUPERSEDED — `BankCheckoutResponseDto` / `buildBankCheckoutResponseDto`.
+ *
+ * Both branches of the D12/D15 work invented a customer-facing success body.
+ * That one carried `paymentInstructions: { zelleRecipient }` and, critically,
+ * `draftOrderGid`. `BankCheckoutCustomerResponse` below replaces it because
+ * it is strictly safer and strictly more complete:
+ *
+ *   - it does NOT carry `draftOrderGid`. Exposing the Shopify draft handle to
+ *     the customer is the root of D15 and is explicitly out of bounds;
+ *   - it carries the FULL instruction set — Zelle and domestic wire, the
+ *     deadline, what reference to include, the commitment notice and the
+ *     support address — rather than the Zelle recipient alone. Wire details
+ *     reaching the customer only by email is the dependency D12 exists to
+ *     remove.
+ *
+ * What that branch got right is kept verbatim below: `formattedAmountDue` on
+ * the persisted result, and `resolveFormattedAmountDue`'s old-payload replay
+ * policy for results stored before this change.
+ */
 
 export interface QuotedLineForResult {
   readonly shopifyVariantGid: string;
@@ -105,6 +138,7 @@ export function buildBankCheckoutResultDto(input: {
   draftOrderGid: string;
   quotedAt: Date;
   guaranteeExpiresAt: Date;
+  formattedAmountDue: string;
   lines: readonly QuotedLineForResult[];
 }): BankCheckoutResultDto {
   return {
@@ -112,6 +146,7 @@ export function buildBankCheckoutResultDto(input: {
     draftOrderGid: input.draftOrderGid,
     quotedAt: input.quotedAt.toISOString(),
     guaranteeExpiresAt: input.guaranteeExpiresAt.toISOString(),
+    formattedAmountDue: input.formattedAmountDue,
     lines: input.lines.map(buildBankCheckoutLineResultDto),
   };
 }
@@ -159,3 +194,61 @@ export function toCustomerResponse(
     instructions,
   };
 }
+
+/**
+ * What a stored `resultPayload` may look like when read back. Payloads
+ * written before D12/D15 have `invoiceUrl` and no `formattedAmountDue`; a
+ * replay of one must neither crash nor leak the invoice URL.
+ */
+export type StoredBankCheckoutResult = BankCheckoutResultDto | (Omit<BankCheckoutResultDto, "formattedAmountDue"> & {
+  readonly formattedAmountDue?: undefined;
+  readonly invoiceUrl?: unknown;
+});
+
+/**
+ * Minimal decimal formatting of a minor-unit bigint ("106200n" -> "1062.00").
+ * Integer arithmetic only. Duplicates `minorUnitsToDecimalString` from the
+ * Shopify price adapter so this pure domain module stays free of adapter
+ * imports; the route uses the adapter's helper for fresh results and this
+ * only serves the old-payload recompute path (both are exact for USD's two
+ * minor-unit digits, which is every currency this storefront sells in).
+ */
+function decimalFromMinorUnits(minor: bigint): string {
+  const negative = minor < 0n;
+  const abs = negative ? -minor : minor;
+  const whole = abs / 100n;
+  const cents = (abs % 100n).toString().padStart(2, "0");
+  return `${negative ? "-" : ""}${whole.toString()}.${cents}`;
+}
+
+/**
+ * OLD-PAYLOAD REPLAY POLICY (design choice, 2026-10-24): RECOMPUTE, don't omit.
+ * If a stored result lacks `formattedAmountDue`, derive it from the stored
+ * lines using the same rule as a fresh checkout — the CHARGED unit price
+ * (Bank Payment Price if `eligibleAtQuoteTime`, else Regular/Card Price)
+ * times quantity, summed as BigInt — so the customer still gets a working
+ * Zelle panel on a resubmission. Returns `null` (caller omits nothing; the
+ * theme then shows its existing "unavailable" message) if the lines are
+ * unusable.
+ */
+export function resolveFormattedAmountDue(stored: StoredBankCheckoutResult): string | null {
+  if (typeof stored.formattedAmountDue === "string" && stored.formattedAmountDue.length > 0) {
+    return stored.formattedAmountDue;
+  }
+  const lines = stored.lines;
+  if (!Array.isArray(lines) || lines.length === 0) return null;
+  try {
+    let total = 0n;
+    const currency = lines[0]!.currency;
+    for (const line of lines) {
+      if (line.currency !== currency) return null;
+      const unit = BigInt(line.eligibleAtQuoteTime ? line.quotedBankPaymentPriceMinorUnits : line.quotedRegularCardPriceMinorUnits);
+      total += unit * BigInt(line.quantity);
+    }
+    return `${decimalFromMinorUnits(total)} ${currency}`;
+  } catch {
+    return null;
+  }
+}
+
+
