@@ -180,13 +180,15 @@ describe("Admin owns the content, not the theme", () => {
     }
   });
 
-  it("does not hardcode the ten README categories", () => {
-    // Categories are derived from the entries. A hardcoded list means an
-    // entry filed under an unknown category never appears.
+  it("fixes the approved category ORDER (F2, owner-approved 2026-10-25) without filtering by it", () => {
+    // The list orders categories; it must never decide which ones appear.
+    // Rendering behaviour (unknown + uncategorised still show) is proven by
+    // faqCategoryOrder.test.ts, which renders this section with liquidjs.
     const code = withoutComments(SECTION);
-    for (const category of ["Ring Sizing", "Materials & Stones", "Pricing & Refunds"]) {
-      expect(code, `faq.liquid hardcodes the category "${category}"`).not.toContain(category);
-    }
+    expect(code).toContain(
+      "'Group Buys|Pricing & Refunds|Production & Delivery|Materials & Stones|Ring Sizing|Custom Jewelry|Warranty & Repairs|Returns & Cancellations|Payments|Shipping & Insurance|Contacting us'"
+    );
+    expect(code).toMatch(/unless approved_needles contains needle/);
   });
 
   it("renders nothing when there are no entries", () => {
