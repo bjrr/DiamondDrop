@@ -29,6 +29,23 @@ process.env.PRISMA_EMIT_QUERY_EVENTS = "1";
 process.env.PRICE_AUTO_PUBLISH_ENABLED = "";
 
 /**
+ * THE SHOP EVERY APP PROXY TEST SIGNS AS (register D4).
+ *
+ * Since D4, `verifyAppProxySignature` refuses any request whose signed `shop`
+ * does not equal `getEnv().SHOPIFY_SHOP_DOMAIN`, and refuses EVERYTHING when
+ * that is unset (`expected_shop_unconfigured`). CI never set it, so every
+ * proxy-route integration test that expects success got 401. The tests had
+ * only passed where a developer's `.env` happened to name the dev store.
+ *
+ * Every proxy test file signs as `caratforus-dev.myshopify.com` (their own
+ * `const SHOP`), so the harness pins exactly that, overwriting `.env` for the
+ * same reason as the values below: test behaviour must not depend on local
+ * secrets. This configures the fence; it does not loosen it — a request
+ * signed as any other shop is still refused (proxy/verify.test.ts).
+ */
+process.env.SHOPIFY_SHOP_DOMAIN = "caratforus-dev.myshopify.com";
+
+/**
  * OBVIOUSLY-FAKE BANK PAYMENT COORDINATES, SET UNCONDITIONALLY.
  *
  * Group Buy Bank Payment checkout now fails closed with 503 when payment
