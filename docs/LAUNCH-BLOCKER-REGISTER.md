@@ -471,7 +471,7 @@ placeholders, international selectors, announcement copy.
 
 ---
 
-### 4.5 FAQ — pipeline proven, 3 of 38 entered (2026-10-25)
+### 4.5 FAQ — pipeline proven, 4 of 38 entered (2026-10-25)
 
 #### The definition already existed — no second one was created
 
@@ -541,8 +541,17 @@ done during a feature freeze.
 | Em dash preserved | 🟢 |
 | Escaped / raw rich-text artifacts | 🟢 none |
 
-**3 of 38 entered. 35 remain.** Nothing partial or corrupt was left behind;
-two attempts that timed out mid-form saved nothing.
+**4 of 38 entered. 33 remain to enter, 1 held back.** Group Buys sort keys
+1-4 are live and render in key order. Nothing partial or corrupt was left
+behind; every attempt that timed out mid-form saved nothing.
+
+**HELD BACK — "How does paying by bank work?"** (Payments, sort key 2). The
+2026-10-12 answer says payment instructions are emailed, which contradicts
+the live D12/D15 behaviour. It needs the later-approved sentence and must
+preserve the Buy Now vs Group Buy distinction: Buy Now is not confirmed and
+inventory is not committed until staff verify funds, whereas Group Buy
+creates the unpaid order immediately and counts it toward campaign
+progress. Owner-approved replacement copy required before entry.
 
 #### Why this is slow, and the faster path
 
