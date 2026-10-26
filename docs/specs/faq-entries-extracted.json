@@ -50,11 +50,11 @@
   {
     "question": "Why are there two prices?",
     "answer": [
-      "Paying by bank costs us less to accept, so we pass that through. The Bank Payment Price is what you pay using an eligible Bank Payment method, currently Zelle or domestic wire. The Regular/Card Price is what you pay by card. Both are shown before you order, and the product page tells you the exact dollar saving."
+      "Paying by bank costs us less to accept, so we pass that through. The Bank Payment Price is what you pay by Zelle or domestic bank wire. The Regular/Card Price is what you pay by card. Both are shown before you order, and the product page tells you the exact dollar saving."
     ],
     "category": "Pricing & Refunds",
     "sort_key": 1,
-    "approved": "owner 2026-10-26 — supersedes 2026-10-12 copy"
+    "approved": "owner 2026-10-26 (11:15 CT) — Claude proposal of 2026-10-25; supersedes the 00:17 2026-10-26 text and the 2026-10-12 copy"
   },
   {
     "question": "Does the Bank Payment Price apply to tax and shipping too?",
@@ -244,23 +244,22 @@
   {
     "question": "What can I pay with?",
     "answer": [
-      "You can pay by card, or use an eligible Bank Payment method for the Bank Payment Price. At launch, eligible Bank Payment methods are Zelle and domestic wire.",
-      "We do not accept personal checks, cashier’s checks, certified checks, money orders, or other paper payment methods."
+      "Cards, or a bank payment by Zelle or domestic bank wire, which qualifies for the Bank Payment Price. We cannot accept personal cheques, cashier's cheques, certified cheques or money orders."
     ],
     "category": "Payments",
     "sort_key": 1,
-    "approved": "owner 2026-10-26 — supersedes 2026-10-12 copy"
+    "approved": "owner 2026-10-26 (11:15 CT) — Claude proposal of 2026-10-25; supersedes the 00:17 2026-10-26 text and the 2026-10-12 copy"
   },
   {
     "question": "How does paying by bank work?",
     "answer": [
-      "Choose Bank Payment when you order. We’ll show you the exact amount and payment instructions on-screen, and we’ll also attempt to email you a copy. Nothing is charged when you submit the form.",
-      "For a Buy Now order, the order remains pending and inventory is not committed until we receive and verify your payment. For a Group Buy order, an unpaid order is created immediately and counts toward the campaign’s progress, subject to that campaign’s Bank Payment deadline and terms.",
-      "We’ll confirm when your payment has been received and verified."
+      "When you choose Bank Payment, your payment instructions appear on screen as soon as you submit: the exact amount, where to send it by Zelle or domestic bank wire, and the reference to include. We’ll also attempt to email you a copy.",
+      "For a Buy Now order, your Bank Payment Price is guaranteed for 24 hours. After that, your order stays open only while the price is unchanged. Your order is not confirmed and your items are not reserved until we have received and verified your payment.",
+      "For a Group Buy order, your order is placed straight away, counts toward the group’s progress, and your price is locked. You have 48 hours to send payment, with one automatic 48-hour extension. Your payment is not confirmed until we receive and verify it."
     ],
     "category": "Payments",
     "sort_key": 2,
-    "approved": "owner 2026-10-26 — supersedes 2026-10-12 copy"
+    "approved": "owner 2026-10-26 (11:15 CT) — Claude proposal of 2026-10-25; supersedes the 00:17 2026-10-26 text and the 2026-10-12 copy"
   },
   {
     "question": "Is my order confirmed as soon as I place it?",
