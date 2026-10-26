@@ -186,7 +186,7 @@ row below refers to **`caratforus.myshopify.com`**, live theme
 | S1 | Slice 12 policy theme files pushed | 🟢 DONE — **production** | Live on #187633434842, verified by pulling the live theme and diffing against the repo |
 | S2 | FAQ theme files pushed | 🟢 DONE — **production** | `templates/page.faq.json` and its section are live. (The earlier "never pushed" claim was stale: the theme had already been pushed to production.) The FAQ page still renders nothing until S4/N5 supply entries — that is a content gap, not a theme gap |
 | S3 | Slice 13 theme files pushed | 🟢 DONE — **production** | `templates/page.past-group-buys.json` and its section are live. **D12/D15 theme files are also live**, pushed 2026-10-25: 5 new files (`page.bank-payment-orders.json`, `sections/bank-payment-orders.liquid`, its JS and CSS, `snippets/group-buy-bank-payment-form.liquid`) and 8 modified. `config/settings_data.json` was deliberately NOT pushed — it holds theme-editor state |
-| S4 | `faq_entry` metaobject definition | 🔴 BLOCKER — next up | Exact handles in `docs/specs/SLICE-12-CONTENT.md` §4.2. A wrong field key renders blank entries with no error anywhere |
+| S4 | `faq_entry` metaobject definition | 🟢 DONE — **it already existed** | Verified in Admin 2026-10-25: type `faq_entry`, keys `question`/`answer`/`category`/`sort_key`, all matching §4.2. No second definition was created. See §4.5 |
 | S5 | `carat.faq_entries` product metafield | 🟡 PARTIAL (optional for launch) | `product-faq.liquid` is implemented but deliberately unwired pending an owner decision on PDP placement |
 | S6 | A `past-group-buys` page using the new template | 🟢 DONE — **production** | `/pages/past-group-buys` returns 200 on the live storefront. The page already exists; the earlier "must be created" claim was stale |
 | S7 | Policy pages published | 🟡 PARTIAL — **they are published; the bodies are the gap** | **Correction 2026-10-25:** the policy pages are live and Visible under their own handles — `/pages/warranty` and `/pages/returns-and-cancellations` both return 200. An earlier probe used `policy-*` handles (the TEMPLATE names) and wrongly concluded the pages were unpublished. They are safe to link from the footer. What is still missing is their **content** (N2) |
@@ -468,6 +468,95 @@ hiding it with CSS. Permitted on a paid plan.
 
 Not re-enabled, per instruction: newsletter, payment icons, social
 placeholders, international selectors, announcement copy.
+
+---
+
+### 4.5 FAQ — pipeline proven, 3 of 38 entered (2026-10-25)
+
+#### The definition already existed — no second one was created
+
+`faq_entry` was already present (created by Shopify Web, 0 entries). Its
+type handle and all four field keys match `SLICE-12-CONTENT.md` §4.2:
+`question` (single line), `answer` (rich text), `category` (single line),
+`sort_key` (integer). Verified in Admin, not assumed.
+
+#### Source extraction — 38 entries, corrected categorisation
+
+Parsed from `SLICE-12-FAQ-COPY-PROPOSAL.md` (owner-approved 2026-10-12),
+excluding the ⚠️ owner-commentary blockquotes and the `*(source)*`
+citations, which are notes rather than customer copy.
+
+**The markdown omits the `## 2. Pricing & Refunds` heading** — confirmed by
+the owner, and `faqCopyConsistency.test.ts` line 407 already expects that
+heading to exist. Three questions therefore fall under Group Buys in the
+raw file and were recategorised: *Why are there two prices?*, *Does the
+Bank Payment Price apply to tax and shipping too?*, *When do I get a refund,
+and how long does it take?*
+
+Resulting counts — 38 total across the ten core categories plus the
+supplemental **Contacting us**:
+
+| Category | Entries |
+|---|---|
+| Group Buys | 6 |
+| Pricing & Refunds | 3 |
+| Production & Delivery | 2 |
+| Materials & Stones | 2 |
+| Ring Sizing | 3 |
+| Custom Jewelry | 3 |
+| Warranty & Repairs | 5 |
+| Returns & Cancellations | 5 |
+| Payments | 4 |
+| Shipping & Insurance | 4 |
+| Contacting us | 1 |
+
+#### Sort keys — why every entry gets one
+
+`snippets/faq-list.liquid` sorts keyed entries first, then unkeyed ones in
+"natural order", and `sections/faq.liquid` states plainly that Shopify
+returns metaobjects **in an unspecified order**. So leaving keys off cannot
+preserve the approved ordering, and keying only some entries would promote
+those above the rest.
+
+Every entry therefore gets a key, numbered **sequentially within its
+category in document order**. That is the documented field used for its
+documented purpose, not an invented convention.
+
+⚠️ **A limitation worth knowing: CATEGORY order is still not guaranteed.**
+`faq.liquid` derives the category sequence from first appearance while
+iterating that same unspecified-order collection. Entries are being created
+in document order so that first-appearance matches the approved sequence in
+practice, but nothing in the theme enforces it. Fixing that properly would
+mean a category-ordering mechanism, which is engineering and is **not** being
+done during a feature freeze.
+
+#### Verified in production
+
+| Check | Result |
+|---|---|
+| `/pages/faq` renders entries | 🟢 yes |
+| Category grouping | 🟢 "Group Buys" heading groups them |
+| **Sort-key ordering** | 🟢 renders 1, 2, 3 in key order — the mechanism works |
+| Answer body renders | 🟢 |
+| Em dash preserved | 🟢 |
+| Escaped / raw rich-text artifacts | 🟢 none |
+
+**3 of 38 entered. 35 remain.** Nothing partial or corrupt was left behind;
+two attempts that timed out mid-form saved nothing.
+
+#### Why this is slow, and the faster path
+
+Each entry needs two or three browser round trips — the Answer field opens
+a modal needing its own click, the Sidekick panel has twice swallowed the
+Question text, and longer batches now time out as the Admin UI struggles.
+The failure mode is the problem rather than the pace: a swallowed question
+or missed category renders **silently** as a blank or ungrouped entry.
+
+`shopify store auth` + `shopify store execute` would create all 38 with
+`metaobjectCreate` mutations — exact text, exact keys, no focus races — and
+allow reading all 38 back in one query to verify count, categories,
+ordering, duplicates and blanks properly. It needs one interactive browser
+approval the owner must give.
 
 ---
 

@@ -1,0 +1,315 @@
+[
+  {
+    "question": "What is a Group Buy?",
+    "answer": [
+      "A Group Buy is one piece, offered to a group at a price that falls as more people join. Each campaign has tiers: when enough units are ordered, the next tier unlocks and everyone in that campaign gets the better price — including people who ordered earlier."
+    ],
+    "category": "Group Buys",
+    "sort_key": 1
+  },
+  {
+    "question": "If the price drops after I order, do I pay the lower price?",
+    "answer": [
+      "Yes. When the campaign closes, every paid order gets the final unlocked tier price. If you paid more than that, we calculate the difference and refund it to the payment method you used. Refunds are reviewed and approved by our team before they go out, so they are not instant."
+    ],
+    "category": "Group Buys",
+    "sort_key": 2
+  },
+  {
+    "question": "Can the price go back up, or the count go down?",
+    "answer": [
+      "No. Once a tier unlocks it stays unlocked. If someone later cancels or does not pay, the published count does not fall and nobody gets repriced upward because of it."
+    ],
+    "category": "Group Buys",
+    "sort_key": 3
+  },
+  {
+    "question": "Can I cancel a Group Buy order?",
+    "answer": [
+      "Before the campaign closes, cancellation needs our approval — ask us. Once the campaign closes, the order is committed and there is no discretionary cancellation. Defects, wrong specifications, shipping damage, warranty matters and fulfilment failures are handled separately and are not affected by this."
+    ],
+    "category": "Group Buys",
+    "sort_key": 4
+  },
+  {
+    "question": "I chose Bank Payment. How long do I have to pay?",
+    "answer": [
+      "You have 48 hours, plus one automatic 48-hour extension. After 96 hours an unpaid order may be set aside internally — your order still counts toward the campaign's published progress. While the campaign is still open you can email us to reactivate the same order at the price you originally locked in. After the campaign closes, reactivation is at our discretion."
+    ],
+    "category": "Group Buys",
+    "sort_key": 5
+  },
+  {
+    "question": "When will a Group Buy piece be made?",
+    "answer": [
+      "Each Group Buy campaign states its own timeline, and that campaign's terms control. Production follows the terms stated for that campaign."
+    ],
+    "category": "Group Buys",
+    "sort_key": 6
+  },
+  {
+    "question": "Why are there two prices?",
+    "answer": [
+      "Paying by bank costs us less to accept, so we pass that through. The Bank Payment Price is what you pay with Zelle, ACH, a bank transfer or a wire. The Regular/Card Price is what you pay by card. Both are shown before you order, and the product page tells you the exact dollar saving."
+    ],
+    "category": "Pricing & Refunds",
+    "sort_key": 1
+  },
+  {
+    "question": "Does the Bank Payment Price apply to tax and shipping too?",
+    "answer": [
+      "No — it applies to the merchandise. Tax, shipping, duties and other charges are not part of the saving."
+    ],
+    "category": "Pricing & Refunds",
+    "sort_key": 2
+  },
+  {
+    "question": "When do I get a refund, and how long does it take?",
+    "answer": [
+      "Refunds go back to the way you paid. A Group Buy tier-adjustment refund is calculated automatically but approved by a person before it is sent.",
+      "Once an eligible return has been received, inspected when required, and approved, CaratForUs will initiate the approved refund within 5 business days. Your bank or payment provider may take additional time to post the funds to your account. Refund eligibility and amount remain governed by the applicable return policy."
+    ],
+    "category": "Pricing & Refunds",
+    "sort_key": 3
+  },
+  {
+    "question": "How long will my piece take?",
+    "answer": [
+      "Production time varies by piece. If an estimated production or delivery timeframe is provided on a product page, campaign page, or custom-order approval, it is an estimate rather than a guaranteed delivery date. Shipping transit time begins after production is complete.",
+      "Once your order ships, we'll send tracking information. Unless CaratForUs expressly states otherwise in writing, production and delivery dates are estimates and are not guaranteed."
+    ],
+    "category": "Production & Delivery",
+    "sort_key": 1
+  },
+  {
+    "question": "How do I know where my order is?",
+    "answer": [
+      "Every shipment has tracking, and we send it to you."
+    ],
+    "category": "Production & Delivery",
+    "sort_key": 2
+  },
+  {
+    "question": "What are CaratForUs pieces made from?",
+    "answer": [
+      "The materials and stones used in each piece are identified on the product page or, for Custom Jewelry, in the final design and specification package. Where applicable, we disclose the metal type and purity, gemstone type, and whether a diamond is natural or lab-grown. We source from multiple suppliers, so origin can vary by item. If an independent grading report, certification, treatment, sourcing statement, or specific origin applies to a piece, it will be stated for that item."
+    ],
+    "category": "Materials & Stones",
+    "sort_key": 1
+  },
+  {
+    "question": "Are the product images photographs of the actual item?",
+    "answer": [
+      "We label every image for what it is: a CAD render, an actual photograph, or an AI visualisation. Where an image is not a photograph of the exact item you will receive, it says so."
+    ],
+    "category": "Materials & Stones",
+    "sort_key": 2
+  },
+  {
+    "question": "How do I find my ring size?",
+    "answer": [
+      "Use our ring size guide. If you are between sizes or unsure, ask us before ordering — it is much easier to get the size right the first time than to change it afterwards."
+    ],
+    "category": "Ring Sizing",
+    "sort_key": 1
+  },
+  {
+    "question": "Can I return or exchange a ring that does not fit?",
+    "answer": [
+      "For a Buy Now purchase, a size or fit problem is a discretionary return and follows the Returns policy, including the time limits there. But a ring that has been resized, engraved, or otherwise altered after delivery is not eligible for a discretionary return. Custom Jewelry and Luxury Steals have their own rules — see those sections."
+    ],
+    "category": "Ring Sizing",
+    "sort_key": 2
+  },
+  {
+    "question": "Can you resize a ring I already bought?",
+    "answer": [
+      "Many rings can be resized, but some designs cannot be safely resized or have limited sizing ranges. Contact CaratForUs before having sizing work performed so we can confirm whether your ring is eligible and whether any charge applies. Resizing itself is not a manufacturing defect. Damage caused by unauthorized third-party resizing, repair, alteration, or modification is not covered by the limited warranty. Work performed or expressly authorized by CaratForUs does not automatically void the rest of the warranty."
+    ],
+    "category": "Ring Sizing",
+    "sort_key": 3
+  },
+  {
+    "question": "How does a custom piece work?",
+    "answer": [
+      "Tell us what you have in mind and we will talk it through by email. When we are ready to start real design work we charge a $49 Design Deposit, which comes off your final price. You approve the final design and specifications on a page we build for you, and then you buy it."
+    ],
+    "category": "Custom Jewelry",
+    "sort_key": 1
+  },
+  {
+    "question": "Is the $49 Design Deposit refundable?",
+    "answer": [
+      "If we finish the agreed design stage and you decide not to go ahead, we refund the $49, no questions asked. If you stop the process before that stage is finished, a refund is not automatic and depends on the work already done."
+    ],
+    "category": "Custom Jewelry",
+    "sort_key": 2
+  },
+  {
+    "question": "Can I change my mind after approving the design?",
+    "answer": [
+      "Once you have approved the final design and specifications and bought the piece, the order is final sale — except for covered defects, incorrect specifications, shipping damage, or the piece materially not matching the design and specifications you approved."
+    ],
+    "category": "Custom Jewelry",
+    "sort_key": 3
+  },
+  {
+    "question": "What does the warranty cover?",
+    "answer": [
+      "Every CaratForUs piece carries a 1-year limited manufacturing warranty covering qualifying defects in materials, construction, setting or assembly under normal use. Examples may include defective solder joints, structural workmanship failures, setting defects, and defective clasps or mechanisms under normal use."
+    ],
+    "category": "Warranty & Repairs",
+    "sort_key": 1
+  },
+  {
+    "question": "What is not covered?",
+    "answer": [
+      "Normal wear, scratches, dents, impact damage, prongs bent or worn through use, stone loss caused by damage or wear, misuse, improper care, sizing changes, repairs or modifications by anyone else, and loss or theft."
+    ],
+    "category": "Warranty & Repairs",
+    "sort_key": 2
+  },
+  {
+    "question": "How do I make a claim?",
+    "answer": [
+      "Use the warranty claim form and tell us what happened, with photos. **Do not send us the item yet** — we review the claim first and tell you whether to send it in for inspection. If we do authorise an inspection, you pay to ship it to us, tracked and insured for its value, following the instructions we give you.",
+      "Authorising an inspection does not mean we have decided the issue is covered. We decide that after we have the piece in hand."
+    ],
+    "category": "Warranty & Repairs",
+    "sort_key": 3
+  },
+  {
+    "question": "What happens if my claim is covered?",
+    "answer": [
+      "We decide the right resolution — repair, replacement, refund, or something else appropriate to the situation."
+    ],
+    "category": "Warranty & Repairs",
+    "sort_key": 4
+  },
+  {
+    "question": "My item was final sale. Can I still claim?",
+    "answer": [
+      "Yes. Final sale means you cannot return something because you changed your mind. It does not remove the warranty, and it does not affect a defect, wrong item, shipping damage or not-as-described claim."
+    ],
+    "category": "Warranty & Repairs",
+    "sort_key": 5
+  },
+  {
+    "question": "Can I return a Buy Now purchase?",
+    "answer": [
+      "Yes, within limits, and you need an approved RMA first — do not send anything back before we approve it.",
+      "**Within 7 days of delivery:** request an RMA and get it back to us by day 14 after delivery. If it passes inspection, we refund the merchandise to your original payment method.",
+      "**Days 8 to 30:** you choose either a refund to your original payment method with a 50% restocking fee, or 100% merchandise credit. Once we approve it, we need the item within 10 days.",
+      "**After day 30:** no discretionary return.",
+      "The clock starts on the carrier-confirmed delivery date, not your order date."
+    ],
+    "category": "Returns & Cancellations",
+    "sort_key": 1
+  },
+  {
+    "question": "Who pays return shipping?",
+    "answer": [
+      "You do, and the return must be tracked and insured for the value of what you are sending. We do not provide a prepaid return label for a discretionary return, and the item is your risk until it reaches us.",
+      "If the problem is a defect, the wrong item, shipping damage, or the piece not matching its description, that is a different process — tell us and we will handle it under that claim instead."
+    ],
+    "category": "Returns & Cancellations",
+    "sort_key": 2
+  },
+  {
+    "question": "What cannot be returned?",
+    "answer": [
+      "Anything engraved, resized, altered or personalised after delivery. Anything worn beyond trying it on, damaged, or missing its original packaging, certificates or documentation. Luxury Steals, which are final sale. Custom Jewelry once you have approved the design."
+    ],
+    "category": "Returns & Cancellations",
+    "sort_key": 3
+  },
+  {
+    "question": "Will I get the shipping I paid back?",
+    "answer": [
+      "Expedited or optional shipping you paid for separately is not refunded on a discretionary return. If the return is because we got something wrong, that is handled under that claim instead."
+    ],
+    "category": "Returns & Cancellations",
+    "sort_key": 4
+  },
+  {
+    "question": "Are Luxury Steals really final sale?",
+    "answer": [
+      "Yes. Luxury Steals cannot be returned or exchanged because you changed your mind, chose the wrong size, or prefer something else, and there is no merchandise credit for those reasons either.",
+      "That is the only thing final sale means. If the item is defective, is not what you ordered, arrives damaged, is materially not as described, or has a warranty issue, those are all handled normally."
+    ],
+    "category": "Returns & Cancellations",
+    "sort_key": 5
+  },
+  {
+    "question": "What can I pay with?",
+    "answer": [
+      "Cards, or one of the bank methods that qualify for the Bank Payment Price: Zelle, ACH, bank transfer or wire. We cannot accept personal cheques, cashier's cheques, certified cheques or money orders."
+    ],
+    "category": "Payments",
+    "sort_key": 1
+  },
+  {
+    "question": "How does paying by bank work?",
+    "answer": [
+      "You place the order and we email you payment instructions with the exact amount and where to send it. Your order is not confirmed until we have received and verified the payment. For a Buy Now order, stock is not held for you before then."
+    ],
+    "category": "Payments",
+    "sort_key": 2
+  },
+  {
+    "question": "Is my order confirmed as soon as I place it?",
+    "answer": [
+      "If you paid by card, yes. If you are paying by bank, the order is open but not guaranteed until the money arrives and we verify it — we will tell you when that happens."
+    ],
+    "category": "Payments",
+    "sort_key": 3
+  },
+  {
+    "question": "Do you store my card details?",
+    "answer": [
+      "No. Card payments are handled by Shopify's checkout; we never see or store your full card details."
+    ],
+    "category": "Payments",
+    "sort_key": 4
+  },
+  {
+    "question": "Is my order insured?",
+    "answer": [
+      "Yes. Every outbound shipment is tracked and insured."
+    ],
+    "category": "Shipping & Insurance",
+    "sort_key": 1
+  },
+  {
+    "question": "Will I have to sign for it?",
+    "answer": [
+      "If the shipment is worth more than $100, yes — signature confirmation is required and it cannot be waived. At $100 or less it may ship without one."
+    ],
+    "category": "Shipping & Insurance",
+    "sort_key": 2
+  },
+  {
+    "question": "Can I change my delivery address after ordering?",
+    "answer": [
+      "Ask us as soon as possible. We ship to the address approved at checkout unless a change is reviewed and recorded, and we cannot always make a change before a parcel leaves."
+    ],
+    "category": "Shipping & Insurance",
+    "sort_key": 3
+  },
+  {
+    "question": "Where do you ship, and do I pay duties?",
+    "answer": [
+      "CaratForUs currently ships within the 50 United States and Washington, D.C. We do not currently offer international shipping. Because our current shipping program is domestic, international customs duties and import fees do not apply. Applicable sales tax, when required, is calculated during checkout."
+    ],
+    "category": "Shipping & Insurance",
+    "sort_key": 4
+  },
+  {
+    "question": "How do I get in touch?",
+    "answer": [
+      "Need help? Contact CaratForUs through our Contact Us form or email us at orders@caratforus.com. For an existing order, claim, return, Group Buy, or Custom Jewelry project, please include the applicable order or reference number so we can locate it."
+    ],
+    "category": "Contacting us",
+    "sort_key": 1
+  }
+]
