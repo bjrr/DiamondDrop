@@ -9,14 +9,14 @@
   ============================================================================
   CATEGORIES COME FROM THE CONTENT, NOT FROM THIS FILE
   ============================================================================
-  The ten README categories are NOT hardcoded here. Groups are derived from
-  the `category` field of whatever entries exist, so adding or renaming a
-  category is an Admin content change rather than a theme edit — the same
-  principle as `policy-terms.liquid` taking its groups from the registry
-  rather than the template.
+  Groups are derived from the `category` field of whatever entries exist.
+  An entry filed under a category this file does not list STILL APPEARS —
+  a list used as a filter would make such entries silently vanish.
 
-  A hardcoded list would also create a silent failure: an entry filed under a
-  category the theme does not know would simply never appear.
+  The approved category ORDER (owner decision 2026-10-25, defect F2) is the
+  one thing fixed here, because first-appearance order over Shopify's
+  unspecified-order collection rendered a different order in production.
+  The list orders; it never filters. See the F2 comment below.
 
   ============================================================================
   NO CONTENT, NO EMPTY SHELL
@@ -28,10 +28,9 @@
 
   THE ORDERING PROBLEM, STATED. Shopify's `shop.metaobjects` returns entries
   in an unspecified order, and Liquid cannot group without materialising the
-  category list first. So this walks the distinct categories in the order
-  they first appear, then filters per category — O(categories x entries),
-  which is fine for an FAQ and avoids inventing a category ordering nobody
-  asked for.
+  category list first. So: approved categories first, in the approved order;
+  then any other category in first-appearance order; then uncategorised —
+  O(categories x entries), which is fine for an FAQ.
 {%- endcomment -%}
 
 {%- style -%}
@@ -67,7 +66,7 @@
         <div class="carat-faq__intro rte">{{ section.settings.intro }}</div>
       {%- endif -%}
 
-      {%- comment -%} Distinct categories, in first-appearance order. {%- endcomment -%}
+      {%- comment -%} Distinct categories, in first-appearance order (used for categories outside the approved list). {%- endcomment -%}
       {%- assign seen_categories = '' -%}
       {%- for entry in all_entries -%}
         {%- assign this_category = entry.category | default: '' -%}
@@ -79,16 +78,45 @@
         {%- endif -%}
       {%- endfor -%}
 
-      {%- assign category_list = seen_categories | split: '|' -%}
-      {%- for category in category_list -%}
-        {%- if category != blank -%}
-          {%- assign bucket = all_entries | where: 'category', category -%}
+      {%- comment -%}
+        F2 (2026-10-25, owner-approved): CATEGORY ORDER IS FIXED HERE.
+        First-appearance order over an unspecified-order collection rendered
+        the categories in a different order from the approved copy in
+        production. The approved categories render first, in this exact
+        order; any OTHER nonblank category still renders afterwards (in
+        first-appearance order), so a new category is never silently
+        dropped; uncategorised entries render last, as before. Question
+        order inside each category stays with `sort_key` (faq-list).
+      {%- endcomment -%}
+      {%- assign approved_order = 'Group Buys|Pricing & Refunds|Production & Delivery|Materials & Stones|Ring Sizing|Custom Jewelry|Warranty & Repairs|Returns & Cancellations|Payments|Shipping & Insurance|Contacting us' -%}
+      {%- assign approved_needles = '|' | append: approved_order | append: '|' -%}
+      {%- assign approved_list = approved_order | split: '|' -%}
+
+      {%- for category in approved_list -%}
+        {%- assign bucket = all_entries | where: 'category', category -%}
+        {%- if bucket.size > 0 -%}
           {%- render 'faq-list',
             entries: bucket,
             heading: category,
             heading_size: 'h2',
             show_category: false
           -%}
+        {%- endif -%}
+      {%- endfor -%}
+
+      {%- assign category_list = seen_categories | split: '|' -%}
+      {%- for category in category_list -%}
+        {%- if category != blank -%}
+          {%- assign needle = '|' | append: category | append: '|' -%}
+          {%- unless approved_needles contains needle -%}
+            {%- assign bucket = all_entries | where: 'category', category -%}
+            {%- render 'faq-list',
+              entries: bucket,
+              heading: category,
+              heading_size: 'h2',
+              show_category: false
+            -%}
+          {%- endunless -%}
         {%- endif -%}
       {%- endfor -%}
 
