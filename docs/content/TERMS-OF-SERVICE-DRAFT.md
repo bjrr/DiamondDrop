@@ -289,18 +289,28 @@ summarise them without contradicting them. Section 5 was drafted directly
 from the Group Buy and Buy Now Bank Payment mechanics and does not contradict
 them.
 
-### B. One apparent narrowing, which I do not think is a conflict
+### B. The apparent narrowing — RESOLVED, owner confirmed 2026-10-26
 
-`CLAUDE.md` §14 permits **Zelle, ACH, bank transfer and wire** as eligible
-electronic Bank Payment methods. The owner-approved FAQ copy of 2026-10-26
-says **"At launch, eligible Bank Payment methods are Zelle and domestic
-wire."**
+`CLAUDE.md` §14 lists **Zelle, ACH, bank transfer and wire**. The
+owner-approved FAQ copy says **Zelle and domestic wire**. These are not in
+conflict, and the owner has confirmed the reading:
 
-These are consistent: the first defines the permitted *category* (electronic
-only, no paper), the second states the narrower *launch subset*. The draft
-follows the launch subset and says the list may change. **Confirm that ACH is
-genuinely not available at launch** — if it is, Section 3 and the FAQ both
-need to say so.
+- **Eligible / configurable family:** Zelle, ACH, bank transfer, wire.
+  This is the policy ceiling, not an offer.
+- **MVP1 enabled:** **Zelle and domestic wire only.**
+- ACH and generic bank transfer stay **disabled** unless a later owner
+  decision enables them.
+- **Customer-facing copy names only the enabled methods.**
+
+`CLAUDE.md` §14 now states this distinction directly, and
+`app/app/theme/enabledBankPaymentMethodsFence.test.ts` pins it.
+
+**Two live surfaces were wrong and were corrected** — the homepage "Pay by
+bank" block and the Group Buy campaign price note both advertised ACH and
+bank transfer. Pricing logic, the `BANK_PAYMENT_METHODS` domain enum and the
+admin verification form were deliberately left alone: the narrower subset is
+a presentation constraint, and admin must still be able to record whichever
+method a payment actually arrived by.
 
 ### C. Facts the Terms cannot be published without
 

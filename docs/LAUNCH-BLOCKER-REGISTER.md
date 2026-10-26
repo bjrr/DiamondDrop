@@ -175,6 +175,88 @@ which exist but stay unpublished pending N2.
 
 ---
 
+### 3.2 Terms and Privacy — drafts complete, deliberately unpublished (2026-10-26)
+
+Owner commissioned five deliverables; all five are in the repo. **Neither
+legal document is published, and neither may be until its remaining
+`[COUNSEL]` items are resolved.**
+
+| Deliverable | Where | State |
+|---|---|---|
+| Draft Terms of Service | `docs/content/TERMS-OF-SERVICE-DRAFT.md` | 🟡 Draft, unpublished |
+| Draft revised Privacy Policy | `docs/content/PRIVACY-POLICY-DRAFT.md` | 🟡 Draft, unpublished |
+| Verified provider inventory | `docs/content/LAUNCH-DATA-INVENTORY.md` Part A | 🟢 Done |
+| Append-only PII/retention inventory | `docs/content/LAUNCH-DATA-INVENTORY.md` Part B | 🟢 Done |
+| Points requiring counsel | `docs/content/LAUNCH-DATA-INVENTORY.md` Part C | 🟢 Done |
+
+**Three findings that changed what the policy may say.**
+
+1. 🔴 **We do not collect IP addresses or user agents.** Earlier copy
+   (`MVP1-STOREFRONT-COPY.md` Part 5) said acknowledgments retain both.
+   Production holds **23 acknowledgments, 0 with either**. The columns
+   exist and no route populates them. Publishing the old claim would have
+   disclosed a practice we do not have.
+2. ⚠️ **Object storage is Cloudflare R2, not AWS S3.** The code imports
+   `@aws-sdk/client-s3` — that is the S3-compatible client, and the live
+   endpoint is `…r2.cloudflarestorage.com`.
+3. ⚠️ **Shopify Payments must not be described as active.**
+   `supportedDigitalWallets` lists platform capability, not activation.
+   Still open as **C7**.
+
+**Verified provider list — exactly four:** Shopify, Fly.io (app *and*
+database), Resend (transactional email only), Cloudflare R2 (uploads).
+**No analytics, advertising or tracking pixels anywhere in the theme.**
+
+**Not drafted, on purpose:** limitation of liability and the warranty
+disclaimer beyond the express 1-year warranty. Owner instruction, and the
+right call — wrong liability language is worse than none.
+
+**Still missing before publication:** registered legal entity name, type
+and mailing address; effective date.
+
+---
+
+### 3.3 🔴 The authorized phone-sentence fix is BLOCKED on scope (2026-10-26)
+
+Owner authorized the discrete correction of *"please call  or email us at
+orders@caratforus.com"* immediately. **It is not yet applied.**
+
+**Why.** The Privacy Policy is a Shopify *shop policy*, not a repo file and
+not a page. Writing it needs `write_legal_policies`, and:
+
+- the **production runtime app** holds no policy scope, and widening it is
+  **forbidden** (owner instruction) — its scopes stop at
+  `write_merchant_managed_fulfillment_orders`;
+- the **dedicated content-admin app** holds `read_metaobjects` /
+  `write_metaobjects` only;
+- the **Shopify Admin UI is unusable** — three consecutive screenshot
+  attempts timed out on `/settings/legal`, the same instability seen during
+  the FAQ work. Owner has since ruled it out for this change.
+
+**The script is written and proven:**
+`app/scripts/privacy-policy-contact-fix.cjs`.
+
+It verifies shop name + canonical domain + Shop GID, reads the live
+`PRIVACY_POLICY`, confirms the broken phrase exists, applies **one** regex
+to **one** sentence, and then refuses to write unless the text outside that
+sentence is **byte-identical**. It never holds a copy of the intended
+policy body, so its worst case is declining to run rather than silently
+rewriting a legal document. Dry-run is the default; `--commit` is required.
+Offline simulation covers the double-space, `&nbsp;`, single-space and
+newline variants, and correctly **refuses** if the text is already fixed.
+
+**Two things the owner must supply before it can run:**
+
+1. Temporarily add **`write_legal_policies`** to the content-admin app
+   (that app only — **not** the runtime app).
+2. Set `CARATFORUS_CONTENT_ADMIN_TOKEN` in the environment. Shell state does
+   not persist between sessions, so the earlier value is gone.
+
+**Afterwards: revoke `write_legal_policies` again.** The script prints that
+reminder on success.
+
+---
+
 ## 4. Shopify Admin setup
 
 C2 is resolved, so nothing here is blocked by the store any more. Every
@@ -591,6 +673,86 @@ All 37 questions render on `/pages/faq`, behind the store password. Within each 
 - **Approved:** Group Buys first … Contacting us last.
 - **Cause:** `faq.liquid` orders categories by first appearance in a collection Shopify returns in unspecified order. This is the limitation noted above, now visible.
 - **Status:** reported, **not fixed**. The fix needs a category-ordering mechanism (engineering) and an owner decision.
+
+### 4.6 🔴 PRE-LAUNCH GATE — `shipment_address_change_event` must not start accumulating
+
+**Owner decision 2026-10-26. This is a gate, not a note.**
+
+Of the 30 append-only tables, **exactly one stores a customer's postal
+address directly**: `shipment_address_change_event` holds full from/to
+address line 1 and 2, city, region, postal code and country, in a table
+where `UPDATE` and `DELETE` are both blocked by trigger.
+
+**Production count today: 0.** That is the whole reason this is still
+cheap. The moment real orders start shipping and addresses get corrected,
+immutable postal addresses begin accumulating in a table we cannot delete
+from — and the retention design gets chosen for us by accident.
+
+**The gate:** do not allow production to begin writing rows to this table
+until the retention design is explicitly chosen.
+
+Three options, none taken (no schema change is authorized):
+
+1. Rely on the retention exception — it is genuine dispute and fulfilment
+   evidence.
+2. Add a **redaction path** that writes a *new* superseding event marking
+   the original redacted. Consistent with append-only; the original row
+   survives, the identifying content stops being readable.
+3. **Narrow what the event stores** — a change-indicator or hash rather
+   than full addresses.
+
+**A `no_delete` trigger is not by itself a legal basis for retention.**
+That point is now stated in the privacy draft and must survive review.
+
+Detail and reasoning: `docs/content/LAUNCH-DATA-INVENTORY.md` §B4.
+
+---
+
+### 4.7 Bank Payment methods — eligible ≠ enabled (clarified 2026-10-26)
+
+A real customer-facing defect, found while drafting the Terms.
+
+| List | Methods |
+|---|---|
+| **Eligible / configurable family** (`CLAUDE.md` §14) | Zelle, ACH, bank transfer, wire |
+| **MVP1 ENABLED** (owner 2026-09-29, reconfirmed 2026-10-26) | **Zelle and domestic wire ONLY** |
+
+ACH and generic bank transfer stay **disabled** unless a later owner
+decision enables them. **Customer-facing copy may name only enabled
+methods** — telling someone a method qualifies when it is switched off is a
+material pricing misstatement, because the Bank Payment Price is contingent
+on paying by an enabled method.
+
+**The backend was already correct.** `bankPaymentCoordinates.server.ts`
+exposes two methods, and `groupBuyPaymentInstructionsEmail.test.ts` already
+asserted the email never says "ach" or "bank transfer".
+
+**The theme was not.** Two live surfaces advertised disabled methods:
+
+- `theme/templates/index.json` — homepage "Pay by bank" block:
+  *"Zelle, ACH, bank transfer and wire all qualify"*
+- `theme/assets/group-buy-campaign.js` — campaign price note:
+  *"Available with Zelle, bank transfer, ACH, or wire"*
+
+**Both corrected**, and pinned by a new fence,
+`app/app/theme/enabledBankPaymentMethodsFence.test.ts` (3 tests, green). It
+scans the shipped theme rather than a constant, because the defect was copy
+written straight into a template where backend discipline could not reach
+it. The fence also asserts the two *enabled* methods still appear, so it
+cannot be satisfied by saying nothing.
+
+**Deliberately unchanged:** pricing logic, the `BANK_PAYMENT_METHODS`
+domain enum, and the admin verification form. The narrower subset is a
+presentation and configuration constraint; admin must still be able to
+record whichever method a payment actually arrived by.
+
+⚠️ **These two fixes are in the repo, not yet on the live theme.** Both
+files are theme assets, so they take effect only once the theme is pushed
+to production. The store is still password-protected, so nobody has seen
+the wrong copy — but **this must be pushed before the password comes off**,
+and the homepage block should be re-read on the live storefront afterwards.
+
+---
 
 ## 5. Deployment and operations
 

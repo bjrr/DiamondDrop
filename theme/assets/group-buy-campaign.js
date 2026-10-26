@@ -350,7 +350,10 @@
         el(
           "p",
           "carat-gb-campaign__price-note",
-          "Available with Zelle, bank transfer, ACH, or wire. Contact us to arrange payment."
+          // MVP1 ENABLED METHODS ONLY. The locked policy permits a wider family
+          // (ACH, generic bank transfer), but only Zelle and domestic wire are
+          // enabled at launch, so only those may be named to a customer.
+          "Available with Zelle or domestic wire. Contact us to arrange payment."
         )
       );
     } else {

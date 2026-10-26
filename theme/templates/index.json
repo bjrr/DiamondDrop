@@ -149,7 +149,7 @@
         "body": {
           "type": "text",
           "settings": {
-            "text": "<p>When you pay by bank instead of card, the price is lower — because our costs are, and we pass that through rather than keeping it. Zelle, ACH, bank transfer and wire all qualify. You see both prices before you commit, and nothing is charged when you choose bank payment: we show you where to send it, and your order is not confirmed until the funds arrive and we verify them.</p>"
+            "text": "<p>When you pay by bank instead of card, the price is lower — because our costs are, and we pass that through rather than keeping it. Zelle and domestic wire both qualify. You see both prices before you commit, and nothing is charged when you choose bank payment: we show you where to send it, and your order is not confirmed until the funds arrive and we verify them.</p>"
           }
         },
         "actions": {
