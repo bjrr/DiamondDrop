@@ -121,7 +121,7 @@ should be cleared before launch.
 | N2 | Policy page bodies are empty | 🔴 BLOCKER | Drafts written — `MVP1-STOREFRONT-COPY.md` Part 1 |
 | N3 | About page copy | 🔴 BLOCKER | Draft written; needs 2–3 sentences only the owner has |
 | N4 | Why Buy From Us copy | 🔴 BLOCKER | Draft written and grounded in README + locked pricing policy |
-| N5 | FAQ entries | 🔴 BLOCKER — **content is ready, publication is not** | The copy is **owner-approved**: `docs/specs/SLICE-12-FAQ-COPY-PROPOSAL.md`, approved 2026-10-12, 38 entries across ten categories, with material terms quoted rather than paraphrased. What is missing is the `faq_entry` metaobject definition and the entries themselves in Admin, so `/pages/faq` renders nothing. This is a data-entry task, not a writing task |
+| N5 | FAQ entries | 🔴 BLOCKER — **37/38 loaded and verified in Shopify; answers render as raw JSON (F1)** | Loaded 2026-10-25 via the Shopify integration, verified mechanically against `docs/specs/faq-entries-extracted.json`; see §4.5. Remaining: (1) **F1**, a one-line theme fix (`metafield_tag`) awaiting a live-theme push; (2) **held** "How does paying by bank work?", stale after D12/D15 and needing owner-approved copy; (3) **F2**, category order not the approved order (owner decision). |
 | N6 | Contact mailbox | 🟢 DONE | `orders@caratforus.com`, owner-confirmed, fenced repo-wide. `CUSTOMER_SERVICE_EMAIL` is deliberately *not* a Fly secret — nothing reads it at runtime. Do not set it |
 
 ---
@@ -471,7 +471,7 @@ placeholders, international selectors, announcement copy.
 
 ---
 
-### 4.5 FAQ — pipeline proven, 4 of 38 entered (2026-10-25)
+### 4.5 FAQ — 37 of 38 loaded via the Shopify integration; render defect found (2026-10-25)
 
 #### The definition already existed — no second one was created
 
@@ -541,9 +541,7 @@ done during a feature freeze.
 | Em dash preserved | 🟢 |
 | Escaped / raw rich-text artifacts | 🟢 none |
 
-**4 of 38 entered. 33 remain to enter, 1 held back.** Group Buys sort keys
-1-4 are live and render in key order. Nothing partial or corrupt was left
-behind; every attempt that timed out mid-form saved nothing.
+**Correction to the table above:** "Escaped / raw rich-text artifacts — none" was wrong. See *Render defect F1* below. Every answer, including these first four, renders as raw JSON.
 
 **HELD BACK — "How does paying by bank work?"** (Payments, sort key 2). The
 2026-10-12 answer says payment instructions are emailed, which contradicts
@@ -553,21 +551,46 @@ inventory is not committed until staff verify funds, whereas Group Buy
 creates the unpaid order immediately and counts it toward campaign
 progress. Owner-approved replacement copy required before entry.
 
-#### Why this is slow, and the faster path
+#### Loading completed through the Shopify integration (2026-10-25)
 
-Each entry needs two or three browser round trips — the Answer field opens
-a modal needing its own click, the Sidekick panel has twice swallowed the
-Question text, and longer batches now time out as the Admin UI struggles.
-The failure mode is the problem rather than the pace: a swallowed question
-or missed category renders **silently** as a blank or ungrouped entry.
+The Admin-UI manual-entry path was **abandoned**: partial renders and the Sidekick panel swallowing input made it a production misclick hazard. `shopify store auth` was not used either. The remaining entries went in through the connected **Shopify integration** (Admin GraphQL), as deterministic `metaobjectCreate` mutations.
 
-`shopify store auth` + `shopify store execute` would create all 38 with
-`metaobjectCreate` mutations — exact text, exact keys, no focus races — and
-allow reading all 38 back in one query to verify count, categories,
-ordering, duplicates and blanks properly. It needs one interactive browser
-approval the owner must give.
+**Steps:**
+1. **Identity** was proven from the integration itself before any write: `CaratForUs`, `nnb1th-cm.myshopify.com`, primary domain `caratforus.myshopify.com`.
+2. **Definition** `faq_entry` was confirmed with `question` (single line), `answer` (rich text), `category` (single line) and `sort_key` (integer). No second definition was created.
+3. **Pre-state:** exactly 4 entries, each matching `docs/specs/faq-entries-extracted.json` on question, visible answer, category and sort key. Their stored rich-text JSON was byte-identical to the encoder used for the new entries.
+4. **Created: 33 entries**, in three batches of 11.
+   - Each batch was generated from a fresh live read, with the exact question as the reconciliation key. No positional assumptions.
+   - Each entry got an explicit handle, so Shopify's handle uniqueness is a second duplicate guard.
+   - Bold in the source (`**Do not send us the item yet**`, `**Within 7 days of delivery:**` and similar) is encoded as rich-text `bold`. No `**` markers are stored.
+   - 0 userErrors.
+5. **Publish status.** The definition has the **publishable** capability on. Entries created through the API default to **DRAFT**, and Draft entries do not render. The original four, made in the Admin UI, were ACTIVE. All 33 were set to ACTIVE with `metaobjectUpdate` (capabilities only, no field change) to match.
+6. **Read-back, compared mechanically against the manifest:**
+   - 37 entries; 0 duplicates; 0 missing; 0 unexpected; 0 blank questions or answers.
+   - 0 mismatches on visible answer text, category or sort key.
+   - Stored rich-text JSON is byte-identical to the encoder's output.
+   - Category counts: Group Buys 6, Pricing & Refunds 3, Production & Delivery 2, Materials & Stones 2, Ring Sizing 3, Custom Jewelry 3, Warranty & Repairs 5, Returns & Cancellations 5, **Payments 3**, Shipping & Insurance 4, Contacting us 1.
+7. **Held:** "How does paying by bank work?" (see above).
+8. **Side effects:** no partial rows, and no customers, products or orders created.
 
----
+**Data: 37/38 loaded and verified. FAQ is NOT green.** The render defect below must be fixed first, and the held entry needs owner-approved copy.
+
+#### Storefront check — two defects
+
+All 37 questions render on `/pages/faq`, behind the store password. Within each category, the questions follow `sort_key`.
+
+**F1 — 🔴 BLOCKER: answers render as raw rich-text JSON.**
+- **Cause:** `snippets/faq-entry.liquid` outputs `{{ entry.answer }}`. On a rich-text field, that prints the stored `{"type":"root",...}` JSON.
+- **Scope:** all 37 entries, including the original 4. It also affects the PDP FAQ, which shares the snippet.
+- **Data:** correct; this is a theme defect only.
+- **Fix:** `{{ entry.answer | metafield_tag }}`, the filter `product-disclosures.liquid` already uses for rich text. Fixed on branch `fix/faq-rich-text-render` and pinned by a test.
+- **Remaining:** push to the live theme. The integration blocks writes to the published theme, so the owner pushes it. Then re-verify answer rendering, bold, desktop and mobile.
+
+**F2 — 🟡 Category order is not the approved order.**
+- **Rendered:** Returns & Cancellations, Materials & Stones, Group Buys, Shipping & Insurance, Custom Jewelry, Ring Sizing, Payments, Pricing & Refunds, Contacting us, Production & Delivery, Warranty & Repairs.
+- **Approved:** Group Buys first … Contacting us last.
+- **Cause:** `faq.liquid` orders categories by first appearance in a collection Shopify returns in unspecified order. This is the limitation noted above, now visible.
+- **Status:** reported, **not fixed**. The fix needs a category-ordering mechanism (engineering) and an owner decision.
 
 ## 5. Deployment and operations
 

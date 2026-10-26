@@ -27,7 +27,13 @@
       {{- 'icon-caret.svg' | inline_asset_content -}}
     </summary>
     <div class="carat-faq__answer rte">
-      {{ entry.answer }}
+      {%- comment -%}
+        `answer` is a RICH TEXT field. Output bare, Liquid prints its stored
+        JSON ({"type":"root",...}) verbatim — a live defect found 2026-10-25
+        on /pages/faq. `metafield_tag` renders it as HTML (paragraphs, bold),
+        the same filter product-disclosures.liquid uses for rich text.
+      {%- endcomment -%}
+      {{ entry.answer | metafield_tag }}
     </div>
     {%- if show_category and entry.category != blank -%}
       <p class="carat-faq__category">{{ entry.category }}</p>

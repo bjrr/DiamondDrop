@@ -131,6 +131,14 @@ describe("one renderer, so the two surfaces cannot diverge", () => {
   it("faq-list reaches entries only through faq-entry", () => {
     expect(LIST).toMatch(/render 'faq-entry'/);
   });
+
+  it("renders the rich-text answer as HTML, never as its raw JSON", () => {
+    // Live defect 2026-10-25: `{{ entry.answer }}` printed the stored
+    // rich-text JSON ({"type":"root",...}) on /pages/faq for every entry.
+    const code = withoutComments(ENTRY);
+    expect(code).toMatch(/\{\{\s*entry\.answer\s*\|\s*metafield_tag\s*\}\}/);
+    expect(code).not.toMatch(/\{\{\s*entry\.answer\s*\}\}/);
+  });
 });
 
 /**
