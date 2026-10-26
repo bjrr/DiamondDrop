@@ -121,7 +121,7 @@ should be cleared before launch.
 | N2 | Policy page bodies are empty | 🔴 BLOCKER | Drafts written — `MVP1-STOREFRONT-COPY.md` Part 1 |
 | N3 | About page copy | 🔴 BLOCKER | Draft written; needs 2–3 sentences only the owner has |
 | N4 | Why Buy From Us copy | 🔴 BLOCKER | Draft written and grounded in README + locked pricing policy |
-| N5 | FAQ entries | 🔴 BLOCKER — **37/38 loaded and verified in Shopify; answers render as raw JSON (F1)** | Loaded 2026-10-25 via the Shopify integration, verified mechanically against `docs/specs/faq-entries-extracted.json`; see §4.5. Remaining: (1) **F1**, a one-line theme fix (`metafield_tag`) awaiting a live-theme push; (2) **held** "How does paying by bank work?", stale after D12/D15 and needing owner-approved copy; (3) **F2**, category order not the approved order (owner decision). |
+| N5 | FAQ entries | 🟡 **38/38 live and verified; awaiting F2 push + mobile check** | 2026-10-26: the three payment answers (owner-approved 11:15 CT) were written through the Shopify integration. That was two answer-only updates plus the previously held "How does paying by bank work?", created ACTIVE. Read-back: 38 entries, 0 mismatches against the manifest, all ACTIVE, Payments 4, no ACH or "bank transfer". F1 🟢 live and verified on `/pages/faq`: 38 answers, none blank, no raw JSON, no `**`; multi-paragraph answers keep their paragraphs; bold appears in exactly the 4 intended places; the store is still password-protected. **Open:** F2 (PR #6, merged) must be pushed (`--only sections/faq.liquid`), then category order and mobile are verified. See §4.5 |
 | N6 | Contact mailbox | 🟢 DONE | `orders@caratforus.com`, owner-confirmed, fenced repo-wide. `CUSTOMER_SERVICE_EMAIL` is deliberately *not* a Fly secret — nothing reads it at runtime. Do not set it |
 
 ---
@@ -573,20 +573,20 @@ The Admin-UI manual-entry path was **abandoned**: partial renders and the Sideki
 7. **Held:** "How does paying by bank work?" (see above).
 8. **Side effects:** no partial rows, and no customers, products or orders created.
 
-**Data: 37/38 loaded and verified. FAQ is NOT green.** The render defect below must be fixed first, and the held entry needs owner-approved copy.
+**Data: 38/38 loaded and verified as of 2026-10-26 — see N5. FAQ is not green until F2 is live and mobile is verified.** The render defect below must be fixed first, and the held entry needs owner-approved copy.
 
 #### Storefront check — two defects
 
 All 37 questions render on `/pages/faq`, behind the store password. Within each category, the questions follow `sort_key`.
 
-**F1 — 🔴 BLOCKER: answers render as raw rich-text JSON.**
+**F1 — 🟢 FIXED and verified live 2026-10-26 (PR #5): answers rendered as raw rich-text JSON.**
 - **Cause:** `snippets/faq-entry.liquid` outputs `{{ entry.answer }}`. On a rich-text field, that prints the stored `{"type":"root",...}` JSON.
 - **Scope:** all 37 entries, including the original 4. It also affects the PDP FAQ, which shares the snippet.
 - **Data:** correct; this is a theme defect only.
 - **Fix:** `{{ entry.answer | metafield_tag }}`, the filter `product-disclosures.liquid` already uses for rich text. Fixed on branch `fix/faq-rich-text-render` and pinned by a test.
 - **Remaining:** push to the live theme. The integration blocks writes to the published theme, so the owner pushes it. Then re-verify answer rendering, bold, desktop and mobile.
 
-**F2 — 🟡 Category order is not the approved order.**
+**F2 — 🟡 Fixed in PR #6 (merged, owner-approved order); awaiting live-theme push and verification. Category order was not the approved order.**
 - **Rendered:** Returns & Cancellations, Materials & Stones, Group Buys, Shipping & Insurance, Custom Jewelry, Ring Sizing, Payments, Pricing & Refunds, Contacting us, Production & Delivery, Warranty & Repairs.
 - **Approved:** Group Buys first … Contacting us last.
 - **Cause:** `faq.liquid` orders categories by first appearance in a collection Shopify returns in unspecified order. This is the limitation noted above, now visible.
