@@ -121,7 +121,7 @@ should be cleared before launch.
 | N2 | Policy page bodies are empty | 🔴 BLOCKER | Drafts written — `MVP1-STOREFRONT-COPY.md` Part 1 |
 | N3 | About page copy | 🔴 BLOCKER | Draft written; needs 2–3 sentences only the owner has |
 | N4 | Why Buy From Us copy | 🔴 BLOCKER | Draft written and grounded in README + locked pricing policy |
-| N5 | FAQ entries | 🟡 **38/38 live and verified; awaiting F2 push + mobile check** | 2026-10-26: the three payment answers (owner-approved 11:15 CT) were written through the Shopify integration. That was two answer-only updates plus the previously held "How does paying by bank work?", created ACTIVE. Read-back: 38 entries, 0 mismatches against the manifest, all ACTIVE, Payments 4, no ACH or "bank transfer". F1 🟢 live and verified on `/pages/faq`: 38 answers, none blank, no raw JSON, no `**`; multi-paragraph answers keep their paragraphs; bold appears in exactly the 4 intended places; the store is still password-protected. **Open:** F2 (PR #6, merged) must be pushed (`--only sections/faq.liquid`), then category order and mobile are verified. See §4.5 |
+| N5 | FAQ entries | 🟢 **DONE — 38/38 live and verified (2026-10-26)** | All 38 owner-approved entries are in Shopify, ACTIVE, and match `docs/specs/faq-entries-extracted.json` exactly (mechanical read-back: 0 mismatches, 0 duplicates; Payments 4; no ACH or "bank transfer"). On `/pages/faq`: **F1** 🟢 answers render as HTML, not JSON (no blanks, no `**`, paragraphs kept, bold in exactly the 4 intended places). **F2** 🟢 the 11 categories render in the owner-approved order, with `sort_key` order inside each. Mobile confirmed by the owner on a phone. The store is still password-protected. Loading used the Shopify integration (Admin GraphQL), not Admin UI entry. Optional follow-up, not a blocker: "Is my order confirmed as soon as I place it?" says a bank order "is open", which is imprecise for Buy Now; the owner may revise it. See §4.5 |
 | N6 | Contact mailbox | 🟢 DONE | `orders@caratforus.com`, owner-confirmed, fenced repo-wide. `CUSTOMER_SERVICE_EMAIL` is deliberately *not* a Fly secret — nothing reads it at runtime. Do not set it |
 
 ---
@@ -471,7 +471,7 @@ placeholders, international selectors, announcement copy.
 
 ---
 
-### 4.5 FAQ — 37 of 38 loaded via the Shopify integration; render defect found (2026-10-25)
+### 4.5 FAQ — 🟢 38/38 live and verified (2026-10-26)
 
 #### The definition already existed — no second one was created
 
@@ -573,7 +573,7 @@ The Admin-UI manual-entry path was **abandoned**: partial renders and the Sideki
 7. **Held:** "How does paying by bank work?" (see above).
 8. **Side effects:** no partial rows, and no customers, products or orders created.
 
-**Data: 38/38 loaded and verified as of 2026-10-26 — see N5. FAQ is not green until F2 is live and mobile is verified.** The render defect below must be fixed first, and the held entry needs owner-approved copy.
+**Data: 38/38 loaded and verified 2026-10-26. FAQ is GREEN — see N5.** The render defect below must be fixed first, and the held entry needs owner-approved copy.
 
 #### Storefront check — two defects
 
@@ -586,7 +586,7 @@ All 37 questions render on `/pages/faq`, behind the store password. Within each 
 - **Fix:** `{{ entry.answer | metafield_tag }}`, the filter `product-disclosures.liquid` already uses for rich text. Fixed on branch `fix/faq-rich-text-render` and pinned by a test.
 - **Remaining:** push to the live theme. The integration blocks writes to the published theme, so the owner pushes it. Then re-verify answer rendering, bold, desktop and mobile.
 
-**F2 — 🟡 Fixed in PR #6 (merged, owner-approved order); awaiting live-theme push and verification. Category order was not the approved order.**
+**F2 — 🟢 FIXED and verified live 2026-10-26 (PR #6): category order was not the approved order.**
 - **Rendered:** Returns & Cancellations, Materials & Stones, Group Buys, Shipping & Insurance, Custom Jewelry, Ring Sizing, Payments, Pricing & Refunds, Contacting us, Production & Delivery, Warranty & Repairs.
 - **Approved:** Group Buys first … Contacting us last.
 - **Cause:** `faq.liquid` orders categories by first appearance in a collection Shopify returns in unspecified order. This is the limitation noted above, now visible.
