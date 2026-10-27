@@ -84,7 +84,7 @@
         "columns_desktop": 3,
         "column_alignment": "left",
         "background_style": "none",
-        "color_scheme": "scheme-1",
+        "color_scheme": "scheme-2",
         "columns_mobile": "1",
         "swipe_on_mobile": false,
         "padding_top": 36,
@@ -169,7 +169,7 @@
       "settings": {
         "desktop_content_position": "center",
         "content_alignment": "center",
-        "color_scheme": "scheme-1",
+        "color_scheme": "scheme-3",
         "full_width": true,
         "padding_top": 40,
         "padding_bottom": 40
@@ -215,7 +215,7 @@
         "columns_desktop": 3,
         "column_alignment": "left",
         "background_style": "none",
-        "color_scheme": "scheme-1",
+        "color_scheme": "scheme-2",
         "columns_mobile": "1",
         "swipe_on_mobile": false,
         "padding_top": 20,

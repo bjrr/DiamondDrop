@@ -1,0 +1,127 @@
+{
+  "sections": {
+    "intro": {
+      "type": "rich-text",
+      "blocks": {
+        "heading": {
+          "type": "heading",
+          "settings": {
+            "heading": "Why buy from us",
+            "heading_size": "h0"
+          }
+        },
+        "body": {
+          "type": "text",
+          "settings": {
+            "text": "<p>Five reasons, each of which you can check for yourself before you spend anything.</p>"
+          }
+        }
+      },
+      "block_order": ["heading", "body"],
+      "settings": {
+        "desktop_content_position": "center",
+        "content_alignment": "center",
+        "color_scheme": "scheme-1",
+        "full_width": true,
+        "padding_top": 72,
+        "padding_bottom": 36
+      }
+    },
+    "reasons": {
+      "type": "multicolumn",
+      "blocks": {
+        "price": {
+          "type": "column",
+          "settings": {
+            "title": "The price makes sense",
+            "text": "<p>We work from the actual cost of the metal and the stones, plus a margin we can defend. No invented list price to discount from. When you pay by bank instead of card, the price is lower — because our costs are, and we pass that through rather than keeping it.</p>"
+          }
+        },
+        "seeit": {
+          "type": "column",
+          "settings": {
+            "title": "You see it before it ships",
+            "text": "<p>Every piece is inspected before it leaves us. Renders are labelled as renders, photographs as photographs, and AI visualisations as AI visualisations, so what you are looking at is never in doubt.</p>"
+          }
+        },
+        "answers": {
+          "type": "column",
+          "settings": {
+            "title": "Somebody answers",
+            "text": "<p>Email orders@caratforus.com and a person here replies. Returns, warranty claims and questions are handled by the same company that sold you the piece.</p>"
+          }
+        },
+        "covered": {
+          "type": "column",
+          "settings": {
+            "title": "It is covered",
+            "text": "<p>One year, against manufacturing faults. Every outbound shipment is insured for its full value and tracked, and anything over $100 needs a signature — yours, not a doorstep.</p>"
+          }
+        },
+        "yourway": {
+          "type": "column",
+          "settings": {
+            "title": "Buy it your way",
+            "text": "<p>Buy it now at today's price. Join a Group Buy and let the price fall as more people join. Or have something made that does not exist yet.</p>"
+          }
+        }
+      },
+      "block_order": ["price", "seeit", "answers", "covered", "yourway"],
+      "settings": {
+        "title": "",
+        "heading_size": "h1",
+        "image_width": "full",
+        "image_ratio": "adapt",
+        "columns_desktop": 2,
+        "column_alignment": "left",
+        "background_style": "none",
+        "color_scheme": "scheme-2",
+        "columns_mobile": "1",
+        "swipe_on_mobile": false,
+        "padding_top": 56,
+        "padding_bottom": 56,
+        "button_label": "",
+        "button_link": ""
+      }
+    },
+    "bank": {
+      "type": "rich-text",
+      "blocks": {
+        "heading": {
+          "type": "heading",
+          "settings": {
+            "heading": "Pay by bank, pay less",
+            "heading_size": "h1"
+          }
+        },
+        "body": {
+          "type": "text",
+          "settings": {
+            "text": "<p>Zelle and domestic wire both qualify. You see both prices before you commit, and nothing is charged when you choose bank payment: we show you where to send it, and your order is not confirmed until the funds arrive and we verify them.</p>"
+          }
+        },
+        "actions": {
+          "type": "button",
+          "settings": {
+            "button_label": "Browse the catalog",
+            "button_link": "/collections/all",
+            "button_style_secondary": false,
+            "button_label_2": "Read the FAQ",
+            "button_link_2": "/pages/faq",
+            "button_style_secondary_2": true
+          }
+        }
+      },
+      "block_order": ["heading", "body", "actions"],
+      "settings": {
+        "desktop_content_position": "center",
+        "content_alignment": "center",
+        "color_scheme": "scheme-3",
+        "full_width": true,
+        "padding_top": 64,
+        "padding_bottom": 64
+      }
+    }
+  },
+  "order": ["intro", "reasons", "bank"]
+}

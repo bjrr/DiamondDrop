@@ -1,0 +1,120 @@
+{
+  "sections": {
+    "intro": {
+      "type": "rich-text",
+      "blocks": {
+        "heading": {
+          "type": "heading",
+          "settings": {
+            "heading": "About CaratForUs",
+            "heading_size": "h0"
+          }
+        },
+        "body": {
+          "type": "text",
+          "settings": {
+            "text": "<p>Fine jewelry is sold strangely. The same ring can cost three times as much on one side of a street as the other, and almost nobody can tell you why. Buy it from overseas and the price finally makes sense — right up until something is wrong with it, and you discover there is nobody to call.</p><p>CaratForUs exists in the gap between those two experiences. We price honestly, we tell you exactly what you are getting, and when something needs sorting out you are dealing with us.</p>"
+          }
+        }
+      },
+      "block_order": ["heading", "body"],
+      "settings": {
+        "desktop_content_position": "center",
+        "content_alignment": "center",
+        "color_scheme": "scheme-1",
+        "full_width": true,
+        "padding_top": 72,
+        "padding_bottom": 44
+      }
+    },
+    "pillars": {
+      "type": "multicolumn",
+      "blocks": {
+        "inspect": {
+          "type": "column",
+          "settings": {
+            "title": "We inspect before you receive",
+            "text": "<p>Every piece is checked by us before it ships, so the first person to find a problem is us and not you.</p>"
+          }
+        },
+        "accountable": {
+          "type": "column",
+          "settings": {
+            "title": "We are one accountable seller",
+            "text": "<p>Not a marketplace, not a middleman passing you down the chain. If it came from us, it is ours to put right.</p>"
+          }
+        },
+        "honest": {
+          "type": "column",
+          "settings": {
+            "title": "We tell you what it is",
+            "text": "<p>Metal, weight, stone specification, and whether an image is a CAD render, a photograph of the actual piece, or an AI visualisation. Labelled, every time.</p>"
+          }
+        },
+        "support": {
+          "type": "column",
+          "settings": {
+            "title": "We support it after you have it",
+            "text": "<p>A one-year limited warranty against manufacturing faults, handled by the same company that sold you the piece.</p>"
+          }
+        }
+      },
+      "block_order": ["inspect", "accountable", "honest", "support"],
+      "settings": {
+        "title": "What that means in practice",
+        "heading_size": "h1",
+        "image_width": "full",
+        "image_ratio": "adapt",
+        "columns_desktop": 2,
+        "column_alignment": "left",
+        "background_style": "none",
+        "color_scheme": "scheme-2",
+        "columns_mobile": "1",
+        "swipe_on_mobile": false,
+        "padding_top": 56,
+        "padding_bottom": 56,
+        "button_label": "",
+        "button_link": ""
+      }
+    },
+    "close": {
+      "type": "rich-text",
+      "blocks": {
+        "heading": {
+          "type": "heading",
+          "settings": {
+            "heading": "Better value, better protection, a better buying experience",
+            "heading_size": "h1"
+          }
+        },
+        "body": {
+          "type": "text",
+          "settings": {
+            "text": "<p>That is the whole proposition. Buy at today's price, join a Group Buy and watch the price fall as more people join, or have something made that does not exist yet.</p>"
+          }
+        },
+        "actions": {
+          "type": "button",
+          "settings": {
+            "button_label": "Browse the catalog",
+            "button_link": "/collections/all",
+            "button_style_secondary": false,
+            "button_label_2": "Why buy from us",
+            "button_link_2": "/pages/why-buy-from-us",
+            "button_style_secondary_2": true
+          }
+        }
+      },
+      "block_order": ["heading", "body", "actions"],
+      "settings": {
+        "desktop_content_position": "center",
+        "content_alignment": "center",
+        "color_scheme": "scheme-3",
+        "full_width": true,
+        "padding_top": 64,
+        "padding_bottom": 64
+      }
+    }
+  },
+  "order": ["intro", "pillars", "close"]
+}
