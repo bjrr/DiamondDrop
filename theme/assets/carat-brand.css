@@ -1,0 +1,240 @@
+/*
+ * CaratForUs brand refinements.
+ * ===========================================================================
+ * Loaded AFTER base.css, so everything here overrides Dawn deliberately.
+ *
+ * Scope discipline: this file only does what Dawn's theme settings cannot.
+ * Palette, fonts, radii, card borders and spacing all live in
+ * `config/settings_data.json` where the theme editor can still reach them.
+ * Putting those here too would mean the editor silently stops working.
+ *
+ * What is left for CSS is the typographic detail that makes a Dawn store
+ * stop looking like a Dawn store: letter-spacing, measure, vertical rhythm,
+ * and the small-caps label treatment Dawn has no concept of.
+ *
+ * Design position: CaratForUs sells fine jewelry on HONEST PRICING, not on
+ * luxury mystique. Editorial and credible, not opulent. Every rule below is
+ * in service of that — restraint, air, and numbers you can read.
+ */
+
+:root {
+  --carat-brass: #c9a96a;
+  --carat-ink: #1c1b19;
+  --carat-stone: #f2eee7;
+
+  /* One tracking scale, so labels across the site agree with each other. */
+  --carat-tracking-label: 0.12em;
+  --carat-tracking-heading: -0.01em;
+
+  /* Comfortable reading measure. Dawn lets prose run the full 1400px, which
+     is unreadable at desktop width — this is the single biggest legibility
+     win on text-heavy pages like the policy pages and the FAQ. */
+  --carat-measure: 68ch;
+}
+
+/* ===========================================================================
+   HEADINGS
+   Playfair at 400 is elegant but needs tightening; Dawn's default tracking
+   was tuned for Assistant, a sans, and leaves serif headings looking loose.
+   =========================================================================== */
+
+h1, h2, h3, h4,
+.h0, .h1, .h2, .h3, .h4,
+.title,
+.rich-text__heading,
+.card__heading {
+  letter-spacing: var(--carat-tracking-heading);
+  font-weight: 400;
+}
+
+h1, .h0, .h1 {
+  line-height: 1.12;
+}
+
+h2, .h2 {
+  line-height: 1.18;
+}
+
+/* ===========================================================================
+   SMALL-CAPS LABELS
+   Dawn has no label style, so every eyebrow/kicker falls back to body text.
+   This is what carries the "considered" feel on an image-poor site.
+   =========================================================================== */
+
+.carat-label,
+.product__text.caption-with-letter-spacing,
+.collection-hero__description .caption-with-letter-spacing {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: var(--carat-tracking-label);
+  font-weight: 500;
+  opacity: 0.72;
+}
+
+/* ===========================================================================
+   MEASURE
+   Constrain prose, never grids. Centred blocks keep their centring.
+   =========================================================================== */
+
+.rich-text__text,
+.rich-text__text p,
+.page-width--narrow p,
+.policy-terms__intro,
+.faq__answer p {
+  max-width: var(--carat-measure);
+}
+
+.rich-text--center .rich-text__text,
+.rich-text__blocks--center .rich-text__text {
+  margin-inline: auto;
+}
+
+/* ===========================================================================
+   BUTTONS
+   Squared already (settings). What Dawn cannot do is the label treatment.
+   =========================================================================== */
+
+.button,
+.shopify-challenge__button,
+.customer button,
+button.shopify-payment-button__button--unbranded {
+  text-transform: uppercase;
+  letter-spacing: var(--carat-tracking-label);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  padding-block: 1.05rem;
+  min-height: 4.4rem;
+  transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+/* Dawn's secondary button is a thin outline that disappears on paper tones. */
+.button--secondary {
+  border-width: 1px;
+}
+
+/* ===========================================================================
+   PRICES
+   This store shows TWO prices on nearly every surface. They must be
+   instantly distinguishable, and the Bank Payment Price must not read as a
+   strikethrough "sale" price — it is a real, payable price, not a discount.
+   =========================================================================== */
+
+.price,
+.price-item {
+  letter-spacing: 0.005em;
+  font-variant-numeric: tabular-nums; /* figures align in lists and carts */
+}
+
+.price--on-sale .price-item--regular {
+  opacity: 0.55;
+}
+
+/* ===========================================================================
+   SECTION RHYTHM
+   A hairline between stacked same-coloured sections, so bands read as
+   distinct without needing a colour change for every one.
+   =========================================================================== */
+
+.shopify-section + .shopify-section > .color-scheme-1 + .color-scheme-1 {
+  border-top: 1px solid rgba(28, 27, 25, 0.08);
+}
+
+/* ===========================================================================
+   HEADER AND FOOTER
+   =========================================================================== */
+
+.header__heading-link,
+.header__menu-item {
+  letter-spacing: 0.04em;
+}
+
+.header__menu-item {
+  font-size: 0.9375rem;
+}
+
+/* Dawn underlines the active/hover nav item with a heavy 2px rule. */
+.header__menu-item:hover span,
+.header__active-menu-item {
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.35rem;
+}
+
+.footer__content-top {
+  padding-block-start: 4rem;
+}
+
+.footer-block__heading {
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: var(--carat-tracking-label);
+  opacity: 0.85;
+}
+
+/* The footer menu is the policy surface. Keep it quiet but reachable. */
+.footer-block__details-content .list-menu__item--link {
+  font-size: 0.9375rem;
+  opacity: 0.82;
+}
+
+.footer-block__details-content .list-menu__item--link:hover {
+  opacity: 1;
+}
+
+/* ===========================================================================
+   CARDS
+   Borders come from settings; the hover is what Dawn leaves flat.
+   =========================================================================== */
+
+.card--standard .card__inner {
+  transition: border-color 0.18s ease;
+}
+
+.card__heading {
+  font-size: 1.0625rem;
+}
+
+/* ===========================================================================
+   MOBILE
+   Mobile-first is a CLAUDE.md requirement, and Dawn's desktop-tuned display
+   sizes are the weakest part of it: a Playfair h0 at the stock mobile size
+   wraps badly and pushes everything below the fold.
+   =========================================================================== */
+
+@media screen and (max-width: 749px) {
+  h1, .h0 {
+    font-size: 3.2rem;
+    line-height: 1.16;
+  }
+
+  h2, .h1 {
+    font-size: 2.6rem;
+  }
+
+  .button,
+  .shopify-challenge__button {
+    width: 100%;
+    min-height: 4.8rem; /* comfortably above the 44px touch target floor */
+  }
+
+  /* Dawn stacks buttons with no gap, so two CTAs read as one control. */
+  .button + .button {
+    margin-block-start: 1rem;
+  }
+
+  .rich-text__text,
+  .rich-text__text p {
+    max-width: none;
+  }
+
+  .footer__content-top {
+    padding-block-start: 2.5rem;
+  }
+}
+
+/* Respect the user's motion preference — Dawn's reveal-on-scroll is enabled. */
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .card--standard .card__inner {
+    transition: none;
+  }
+}
