@@ -1,0 +1,117 @@
+{
+  "sections": {
+    "intro": {
+      "type": "rich-text",
+      "blocks": {
+        "heading": {
+          "type": "heading",
+          "settings": {
+            "heading": "Luxury Steals",
+            "heading_size": "h0"
+          }
+        },
+        "body": {
+          "type": "text",
+          "settings": {
+            "text": "<p>A small number of pieces at a price we will not repeat. When they are gone, they are gone — we do not restock a Luxury Steal at the same price.</p>"
+          }
+        }
+      },
+      "block_order": ["heading", "body"],
+      "settings": {
+        "desktop_content_position": "center",
+        "content_alignment": "center",
+        "color_scheme": "scheme-1",
+        "full_width": true,
+        "padding_top": 72,
+        "padding_bottom": 36
+      }
+    },
+    "final_sale": {
+      "type": "rich-text",
+      "blocks": {
+        "heading": {
+          "type": "heading",
+          "settings": {
+            "heading": "Every Luxury Steal is Final Sale",
+            "heading_size": "h1"
+          }
+        },
+        "body": {
+          "type": "text",
+          "settings": {
+            "text": "<p>That is the trade, and we will not bury it. On a Luxury Steal there are <strong>no discretionary returns, no exchanges, no cash refunds and no merchandise-credit returns</strong>. You confirm you understand this before you order.</p><p><strong>Final Sale does not take away your warranty.</strong> A manufacturing fault, a damaged or wrong item, or a piece that is not what we described is handled exactly as it would be on any other order.</p>"
+          }
+        },
+        "actions": {
+          "type": "button",
+          "settings": {
+            "button_label": "Read the full Luxury Steals terms",
+            "button_link": "/pages/policy-luxury-steals",
+            "button_style_secondary": false,
+            "button_label_2": "Warranty",
+            "button_link_2": "/pages/warranty",
+            "button_style_secondary_2": true
+          }
+        }
+      },
+      "block_order": ["heading", "body", "actions"],
+      "settings": {
+        "desktop_content_position": "center",
+        "content_alignment": "left",
+        "color_scheme": "scheme-3",
+        "full_width": true,
+        "padding_top": 56,
+        "padding_bottom": 56
+      }
+    },
+    "how": {
+      "type": "multicolumn",
+      "blocks": {
+        "limited": {
+          "type": "column",
+          "settings": {
+            "title": "Genuinely limited",
+            "text": "<p>Each Luxury Steal is a real, counted quantity. When the last one sells, the listing sells out — there is no hidden second batch.</p>"
+          }
+        },
+        "same_checkout": {
+          "type": "column",
+          "settings": {
+            "title": "Normal checkout",
+            "text": "<p>A Luxury Steal is bought the same way as anything else, with the same card and Bank Payment options and the same two prices shown before you commit.</p>"
+          }
+        },
+        "same_support": {
+          "type": "column",
+          "settings": {
+            "title": "Same support",
+            "text": "<p>Inspected before it ships, tracked and insured in transit, and covered by the one-year limited warranty against manufacturing faults.</p>"
+          }
+        }
+      },
+      "block_order": ["limited", "same_checkout", "same_support"],
+      "settings": {
+        "title": "How Luxury Steals work",
+        "heading_size": "h1",
+        "image_width": "full",
+        "image_ratio": "adapt",
+        "columns_desktop": 3,
+        "column_alignment": "left",
+        "background_style": "none",
+        "color_scheme": "scheme-2",
+        "columns_mobile": "1",
+        "swipe_on_mobile": false,
+        "padding_top": 56,
+        "padding_bottom": 56,
+        "button_label": "",
+        "button_link": ""
+      }
+    },
+    "body": {
+      "type": "main-page",
+      "settings": {}
+    }
+  },
+  "order": ["intro", "final_sale", "how", "body"]
+}
