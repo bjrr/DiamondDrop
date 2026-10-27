@@ -14,11 +14,37 @@
         "heading_size": "h2",
         "group": "warranty",
         "show_version": true,
+        "color_scheme": "scheme-2",
+        "padding_top": 40,
+        "padding_bottom": 48
+      }
+    },
+    "intro": {
+      "type": "rich-text",
+      "blocks": {
+        "body": {
+          "type": "text",
+          "settings": {
+            "text": "<p>Every piece carries a one-year limited warranty against manufacturing faults. It covers workmanship — a setting that fails, a clasp that was never right. It does not cover accidents, ordinary wear, loss, or damage from repairs done elsewhere.</p><p>To make a claim, use the <a href=\"/pages/warranty-claim\">Warranty Claim form</a> and include clear photographs of the problem. We may ask you to send the piece in so we can look at it properly; if we do, inbound shipping is arranged and paid by you, and must be tracked and insured.</p><p>Once we have inspected it we will tell you what we are going to do about it. The terms you agreed to are below.</p>"
+          }
+        }
+      },
+      "block_order": [
+        "body"
+      ],
+      "settings": {
+        "desktop_content_position": "center",
+        "content_alignment": "left",
         "color_scheme": "scheme-1",
-        "padding_top": 12,
-        "padding_bottom": 36
+        "full_width": true,
+        "padding_top": 8,
+        "padding_bottom": 8
       }
     }
   },
-  "order": ["main", "terms"]
+  "order": [
+    "main",
+    "intro",
+    "terms"
+  ]
 }

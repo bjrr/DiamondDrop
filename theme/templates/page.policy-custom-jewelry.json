@@ -14,11 +14,47 @@
         "heading_size": "h2",
         "group": "custom-jewelry",
         "show_version": true,
+        "color_scheme": "scheme-2",
+        "padding_top": 40,
+        "padding_bottom": 48
+      }
+    },
+    "intro": {
+      "type": "rich-text",
+      "blocks": {
+        "body": {
+          "type": "text",
+          "settings": {
+            "text": "<p>Tell us what you have in mind and we will design it with you. The conversation happens by email, at whatever pace suits you — there is no form that decides your piece for you.</p><p>When you are ready for us to start designing, there is a $49 Design Deposit. It pays for the design work, and it comes off the price if you go ahead. If we finish the design we agreed on and you decide against it, we refund the $49 — no questions asked.</p><p>You will see renders before anything is made, and nothing goes into production until you have approved the final design in writing. That approval is the point of no return, because from then on we are making one specific thing for one specific person.</p><p><strong>A finished custom piece is final sale.</strong> It is yours, made to your approved design, and we cannot resell it.</p><p>The three things you will be asked to agree to are below.</p>"
+          }
+        }
+      },
+      "block_order": [
+        "body"
+      ],
+      "settings": {
+        "desktop_content_position": "center",
+        "content_alignment": "left",
         "color_scheme": "scheme-1",
-        "padding_top": 12,
-        "padding_bottom": 36
+        "full_width": true,
+        "padding_top": 8,
+        "padding_bottom": 8
+      }
+    },
+    "form": {
+      "type": "custom-jewelry-intake-form",
+      "settings": {
+        "heading_size": "h1",
+        "color_scheme": "scheme-1",
+        "padding_top": 8,
+        "padding_bottom": 40
       }
     }
   },
-  "order": ["main", "terms"]
+  "order": [
+    "main",
+    "intro",
+    "form",
+    "terms"
+  ]
 }

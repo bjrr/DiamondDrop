@@ -14,11 +14,47 @@
         "heading_size": "h2",
         "group": "group-buy",
         "show_version": true,
+        "color_scheme": "scheme-2",
+        "padding_top": 40,
+        "padding_bottom": 48
+      }
+    },
+    "intro": {
+      "type": "rich-text",
+      "blocks": {
+        "body": {
+          "type": "text",
+          "settings": {
+            "text": "<p>A Group Buy is simple: the more people who order, the lower the price everybody pays. You order at today's price, and if the group reaches the next tier before the campaign closes, you move down to it too. You never pay more than the price you ordered at.</p><p>Your order counts toward the group's progress straight away. If you pay by bank, it counts from the moment you place it, not from when the money arrives.</p><p>The price shown on a campaign is the Regular/Card price. A lower price is available when you pay by bank, and you choose which before you order.</p><p>When the campaign closes, the final tier is settled and the price is fixed. If you ordered earlier at a higher tier, we work out the difference and refund it to the way you paid, after review.</p><p>Group Buy orders can be cancelled only on the terms below, which you will be asked to confirm before ordering.</p>"
+          }
+        }
+      },
+      "block_order": [
+        "body"
+      ],
+      "settings": {
+        "desktop_content_position": "center",
+        "content_alignment": "left",
         "color_scheme": "scheme-1",
-        "padding_top": 12,
-        "padding_bottom": 36
+        "full_width": true,
+        "padding_top": 8,
+        "padding_bottom": 8
+      }
+    },
+    "campaign": {
+      "type": "group-buy-campaign",
+      "settings": {
+        "heading_size": "h1",
+        "color_scheme": "scheme-1",
+        "padding_top": 8,
+        "padding_bottom": 40
       }
     }
   },
-  "order": ["main", "terms"]
+  "order": [
+    "main",
+    "intro",
+    "campaign",
+    "terms"
+  ]
 }

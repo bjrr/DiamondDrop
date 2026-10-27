@@ -14,11 +14,37 @@
         "heading_size": "h2",
         "group": "returns",
         "show_version": true,
+        "color_scheme": "scheme-2",
+        "padding_top": 40,
+        "padding_bottom": 48
+      }
+    },
+    "intro": {
+      "type": "rich-text",
+      "blocks": {
+        "body": {
+          "type": "text",
+          "settings": {
+            "text": "<p>Most things we sell can be returned. A few cannot, and we say which on the product itself before you buy, never afterwards.</p><p>If you want to return a Buy Now purchase, start by emailing <strong>orders@caratforus.com</strong>. We will tell you whether the item qualifies, and if it does we will issue a return authorisation with the address and the deadline. Please do not send anything back before you have that — an unannounced parcel is one we cannot match to an order or insure.</p><p>Return shipping is arranged and paid by you, and must be tracked and insured for the full value. That is not us being difficult: an uninsured parcel that disappears leaves neither of us with a remedy.</p><p>The exact terms you agreed to are below.</p>"
+          }
+        }
+      },
+      "block_order": [
+        "body"
+      ],
+      "settings": {
+        "desktop_content_position": "center",
+        "content_alignment": "left",
         "color_scheme": "scheme-1",
-        "padding_top": 12,
-        "padding_bottom": 36
+        "full_width": true,
+        "padding_top": 8,
+        "padding_bottom": 8
       }
     }
   },
-  "order": ["main", "terms"]
+  "order": [
+    "main",
+    "intro",
+    "terms"
+  ]
 }
