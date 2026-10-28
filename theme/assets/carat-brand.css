@@ -138,6 +138,40 @@ button.shopify-payment-button__button--unbranded {
 }
 
 /* ===========================================================================
+   EMPTY CATALOG
+   A dead end in the main navigation is worse than an ugly one, so this
+   state routes to the purchase paths that work without stocked inventory.
+   =========================================================================== */
+
+.carat-collection-empty__body {
+  max-width: 52rem;
+  margin: 1.2rem auto 0;
+  opacity: 0.8;
+}
+
+.carat-collection-empty__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.2rem;
+  justify-content: center;
+  margin-block-start: 2.8rem;
+}
+
+/* The global mobile rule makes every .button full width, which would stack
+   these two into one indistinct slab. They stay side by side until they
+   genuinely cannot fit. */
+@media screen and (max-width: 749px) {
+  .carat-collection-empty__actions .button {
+    width: auto;
+    min-width: 22rem;
+  }
+
+  .carat-collection-empty__actions .button + .button {
+    margin-block-start: 0;
+  }
+}
+
+/* ===========================================================================
    PRICES
    This store shows TWO prices on nearly every surface. They must be
    instantly distinguishable, and the Bank Payment Price must not read as a

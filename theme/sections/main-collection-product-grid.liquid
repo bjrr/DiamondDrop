@@ -104,7 +104,22 @@
       <div class="{% if section.settings.filter_type == 'vertical' %} facets-vertical page-width{% endif %}">
         {{ 'component-facets.css' | asset_url | stylesheet_tag }}
         <script src="{{ 'facets.js' | asset_url }}" defer="defer"></script>
-        {%- if section.settings.enable_filtering or section.settings.enable_sorting -%}
+        {%- comment -%}
+          Sorting and a "0 products" count are noise above a collection that
+          has nothing in it — there is nothing to sort and nothing to count.
+          `all_products_count` rather than `products.size`, so the toolbar
+          still appears when a FILTER emptied the grid, which is exactly when
+          a customer needs it to undo that filter.
+        {%- endcomment -%}
+        {%- liquid
+          assign show_facets = false
+          if section.settings.enable_filtering or section.settings.enable_sorting
+            if collection.all_products_count > 0
+              assign show_facets = true
+            endif
+          endif
+        -%}
+        {%- if show_facets -%}
           <aside
             aria-labelledby="verticalTitle"
             class="facets-wrapper{% unless section.settings.enable_filtering %} facets-wrapper--no-filters{% endunless %}{% if section.settings.filter_type != 'vertical' %} page-width{% endif %}"
@@ -131,16 +146,50 @@
           {%- if collection.products.size == 0 -%}
             <div class="collection collection--empty page-width" id="product-grid" data-id="{{ section.id }}">
               <div class="loading-overlay gradient"></div>
-              <div class="title-wrapper center">
-                <h2 class="title title--primary">
-                  {{ 'sections.collection_template.empty' | t -}}
-                  <br>
-                  {{
-                    'sections.collection_template.use_fewer_filters_html'
-                    | t: link: collection.url, class: 'underlined-link link'
-                  }}
-                </h2>
-              </div>
+              {%- comment -%}
+                Dawn conflates two different empty states and shows the same
+                sentence for both: "No products found. Use fewer filters or
+                remove all." On a catalog that genuinely has nothing in it,
+                that blames filters the customer never applied, and offers a
+                "remove all" link that does nothing.
+
+                `all_products_count` is the honest signal — it ignores active
+                filters, so zero means the collection is actually empty.
+
+                An empty catalog is also a dead end in the main navigation, so
+                rather than apologise it points at the two purchase paths that
+                work without stocked inventory, plus the quote route.
+              {%- endcomment -%}
+              {%- if collection.all_products_count == 0 -%}
+                <div class="title-wrapper center">
+                  <h2 class="title title--primary">
+                    {{ 'sections.collection_template.nothing_listed' | t }}
+                  </h2>
+                  <p class="carat-collection-empty__body">
+                    {{ 'sections.collection_template.nothing_listed_body' | t }}
+                  </p>
+                  <p class="carat-collection-empty__actions">
+                    {%- comment -%}
+                      Literal labels, not `| t | default:` — a missing locale
+                      key renders "Translation missing: …" on the page rather
+                      than falling through to the default.
+                    {%- endcomment -%}
+                    <a class="button" href="{{ routes.root_url }}pages/group-buy">See Group Buy</a>
+                    <a class="button button--secondary" href="{{ routes.root_url }}pages/custom-jewelry">Design something custom</a>
+                  </p>
+                </div>
+              {%- else -%}
+                <div class="title-wrapper center">
+                  <h2 class="title title--primary">
+                    {{ 'sections.collection_template.empty' | t -}}
+                    <br>
+                    {{
+                      'sections.collection_template.use_fewer_filters_html'
+                      | t: link: collection.url, class: 'underlined-link link'
+                    }}
+                  </h2>
+                </div>
+              {%- endif -%}
             </div>
           {%- else -%}
             <div

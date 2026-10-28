@@ -622,7 +622,9 @@
     "collection_template": {
       "empty": "No products found",
       "title": "Collection",
-      "use_fewer_filters_html": "Use fewer filters or <a class=\"{{ class }}\" href=\"{{ link }}\">remove all</a>"
+      "use_fewer_filters_html": "Use fewer filters or <a class=\"{{ class }}\" href=\"{{ link }}\">remove all</a>",
+      "nothing_listed": "Nothing listed yet",
+      "nothing_listed_body": "There are no pieces in the catalog at the moment. You can still join a Group Buy, have something made, or send us a quote to beat."
     },
     "video": {
       "load_video": "Load video: {{ description }}"
