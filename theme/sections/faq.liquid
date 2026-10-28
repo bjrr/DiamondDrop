@@ -57,9 +57,15 @@
   <div class="color-{{ section.settings.color_scheme }} gradient">
     <div class="page-width section-{{ section.id }}-padding">
       {%- if section.settings.heading != blank -%}
-        <h1 class="carat-faq__page-heading {{ section.settings.heading_size }}">
+        {%- comment -%}
+          h2, not h1. The template renders `main-page` above this, which
+          already emits <h1>{{ page.title }}</h1> — so an h1 here gave the
+          FAQ page two of them, the only page on the site that had that.
+          `heading_size` keeps the visual weight unchanged.
+        {%- endcomment -%}
+        <h2 class="carat-faq__page-heading {{ section.settings.heading_size }}">
           {{ section.settings.heading | escape }}
-        </h1>
+        </h2>
       {%- endif -%}
 
       {%- if section.settings.intro != blank -%}

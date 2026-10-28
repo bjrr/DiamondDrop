@@ -3,13 +3,6 @@
     "intro": {
       "type": "rich-text",
       "blocks": {
-        "heading": {
-          "type": "heading",
-          "settings": {
-            "heading": "Why buy from us",
-            "heading_size": "h0"
-          }
-        },
         "body": {
           "type": "text",
           "settings": {
@@ -17,13 +10,15 @@
           }
         }
       },
-      "block_order": ["heading", "body"],
+      "block_order": [
+        "body"
+      ],
       "settings": {
         "desktop_content_position": "center",
         "content_alignment": "center",
         "color_scheme": "scheme-1",
         "full_width": true,
-        "padding_top": 72,
+        "padding_top": 8,
         "padding_bottom": 36
       }
     },
@@ -66,7 +61,13 @@
           }
         }
       },
-      "block_order": ["price", "seeit", "answers", "covered", "yourway"],
+      "block_order": [
+        "price",
+        "seeit",
+        "answers",
+        "covered",
+        "yourway"
+      ],
       "settings": {
         "title": "",
         "heading_size": "h1",
@@ -112,7 +113,11 @@
           }
         }
       },
-      "block_order": ["heading", "body", "actions"],
+      "block_order": [
+        "heading",
+        "body",
+        "actions"
+      ],
       "settings": {
         "desktop_content_position": "center",
         "content_alignment": "center",
@@ -121,7 +126,19 @@
         "padding_top": 64,
         "padding_bottom": 64
       }
+    },
+    "title": {
+      "type": "main-page",
+      "settings": {
+        "padding_top": 48,
+        "padding_bottom": 0
+      }
     }
   },
-  "order": ["intro", "reasons", "bank"]
+  "order": [
+    "title",
+    "intro",
+    "reasons",
+    "bank"
+  ]
 }
