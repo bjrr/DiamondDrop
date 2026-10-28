@@ -19,7 +19,7 @@
         "actions": {
           "type": "button",
           "settings": {
-            "button_label": "See the current Group Buy",
+            "button_label": "How Group Buy works",
             "button_link": "/pages/group-buy",
             "button_style_secondary": false,
             "button_label_2": "Design something custom",
