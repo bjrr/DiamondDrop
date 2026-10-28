@@ -29,7 +29,7 @@
   /* Comfortable reading measure. Dawn lets prose run the full 1400px, which
      is unreadable at desktop width — this is the single biggest legibility
      win on text-heavy pages like the policy pages and the FAQ. */
-  --carat-measure: 68ch;
+  --carat-measure: 72rem; /* = Dawn page-width--narrow, so prose and terms share one edge */
 }
 
 /* ===========================================================================
@@ -90,6 +90,31 @@ h2, .h2 {
 }
 
 /* ===========================================================================
+   ONE LEFT EDGE PER PAGE
+   ---------------------------------------------------------------------------
+   Found by screenshotting the live pages, not by reading the templates.
+   Dawn puts `main-page` inside `.page-width--narrow` (a narrower, centred
+   container) while `multicolumn` and our `policy-terms` use the full
+   `.page-width`. So every page that mixes them had TWO competing left
+   margins — the title and intro prose starting around x=355, the grid and
+   the terms block at x=70. It read as an accident, because it was one.
+
+   Resolved by committing to the editorial form rather than fighting it:
+   a centred page title caps a centred readable prose column, and the
+   quoted terms share that same column instead of spanning the full width
+   beneath it. Grids below stay full width, which is what grids are for.
+   =========================================================================== */
+
+.main-page-title {
+  text-align: center;
+}
+
+/* The terms block itself now uses Dawn's `page-width--narrow` container
+   (see sections/policy-terms.liquid), which is the same one `main-page`
+   uses — so no per-element centring is needed here. Centring the children
+   in CSS was tried first and lost to section styles that load later. */
+
+/* ===========================================================================
    BUTTONS
    Squared already (settings). What Dawn cannot do is the label treatment.
    =========================================================================== */
@@ -99,8 +124,8 @@ h2, .h2 {
 .customer button,
 button.shopify-payment-button__button--unbranded {
   text-transform: uppercase;
-  letter-spacing: var(--carat-tracking-label);
-  font-size: 0.8125rem;
+  letter-spacing: 0.08em; /* 0.12em was too loose once uppercased at this size */
+  font-size: 0.875rem; /* 0.8125 looked undersized inside a 4.4rem button */
   font-weight: 500;
   padding-block: 1.05rem;
   min-height: 4.4rem;

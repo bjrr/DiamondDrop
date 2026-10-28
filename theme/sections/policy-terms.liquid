@@ -59,7 +59,15 @@
 {{ 'component-policy-terms.css' | asset_url | stylesheet_tag }}
 
 <div class="color-{{ section.settings.color_scheme }} gradient">
-  <div class="page-width section-{{ section.id }}-padding">
+  {%- comment -%}
+    `page-width--narrow`, matching `main-page`. The framing above these terms
+    renders in Dawn's narrow container; this section used the full one, so
+    every policy page had two different left margins and the eye had to jump
+    one mid-page. Reusing Dawn's own narrow container is steadier than
+    re-centring the children in CSS — an attempt at that was defeated by
+    section styles that load after the stylesheet.
+  {%- endcomment -%}
+  <div class="page-width page-width--narrow section-{{ section.id }}-padding">
     {%- if section.settings.heading != blank -%}
       <h2 class="carat-policy-terms__heading {{ section.settings.heading_size }}">
         {{ section.settings.heading | escape }}

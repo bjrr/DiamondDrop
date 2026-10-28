@@ -10,7 +10,7 @@
     "faq": {
       "type": "faq",
       "settings": {
-        "heading": "Frequently asked questions",
+        "heading": "",
         "heading_size": "h1",
         "uncategorised_heading": "Other questions",
         "color_scheme": "scheme-1",
@@ -19,5 +19,8 @@
       }
     }
   },
-  "order": ["main", "faq"]
+  "order": [
+    "main",
+    "faq"
+  ]
 }
