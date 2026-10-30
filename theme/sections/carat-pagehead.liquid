@@ -1,0 +1,105 @@
+{%- comment -%}
+  CARAT PAGE HEAD — levels 2 and 3 of the header system.
+
+  THE RULE THIS ENFORCES: a hero must earn the first screen. Most pages are
+  somewhere a customer arrived to DO something — submit a claim, check an
+  order, read a term, send a quote. On those pages a 78vh photograph is not
+  atmosphere, it is an obstacle placed in front of the reason they clicked.
+
+  LEVEL 2 — compact masthead, ~220-320px, optional narrow image strip.
+            Brand pages where story is the job: About, Past Group Buys.
+  LEVEL 3 — functional header, ~110-170px, heading and one sentence, no
+            image at all. Everything else.
+
+  Level 1 (the full hero) stays `carat-hero`, and belongs to the homepage.
+
+  The optional action slot exists so a page whose main job is one button —
+  Warranty, for instance — can put that button in the header rather than
+  making someone hunt for it below.
+{%- endcomment -%}
+
+{{ 'carat-editorial.css' | asset_url | stylesheet_tag }}
+
+{%- liquid
+  assign level = section.settings.level | default: 'functional'
+  assign img = section.settings.image
+-%}
+
+<section class="carat-pagehead carat-pagehead--{{ level }} color-{{ section.settings.color_scheme | default: 'scheme-1' }} gradient{% if img != blank and level == 'masthead' %} carat-pagehead--with-media{% endif %}">
+  <div class="page-width carat-pagehead__inner">
+    <div class="carat-pagehead__copy">
+      {%- if section.settings.eyebrow != blank -%}
+        <p class="carat-eyebrow">{{ section.settings.eyebrow | escape }}</p>
+      {%- endif -%}
+
+      <h1 class="carat-pagehead__title">
+        {{ section.settings.heading | default: page.title | escape }}
+      </h1>
+
+      {%- if section.settings.subheading != blank -%}
+        <p class="carat-pagehead__sub">{{ section.settings.subheading | escape }}</p>
+      {%- endif -%}
+
+      {%- if section.settings.cta_label != blank -%}
+        <div class="carat-pagehead__actions">
+          <a class="button" href="{{ section.settings.cta_link | default: '#' }}">
+            {{- section.settings.cta_label | escape -}}
+          </a>
+          {%- if section.settings.cta2_label != blank -%}
+            <a class="button button--secondary" href="{{ section.settings.cta2_link | default: '#' }}">
+              {{- section.settings.cta2_label | escape -}}
+            </a>
+          {%- endif -%}
+        </div>
+      {%- endif -%}
+    </div>
+
+    {%- comment -%}
+      A masthead may carry a narrow image strip beside the words. A
+      functional header never does — that is the whole distinction.
+    {%- endcomment -%}
+    {%- if img != blank and level == 'masthead' -%}
+      <div class="carat-pagehead__media">
+        <img
+          src="{{ img | image_url: width: 900 }}"
+          srcset="{{ img | image_url: width: 600 }} 600w, {{ img | image_url: width: 900 }} 900w, {{ img | image_url: width: 1300 }} 1300w"
+          sizes="(min-width: 750px) 38vw, 100vw"
+          alt="{{ img.alt | escape }}"
+          width="{{ img.width }}"
+          height="{{ img.height }}"
+          loading="eager"
+          class="carat-pagehead__img"
+        >
+      </div>
+    {%- endif -%}
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Carat page head",
+  "tag": "section",
+  "settings": [
+    {
+      "type": "select",
+      "id": "level",
+      "label": "Header level",
+      "default": "functional",
+      "options": [
+        { "value": "masthead", "label": "Level 2 — compact masthead" },
+        { "value": "functional", "label": "Level 3 — functional header" }
+      ]
+    },
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow" },
+    { "type": "text", "id": "heading", "label": "Heading (defaults to page title)" },
+    { "type": "text", "id": "subheading", "label": "One sentence" },
+    { "type": "image_picker", "id": "image", "label": "Image (masthead only)" },
+    { "type": "color_scheme", "id": "color_scheme", "label": "Colour scheme", "default": "scheme-1" },
+    { "type": "text", "id": "cta_label", "label": "Primary button" },
+    { "type": "url", "id": "cta_link", "label": "Primary link" },
+    { "type": "text", "id": "cta2_label", "label": "Secondary button" },
+    { "type": "url", "id": "cta2_link", "label": "Secondary link" }
+  ],
+  "presets": [{ "name": "Carat page head" }]
+}
+{% endschema %}

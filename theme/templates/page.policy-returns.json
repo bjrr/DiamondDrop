@@ -1,12 +1,5 @@
 {
   "sections": {
-    "main": {
-      "type": "main-page",
-      "settings": {
-        "padding_top": 36,
-        "padding_bottom": 0
-      }
-    },
     "terms": {
       "type": "policy-terms",
       "settings": {
@@ -33,17 +26,26 @@
         "body"
       ],
       "settings": {
-        "desktop_content_position": "center",
+        "desktop_content_position": "left",
         "content_alignment": "left",
         "color_scheme": "scheme-1",
         "full_width": true,
         "padding_top": 8,
         "padding_bottom": 8
       }
+    },
+    "head": {
+      "type": "carat-pagehead",
+      "settings": {
+        "level": "functional",
+        "color_scheme": "scheme-1",
+        "heading": "Returns and cancellations",
+        "subheading": "Most things we sell can be returned. Here is how, and what to expect."
+      }
     }
   },
   "order": [
-    "main",
+    "head",
     "intro",
     "terms"
   ]

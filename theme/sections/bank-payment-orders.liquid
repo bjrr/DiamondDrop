@@ -97,6 +97,18 @@
         <p class="carat-bank-orders__signin-message">
           {{- 'templates.bank_payment_orders.sign_in_required_message' | t -}}
         </p>
+        {%- comment -%}
+          Signed out, this page was a heading, one line and a button on an
+          otherwise empty screen — it never said what signing in would get
+          you. Saying so is the difference between a gate and a dead end.
+          No new claims here: all three are things the page already does
+          once a customer is signed in.
+        {%- endcomment -%}
+        <ul class="carat-bank-orders__signin-benefits">
+          <li>Every Bank Payment order on your account, and where each one stands</li>
+          <li>The exact amount due and the payment details for each order</li>
+          <li>Your payment deadline, and whether we have received and verified the funds</li>
+        </ul>
         <div class="carat-bank-orders__actions">
           <a
             href="{{ routes.account_login_url }}?return_url={{ request.path | url_encode }}"

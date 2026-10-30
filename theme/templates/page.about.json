@@ -14,8 +14,8 @@
         "body"
       ],
       "settings": {
-        "desktop_content_position": "center",
-        "content_alignment": "center",
+        "desktop_content_position": "left",
+        "content_alignment": "left",
         "color_scheme": "scheme-1",
         "full_width": true,
         "padding_top": 8,
@@ -111,30 +111,28 @@
         "actions"
       ],
       "settings": {
-        "desktop_content_position": "center",
-        "content_alignment": "center",
+        "desktop_content_position": "left",
+        "content_alignment": "left",
         "color_scheme": "scheme-3",
         "full_width": true,
         "padding_top": 64,
         "padding_bottom": 64
       }
     },
-    "pagehero": {
-      "type": "carat-hero",
+    "head": {
+      "type": "carat-pagehead",
       "settings": {
-        "image_desktop": "shopify://shop_images/carat-stone.png",
-        "image_mobile": "shopify://shop_images/carat-stone.png",
-        "height": "medium",
-        "text_position": "left",
+        "level": "masthead",
+        "color_scheme": "scheme-1",
         "eyebrow": "About CaratForUs",
         "heading": "In the gap between two bad options",
         "subheading": "Priced honestly, supported here, and labelled for what it is.",
-        "animate": false
+        "image": "shopify://shop_images/carat-b-groupbuy.png"
       }
     }
   },
   "order": [
-    "pagehero",
+    "head",
     "intro",
     "pillars",
     "close"

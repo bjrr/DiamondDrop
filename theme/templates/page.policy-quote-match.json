@@ -12,45 +12,56 @@
         "padding_bottom": 48
       }
     },
-    "intro": {
-      "type": "rich-text",
+    "head": {
+      "type": "carat-pagehead",
+      "settings": {
+        "level": "functional",
+        "color_scheme": "scheme-1",
+        "heading": "Already have a jewelry quote?",
+        "subheading": "Let us take a look. Every submission is read by a person.",
+        "cta_label": "Email your quote",
+        "cta_link": "mailto:orders@caratforus.com?subject=Let%20Us%20Beat%20Your%20Quote"
+      }
+    },
+    "rail": {
+      "type": "carat-infocols",
       "blocks": {
-        "body": {
-          "type": "text",
+        "qualifies": {
+          "type": "list",
           "settings": {
-            "text": "<p>Found the same piece cheaper somewhere else? Send us the quote and we will look at it properly.</p><p>Not every quote works the same way, and this is the part worth reading before you send one. A <strong>recent written custom quote</strong> from a real competitor, for something genuinely comparable, is the kind we can offer a guarantee on. Older quotes, active online listings and other companies' group buys we will still review and still often beat — but they come with no guarantee attached, because we cannot verify them the same way.</p><p>We will tell you which category yours falls into before you decide anything.</p><p>We compare like with like: the same metal, the same stone specification, the same workmanship. A lower number for a different piece is not a lower price for the same piece, and we will show you our reasoning rather than simply saying no.</p><p>The terms that govern this are below.</p>"
+            "title": "What qualifies",
+            "items": "A recent written quote\nComparable specifications\nCustom or fine jewelry"
+          }
+        },
+        "next": {
+          "type": "steps",
+          "settings": {
+            "title": "What happens next",
+            "items": "Submit it\nWe review it\nWe respond"
+          }
+        },
+        "honest": {
+          "type": "note",
+          "settings": {
+            "title": "Which category yours falls into",
+            "text": "<p>A recent written custom quote carries our guarantee. An online listing or a competing Group Buy we will still review honestly, but with no guarantee attached. We tell you which before you decide anything.</p>"
           }
         }
       },
       "block_order": [
-        "body"
+        "qualifies",
+        "next",
+        "honest"
       ],
       "settings": {
-        "desktop_content_position": "center",
-        "content_alignment": "left",
         "color_scheme": "scheme-1",
-        "full_width": true,
-        "padding_top": 8,
-        "padding_bottom": 8
-      }
-    },
-    "pagehero": {
-      "type": "carat-hero",
-      "settings": {
-        "image_desktop": "shopify://shop_images/carat-tools.png",
-        "image_mobile": "shopify://shop_images/carat-tools.png",
-        "height": "medium",
-        "text_position": "left",
-        "eyebrow": "Let Us Beat Your Quote",
-        "heading": "Bring us a number",
-        "subheading": "Send us the quote. We read every submission ourselves.",
-        "animate": false
+        "pair_with_next": false
       }
     }
   },
   "order": [
-    "pagehero",
-    "intro",
+    "head",
+    "rail",
     "terms"
   ]
 }

@@ -297,3 +297,25 @@ button.shopify-payment-button__button--unbranded {
     transition: none;
   }
 }
+
+/* ===========================================================================
+   [hidden] MUST ACTUALLY HIDE
+   ---------------------------------------------------------------------------
+   Dawn's `.form__message { display: flex }` beats the user-agent rule
+   `[hidden] { display: none }`, because an author declaration always wins
+   over the UA sheet. Every per-field error element on the custom-jewelry
+   and warranty-claim forms carries `hidden` and was rendering anyway — a
+   red error icon beside all eight required fields on a form nobody had
+   submitted yet.
+
+   Measured, not guessed: 8 elements carrying [hidden] had a computed
+   display other than none.
+
+   Also an accessibility fix. These are `<small role=alert>` nodes, so a
+   screen reader was being handed eight empty alerts on page load.
+   =========================================================================== */
+
+.form__message[hidden],
+[hidden] {
+  display: none !important;
+}

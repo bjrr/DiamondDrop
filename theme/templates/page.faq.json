@@ -1,12 +1,5 @@
 {
   "sections": {
-    "main": {
-      "type": "main-page",
-      "settings": {
-        "padding_top": 36,
-        "padding_bottom": 0
-      }
-    },
     "faq": {
       "type": "faq",
       "settings": {
@@ -17,10 +10,19 @@
         "padding_top": 12,
         "padding_bottom": 36
       }
+    },
+    "head": {
+      "type": "carat-pagehead",
+      "settings": {
+        "level": "functional",
+        "color_scheme": "scheme-1",
+        "heading": "Questions and answers",
+        "subheading": "Pricing, Group Buy, custom pieces, delivery, returns and warranty."
+      }
     }
   },
   "order": [
-    "main",
+    "head",
     "faq"
   ]
 }

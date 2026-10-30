@@ -1,12 +1,5 @@
 {
   "sections": {
-    "main": {
-      "type": "main-page",
-      "settings": {
-        "padding_top": 36,
-        "padding_bottom": 0
-      }
-    },
     "orders": {
       "type": "bank-payment-orders",
       "settings": {
@@ -15,7 +8,19 @@
         "padding_top": 0,
         "padding_bottom": 36
       }
+    },
+    "head": {
+      "type": "carat-pagehead",
+      "settings": {
+        "level": "functional",
+        "color_scheme": "scheme-1",
+        "heading": "Bank Payment orders",
+        "subheading": "Your Bank Payment orders, their status, and what to do next."
+      }
     }
   },
-  "order": ["main", "orders"]
+  "order": [
+    "head",
+    "orders"
+  ]
 }

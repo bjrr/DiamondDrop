@@ -26,7 +26,7 @@
         "body"
       ],
       "settings": {
-        "desktop_content_position": "center",
+        "desktop_content_position": "left",
         "content_alignment": "left",
         "color_scheme": "scheme-1",
         "full_width": true,
@@ -34,22 +34,18 @@
         "padding_bottom": 8
       }
     },
-    "pagehero": {
-      "type": "carat-hero",
+    "head": {
+      "type": "carat-pagehead",
       "settings": {
-        "image_desktop": "shopify://shop_images/carat-drop.png",
-        "image_mobile": "shopify://shop_images/carat-drop.png",
-        "height": "medium",
-        "text_position": "right",
-        "eyebrow": "Luxury Steals",
-        "heading": "One piece. One price.",
-        "subheading": "When it is gone, it is gone. Final sale — and we say so before you buy.",
-        "animate": false
+        "level": "functional",
+        "color_scheme": "scheme-1",
+        "heading": "Luxury Steals",
+        "subheading": "A small number of pieces at a price we cannot repeat. Every Luxury Steal is final sale."
       }
     }
   },
   "order": [
-    "pagehero",
+    "head",
     "intro",
     "terms"
   ]

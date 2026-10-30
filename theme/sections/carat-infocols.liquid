@@ -1,0 +1,97 @@
+{%- comment -%}
+  CARAT INFO COLUMNS — the supporting rail that sits ALONGSIDE a form.
+
+  Shopify sections are siblings and cannot nest, so a form section cannot be
+  wrapped in a two-column layout from the template. This section instead
+  renders the supporting column and declares, via `pair_with_next`, that the
+  section immediately after it is its partner. The CSS then lifts the two
+  into one grid.
+
+  That is how "steps on the left, form on the right" is achieved without
+  rewriting a 600-line form section: the form keeps its markup, validation
+  and accessibility exactly as they are.
+
+  Each block is a short titled note — three steps, what qualifies, what
+  happens next. Deliberately terse: this rail exists to orient someone who
+  is about to fill in a form, not to re-explain the policy.
+{%- endcomment -%}
+
+{{ 'carat-editorial.css' | asset_url | stylesheet_tag }}
+
+<section class="carat-infocols color-{{ section.settings.color_scheme | default: 'scheme-1' }} gradient{% if section.settings.pair_with_next %} carat-pair carat-pair--lead{% endif %}">
+  <div class="page-width carat-infocols__inner">
+    {%- for block in section.blocks -%}
+      <div class="carat-infonote carat-infonote--{{ block.type }}" {{ block.shopify_attributes }}>
+        {%- if block.settings.title != blank -%}
+          <h2 class="carat-infonote__title">{{ block.settings.title | escape }}</h2>
+        {%- endif -%}
+
+        {%- if block.type == 'steps' -%}
+          <ol class="carat-infonote__steps">
+            {%- assign items = block.settings.items | newline_to_br | split: '<br />' -%}
+            {%- for item in items -%}
+              {%- assign t = item | strip -%}
+              {%- if t != blank -%}<li>{{ t | escape }}</li>{%- endif -%}
+            {%- endfor -%}
+          </ol>
+        {%- elsif block.type == 'list' -%}
+          <ul class="carat-infonote__list">
+            {%- assign items = block.settings.items | newline_to_br | split: '<br />' -%}
+            {%- for item in items -%}
+              {%- assign t = item | strip -%}
+              {%- if t != blank -%}<li>{{ t | escape }}</li>{%- endif -%}
+            {%- endfor -%}
+          </ul>
+        {%- else -%}
+          {%- if block.settings.text != blank -%}
+            <div class="carat-infonote__text rte">{{ block.settings.text }}</div>
+          {%- endif -%}
+        {%- endif -%}
+      </div>
+    {%- endfor -%}
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Carat info columns",
+  "tag": "section",
+  "max_blocks": 5,
+  "settings": [
+    { "type": "color_scheme", "id": "color_scheme", "label": "Colour scheme", "default": "scheme-1" },
+    {
+      "type": "checkbox",
+      "id": "pair_with_next",
+      "label": "Sit beside the next section (desktop)",
+      "default": true
+    }
+  ],
+  "blocks": [
+    {
+      "type": "steps",
+      "name": "Numbered steps",
+      "settings": [
+        { "type": "text", "id": "title", "label": "Title" },
+        { "type": "textarea", "id": "items", "label": "One step per line" }
+      ]
+    },
+    {
+      "type": "list",
+      "name": "Bulleted list",
+      "settings": [
+        { "type": "text", "id": "title", "label": "Title" },
+        { "type": "textarea", "id": "items", "label": "One item per line" }
+      ]
+    },
+    {
+      "type": "note",
+      "name": "Short note",
+      "settings": [
+        { "type": "text", "id": "title", "label": "Title" },
+        { "type": "richtext", "id": "text", "label": "Text" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Carat info columns" }]
+}
+{% endschema %}

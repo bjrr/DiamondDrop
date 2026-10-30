@@ -1,27 +1,5 @@
 {
   "sections": {
-    "intro": {
-      "type": "rich-text",
-      "blocks": {
-        "body": {
-          "type": "text",
-          "settings": {
-            "text": "<p>Five reasons, each of which you can check for yourself before you spend anything.</p>"
-          }
-        }
-      },
-      "block_order": [
-        "body"
-      ],
-      "settings": {
-        "desktop_content_position": "center",
-        "content_alignment": "center",
-        "color_scheme": "scheme-1",
-        "full_width": true,
-        "padding_top": 8,
-        "padding_bottom": 36
-      }
-    },
     "reasons": {
       "type": "multicolumn",
       "blocks": {
@@ -119,31 +97,26 @@
         "actions"
       ],
       "settings": {
-        "desktop_content_position": "center",
-        "content_alignment": "center",
+        "desktop_content_position": "left",
+        "content_alignment": "left",
         "color_scheme": "scheme-3",
         "full_width": true,
         "padding_top": 64,
         "padding_bottom": 64
       }
     },
-    "pagehero": {
-      "type": "carat-hero",
+    "head": {
+      "type": "carat-pagehead",
       "settings": {
-        "image_desktop": "shopify://shop_images/carat-facets.png",
-        "image_mobile": "shopify://shop_images/carat-facets.png",
-        "height": "medium",
-        "text_position": "left",
-        "eyebrow": "Why buy from us",
-        "heading": "Five things you can check yourself",
-        "subheading": "Before you spend anything.",
-        "animate": false
+        "level": "functional",
+        "color_scheme": "scheme-1",
+        "heading": "Why CaratForUs",
+        "subheading": "Five things you can check for yourself before you spend anything."
       }
     }
   },
   "order": [
-    "pagehero",
-    "intro",
+    "head",
     "reasons",
     "bank"
   ]

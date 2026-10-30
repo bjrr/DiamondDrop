@@ -802,3 +802,294 @@
 
   .carat-steps { padding-block: 4.5rem; }
 }
+
+/* ===========================================================================
+   PAGE HEADER SYSTEM — levels 2 and 3
+   ---------------------------------------------------------------------------
+   A hero must earn the first screen. Pages where the customer arrived to DO
+   something get a header measured in pixels, not viewport heights, so the
+   form or the offer is visible without scrolling.
+   =========================================================================== */
+
+.carat-pagehead__inner {
+  display: flex;
+  flex-direction: column;
+  gap: 2.4rem;
+}
+
+.carat-pagehead__title {
+  margin: 0;
+  line-height: 1.08;
+  letter-spacing: -0.015em;
+}
+
+.carat-pagehead__sub {
+  margin: 1.2rem 0 0;
+  font-size: 1.65rem;
+  line-height: 1.5;
+  opacity: 0.78;
+  max-width: 62ch;
+}
+
+.carat-pagehead__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.2rem;
+  margin-block-start: 2.4rem;
+}
+
+/* LEVEL 3 — functional. No image, ever. Around 110-170px tall. */
+.carat-pagehead--functional {
+  padding-block: 4.4rem 3rem;
+  border-block-end: 1px solid rgba(var(--color-foreground), 0.1);
+}
+
+.carat-pagehead--functional .carat-pagehead__title {
+  font-size: clamp(2.8rem, 3.2vw, 4rem);
+}
+
+.carat-pagehead--functional .carat-pagehead__sub {
+  font-size: 1.6rem;
+}
+
+/* LEVEL 2 — compact masthead. Around 220-320px, optional image strip. */
+.carat-pagehead--masthead {
+  padding-block: 6.5rem 5.5rem;
+}
+
+.carat-pagehead--masthead .carat-pagehead__title {
+  font-size: clamp(3.4rem, 4.2vw, 5.4rem);
+  max-width: 18ch;
+}
+
+.carat-pagehead__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  max-height: 30rem;
+}
+
+@media screen and (min-width: 750px) {
+  .carat-pagehead--with-media .carat-pagehead__inner {
+    flex-direction: row;
+    align-items: center;
+    gap: 5rem;
+  }
+  .carat-pagehead--with-media .carat-pagehead__copy { flex: 1 1 58%; }
+  .carat-pagehead--with-media .carat-pagehead__media { flex: 1 1 42%; }
+}
+
+/* ===========================================================================
+   PAIRED SECTIONS — a supporting rail beside a form
+   ---------------------------------------------------------------------------
+   Shopify sections are siblings and cannot nest, so a 600-line form section
+   cannot be wrapped in a two-column layout from the template without being
+   rewritten. Instead the rail marks itself `carat-pair--lead` and the grid
+   is applied to Dawn's #MainContent, scoped by :has() so it only engages on
+   pages that actually contain a pair.
+
+   The form keeps its own markup, validation and accessibility untouched —
+   which matters more than the layout does.
+
+   Browsers without :has() simply stack the two, which is the mobile layout
+   and perfectly usable. No fallback needed.
+   =========================================================================== */
+
+@media screen and (min-width: 990px) {
+  #MainContent:has(.carat-pair--lead) {
+    display: grid;
+    grid-template-columns: 36fr 64fr;
+    align-items: start;
+    column-gap: 4rem;
+    max-width: var(--page-width);
+    margin-inline: auto;
+    padding-inline: 3rem;
+  }
+
+  /* Everything that is not part of the pair spans the full width. */
+  #MainContent:has(.carat-pair--lead) > .shopify-section {
+    grid-column: 1 / -1;
+  }
+
+  #MainContent:has(.carat-pair--lead) > .shopify-section:has(.carat-pair--lead) {
+    grid-column: 1;
+    position: sticky;
+    top: 3rem;
+  }
+
+  #MainContent:has(.carat-pair--lead) > .shopify-section:has(.carat-pair--lead) + .shopify-section {
+    grid-column: 2;
+  }
+
+  /* Inside the pair the inner page-width wrappers would re-centre and
+     re-pad against the viewport, which inside a 36% column is wrong. */
+  #MainContent:has(.carat-pair--lead) > .shopify-section:has(.carat-pair--lead) .page-width,
+  #MainContent:has(.carat-pair--lead) > .shopify-section:has(.carat-pair--lead) + .shopify-section .page-width {
+    max-width: none;
+    padding-inline: 0;
+  }
+}
+
+/* ------------------------------------------------------- the rail itself */
+
+.carat-infocols { padding-block: 4rem 2rem; }
+
+.carat-infocols__inner {
+  display: grid;
+  gap: 3.2rem;
+}
+
+.carat-infonote__title {
+  font-size: 1.8rem;
+  line-height: 1.2;
+  margin: 0 0 1.2rem;
+}
+
+.carat-infonote__steps,
+.carat-infonote__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 1rem;
+}
+
+.carat-infonote__steps { counter-reset: carat-step; }
+
+.carat-infonote__steps li {
+  counter-increment: carat-step;
+  position: relative;
+  padding-inline-start: 3.2rem;
+  font-size: 1.5rem;
+  line-height: 1.5;
+  opacity: 0.84;
+}
+
+.carat-infonote__steps li::before {
+  content: counter(carat-step);
+  position: absolute;
+  inset-inline-start: 0;
+  top: -0.1rem;
+  font-family: var(--font-heading-family);
+  font-size: 1.8rem;
+  color: #c9a96a;
+}
+
+.carat-infonote__list li {
+  position: relative;
+  padding-inline-start: 2rem;
+  font-size: 1.5rem;
+  line-height: 1.5;
+  opacity: 0.84;
+}
+
+.carat-infonote__list li::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0.9rem;
+  width: 0.9rem;
+  height: 1px;
+  background: #c9a96a;
+}
+
+.carat-infonote__text {
+  font-size: 1.5rem;
+  line-height: 1.55;
+  opacity: 0.84;
+}
+
+.carat-infonote__text p:last-child { margin-block-end: 0; }
+
+/* Two across on tablet, where the rail still sits above the form. */
+@media screen and (min-width: 750px) and (max-width: 989px) {
+  .carat-infocols__inner { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media screen and (max-width: 749px) {
+  .carat-pagehead--functional { padding-block: 3.2rem 2.4rem; }
+  .carat-pagehead--masthead { padding-block: 4.4rem 3.6rem; }
+  .carat-pagehead__actions .button { width: 100%; }
+  .carat-infocols { padding-block: 3rem 1rem; }
+  .carat-infocols__inner { gap: 2.4rem; }
+}
+
+/* ===========================================================================
+   EMPTY AND GATED STATES
+   A page whose functional section has nothing to show must still answer
+   "why am I here and what can I do" — otherwise the silence reads as broken.
+   =========================================================================== */
+
+.carat-gb-empty {
+  padding-block: 4rem 1rem;
+  max-width: 62ch;
+}
+
+.carat-gb-empty__title {
+  font-size: clamp(2.4rem, 2.8vw, 3.4rem);
+  line-height: 1.1;
+  margin: 0 0 1.4rem;
+}
+
+.carat-gb-empty__text {
+  font-size: 1.6rem;
+  line-height: 1.55;
+  margin: 0 0 3rem;
+  opacity: 0.8;
+}
+
+.carat-gb-empty__actions,
+.carat-bank-orders__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.2rem;
+}
+
+.carat-bank-orders__signin-benefits {
+  list-style: none;
+  margin: 2rem 0 3rem;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+  max-width: 58ch;
+}
+
+.carat-bank-orders__signin-benefits li {
+  position: relative;
+  padding-inline-start: 2rem;
+  font-size: 1.55rem;
+  line-height: 1.5;
+  opacity: 0.84;
+}
+
+.carat-bank-orders__signin-benefits li::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  top: 1rem;
+  width: 0.9rem;
+  height: 1px;
+  background: #c9a96a;
+}
+
+@media screen and (max-width: 749px) {
+  .carat-gb-empty__actions .button,
+  .carat-bank-orders__actions .button { width: 100%; }
+}
+
+/* ===========================================================================
+   ONE LEFT EDGE, UNDER THE FUNCTIONAL HEADER
+   ---------------------------------------------------------------------------
+   `.carat-gb-campaign` carries BOTH `page-width` (margin: 0 auto) and its
+   own `max-width: 70rem`. Together those centre a 700px block inside a
+   1400px container, so the campaign and its empty state sat at x=420 while
+   the header, the steps and the terms all sat at x=70. Measured, not
+   guessed: four headings, two distinct left edges, 350px apart.
+
+   The reading cap moves to the content that needs it instead.
+   =========================================================================== */
+
+.carat-gb-campaign {
+  max-width: var(--page-width);
+}

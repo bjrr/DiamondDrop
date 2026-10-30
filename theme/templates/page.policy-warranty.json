@@ -1,12 +1,5 @@
 {
   "sections": {
-    "main": {
-      "type": "main-page",
-      "settings": {
-        "padding_top": 36,
-        "padding_bottom": 0
-      }
-    },
     "terms": {
       "type": "policy-terms",
       "settings": {
@@ -33,17 +26,28 @@
         "body"
       ],
       "settings": {
-        "desktop_content_position": "center",
+        "desktop_content_position": "left",
         "content_alignment": "left",
         "color_scheme": "scheme-1",
         "full_width": true,
         "padding_top": 8,
         "padding_bottom": 8
       }
+    },
+    "head": {
+      "type": "carat-pagehead",
+      "settings": {
+        "level": "functional",
+        "color_scheme": "scheme-1",
+        "heading": "Your CaratForUs warranty",
+        "subheading": "One year against manufacturing faults, handled by the company that sold you the piece.",
+        "cta_label": "Start a warranty claim",
+        "cta_link": "/pages/warranty-claim"
+      }
     }
   },
   "order": [
-    "main",
+    "head",
     "intro",
     "terms"
   ]

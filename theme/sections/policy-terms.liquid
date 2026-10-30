@@ -60,14 +60,17 @@
 
 <div class="color-{{ section.settings.color_scheme }} gradient">
   {%- comment -%}
-    `page-width--narrow`, matching `main-page`. The framing above these terms
-    renders in Dawn's narrow container; this section used the full one, so
-    every policy page had two different left margins and the eye had to jump
-    one mid-page. Reusing Dawn's own narrow container is steadier than
-    re-centring the children in CSS — an attempt at that was defeated by
-    section styles that load after the stylesheet.
+    Full `page-width`, matching carat-pagehead and every other section on
+    these pages.
+
+    This was briefly `page-width--narrow` to line up with Dawn's CENTRED
+    main-page title. That title no longer exists — the functional header
+    replaced it and sits at the page-width edge — so the narrow container
+    now creates the second left margin it was originally added to remove.
+    Reading measure comes from max-width on the text itself, not from
+    squeezing the container.
   {%- endcomment -%}
-  <div class="page-width page-width--narrow section-{{ section.id }}-padding">
+  <div class="page-width section-{{ section.id }}-padding">
     {%- if section.settings.heading != blank -%}
       <h2 class="carat-policy-terms__heading {{ section.settings.heading_size }}">
         {{ section.settings.heading | escape }}

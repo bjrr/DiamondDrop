@@ -119,7 +119,13 @@
 -%}
 
 <div class="color-{{ section.settings.color_scheme }} gradient">
-  <div class="page-width page-width--narrow section-{{ section.id }}-padding carat-gb-campaign">
+  {%- comment -%}
+    `page-width`, not `page-width--narrow`. The functional header above and
+    the how-it-works steps below both sit at the page-width edge, so a
+    narrower container here put the campaign — and the empty state — on a
+    second, unexplained left margin partway down the page.
+  {%- endcomment -%}
+  <div class="page-width section-{{ section.id }}-padding carat-gb-campaign">
     {%- if campaign_code == blank or gb_product == blank -%}
       {%- comment -%}
         Merchant-only placeholder. Never rendered to a real shopper: without
@@ -132,6 +138,32 @@
           {{- 'templates.group_buy_campaign.onboarding_missing_settings' | t -}}
         </p>
       {%- endif -%}
+
+      {%- comment -%}
+        SHOPPER-VISIBLE EMPTY STATE (owner decision 2026-10-30).
+
+        Rendering nothing is the right answer to a MISCONFIGURED campaign —
+        that is what the comment above protects against, and it still holds.
+        But it was also the answer when no campaign happened to be running,
+        which left a customer who clicked "Group Buy" on a page that
+        explained the idea and offered no way to act on it, with no word of
+        why. Silence read as broken.
+
+        So: still nothing clever, still no half-built widget. Just a plain
+        statement of the situation and the three routes that do work today.
+      {%- endcomment -%}
+      <div class="carat-gb-empty">
+        <h2 class="carat-gb-empty__title">No Group Buy is open right now</h2>
+        <p class="carat-gb-empty__text">
+          Campaigns open for a set window. When the next one opens it will appear here &mdash;
+          and in the meantime there are other ways to buy.
+        </p>
+        <div class="carat-gb-empty__actions">
+          <a class="button" href="{{ routes.root_url }}pages/past-group-buys">See past Group Buys</a>
+          <a class="button button--secondary" href="{{ routes.root_url }}pages/custom-jewelry">Design something custom</a>
+          <a class="button button--secondary" href="{{ routes.root_url }}pages/luxury-steals">Luxury Steals</a>
+        </div>
+      </div>
     {%- else -%}
       <div
         class="carat-gb-campaign__root"
