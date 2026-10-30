@@ -1,0 +1,70 @@
+{%- comment -%}
+  CARAT STEPS — a numbered explanation in one band.
+
+  Group Buy is the mechanic a customer has never seen before, so it is the
+  one thing on the homepage that earns an explanation rather than a link.
+  Three steps, one line each, oversized numerals doing the visual work.
+
+  No imagery by design: a diagram of a pricing mechanic is clearer in type
+  than in a photograph, and it keeps the page short.
+{%- endcomment -%}
+
+{{ 'carat-editorial.css' | asset_url | stylesheet_tag }}
+
+<section class="carat-steps color-{{ section.settings.color_scheme | default: 'scheme-2' }} gradient">
+  <div class="page-width">
+    <div class="carat-steps__head">
+      {%- if section.settings.eyebrow != blank -%}
+        <p class="carat-eyebrow">{{ section.settings.eyebrow | escape }}</p>
+      {%- endif -%}
+      {%- if section.settings.heading != blank -%}
+        <h2 class="carat-steps__heading">{{ section.settings.heading | escape }}</h2>
+      {%- endif -%}
+    </div>
+
+    <ol class="carat-steps__list">
+      {%- for block in section.blocks -%}
+        <li class="carat-step" {{ block.shopify_attributes }}>
+          <span class="carat-step__num" aria-hidden="true">{{ forloop.index }}</span>
+          <h3 class="carat-step__title">{{ block.settings.title | escape }}</h3>
+          {%- if block.settings.text != blank -%}
+            <p class="carat-step__text">{{ block.settings.text | escape }}</p>
+          {%- endif -%}
+        </li>
+      {%- endfor -%}
+    </ol>
+
+    {%- if section.settings.cta_label != blank -%}
+      <a class="carat-link carat-steps__cta" href="{{ section.settings.cta_link | default: '#' }}">
+        {{- section.settings.cta_label | escape -}}
+        <span aria-hidden="true">&rarr;</span>
+      </a>
+    {%- endif -%}
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Carat steps",
+  "tag": "section",
+  "max_blocks": 4,
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow" },
+    { "type": "text", "id": "heading", "label": "Heading" },
+    { "type": "color_scheme", "id": "color_scheme", "label": "Colour scheme", "default": "scheme-2" },
+    { "type": "text", "id": "cta_label", "label": "Link label" },
+    { "type": "url", "id": "cta_link", "label": "Link" }
+  ],
+  "blocks": [
+    {
+      "type": "step",
+      "name": "Step",
+      "settings": [
+        { "type": "text", "id": "title", "label": "Title", "default": "Step" },
+        { "type": "text", "id": "text", "label": "One line" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Carat steps" }]
+}
+{% endschema %}

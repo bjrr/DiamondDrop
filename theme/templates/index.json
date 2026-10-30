@@ -3,135 +3,173 @@
     "hero": {
       "type": "carat-hero",
       "settings": {
-        "image_desktop": "shopify://shop_images/carat-hero-desktop.png",
-        "image_mobile": "shopify://shop_images/carat-hero-mobile.png",
-        "height": "tall",
+        "image_desktop": "shopify://shop_images/carat-stone.png",
+        "image_mobile": "shopify://shop_images/carat-stone.png",
+        "height": "medium",
+        "tone": "light",
         "text_position": "left",
-        "eyebrow": "Fine jewelry, honestly priced",
-        "heading": "Priced from what it actually costs",
-        "subheading": "The metal, the stones, and a margin we can defend. Never an invented list price to discount against.",
-        "cta_label": "Browse the catalog",
+        "eyebrow": "CaratForUs",
+        "heading": "Fine jewelry. Smarter ways to buy.",
+        "subheading": "Shop exceptional diamond jewelry, join a Group Buy, create something custom, discover limited Luxury Steals, or let us beat your quote.",
+        "cta_label": "Shop jewelry",
         "cta_link": "/collections/all",
         "cta2_label": "How Group Buy works",
         "cta2_link": "/pages/group-buy",
-        "animate": true
+        "animate": false
       }
     },
-    "ways": {
-      "type": "carat-tiles",
+    "paths": {
+      "type": "carat-paths",
       "blocks": {
-        "groupbuy": {
-          "type": "tile",
+        "shop": {
+          "type": "path",
           "settings": {
-            "image": "shopify://shop_images/carat-chain.png",
-            "kicker": "Group Buy",
-            "title": "The more of us, the less it costs",
-            "text": "One design, one window. Every order drops the price for everyone — and you are never charged more than the price you joined at.",
-            "cta": "How it works",
+            "title": "Shop Jewelry",
+            "text": "Ready-to-buy fine jewelry.",
+            "link": "/collections/all"
+          }
+        },
+        "groupbuy": {
+          "type": "path",
+          "settings": {
+            "title": "Group Buy",
+            "text": "More buyers. Better pricing.",
             "link": "/pages/group-buy"
           }
         },
         "steals": {
-          "type": "tile",
+          "type": "path",
           "settings": {
-            "image": "shopify://shop_images/carat-drop.png",
-            "kicker": "Luxury Steals",
-            "title": "One piece. One price. Then it is gone.",
-            "text": "Final sale, and we say so before you buy — never after.",
-            "cta": "See Luxury Steals",
+            "title": "Luxury Steals",
+            "text": "Exceptional pieces at limited pricing.",
             "link": "/pages/luxury-steals"
           }
         },
         "custom": {
-          "type": "tile",
+          "type": "path",
           "settings": {
-            "image": "shopify://shop_images/carat-design.png",
-            "kicker": "Custom Jewelry",
-            "title": "Have it made",
-            "text": "A $49 deposit starts the design. Nothing is produced until you approve it.",
-            "cta": "Start a piece",
+            "title": "Custom Jewelry",
+            "text": "Create something made for you.",
             "link": "/pages/custom-jewelry"
           }
         },
         "quote": {
-          "type": "tile",
+          "type": "path",
           "settings": {
-            "image": "shopify://shop_images/carat-tools.png",
-            "kicker": "Let Us Beat Your Quote",
-            "title": "Bring us a number",
-            "text": "A recent written custom quote gets our guarantee. Everything else we will still read honestly.",
-            "cta": "Submit a quote",
+            "title": "Beat Your Quote",
+            "text": "Already have a jewelry quote? Let us compete for your business.",
             "link": "/pages/let-us-beat-your-quote"
           }
         }
       },
-      "block_order": ["groupbuy", "steals", "custom", "quote"],
+      "block_order": [
+        "shop",
+        "groupbuy",
+        "steals",
+        "custom",
+        "quote"
+      ],
       "settings": {
-        "eyebrow": "Four ways to buy",
-        "heading": "Every route to the same thing: a price that makes sense",
+        "eyebrow": "Five ways to buy",
+        "heading": "How would you like to shop?",
+        "color_scheme": "scheme-1"
+      }
+    },
+    "groupbuy_steps": {
+      "type": "carat-steps",
+      "blocks": {
+        "s1": {
+          "type": "step",
+          "settings": {
+            "title": "Join at today's price",
+            "text": "You see the price before you order, and you are never charged more than it."
+          }
+        },
+        "s2": {
+          "type": "step",
+          "settings": {
+            "title": "More buyers join",
+            "text": "Each order moves the group toward the next tier."
+          }
+        },
+        "s3": {
+          "type": "step",
+          "settings": {
+            "title": "Everyone pays the lower price",
+            "text": "When the campaign closes we settle at the final tier and refund the difference."
+          }
+        }
+      },
+      "block_order": [
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "settings": {
+        "eyebrow": "Group Buy",
+        "heading": "More buyers. Better pricing.",
+        "color_scheme": "scheme-2",
+        "cta_label": "See how Group Buy works",
+        "cta_link": "/pages/group-buy"
+      }
+    },
+    "why": {
+      "type": "carat-steps",
+      "blocks": {
+        "w1": {
+          "type": "step",
+          "settings": {
+            "title": "Priced from real cost",
+            "text": "The metal, the stones, and a margin we can defend."
+          }
+        },
+        "w2": {
+          "type": "step",
+          "settings": {
+            "title": "Pay by bank, pay less",
+            "text": "Zelle or domestic wire costs us less, so it costs you less."
+          }
+        },
+        "w3": {
+          "type": "step",
+          "settings": {
+            "title": "Inspected and covered",
+            "text": "Checked before it ships, insured in transit, one-year limited warranty."
+          }
+        }
+      },
+      "block_order": [
+        "w1",
+        "w2",
+        "w3"
+      ],
+      "settings": {
+        "eyebrow": "Why CaratForUs",
+        "heading": "Better value, properly supported",
         "color_scheme": "scheme-1",
-        "feature_first": true
-      }
-    },
-    "facets_break": {
-      "type": "carat-break",
-      "settings": {
-        "image": "shopify://shop_images/carat-facets.png",
-        "height": "medium",
-        "text_position": "center",
-        "eyebrow": "Diamond obsession",
-        "statement": "We will tell you exactly what you are getting",
-        "parallax": false
-      }
-    },
-    "bank": {
-      "type": "carat-split",
-      "settings": {
-        "image": "shopify://shop_images/carat-gold.png",
-        "media_side": "left",
-        "color_scheme": "scheme-3",
-        "eyebrow": "Bank Payment Price",
-        "heading": "Pay by bank, pay less",
-        "text": "<p>Paying by bank costs us less to accept, so we pass it through rather than keeping it. Zelle or domestic wire.</p><p>You see both prices before you commit, and the exact dollar saving on every piece.</p>",
-        "cta_label": "Your Bank Payment orders",
-        "cta_link": "/pages/bank-payment-orders",
-        "compact": false
-      }
-    },
-    "assurance": {
-      "type": "carat-split",
-      "settings": {
-        "image": "shopify://shop_images/carat-stone.png",
-        "media_side": "right",
-        "color_scheme": "scheme-1",
-        "eyebrow": "What you get either way",
-        "heading": "Inspected here. Covered for a year.",
-        "text": "<p>Every piece is checked by us before it ships, so the first person to find a problem is us and not you.</p><p>Tracked and insured in transit, signature required over $100, and a one-year limited warranty against manufacturing faults — handled by the same company that sold it to you.</p>",
         "cta_label": "Why buy from us",
-        "cta_link": "/pages/why-buy-from-us",
-        "compact": false
+        "cta_link": "/pages/why-buy-from-us"
       }
     },
-    "closing_break": {
+    "atmosphere": {
       "type": "carat-break",
       "settings": {
-        "image": "shopify://shop_images/carat-scatter.png",
-        "height": "medium",
-        "text_position": "left",
-        "eyebrow": "CaratForUs",
-        "statement": "Better value, better protection, a better way to buy",
-        "cta_label": "Read our story",
-        "cta_link": "/pages/about-us",
+        "image": "shopify://shop_images/carat-drop.png",
+        "height": "short",
+        "text_position": "right",
+        "statement": "One piece. One price. Then it is gone.",
+        "eyebrow": "Luxury Steals",
+        "cta_label": "See Luxury Steals",
+        "cta_link": "/pages/luxury-steals",
         "parallax": false
       }
     }
   },
   "order": [
     "hero",
-    "ways",
-    "facets_break",
-    "bank",
-    "assurance",
-    "closing_break"
+    "paths",
+    "groupbuy_steps",
+    "why",
+    "atmosphere"
   ]
 }

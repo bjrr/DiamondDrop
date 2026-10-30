@@ -518,3 +518,263 @@
   .carat-break--medium { min-height: 42vh; }
   .carat-break--tall   { min-height: 58vh; }
 }
+
+/* ===========================================================================
+   BRIGHT SYSTEM — added when the direction moved from dark campaign to
+   fine-jewelry store.
+   ---------------------------------------------------------------------------
+   The previous pass put every important sentence over a dark photograph.
+   That reads as atmosphere and costs comprehension: a first-time visitor had
+   to decode the picture before they could read the offer. Everything below
+   inverts that priority — clarity first, jewelry second, atmosphere third.
+   =========================================================================== */
+
+/* ------------------------------------------------------- light hero */
+
+.carat-hero--light {
+  background: rgb(var(--color-background));
+  min-height: 0;
+}
+
+/* The dark hero stacks media, scrim and copy into ONE grid cell so the type
+   sits over the picture. The light hero must undo that at EVERY width — the
+   first attempt only undid it above 750px, which left the mobile headline
+   printed in dark ink directly on the photograph with the scrim disabled.
+   Unreadable, and only a mobile screenshot showed it. */
+.carat-hero--light .carat-hero__media,
+.carat-hero--light .carat-hero__inner {
+  grid-area: auto;
+}
+
+/* Image first on mobile, so the page opens on something to look at and the
+   words arrive on clean ivory underneath. */
+.carat-hero--light .carat-hero__media { order: 1; }
+.carat-hero--light .carat-hero__inner { order: 2; }
+
+/* Copy sits BESIDE the image on desktop, never on it. */
+@media screen and (min-width: 750px) {
+  .carat-hero--light {
+    grid-template-columns: 52fr 48fr;
+    align-items: stretch;
+  }
+  .carat-hero--light .carat-hero__media { order: 2; }
+  .carat-hero--light .carat-hero__inner { order: 1; }
+}
+
+.carat-hero--light .carat-hero__scrim { display: none; }
+
+.carat-hero--light .carat-hero__inner {
+  color: rgb(var(--color-foreground));
+  max-width: none;
+  padding: 9rem 5vw;
+  justify-content: center;
+}
+
+.carat-hero--light .carat-hero__heading {
+  color: rgb(var(--color-foreground));
+  text-shadow: none;
+  /* Smaller than the campaign hero on purpose. The headline should lead the
+     page, not swallow it. */
+  font-size: clamp(3.6rem, 4.6vw, 6rem);
+  max-width: 16ch;
+}
+
+.carat-hero--light .carat-hero__sub {
+  text-shadow: none;
+  opacity: 0.82;
+  max-width: 52ch;
+  font-size: 1.75rem;
+}
+
+.carat-hero--light .carat-hero__img { min-height: 42rem; }
+
+/* Back to the page scheme: on ivory the inverted dark-hero buttons were
+   white-on-white. */
+.carat-hero--light .button:not(.button--secondary) {
+  background: rgb(var(--color-button));
+  color: rgb(var(--color-button-text));
+  border-color: rgb(var(--color-button));
+}
+.carat-hero--light .button--secondary {
+  background: transparent;
+  color: rgb(var(--color-foreground));
+  border-color: rgba(var(--color-foreground), 0.4);
+  backdrop-filter: none;
+}
+.carat-hero--light .button--secondary:hover {
+  background: transparent;
+  border-color: rgb(var(--color-foreground));
+}
+
+/* ------------------------------------------- shopping paths (the explainer) */
+
+.carat-paths { padding-block: 8rem; }
+
+.carat-paths__head { margin-block-end: 4rem; }
+
+.carat-paths__heading {
+  font-size: clamp(2.8rem, 3.4vw, 4.2rem);
+  line-height: 1.08;
+  margin: 0;
+  max-width: 22ch;
+}
+
+.carat-paths__grid {
+  display: grid;
+  gap: 2.4rem 2rem;
+  grid-template-columns: 1fr;
+}
+
+.carat-path {
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+  color: inherit;
+  background: transparent;
+}
+
+.carat-path__media {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  background: #f0e7da; /* champagne, so an imageless card is still finished */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.carat-path__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.carat-path:hover .carat-path__img { transform: scale(1.035); }
+
+/* The imageless card. A full-width gold rule above the words, and real
+   vertical room beneath it — so the card reads as a considered typographic
+   tile rather than a photograph that failed to load. */
+.carat-path__rule {
+  display: block;
+  width: 100%;
+  height: 1px;
+  background: #c9a96a;
+  opacity: 0.55;
+}
+
+.carat-path--plain .carat-path__copy {
+  padding-block: 2rem 3.2rem;
+  min-height: 14rem;
+}
+
+.carat-path__copy {
+  padding-block-start: 1.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.carat-path__title {
+  font-size: 2rem;
+  line-height: 1.15;
+  margin: 0;
+}
+
+.carat-path__text {
+  font-size: 1.45rem;
+  line-height: 1.5;
+  margin: 0;
+  opacity: 0.74;
+}
+
+.carat-path__cue {
+  font-size: 1.6rem;
+  opacity: 0.45;
+  transition: transform 0.22s ease, opacity 0.22s ease;
+}
+
+.carat-path:hover .carat-path__cue {
+  opacity: 1;
+  transform: translateX(0.5rem);
+}
+
+@media screen and (min-width: 750px) {
+  .carat-paths__grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* Five across at desktop: all the ways to buy visible at once, which is the
+   whole point of the section. */
+@media screen and (min-width: 1100px) {
+  .carat-paths__grid { grid-template-columns: repeat(5, 1fr); gap: 1.8rem; }
+  .carat-path__title { font-size: 1.85rem; }
+}
+
+/* ------------------------------------------------------------- steps */
+
+.carat-steps { padding-block: 7rem; }
+
+.carat-steps__head { margin-block-end: 3.6rem; }
+
+.carat-steps__heading {
+  font-size: clamp(2.6rem, 3.2vw, 4rem);
+  line-height: 1.1;
+  margin: 0;
+  max-width: 20ch;
+}
+
+.carat-steps__list {
+  display: grid;
+  gap: 3.2rem;
+  grid-template-columns: 1fr;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: none;
+}
+
+.carat-step__num {
+  display: block;
+  font-family: var(--font-heading-family);
+  font-size: 4.2rem;
+  line-height: 1;
+  color: #c9a96a;
+  margin-block-end: 1.2rem;
+}
+
+.carat-step__title {
+  font-size: 2rem;
+  line-height: 1.15;
+  margin: 0 0 0.8rem;
+}
+
+.carat-step__text {
+  font-size: 1.5rem;
+  line-height: 1.55;
+  margin: 0;
+  opacity: 0.78;
+  max-width: 38ch;
+}
+
+.carat-steps__cta { margin-block-start: 3.6rem; }
+
+@media screen and (min-width: 750px) {
+  .carat-steps__list { grid-template-columns: repeat(3, 1fr); gap: 4rem; }
+}
+
+/* ------------------------------------------------------------ mobile */
+
+@media screen and (max-width: 749px) {
+  .carat-hero--light .carat-hero__inner { padding: 5rem 7vw; }
+  .carat-hero--light .carat-hero__heading { font-size: clamp(3.2rem, 9vw, 4.4rem); }
+  .carat-hero--light .carat-hero__img { min-height: 32rem; }
+
+  .carat-paths { padding-block: 5rem; }
+  .carat-paths__head { margin-block-end: 2.6rem; }
+  .carat-paths__grid { grid-template-columns: repeat(2, 1fr); gap: 2rem 1.4rem; }
+  .carat-path__title { font-size: 1.7rem; }
+  .carat-path__text { font-size: 1.35rem; }
+
+  .carat-steps { padding-block: 4.5rem; }
+}

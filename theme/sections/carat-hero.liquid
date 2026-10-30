@@ -30,8 +30,14 @@
   endif
 -%}
 
+{%- comment -%}
+  `tone: light` keeps the composition but puts the copy on ivory BESIDE the
+  image instead of over it. Added because overlay text — even with a good
+  scrim — makes the most important sentence on the site something the
+  customer has to decode. On the homepage, clarity outranks atmosphere.
+{%- endcomment -%}
 <section
-  class="carat-hero carat-hero--{{ section.settings.height }}{% if section.settings.animate %} carat-hero--animate{% endif %}"
+  class="carat-hero carat-hero--{{ section.settings.height }} carat-hero--{{ section.settings.tone | default: 'dark' }}{% if section.settings.animate %} carat-hero--animate{% endif %}"
   aria-label="{{ section.settings.heading | default: 'Introduction' | escape }}"
 >
   <div class="carat-hero__media">
@@ -127,6 +133,16 @@
         { "value": "medium", "label": "Medium" },
         { "value": "tall", "label": "Tall" },
         { "value": "full", "label": "Full screen" }
+      ]
+    },
+    {
+      "type": "select",
+      "id": "tone",
+      "label": "Tone",
+      "default": "dark",
+      "options": [
+        { "value": "dark", "label": "Dark — copy over the image" },
+        { "value": "light", "label": "Light — copy beside the image on ivory" }
       ]
     },
     {
