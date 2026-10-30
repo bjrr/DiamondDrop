@@ -18,9 +18,7 @@
         "level": "functional",
         "color_scheme": "scheme-1",
         "heading": "Already have a jewelry quote?",
-        "subheading": "Let us take a look. Every submission is read by a person.",
-        "cta_label": "Email your quote",
-        "cta_link": "mailto:orders@caratforus.com?subject=Let%20Us%20Beat%20Your%20Quote"
+        "subheading": "Let us take a look. Every submission is read by a person."
       }
     },
     "rail": {
@@ -55,13 +53,23 @@
       ],
       "settings": {
         "color_scheme": "scheme-1",
-        "pair_with_next": false
+        "pair_with_next": true
+      }
+    },
+    "form": {
+      "type": "beat-quote-form",
+      "settings": {
+        "heading": "Send us the quote",
+        "color_scheme": "scheme-1",
+        "padding_top": 32,
+        "padding_bottom": 48
       }
     }
   },
   "order": [
     "head",
     "rail",
+    "form",
     "terms"
   ]
 }

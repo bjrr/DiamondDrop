@@ -1,0 +1,263 @@
+{%- comment -%}
+  LET US BEAT YOUR QUOTE — storefront intake.
+
+  The backend already existed (`apps.carat.beat-quote-submission`); this is
+  the surface that was missing, so the page had no way to actually submit a
+  quote. The route's contract is strict and this form matches it exactly:
+  `.strict()` rejects unknown fields, and the three acknowledgments are
+  `z.literal(true)` rather than booleans, so an unchecked box is a rejected
+  submission rather than a silently-missing agreement.
+
+  ============================================================================
+  THE THING THIS FORM MUST GET RIGHT
+  ============================================================================
+  There are FOUR path acknowledgments, not three, and WHICH ONE APPLIES
+  DEPENDS ON THE QUOTE'S DATE. A custom quote inside the 7-day window takes
+  the guarantee wording; the same quote one day older takes review-only
+  wording that explicitly withdraws the guarantee and the fallback.
+
+  So the acknowledgment text has to change as the customer types the date.
+  Showing the guarantee wording and recording the review-only one — or the
+  reverse — would mean our evidence says something the customer never read.
+  The client mirrors the server's rule FOR DISPLAY ONLY; the server derives
+  treatment independently and is the sole authority. If they ever disagree,
+  the server wins and the submission is recorded under what the server
+  decided, which is why `beatQuoteAcknowledgmentParity.test.ts` pins the
+  copy on both sides character for character.
+
+  THE CUSTOMER IS NEVER ASKED TO DECLARE THEIR OWN TREATMENT. There is no
+  "is this eligible?" field. Kind and date are facts; eligibility is
+  computed. That is also why the route refuses a `quoteIssuedOn` on any kind
+  but `custom_quote` instead of ignoring it.
+
+  Sign-in is NOT required. The route treats `logged_in_customer_id` as
+  optional and records a null customerRef for anonymous submissions — a lead
+  form that demands an account is a lead form nobody fills in.
+{%- endcomment -%}
+
+{{ 'carat-editorial.css' | asset_url | stylesheet_tag }}
+{{ 'beat-quote-form.css' | asset_url | stylesheet_tag }}
+<script src="{{ 'beat-quote-form.js' | asset_url }}" defer="defer"></script>
+
+<div class="color-{{ section.settings.color_scheme | default: 'scheme-1' }} gradient">
+  <div class="page-width section-{{ section.id }}-padding carat-bq">
+    {%- if section.settings.heading != blank -%}
+      <h2 class="carat-bq__heading">{{ section.settings.heading | escape }}</h2>
+    {%- endif -%}
+
+    <div
+      class="carat-bq__status"
+      id="BeatQuoteStatus"
+      role="status"
+      aria-live="polite"
+      data-carat-bq-status
+      hidden
+    ></div>
+
+    <div class="carat-bq__success" data-carat-bq-success hidden>
+      <h3 class="carat-bq__success-heading">{{ 'templates.beat_quote.success_heading' | t }}</h3>
+      <p class="carat-bq__success-text">{{ 'templates.beat_quote.success_text' | t }}</p>
+      <p class="carat-bq__reference">
+        {{ 'templates.beat_quote.success_reference' | t }}
+        <strong data-carat-bq-reference></strong>
+      </p>
+    </div>
+
+    <form id="BeatQuoteForm" class="carat-bq__form" novalidate data-carat-bq-form>
+      {%- comment -%} ---------------------------------------- about you {%- endcomment -%}
+      <fieldset class="carat-bq__group">
+        <legend class="carat-bq__legend">{{ 'templates.beat_quote.group_about' | t }}</legend>
+
+        <div class="carat-bq__row">
+          <div class="field">
+            <input class="field__input" type="text" id="BqFirstName" name="firstName" autocomplete="given-name" required placeholder=" ">
+            <label class="field__label" for="BqFirstName">{{ 'templates.beat_quote.first_name' | t }} <span aria-hidden="true">*</span></label>
+            <small class="carat-bq__error form__message" hidden data-carat-bq-error-for="firstName"></small>
+          </div>
+          <div class="field">
+            <input class="field__input" type="text" id="BqLastName" name="lastName" autocomplete="family-name" required placeholder=" ">
+            <label class="field__label" for="BqLastName">{{ 'templates.beat_quote.last_name' | t }} <span aria-hidden="true">*</span></label>
+            <small class="carat-bq__error form__message" hidden data-carat-bq-error-for="lastName"></small>
+          </div>
+        </div>
+
+        <div class="carat-bq__row">
+          <div class="field">
+            <input class="field__input" type="email" id="BqEmail" name="email" autocomplete="email" required placeholder=" ">
+            <label class="field__label" for="BqEmail">{{ 'templates.beat_quote.email' | t }} <span aria-hidden="true">*</span></label>
+            <small class="carat-bq__error form__message" hidden data-carat-bq-error-for="email"></small>
+          </div>
+          <div class="field">
+            <input class="field__input" type="tel" id="BqPhone" name="phone" autocomplete="tel" placeholder=" ">
+            <label class="field__label" for="BqPhone">{{ 'templates.beat_quote.phone' | t }}</label>
+          </div>
+        </div>
+      </fieldset>
+
+      {%- comment -%} ------------------------------------- what you have {%- endcomment -%}
+      <fieldset class="carat-bq__group">
+        <legend class="carat-bq__legend">{{ 'templates.beat_quote.group_kind' | t }}</legend>
+
+        <div class="carat-bq__choices" role="radiogroup" aria-labelledby="BqKindLabel">
+          <p class="carat-bq__choices-label" id="BqKindLabel">{{ 'templates.beat_quote.kind_question' | t }} <span aria-hidden="true">*</span></p>
+
+          <label class="carat-bq__choice">
+            <input type="radio" name="kind" value="custom_quote" data-carat-bq-kind required>
+            <span class="carat-bq__choice-body">
+              <span class="carat-bq__choice-title">{{ 'templates.beat_quote.kind_custom' | t }}</span>
+              <span class="carat-bq__choice-note">{{ 'templates.beat_quote.kind_custom_note' | t }}</span>
+            </span>
+          </label>
+
+          <label class="carat-bq__choice">
+            <input type="radio" name="kind" value="online_listing" data-carat-bq-kind>
+            <span class="carat-bq__choice-body">
+              <span class="carat-bq__choice-title">{{ 'templates.beat_quote.kind_listing' | t }}</span>
+              <span class="carat-bq__choice-note">{{ 'templates.beat_quote.kind_listing_note' | t }}</span>
+            </span>
+          </label>
+
+          <label class="carat-bq__choice">
+            <input type="radio" name="kind" value="competing_group_buy" data-carat-bq-kind>
+            <span class="carat-bq__choice-body">
+              <span class="carat-bq__choice-title">{{ 'templates.beat_quote.kind_groupbuy' | t }}</span>
+              <span class="carat-bq__choice-note">{{ 'templates.beat_quote.kind_groupbuy_note' | t }}</span>
+            </span>
+          </label>
+
+          <small class="carat-bq__error form__message" hidden data-carat-bq-error-for="kind"></small>
+        </div>
+
+        {%- comment -%}
+          Only a custom quote carries a date. The route REFUSES a
+          `quoteIssuedOn` on the other kinds rather than ignoring it, so this
+          block is removed from the payload entirely when it is hidden.
+        {%- endcomment -%}
+        <div class="carat-bq__conditional" data-carat-bq-when-kind="custom_quote" hidden>
+          <div class="field">
+            <input class="field__input" type="date" id="BqQuoteDate" name="quoteIssuedOn" placeholder=" ">
+            <label class="field__label" for="BqQuoteDate">{{ 'templates.beat_quote.quote_date' | t }} <span aria-hidden="true">*</span></label>
+            <small class="carat-bq__error form__message" hidden data-carat-bq-error-for="quoteIssuedOn"></small>
+          </div>
+          <p class="carat-bq__hint">{{ 'templates.beat_quote.quote_date_hint' | t }}</p>
+        </div>
+      </fieldset>
+
+      {%- comment -%} --------------------------------------- the seller {%- endcomment -%}
+      <fieldset class="carat-bq__group">
+        <legend class="carat-bq__legend">{{ 'templates.beat_quote.group_seller' | t }}</legend>
+
+        <div class="carat-bq__row">
+          <div class="field">
+            <input class="field__input" type="text" id="BqSeller" name="competitorSellerName" placeholder=" ">
+            <label class="field__label" for="BqSeller">{{ 'templates.beat_quote.seller_name' | t }}</label>
+          </div>
+          <div class="field">
+            <input class="field__input" type="text" id="BqWebsite" name="competitorWebsite" placeholder=" ">
+            <label class="field__label" for="BqWebsite">{{ 'templates.beat_quote.seller_site' | t }}</label>
+          </div>
+        </div>
+
+        <div class="carat-bq__conditional" data-carat-bq-when-kind="online_listing competing_group_buy" hidden>
+          <div class="field">
+            <input class="field__input" type="url" id="BqListingUrl" name="listingUrl" placeholder=" ">
+            <label class="field__label" for="BqListingUrl">{{ 'templates.beat_quote.listing_url' | t }}</label>
+            <small class="carat-bq__error form__message" hidden data-carat-bq-error-for="listingUrl"></small>
+          </div>
+        </div>
+
+        <div class="carat-bq__row">
+          <div class="field">
+            <input class="field__input" type="text" inputmode="decimal" id="BqPrice" name="competitorPrice" placeholder=" ">
+            <label class="field__label" for="BqPrice">{{ 'templates.beat_quote.price' | t }}</label>
+            <small class="carat-bq__error form__message" hidden data-carat-bq-error-for="competitorPrice"></small>
+          </div>
+        </div>
+        <p class="carat-bq__hint">{{ 'templates.beat_quote.price_hint' | t }}</p>
+      </fieldset>
+
+      {%- comment -%} ---------------------------------------- the piece {%- endcomment -%}
+      <fieldset class="carat-bq__group">
+        <legend class="carat-bq__legend">{{ 'templates.beat_quote.group_piece' | t }}</legend>
+
+        <div class="field">
+          <textarea class="text-area field__input" id="BqSpecs" name="specifications" rows="5" placeholder=" "></textarea>
+          <label class="field__label" for="BqSpecs">{{ 'templates.beat_quote.specs' | t }}</label>
+        </div>
+        <p class="carat-bq__hint">{{ 'templates.beat_quote.specs_hint' | t }}</p>
+      </fieldset>
+
+      {%- comment -%}
+        ----------------------------------------------- acknowledgments
+
+        Never pre-checked, never inferred. The path acknowledgment's text is
+        swapped by JS as kind and date change, and its wording is pinned to
+        the server's constants by a test.
+      {%- endcomment -%}
+      <fieldset class="carat-bq__group carat-bq__group--ack">
+        <legend class="carat-bq__legend">{{ 'templates.beat_quote.group_ack' | t }}</legend>
+
+        <label class="carat-bq__ack">
+          <input type="checkbox" name="whatWeMatchAccepted" required data-carat-bq-ack>
+          <span class="carat-bq__ack-text" data-carat-bq-ack-what-we-match>{{ 'templates.beat_quote.ack_what_we_match' | t }}</span>
+        </label>
+
+        <label class="carat-bq__ack">
+          <input type="checkbox" name="authenticityConfirmed" required data-carat-bq-ack>
+          <span class="carat-bq__ack-text" data-carat-bq-ack-authenticity>{{ 'templates.beat_quote.ack_authenticity' | t }}</span>
+        </label>
+
+        <label class="carat-bq__ack carat-bq__ack--path" data-carat-bq-ack-path-wrap hidden>
+          <input type="checkbox" name="pathAcknowledgmentAccepted" required data-carat-bq-ack>
+          <span class="carat-bq__ack-text" data-carat-bq-ack-path></span>
+        </label>
+
+        <p class="carat-bq__ack-prompt" data-carat-bq-ack-prompt>{{ 'templates.beat_quote.ack_choose_kind' | t }}</p>
+        <small class="carat-bq__error form__message" hidden data-carat-bq-error-for="acknowledgments"></small>
+      </fieldset>
+
+      {%- comment -%}
+        The submit label is the acknowledgment's own affirmative action
+        label — "Submit Online Offer for Review" rather than a generic
+        "Submit" — so the button states what is being agreed to.
+      {%- endcomment -%}
+      <div class="carat-bq__actions">
+        <button type="submit" class="button carat-bq__submit" data-carat-bq-submit>
+          {{ 'templates.beat_quote.submit_default' | t }}
+        </button>
+        <p class="carat-bq__privacy">{{ 'templates.beat_quote.privacy_note' | t }}</p>
+      </div>
+    </form>
+
+    <noscript>
+      <p class="carat-bq__noscript">{{ 'templates.beat_quote.noscript' | t }}</p>
+    </noscript>
+  </div>
+</div>
+
+{% schema %}
+{
+  "name": "Beat Your Quote form",
+  "tag": "section",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Send us the quote" },
+    { "type": "color_scheme", "id": "color_scheme", "label": "Colour scheme", "default": "scheme-1" },
+    { "type": "range", "id": "padding_top", "min": 0, "max": 100, "step": 4, "unit": "px", "label": "Padding top", "default": 32 },
+    { "type": "range", "id": "padding_bottom", "min": 0, "max": 100, "step": 4, "unit": "px", "label": "Padding bottom", "default": 48 }
+  ],
+  "presets": [{ "name": "Beat Your Quote form" }]
+}
+{% endschema %}
+
+{%- style -%}
+  .section-{{ section.id }}-padding {
+    padding-top: {{ section.settings.padding_top | times: 0.75 | round: 0 }}px;
+    padding-bottom: {{ section.settings.padding_bottom | times: 0.75 | round: 0 }}px;
+  }
+  @media screen and (min-width: 750px) {
+    .section-{{ section.id }}-padding {
+      padding-top: {{ section.settings.padding_top }}px;
+      padding-bottom: {{ section.settings.padding_bottom }}px;
+    }
+  }
+{%- endstyle -%}

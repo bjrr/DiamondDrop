@@ -234,19 +234,30 @@ describe("accessibility and markup", () => {
 });
 
 describe("the page template", () => {
-  it("is valid JSON and wires the faq section after the page body", () => {
+  it("is valid JSON and wires the faq section below the page header", () => {
     const parsed = JSON.parse(TEMPLATE) as {
       sections: Record<string, { type: string }>;
       order: string[];
     };
     const types = Object.values(parsed.sections).map((s) => s.type);
-    expect(types).toContain("main-page");
-    expect(types).toContain("faq");
 
-    // Body first, FAQ below it — same arrangement as the policy pages, so an
-    // introduction written in Admin appears above the questions.
+    // The header is `carat-pagehead`, not Dawn's `main-page`. FAQ is a page
+    // someone arrives at with a question, so it takes the level-3 functional
+    // header — heading and one sentence, no image — and the questions start
+    // immediately beneath it.
+    //
+    // This assertion used to pin `main-page` so an introduction written in
+    // Admin appeared above the questions. The FAQ page body is empty and the
+    // intro now lives in the header's own setting, so that reason is gone;
+    // what still matters is that a header precedes the questions.
+    expect(types).toContain("carat-pagehead");
+    expect(types).toContain("faq");
+    expect(types, "main-page would reintroduce a second heading").not.toContain("main-page");
+
     const faqKey = Object.keys(parsed.sections).find((k) => parsed.sections[k]!.type === "faq")!;
-    const mainKey = Object.keys(parsed.sections).find((k) => parsed.sections[k]!.type === "main-page")!;
-    expect(parsed.order.indexOf(mainKey)).toBeLessThan(parsed.order.indexOf(faqKey));
+    const headKey = Object.keys(parsed.sections).find(
+      (k) => parsed.sections[k]!.type === "carat-pagehead"
+    )!;
+    expect(parsed.order.indexOf(headKey)).toBeLessThan(parsed.order.indexOf(faqKey));
   });
 });

@@ -1,0 +1,189 @@
+/*
+ * Let Us Beat Your Quote — intake form.
+ *
+ * Grouped into labelled fieldsets so a long form reads as four short ones.
+ * The acknowledgments get their own visual treatment because they are the
+ * part a customer must actually read, not skim past.
+ */
+
+.carat-bq__heading {
+  font-size: clamp(2.2rem, 2.6vw, 3rem);
+  line-height: 1.12;
+  margin: 0 0 3rem;
+}
+
+.carat-bq__form {
+  display: grid;
+  gap: 3.6rem;
+  max-width: 76rem;
+}
+
+.carat-bq__group {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 1.6rem;
+}
+
+.carat-bq__legend {
+  font-size: 1.1rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-weight: 500;
+  opacity: 0.6;
+  padding: 0;
+  margin-block-end: 0.4rem;
+}
+
+.carat-bq__row {
+  display: grid;
+  gap: 1.6rem;
+  grid-template-columns: 1fr;
+}
+
+@media screen and (min-width: 600px) {
+  .carat-bq__row { grid-template-columns: 1fr 1fr; }
+}
+
+.carat-bq__hint {
+  font-size: 1.35rem;
+  line-height: 1.5;
+  opacity: 0.66;
+  margin: -0.4rem 0 0;
+}
+
+.carat-bq__conditional { display: grid; gap: 1.2rem; }
+
+/* ------------------------------------------------------------- choices */
+
+.carat-bq__choices { display: grid; gap: 1rem; }
+
+.carat-bq__choices-label {
+  font-size: 1.5rem;
+  margin: 0 0 0.4rem;
+}
+
+.carat-bq__choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.2rem;
+  padding: 1.6rem;
+  border: 1px solid rgba(var(--color-foreground), 0.16);
+  cursor: pointer;
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.carat-bq__choice:hover { border-color: rgba(var(--color-foreground), 0.4); }
+
+/* The selected path is the one whose acknowledgment the customer will sign,
+   so it gets a clear state rather than a subtle one. */
+.carat-bq__choice:has(input:checked) {
+  border-color: rgb(var(--color-foreground));
+  background: rgba(201, 169, 106, 0.07);
+}
+
+.carat-bq__choice input { margin-block-start: 0.3rem; flex: none; }
+
+.carat-bq__choice-body { display: grid; gap: 0.3rem; }
+.carat-bq__choice-title { font-size: 1.55rem; line-height: 1.3; }
+.carat-bq__choice-note { font-size: 1.35rem; line-height: 1.45; opacity: 0.66; }
+
+/* ----------------------------------------------------- acknowledgments */
+
+.carat-bq__group--ack {
+  padding: 2.4rem;
+  border: 1px solid rgba(var(--color-foreground), 0.16);
+  background: rgba(var(--color-foreground), 0.02);
+}
+
+.carat-bq__ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.2rem;
+  cursor: pointer;
+}
+
+.carat-bq__ack input { margin-block-start: 0.35rem; flex: none; }
+
+.carat-bq__ack-text {
+  font-size: 1.4rem;
+  line-height: 1.55;
+  opacity: 0.9;
+}
+
+/* The path acknowledgment changes with the quote's date, so it is marked
+   out from the two that never change. */
+.carat-bq__ack--path {
+  padding-block-start: 1.6rem;
+  border-block-start: 1px solid rgba(var(--color-foreground), 0.14);
+}
+
+.carat-bq__ack-prompt {
+  font-size: 1.35rem;
+  line-height: 1.5;
+  opacity: 0.62;
+  margin: 0;
+  padding-block-start: 1.6rem;
+  border-block-start: 1px solid rgba(var(--color-foreground), 0.14);
+}
+
+/* ------------------------------------------------- actions and status */
+
+.carat-bq__actions { display: grid; gap: 1.2rem; justify-items: start; }
+
+.carat-bq__submit { min-width: 26rem; }
+
+.carat-bq__privacy {
+  font-size: 1.3rem;
+  line-height: 1.5;
+  opacity: 0.62;
+  margin: 0;
+  max-width: 56ch;
+}
+
+.carat-bq__status {
+  padding: 1.4rem 1.8rem;
+  border: 1px solid rgba(var(--color-foreground), 0.2);
+  font-size: 1.45rem;
+  margin-block-end: 2.4rem;
+}
+
+.carat-bq__error {
+  color: rgba(var(--color-foreground), 0.9);
+}
+
+.carat-bq__success {
+  padding: 3.2rem;
+  border: 1px solid rgba(201, 169, 106, 0.5);
+  background: rgba(201, 169, 106, 0.08);
+  max-width: 68rem;
+}
+
+.carat-bq__success-heading {
+  font-size: clamp(2.2rem, 2.6vw, 2.8rem);
+  margin: 0 0 1.2rem;
+}
+
+.carat-bq__success-text {
+  font-size: 1.55rem;
+  line-height: 1.6;
+  margin: 0 0 1.6rem;
+  opacity: 0.86;
+}
+
+.carat-bq__reference { font-size: 1.4rem; margin: 0; opacity: 0.8; }
+
+.carat-bq__noscript {
+  font-size: 1.5rem;
+  line-height: 1.6;
+  padding: 2rem;
+  border: 1px solid rgba(var(--color-foreground), 0.2);
+}
+
+@media screen and (max-width: 749px) {
+  .carat-bq__form { gap: 2.8rem; }
+  .carat-bq__group--ack { padding: 1.8rem; }
+  .carat-bq__submit { width: 100%; min-width: 0; }
+  .carat-bq__actions { justify-items: stretch; }
+}

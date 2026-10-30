@@ -18,10 +18,46 @@
         "heading": "How can we help?",
         "subheading": "Email orders@caratforus.com or use the form. Include an order or reference number where you have one."
       }
+    },
+    "rail": {
+      "type": "carat-infocols",
+      "blocks": {
+        "fastest": {
+          "type": "note",
+          "settings": {
+            "title": "For the fastest help",
+            "text": "<p>Email <strong>orders@caratforus.com</strong> or use the form. Include the applicable order or reference number so we can find you.</p>"
+          }
+        },
+        "include": {
+          "type": "list",
+          "settings": {
+            "title": "What to include",
+            "items": "An existing order — your order number\nA return — order number and what is wrong\nA warranty claim — order number and photographs\nA Group Buy — the campaign and your order reference\nCustom Jewelry — your project or submission reference"
+          }
+        },
+        "note": {
+          "type": "note",
+          "settings": {
+            "title": "When you will hear back",
+            "text": "<p>A person here replies by email. Returns, warranty claims and questions are handled by the same company that sold you the piece.</p>"
+          }
+        }
+      },
+      "block_order": [
+        "fastest",
+        "include",
+        "note"
+      ],
+      "settings": {
+        "color_scheme": "scheme-1",
+        "pair_with_next": true
+      }
     }
   },
   "order": [
     "head",
+    "rail",
     "form"
   ]
 }

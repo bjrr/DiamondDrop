@@ -291,19 +291,26 @@ describe("the sections and the page template", () => {
     }
   });
 
-  it("the template is valid JSON and orders body, archive, then request", () => {
+  it("the template is valid JSON and orders header, archive, then request", () => {
     const parsed = JSON.parse(TEMPLATE) as {
       sections: Record<string, { type: string }>;
       order: string[];
     };
     const types = Object.values(parsed.sections).map((s) => s.type);
-    expect(types).toContain("main-page");
+
+    // `carat-pagehead` replaced Dawn's `main-page` across the subpages. The
+    // ordering this test protects is unchanged and still the point: header,
+    // then the closed campaigns, then the request form underneath them.
+    expect(types).toContain("carat-pagehead");
     expect(types).toContain("past-group-buys");
     expect(types).toContain("group-buy-request");
+    expect(types, "main-page would reintroduce a second heading").not.toContain("main-page");
 
     const keyOf = (type: string) =>
       Object.keys(parsed.sections).find((k) => parsed.sections[k]!.type === type)!;
-    expect(parsed.order.indexOf(keyOf("main-page"))).toBeLessThan(parsed.order.indexOf(keyOf("past-group-buys")));
+    expect(parsed.order.indexOf(keyOf("carat-pagehead"))).toBeLessThan(
+      parsed.order.indexOf(keyOf("past-group-buys"))
+    );
     expect(parsed.order.indexOf(keyOf("past-group-buys"))).toBeLessThan(
       parsed.order.indexOf(keyOf("group-buy-request"))
     );
