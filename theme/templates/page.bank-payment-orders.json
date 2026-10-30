@@ -15,7 +15,7 @@
         "level": "functional",
         "color_scheme": "scheme-1",
         "heading": "Bank Payment orders",
-        "subheading": "Your Bank Payment orders, their status, and what to do next."
+        "subheading": "Your Bank Payment orders, what each one is waiting on, and what to do next."
       }
     }
   },

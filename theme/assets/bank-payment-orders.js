@@ -188,9 +188,39 @@
     return block;
   }
 
+  /**
+   * Which visual tone a status gets. Grouped by what the customer has to
+   * DO, not by the stored value:
+   *   waiting  — we need something from them (money, or time to pass)
+   *   good     — money received or the order is done
+   *   closed   — nothing further will happen
+   *
+   * Unknown statuses fall through to neutral rather than guessing. A
+   * mislabelled badge on a payment surface is worse than an unstyled one.
+   */
+  function statusTone(status) {
+    if (status === 'open' || status === 'active') return 'waiting';
+    if (status === 'completed' || status === 'verified' || status === 'paid') return 'good';
+    if (status === 'cancelled' || status === 'inactive' || status === 'expired') return 'closed';
+    return 'neutral';
+  }
+
+  /** The badge element for a status, or null when there is nothing to show. */
+  function statusBadge(flow, status) {
+    if (!status) return null;
+    return el(
+      'span',
+      'carat-bank-orders__badge carat-bank-orders__badge--' + statusTone(status),
+      statusLabel(flow, status)
+    );
+  }
   function renderBuyNowOrder(order) {
     var card = el('li', 'carat-bank-orders__order');
-    card.appendChild(el('h4', 'carat-bank-orders__order-heading', localeString('buy_now_order')));
+    var head = el('div', 'carat-bank-orders__order-head');
+    head.appendChild(el('h4', 'carat-bank-orders__order-heading', localeString('buy_now_order')));
+    var badge = statusBadge('buy_now', order.status);
+    if (badge) head.appendChild(badge);
+    card.appendChild(head);
 
     var summary = el('dl', 'carat-bank-orders__summary');
     row(summary, localeString('field_reference'), order.reference);
@@ -214,7 +244,11 @@
 
   function renderGroupBuyOrder(order) {
     var card = el('li', 'carat-bank-orders__order');
-    card.appendChild(el('h4', 'carat-bank-orders__order-heading', localeString('group_buy_order')));
+    var head = el('div', 'carat-bank-orders__order-head');
+    head.appendChild(el('h4', 'carat-bank-orders__order-heading', localeString('group_buy_order')));
+    var badge = statusBadge('group_buy', order.status);
+    if (badge) head.appendChild(badge);
+    card.appendChild(head);
 
     var summary = el('dl', 'carat-bank-orders__summary');
     row(summary, localeString('field_reference'), order.reference);

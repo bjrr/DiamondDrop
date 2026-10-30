@@ -160,6 +160,25 @@
       <h2 class="visually-hidden">{{ 'templates.warranty_claim.form.heading' | t }}</h2>
     {%- endif -%}
 
+    {%- comment -%}
+      SIGNED OUT: THE GATE COMES FIRST.
+
+      Warranty self-service requires an account
+      (`docs/REQUIRED-CUSTOMER-ACCOUNTS.md` §5), so a signed-out visitor
+      cannot do anything on this page until they sign in. Previously they
+      met the scope paragraph and the do-not-send notice first and found the
+      LOG IN button below both — the one action available to them, placed
+      third.
+
+      Criterion 156 is NOT weakened by this. It requires the do-not-send
+      notice to sit ahead of every FIELD; a signed-out visitor has no
+      fields, and the notice still precedes them for everyone who does. The
+      signed-in order below is untouched.
+    {%- endcomment -%}
+    {%- unless customer -%}
+      {% render 'warranty-claim-signin' %}
+    {%- endunless -%}
+
     <p class="carat-warranty-claim__intro">
       {{- 'templates.warranty_claim.form.intro' | t -}}
     </p>
@@ -628,34 +647,15 @@
         data-carat-warranty-status
       ></p>
     </form>
-    {%- else -%}
-    {%- comment -%}
-      ACCOUNT REQUIRED (`docs/REQUIRED-CUSTOMER-ACCOUNTS.md` §5) -- see this
-      section's own header comment. Real `<h3>` (nested under the section's
-      own `<h1>`/`<h2>`/visually-hidden heading above), a plain-text
-      owner-approved sentence, and a genuine keyboard-operable sign-in link
-      that returns the shopper to this exact page -- same pattern as
-      `snippets/bank-payment-checkout-dialog.liquid`'s own signed-out
-      branch.
-    {%- endcomment -%}
-    <div class="carat-warranty-claim__signin-required" data-carat-warranty-signin-required>
-      <h3 class="carat-warranty-claim__signin-heading">
-        {{- 'templates.warranty_claim.form.sign_in_required_heading' | t -}}
-      </h3>
-      <p class="carat-warranty-claim__signin-message">
-        {{- 'templates.warranty_claim.form.sign_in_required_message' | t -}}
-      </p>
-      <div class="carat-warranty-claim__actions">
-        <a
-          href="{{ routes.account_login_url }}?return_url={{ request.path | url_encode }}"
-          class="button"
-          data-carat-warranty-signin-link
-        >
-          {{- 'customer.log_in' | t -}}
-        </a>
-      </div>
-    </div>
     {%- endif -%}
+
+    {%- comment -%}
+      The signed-out branch used to render HERE, below the scope paragraph
+      and the do-not-send notice — so the one action available to a
+      signed-out visitor was the third thing they met. It now renders above
+      both, from `snippets/warranty-claim-signin.liquid`, which keeps a
+      single definition of the gate rather than one per position.
+    {%- endcomment -%}
   </div>
 </div>
 

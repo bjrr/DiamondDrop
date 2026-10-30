@@ -172,8 +172,27 @@ describe("the account-required gate (docs/REQUIRED-CUSTOMER-ACCOUNTS.md §5) —
     };
   }
 
-  function createSectionEngine(): Liquid {
-    const engine = new Liquid();
+  function createSectionEngine(customer: Record<string, unknown> | null): Liquid {
+    // The sign-in gate now lives in `snippets/warranty-claim-signin.liquid` so
+    // it can render ABOVE the scope paragraph without being written twice, so
+    // the engine has to be able to resolve `{% render %}` the way Shopify
+    // does. Two things are needed and both are easy to get wrong:
+    //
+    //   `root`/`extname` — where a bare snippet name resolves to a file.
+    //   `globals`        — `render` opens an ISOLATED scope in liquidjs, the
+    //                      same as Shopify. Without this the snippet's
+    //                      `routes.account_login_url` and `request.path`
+    //                      silently render empty and the return-url assertion
+    //                      below would pass against an empty string.
+    //
+    // Resolving for real (rather than inlining the snippet source into the
+    // test) is the point: these tests exist to prove the SHIPPED markup, and
+    // a hand-copied snippet body would stop tracking the file.
+    const engine = new Liquid({
+      root: [join(THEME_ROOT, "snippets")],
+      extname: ".liquid",
+      globals: sectionContext(customer),
+    });
     // `t` and `inline_asset_content`, and every other filter this section
     // uses (`asset_url`, `stylesheet_tag`, `escape`, `url_encode`), are
     // deliberately left UNREGISTERED — liquidjs's documented behaviour for
@@ -186,7 +205,7 @@ describe("the account-required gate (docs/REQUIRED-CUSTOMER-ACCOUNTS.md §5) —
   }
 
   async function renderSection(customer: Record<string, unknown> | null): Promise<string> {
-    const engine = createSectionEngine();
+    const engine = createSectionEngine(customer);
     const source = readLiquid(SECTION);
     return engine.parseAndRender(source, sectionContext(customer));
   }

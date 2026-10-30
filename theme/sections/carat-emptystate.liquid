@@ -1,0 +1,83 @@
+{%- comment -%}
+  CARAT EMPTY STATE — "there is nothing here right now, and here is where to go."
+
+  Built for Luxury Steals, which has no product yet, and reusable for any
+  commerce surface that can legitimately be empty.
+
+  THE RULE IT ENCODES: a page a customer reached by clicking a navigation
+  item must never answer with silence. Silence reads as broken. It should say
+  plainly that there is nothing, say briefly why, and offer the paths that do
+  work today.
+
+  This is deliberately NOT a hero. No image, no viewport-height section —
+  an empty shelf dressed up as a campaign is worse than an empty shelf.
+{%- endcomment -%}
+
+{{ 'carat-editorial.css' | asset_url | stylesheet_tag }}
+
+<section class="carat-empty color-{{ section.settings.color_scheme | default: 'scheme-2' }} gradient">
+  {%- comment -%}
+    `page-width` and the measure live on SEPARATE elements on purpose. Putting
+    both on one div means `page-width`'s `margin: 0 auto` centres the narrow
+    measure, which pushes the text inboard and gives the page a second left
+    edge — the heading starts hundreds of pixels right of the page header
+    above it. Nesting keeps one left edge for the whole page.
+  {%- endcomment -%}
+  <div class="page-width">
+    <div class="carat-empty__inner">
+    {%- if section.settings.eyebrow != blank -%}
+      <p class="carat-eyebrow">{{ section.settings.eyebrow | escape }}</p>
+    {%- endif -%}
+
+    <h2 class="carat-empty__title">{{ section.settings.heading | escape }}</h2>
+
+    {%- if section.settings.text != blank -%}
+      <div class="carat-empty__text rte">{{ section.settings.text }}</div>
+    {%- endif -%}
+
+    {%- if section.blocks.size > 0 -%}
+      <div class="carat-empty__actions">
+        {%- for block in section.blocks -%}
+          <a
+            class="button{% unless forloop.first %} button--secondary{% endunless %}"
+            href="{{ block.settings.link | default: '#' }}"
+            {{ block.shopify_attributes }}
+          >
+            {{- block.settings.label | escape -}}
+          </a>
+        {%- endfor -%}
+      </div>
+    {%- endif -%}
+
+    {%- if section.settings.footnote != blank -%}
+      <p class="carat-empty__footnote">{{ section.settings.footnote | escape }}</p>
+    {%- endif -%}
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Carat empty state",
+  "tag": "section",
+  "max_blocks": 3,
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow" },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Nothing available right now" },
+    { "type": "richtext", "id": "text", "label": "Short explanation" },
+    { "type": "text", "id": "footnote", "label": "Footnote" },
+    { "type": "color_scheme", "id": "color_scheme", "label": "Colour scheme", "default": "scheme-2" }
+  ],
+  "blocks": [
+    {
+      "type": "action",
+      "name": "Action",
+      "settings": [
+        { "type": "text", "id": "label", "label": "Label", "default": "Browse" },
+        { "type": "url", "id": "link", "label": "Link" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Carat empty state" }]
+}
+{% endschema %}

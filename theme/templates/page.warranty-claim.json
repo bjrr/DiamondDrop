@@ -21,18 +21,18 @@
     "rail": {
       "type": "carat-infocols",
       "blocks": {
+        "steps": {
+          "type": "steps",
+          "settings": {
+            "title": "How a claim works",
+            "items": "Find your order\nTell us what happened\nAdd photographs\nLeave your contact details\nSubmit and we reply"
+          }
+        },
         "before": {
           "type": "list",
           "settings": {
-            "title": "Before you start",
+            "title": "Have these ready",
             "items": "Your order number\nClear photographs of the problem\nWhen you first noticed it"
-          }
-        },
-        "covers": {
-          "type": "note",
-          "settings": {
-            "title": "What the warranty covers",
-            "text": "<p>One year against manufacturing faults — a setting that fails, a clasp that was never right. Not accidents, ordinary wear, loss, or repairs done elsewhere.</p>"
           }
         },
         "shipping": {
@@ -44,8 +44,8 @@
         }
       },
       "block_order": [
+        "steps",
         "before",
-        "covers",
         "shipping"
       ],
       "settings": {

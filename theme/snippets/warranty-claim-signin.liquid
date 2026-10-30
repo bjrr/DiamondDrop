@@ -1,0 +1,31 @@
+{%- comment -%}
+  The warranty claim sign-in gate.
+
+  Extracted to a snippet so it can render ABOVE the scope paragraph for a
+  signed-out visitor without being duplicated in two places in the section.
+  One definition, one set of strings, one link — rendered once, early.
+
+  ACCOUNT REQUIRED (`docs/REQUIRED-CUSTOMER-ACCOUNTS.md` §5). Real `<h3>`
+  nested under the section's own heading, an owner-approved plain-text
+  sentence, and a genuine keyboard-operable link that returns the shopper to
+  this exact page — the same pattern as
+  `snippets/bank-payment-checkout-dialog.liquid`'s signed-out branch.
+{%- endcomment -%}
+
+<div class="carat-warranty-claim__signin-required" data-carat-warranty-signin-required>
+  <h3 class="carat-warranty-claim__signin-heading">
+    {{- 'templates.warranty_claim.form.sign_in_required_heading' | t -}}
+  </h3>
+  <p class="carat-warranty-claim__signin-message">
+    {{- 'templates.warranty_claim.form.sign_in_required_message' | t -}}
+  </p>
+  <div class="carat-warranty-claim__actions">
+    <a
+      href="{{ routes.account_login_url }}?return_url={{ request.path | url_encode }}"
+      class="button"
+      data-carat-warranty-signin-link
+    >
+      {{- 'customer.log_in' | t -}}
+    </a>
+  </div>
+</div>

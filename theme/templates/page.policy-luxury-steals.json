@@ -42,10 +42,49 @@
         "heading": "Luxury Steals",
         "subheading": "A small number of pieces at a price we cannot repeat. Every Luxury Steal is final sale."
       }
+    },
+    "empty": {
+      "type": "carat-emptystate",
+      "settings": {
+        "eyebrow": "Luxury Steals",
+        "heading": "No Luxury Steal is available right now",
+        "text": "<p>Luxury Steals are a small number of pieces at a price we cannot repeat. They appear here when we have one, and they go quickly. Every Luxury Steal is final sale.</p>",
+        "footnote": "Final sale does not affect your warranty rights.",
+        "color_scheme": "scheme-2"
+      },
+      "blocks": {
+        "a": {
+          "type": "action",
+          "settings": {
+            "label": "Browse the catalog",
+            "link": "/collections/all"
+          }
+        },
+        "b": {
+          "type": "action",
+          "settings": {
+            "label": "How Group Buy works",
+            "link": "/pages/group-buy"
+          }
+        },
+        "c": {
+          "type": "action",
+          "settings": {
+            "label": "Design something custom",
+            "link": "/pages/custom-jewelry"
+          }
+        }
+      },
+      "block_order": [
+        "a",
+        "b",
+        "c"
+      ]
     }
   },
   "order": [
     "head",
+    "empty",
     "intro",
     "terms"
   ]

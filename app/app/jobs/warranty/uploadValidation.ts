@@ -56,11 +56,11 @@ export const WARRANTY_CLAIM_UPLOAD_ALLOWED_CONTENT_TYPES: Readonly<Record<Warran
    * one — and the photograph case is already served by `photo`, which is why
    * this list stays at one entry instead of duplicating the image types.
    *
-   * Word documents are deliberately absent. A .doc/.docx is an executable
-   * container as far as macros are concerned, and accepting one would mean
-   * taking on a malware-handling problem for a format no jeweller issues a
-   * quote in. If a customer only has a Word file they can print it to PDF or
-   * photograph it.
+   * Word documents are deliberately absent — but not because .docx carries
+   * macros. It does not; .docm is the macro-enabled format. The reason is
+   * narrower: Office formats are a parsing and rendering burden we have no
+   * need to take on, and no jeweller issues a quote in one. A customer who
+   * only has a Word file can print it to PDF or photograph it.
    */
   document: ["application/pdf"],
 };
