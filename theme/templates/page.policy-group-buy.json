@@ -1,12 +1,5 @@
 {
   "sections": {
-    "main": {
-      "type": "main-page",
-      "settings": {
-        "padding_top": 36,
-        "padding_bottom": 0
-      }
-    },
     "terms": {
       "type": "policy-terms",
       "settings": {
@@ -49,10 +42,23 @@
         "padding_top": 8,
         "padding_bottom": 40
       }
+    },
+    "pagehero": {
+      "type": "carat-hero",
+      "settings": {
+        "image_desktop": "shopify://shop_images/carat-chain.png",
+        "image_mobile": "shopify://shop_images/carat-chain.png",
+        "height": "medium",
+        "text_position": "left",
+        "eyebrow": "Group Buy",
+        "heading": "The more of us, the less it costs",
+        "subheading": "One design, one window. Every order drops the price for everyone.",
+        "animate": false
+      }
     }
   },
   "order": [
-    "main",
+    "pagehero",
     "intro",
     "campaign",
     "terms"

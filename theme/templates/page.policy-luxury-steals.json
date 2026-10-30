@@ -1,12 +1,5 @@
 {
   "sections": {
-    "main": {
-      "type": "main-page",
-      "settings": {
-        "padding_top": 36,
-        "padding_bottom": 0
-      }
-    },
     "terms": {
       "type": "policy-terms",
       "settings": {
@@ -40,10 +33,23 @@
         "padding_top": 8,
         "padding_bottom": 8
       }
+    },
+    "pagehero": {
+      "type": "carat-hero",
+      "settings": {
+        "image_desktop": "shopify://shop_images/carat-drop.png",
+        "image_mobile": "shopify://shop_images/carat-drop.png",
+        "height": "medium",
+        "text_position": "right",
+        "eyebrow": "Luxury Steals",
+        "heading": "One piece. One price.",
+        "subheading": "When it is gone, it is gone. Final sale — and we say so before you buy.",
+        "animate": false
+      }
     }
   },
   "order": [
-    "main",
+    "pagehero",
     "intro",
     "terms"
   ]

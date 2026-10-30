@@ -119,16 +119,22 @@
         "padding_bottom": 64
       }
     },
-    "title": {
-      "type": "main-page",
+    "pagehero": {
+      "type": "carat-hero",
       "settings": {
-        "padding_top": 48,
-        "padding_bottom": 0
+        "image_desktop": "shopify://shop_images/carat-stone.png",
+        "image_mobile": "shopify://shop_images/carat-stone.png",
+        "height": "medium",
+        "text_position": "left",
+        "eyebrow": "About CaratForUs",
+        "heading": "In the gap between two bad options",
+        "subheading": "Priced honestly, supported here, and labelled for what it is.",
+        "animate": false
       }
     }
   },
   "order": [
-    "title",
+    "pagehero",
     "intro",
     "pillars",
     "close"

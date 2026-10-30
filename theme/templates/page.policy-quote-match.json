@@ -1,12 +1,5 @@
 {
   "sections": {
-    "main": {
-      "type": "main-page",
-      "settings": {
-        "padding_top": 36,
-        "padding_bottom": 0
-      }
-    },
     "terms": {
       "type": "policy-terms",
       "settings": {
@@ -40,10 +33,23 @@
         "padding_top": 8,
         "padding_bottom": 8
       }
+    },
+    "pagehero": {
+      "type": "carat-hero",
+      "settings": {
+        "image_desktop": "shopify://shop_images/carat-tools.png",
+        "image_mobile": "shopify://shop_images/carat-tools.png",
+        "height": "medium",
+        "text_position": "left",
+        "eyebrow": "Let Us Beat Your Quote",
+        "heading": "Bring us a number",
+        "subheading": "Send us the quote. We read every submission ourselves.",
+        "animate": false
+      }
     }
   },
   "order": [
-    "main",
+    "pagehero",
     "intro",
     "terms"
   ]

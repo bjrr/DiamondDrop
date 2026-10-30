@@ -1,12 +1,5 @@
 {
   "sections": {
-    "main": {
-      "type": "main-page",
-      "settings": {
-        "padding_top": 36,
-        "padding_bottom": 0
-      }
-    },
     "terms": {
       "type": "policy-terms",
       "settings": {
@@ -49,10 +42,23 @@
         "padding_top": 8,
         "padding_bottom": 40
       }
+    },
+    "pagehero": {
+      "type": "carat-hero",
+      "settings": {
+        "image_desktop": "shopify://shop_images/carat-design.png",
+        "image_mobile": "shopify://shop_images/carat-design.png",
+        "height": "medium",
+        "text_position": "left",
+        "eyebrow": "Custom Jewelry",
+        "heading": "Have it made",
+        "subheading": "Designed with you, by email, at your pace. Nothing is produced until you approve it.",
+        "animate": false
+      }
     }
   },
   "order": [
-    "main",
+    "pagehero",
     "intro",
     "form",
     "terms"
