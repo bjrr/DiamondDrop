@@ -36,6 +36,9 @@ import type { WarrantyClaimUploadKind } from "@prisma/client";
 export const WARRANTY_CLAIM_UPLOAD_MAX_SIZE_BYTES: Readonly<Record<WarrantyClaimUploadKind, bigint>> = {
   photo: 20_000_000n, // 20 MB — comfortably above a typical phone photo.
   video: 300_000_000n, // 300 MB — a few minutes of phone video at high resolution.
+  // 25 MB — a jeweller's quote is a few pages; anything larger is a scan at
+  // a resolution nobody needs, not a document we are refusing to read.
+  document: 25_000_000n,
 };
 
 /**
@@ -46,6 +49,20 @@ export const WARRANTY_CLAIM_UPLOAD_MAX_SIZE_BYTES: Readonly<Record<WarrantyClaim
 export const WARRANTY_CLAIM_UPLOAD_ALLOWED_CONTENT_TYPES: Readonly<Record<WarrantyClaimUploadKind, readonly string[]>> = {
   photo: ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"],
   video: ["video/mp4", "video/quicktime", "video/webm"],
+  /**
+   * PDF only.
+   *
+   * A written jewelry quote arrives as a PDF or as a photograph of a printed
+   * one — and the photograph case is already served by `photo`, which is why
+   * this list stays at one entry instead of duplicating the image types.
+   *
+   * Word documents are deliberately absent. A .doc/.docx is an executable
+   * container as far as macros are concerned, and accepting one would mean
+   * taking on a malware-handling problem for a format no jeweller issues a
+   * quote in. If a customer only has a Word file they can print it to PDF or
+   * photograph it.
+   */
+  document: ["application/pdf"],
 };
 
 export interface WarrantyUploadMetadataInput {

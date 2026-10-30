@@ -514,7 +514,13 @@
       "success_heading": "Thank you — we have your quote",
       "success_text": "A person here will review it and come back to you by email. We will tell you which category it falls into before you decide anything.",
       "success_reference": "Your reference:",
-      "noscript": "This form needs JavaScript. You can email your quote to orders@caratforus.com instead."
+      "noscript": "This form needs JavaScript. You can email your quote to orders@caratforus.com instead.",
+      "listing_url_hint": "A link to the live page. A screenshot on its own does not show us a current offer.",
+      "upload_label": "Attach the quote",
+      "upload_choose": "Choose a file",
+      "upload_hint": "PDF, or a clear photo of a printed quote. Up to 5 files, 25 MB each. Optional — you can send it later if you do not have it to hand.",
+      "upload_signin_required": "Sign in to attach the quote. You can still submit without one, and we will ask for it by email.",
+      "upload_signin_link": "Sign in"
     }
   },
   "sections": {

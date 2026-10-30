@@ -100,6 +100,7 @@ function extensionForContentType(contentType: string): string {
 const KEY_PREFIX: Record<UploadDestinationPurpose, string> = {
   warranty_claim: "warranty",
   custom_jewelry_project: "custom-jewelry",
+  beat_quote_submission: "beat-quote",
 };
 
 function buildStorageKey(

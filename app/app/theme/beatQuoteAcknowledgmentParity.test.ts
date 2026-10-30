@@ -80,7 +80,7 @@ function normalise(s: string): string {
 function jsString(source: string, key: string): string {
   const re = new RegExp(key + "\\s*:\\s*((?:\\s*'(?:[^'\\\\]|\\\\.)*'\\s*\\+?)+)", "m");
   const m = source.match(re);
-  if (!m) throw new Error("could not find JS string for key: " + key);
+  if (!m || m[1] === undefined) throw new Error("could not find JS string for key: " + key);
   return m[1]
     .split("+")
     .map((part) => part.trim().replace(/^'/, "").replace(/'$/, ""))
@@ -90,8 +90,13 @@ function jsString(source: string, key: string): string {
 describe("Beat Your Quote acknowledgment copy is identical in the app and the theme", () => {
   it("the two universal acknowledgments match the locale strings", () => {
     const l = locale();
-    expect(normalise(l.ack_what_we_match)).toBe(normalise(BEAT_QUOTE_WHAT_WE_MATCH_TEXT));
-    expect(normalise(l.ack_authenticity)).toBe(normalise(BEAT_QUOTE_AUTHENTICITY_TEXT));
+    const need = (k: string): string => {
+      const v = l[k];
+      if (v === undefined) throw new Error("locale key missing: templates.beat_quote." + k);
+      return v;
+    };
+    expect(normalise(need("ack_what_we_match"))).toBe(normalise(BEAT_QUOTE_WHAT_WE_MATCH_TEXT));
+    expect(normalise(need("ack_authenticity"))).toBe(normalise(BEAT_QUOTE_AUTHENTICITY_TEXT));
   });
 
   it.each([

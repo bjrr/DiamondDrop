@@ -2562,6 +2562,19 @@ enum WarrantyClaimUploadKind {
   photo
   video
 
+  /// A written document — a quote PDF.
+  ///
+  /// Added for Let Us Beat Your Quote, the first surface where the EVIDENCE
+  /// is a document rather than a picture of a thing. The enum keeps its
+  /// warranty name because it backs the SHARED upload-destination table;
+  /// renaming it would mean a migration across warranty and custom jewelry
+  /// for no behavioural gain.
+  ///
+  /// Adding a value here does not widen what warranty accepts: each route
+  /// scopes the kinds it will take through its own zod enum, so the warranty
+  /// routes still refuse anything but photo and video.
+  document
+
   @@map("warranty_claim_upload_kind")
 }
 
@@ -3728,6 +3741,7 @@ enum CustomJewelryProjectStatus {
 enum UploadDestinationPurpose {
   warranty_claim
   custom_jewelry_project
+  beat_quote_submission
 
   @@map("upload_destination_purpose")
 }
@@ -3904,10 +3918,42 @@ model BeatQuoteSubmission {
   /// At most one — UNIQUE on the benefit side IS the duplicate-issuance rule.
   fallbackBenefit BeatQuoteFallbackBenefit?
 
+  uploads BeatQuoteUpload[]
+
   @@index([customerRef])
   @@index([status])
   @@index([treatment])
   @@map("beat_quote_submission")
+}
+
+/// The quote document a customer handed us, as evidence.
+///
+/// The whole point of Let Us Beat Your Quote is the customer giving us the
+/// thing they want reviewed, so this is evidence in the same sense a warranty
+/// photograph is: it is what a later decision was based on, and it is what an
+/// authenticity dispute would turn on. The authenticity acknowledgment the
+/// customer signs refers to exactly these files.
+///
+/// Modelled on CustomJewelryProjectUpload deliberately — same columns, same
+/// actor attribution, same shared destination lifecycle — so there is one
+/// upload pattern in this codebase rather than three.
+model BeatQuoteUpload {
+  id           String              @id @default(uuid()) @db.Uuid
+  submissionId String              @map("submission_id") @db.Uuid
+  submission   BeatQuoteSubmission @relation(fields: [submissionId], references: [id])
+
+  kind        WarrantyClaimUploadKind @map("kind")
+  storageKey  String                  @map("storage_key")
+  contentType String                  @map("content_type")
+  sizeBytes   BigInt                  @map("size_bytes")
+  checksum    String
+
+  uploadedByActorType ActorType @map("uploaded_by_actor_type")
+  uploadedByActorRef  String?   @map("uploaded_by_actor_ref")
+  uploadedAt          DateTime  @default(now()) @map("uploaded_at") @db.Timestamptz(6)
+
+  @@index([submissionId])
+  @@map("beat_quote_upload")
 }
 
 /// The 10%-off, 100-dollar-cap, 90-day fallback benefit (amendment section 3).

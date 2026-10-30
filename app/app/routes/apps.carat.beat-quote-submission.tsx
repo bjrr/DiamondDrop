@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "~/db/client.server";
 import { createAcknowledgment } from "~/db/repositories/acknowledgmentRepository.server";
+import { consumeUploadDestination } from "~/db/repositories/uploadDestinationRepository.server";
 import {
   createBeatQuoteSubmission,
   isBeatQuoteSubmissionIdCollision,
@@ -131,8 +132,49 @@ const bodySchema = z
     whatWeMatchAccepted: z.literal(true),
     authenticityConfirmed: z.literal(true),
     pathAcknowledgmentAccepted: z.literal(true),
+
+    /**
+     * The quote documents the customer attached, each identified by a
+     * storage key a PRIOR call to `apps.carat.beat-quote-upload-destination`
+     * issued. This route never mints destinations and never trusts a key.
+     *
+     * Every key is verified AND CONSUMED inside the submission transaction.
+     * A key that was never issued, belongs to another submission, belongs to
+     * another customer, has expired, or has already been consumed REFUSES
+     * THE WHOLE SUBMISSION rather than being quietly dropped — the same
+     * discipline `apps.carat.warranty-claim.tsx` settled on, and for the
+     * same reason: an upload silently missing from an authenticity claim is
+     * worse than a failed submission.
+     *
+     * Capped at 5. A written quote is a document, not an album.
+     */
+    uploads: z
+      .array(
+        z
+          .object({
+            storageKey: z.string().min(1).max(500),
+            kind: z.enum(["document", "photo"]),
+            contentType: z.string().min(1).max(200),
+            sizeBytes: z.number().int().positive(),
+            checksum: z.string().min(1).max(200),
+          })
+          .strict()
+      )
+      .max(5)
+      .optional(),
   })
   .strict();
+
+/**
+ * Thrown INSIDE the submission transaction so an unverifiable upload key
+ * forces a real rollback rather than being reported after the fact. Caught
+ * immediately outside and turned into a 422; never escapes this file.
+ *
+ * Same class name and same role as `apps.carat.warranty-claim.tsx`, because
+ * the two routes solve the identical problem and a reader who knows one
+ * should recognise the other on sight.
+ */
+class UnverifiableUploadReferenceError extends Error {}
 
 function badRequest(reason: string) {
   return Response.json({ error: "invalid_request", reason }, { status: 400 });
@@ -325,6 +367,51 @@ export async function action({ request }: ActionFunctionArgs) {
     // imply the customer agreed twice.
     if (!created) return { submission, created };
 
+    // VERIFY + CONSUME every upload destination before recording anything.
+    //
+    // Inside the transaction, so a key that fails verification rolls back
+    // the destinations already consumed in this same batch along with the
+    // submission itself. Half-consumed destinations after a refusal would
+    // strand files the customer could never re-attach.
+    //
+    // `customerRef` is non-null here by construction: the destination
+    // endpoint requires sign-in, so a submission carrying uploads was made
+    // by an authenticated customer. The guard states it rather than assuming
+    // it, because a future change to that endpoint must not silently turn
+    // this into an unauthenticated consume.
+    const uploads = body.uploads ?? [];
+    if (uploads.length > 0) {
+      if (!customerRef) {
+        throw new UnverifiableUploadReferenceError("uploads require an authenticated customer");
+      }
+      for (const upload of uploads) {
+        const consumed = await consumeUploadDestination(
+          {
+            purpose: "beat_quote_submission",
+            ownerId: submission.id,
+            customerRef,
+            storageKey: upload.storageKey,
+          },
+          tx
+        );
+        if (!consumed) {
+          throw new UnverifiableUploadReferenceError(upload.storageKey);
+        }
+        await tx.beatQuoteUpload.create({
+          data: {
+            submissionId: submission.id,
+            kind: upload.kind,
+            storageKey: upload.storageKey,
+            contentType: upload.contentType,
+            sizeBytes: BigInt(upload.sizeBytes),
+            checksum: upload.checksum,
+            uploadedByActorType: "customer",
+            uploadedByActorRef: customerRef,
+          },
+        });
+      }
+    }
+
     const common = {
       acknowledgedAt,
       customerRef: customerRef ?? undefined,
@@ -363,6 +450,16 @@ export async function action({ request }: ActionFunctionArgs) {
       return { submission, created };
     });
   } catch (error) {
+    // An upload key we cannot verify refuses the WHOLE submission. The
+    // transaction has already rolled back, so no submission, no
+    // acknowledgments and no consumed destinations survive — the customer
+    // can correct the attachment and submit the same id again.
+    if (error instanceof UnverifiableUploadReferenceError) {
+      logger.warn("beat_quote_submission.invalid_upload_reference", {
+        submissionId: body.submissionId,
+      });
+      return Response.json({ error: "invalid_upload_reference" }, { status: 422 });
+    }
     if (!isBeatQuoteSubmissionIdCollision(error)) throw error;
     // The winner's row, read on a CLEAN connection. See the comment above.
     logger.info("beat_quote_submission.concurrent_duplicate", { submissionId: body.submissionId });

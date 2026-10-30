@@ -218,3 +218,30 @@ export function toBeatQuoteSubmissionConfirmation(
     status: submission.status,
   };
 }
+
+/**
+ * The owner of a submission, or `null` if no submission with this id exists
+ * yet.
+ *
+ * Used only by `apps.carat.beat-quote-upload-destination` to answer one
+ * question: may this authenticated customer attach a file to this id?
+ *
+ * A MISSING SUBMISSION IS NOT AN ERROR. Destinations are requested while the
+ * form is still being filled in, before anything has been submitted — the
+ * same lifecycle as warranty claim uploads. Only a submission that EXISTS
+ * and belongs to somebody else is a refusal, and the route returns the same
+ * response for both cases so this never becomes an oracle for which ids
+ * exist.
+ *
+ * `customerRef` is nullable because the submission route accepts anonymous
+ * submissions. An anonymous submission can never be matched by an
+ * authenticated caller's gid, so it falls through to the refusal path.
+ */
+export async function getBeatQuoteSubmissionForCustomer(
+  submissionId: string
+): Promise<{ id: string; customerRef: string | null } | null> {
+  return prisma.beatQuoteSubmission.findUnique({
+    where: { id: submissionId },
+    select: { id: true, customerRef: true },
+  });
+}

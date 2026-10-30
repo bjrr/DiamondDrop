@@ -187,3 +187,95 @@
   .carat-bq__submit { width: 100%; min-width: 0; }
   .carat-bq__actions { justify-items: stretch; }
 }
+
+/* ------------------------------------------------------------- uploads */
+
+.carat-bq__uploads { display: grid; gap: 1rem; }
+
+.carat-bq__uploads-label { font-size: 1.5rem; margin: 0; }
+
+.carat-bq__upload-gate {
+  padding: 1.6rem;
+  border: 1px dashed rgba(var(--color-foreground), 0.3);
+  font-size: 1.4rem;
+  line-height: 1.55;
+  display: grid;
+  gap: 1rem;
+  justify-items: start;
+}
+
+.carat-bq__upload-gate p { margin: 0; opacity: 0.8; }
+
+/* A real control, not a styled nothing — the input itself is hidden and the
+   label does the work, which keeps keyboard and screen-reader behaviour. */
+.carat-bq__upload-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 1.3rem 2.2rem;
+  border: 1px solid rgb(var(--color-foreground));
+  font-size: 0.875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+.carat-bq__upload-button:hover {
+  background: rgb(var(--color-foreground));
+  color: rgb(var(--color-background));
+}
+
+.carat-bq__upload-button input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Keyboard focus lands on the hidden input, so the ring has to be drawn on
+   the label instead or the control looks unfocusable. */
+.carat-bq__upload-button:focus-within {
+  outline: 2px solid rgb(var(--color-foreground));
+  outline-offset: 3px;
+}
+
+.carat-bq__upload-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.carat-bq__upload-item {
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  padding: 1rem 1.4rem;
+  border: 1px solid rgba(var(--color-foreground), 0.16);
+  font-size: 1.4rem;
+}
+
+.carat-bq__upload-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.carat-bq__upload-state { opacity: 0.66; font-size: 1.3rem; }
+
+.carat-bq__upload-remove {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 1.3rem;
+  text-decoration: underline;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.7;
+}
+
+.carat-bq__upload-remove:hover { opacity: 1; }

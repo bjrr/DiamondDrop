@@ -174,6 +174,17 @@
       });
     });
 
+    // Switching away from the custom-quote path clears attachments too.
+    // The loop above empties the file INPUT, but the `uploads` array lives
+    // in JS — without this, a customer who attached a PDF, then changed to
+    // "an online listing", would submit files belonging to a path that does
+    // not take them. The server would accept them (purpose, owner and
+    // customer all still match), so nothing stops this but us.
+    if (kind !== 'custom_quote' && typeof uploads !== 'undefined' && uploads.length > 0) {
+      uploads.length = 0;
+      renderUploads();
+    }
+
     var dateInput = el('#BqQuoteDate');
     var ackId = pathAckIdFor(kind, dateInput ? dateInput.value : null);
 
@@ -204,6 +215,161 @@
   form.addEventListener('input', function (e) {
     if (e.target.id === 'BqQuoteDate') syncConditionals();
   });
+
+  /* ------------------------------------------------------------ uploads */
+
+  /*
+   * Mirrors warranty-claim-form.js: ask our route for a presigned
+   * destination, PUT the bytes straight to storage, then send the resulting
+   * storageKey with the submission. The bytes never pass through our app.
+   *
+   * ATTACHING REQUIRES SIGN-IN, SUBMITTING DOES NOT. The destination
+   * endpoint mints presigned writes to our bucket and is gated the same way
+   * the warranty one is. A signed-out customer is told why and can still
+   * submit without a file, rather than being shown a control that fails.
+   */
+  var UPLOAD_DESTINATION_PATH = '/apps/carat/beat-quote-upload-destination';
+  var MAX_FILES = 5;
+
+  var fileInput = document.querySelector('[data-carat-bq-file]');
+  var uploadList = document.querySelector('[data-carat-bq-upload-list]');
+  var uploadGate = document.querySelector('[data-carat-bq-upload-gate]');
+  var uploadControl = document.querySelector('[data-carat-bq-upload-control]');
+  var signedIn = form.getAttribute('data-signed-in') === 'true';
+  var uploads = [];
+  var uploadsDisabled = false;
+
+  // The whole block is hidden when the section setting is off, which is how
+  // the theme ships ahead of the deploy that adds the upload route. Bail out
+  // entirely rather than wiring a control nobody can see.
+  var uploadsEnabled = !!document.querySelector("[data-carat-bq-uploads]") &&
+    !document.querySelector("[data-carat-bq-uploads]").hasAttribute("hidden");
+
+  if (uploadGate) uploadGate.hidden = signedIn || !uploadsEnabled;
+  if (uploadControl) uploadControl.hidden = !signedIn || !uploadsEnabled;
+
+  /** SHA-256 of the bytes, hex, algorithm-prefixed. Same format as warranty. */
+  function checksumFor(file) {
+    return file.arrayBuffer().then(function (buffer) {
+      return window.crypto.subtle.digest('SHA-256', buffer).then(function (digest) {
+        var view = new Uint8Array(digest);
+        var hex = '';
+        for (var i = 0; i < view.length; i++) hex += (view[i] + 0x100).toString(16).slice(1);
+        return 'sha256:' + hex;
+      });
+    });
+  }
+
+  /* A PDF is a document; anything else accepted here is a photo of one. */
+  function kindFor(file) {
+    return file.type === 'application/pdf' ? 'document' : 'photo';
+  }
+
+  function renderUploads() {
+    if (!uploadList) return;
+    uploadList.innerHTML = '';
+    uploads.forEach(function (entry, index) {
+      var li = document.createElement('li');
+      li.className = 'carat-bq__upload-item';
+      var name = document.createElement('span');
+      name.className = 'carat-bq__upload-name';
+      name.textContent = entry.fileName;
+      var state = document.createElement('span');
+      state.className = 'carat-bq__upload-state';
+      state.textContent = entry.storageKey
+        ? 'Attached'
+        : entry.failed
+        ? 'Could not attach'
+        : 'Uploading…';
+      li.appendChild(name);
+      li.appendChild(state);
+      if (entry.storageKey) {
+        var remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'carat-bq__upload-remove';
+        remove.textContent = 'Remove';
+        remove.addEventListener('click', function () {
+          /* Dropping it from the payload is enough. The destination simply
+             goes unconsumed and expires on its own. */
+          uploads.splice(index, 1);
+          renderUploads();
+        });
+        li.appendChild(remove);
+      }
+      uploadList.appendChild(li);
+    });
+  }
+
+  function disableUploads(message) {
+    uploadsDisabled = true;
+    if (uploadControl) uploadControl.hidden = true;
+    if (uploadGate) {
+      uploadGate.hidden = false;
+      uploadGate.textContent = message;
+    }
+  }
+
+  function attach(file) {
+    if (!uploadsEnabled || uploadsDisabled || uploads.length >= MAX_FILES) return;
+    var entry = { fileName: file.name, storageKey: null, failed: false };
+    uploads.push(entry);
+    renderUploads();
+
+    fetch(UPLOAD_DESTINATION_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        submissionId: ensureSubmissionId(),
+        kind: kindFor(file),
+        contentType: file.type,
+        sizeBytes: file.size,
+      }),
+    })
+      .then(function (response) {
+        if (response.status === 401) {
+          disableUploads('Please sign in to attach a file. You can still submit your quote without one.');
+          return null;
+        }
+        if (response.status === 503) {
+          disableUploads('Attachments are unavailable right now. You can still submit, and we will ask for the quote by email.');
+          return null;
+        }
+        if (!response.ok) return null;
+        return response.json();
+      })
+      .then(function (destination) {
+        if (!destination || !destination.uploadUrl || !destination.storageKey) return null;
+        return fetch(destination.uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': file.type },
+          body: file,
+        }).then(function (put) {
+          if (!put.ok) return null;
+          return checksumFor(file).then(function (checksum) {
+            entry.storageKey = destination.storageKey;
+            entry.kind = kindFor(file);
+            entry.contentType = file.type;
+            entry.sizeBytes = file.size;
+            entry.checksum = checksum;
+            return entry;
+          });
+        });
+      })
+      .catch(function () {
+        return null;
+      })
+      .then(function (result) {
+        if (!result) entry.failed = true;
+        renderUploads();
+      });
+  }
+
+  if (fileInput) {
+    fileInput.addEventListener('change', function () {
+      Array.prototype.slice.call(fileInput.files || []).forEach(attach);
+      fileInput.value = '';
+    });
+  }
 
   /* -------------------------------------------------------------- submit */
 
@@ -284,6 +450,21 @@
       payload.competitorPriceCurrency = 'USD';
     }
 
+    // Only fully-uploaded files. A failed or in-flight entry is left out
+    // rather than sent as a key the server cannot verify — an unverifiable
+    // key refuses the ENTIRE submission.
+    var attached = uploads.filter(function (u) { return u.storageKey; });
+    if (attached.length > 0) {
+      payload.uploads = attached.map(function (u) {
+        return {
+          storageKey: u.storageKey,
+          kind: u.kind,
+          contentType: u.contentType,
+          sizeBytes: u.sizeBytes,
+          checksum: u.checksum,
+        };
+      });
+    }
     if (!payload.whatWeMatchAccepted || !payload.authenticityConfirmed || !payload.pathAcknowledgmentAccepted) {
       showError('acknowledgments', 'Please confirm all three statements before submitting.');
       return;
