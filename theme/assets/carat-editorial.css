@@ -586,7 +586,22 @@
   font-size: 1.75rem;
 }
 
-.carat-hero--light .carat-hero__img { min-height: 42rem; }
+/* The 21:9 hero was composed with empty space on the LEFT for copy. In the
+   light layout the copy has its own column, so that empty half is dead
+   weight — and a centred cover-crop into a narrower panel framed the blank
+   wall and pushed the pendant off the right edge. Biasing the crop toward
+   the subject puts the jewelry back in frame, which is the entire job of
+   this image. */
+.carat-hero--light .carat-hero__img {
+  min-height: 42rem;
+  object-position: 64% center;
+}
+
+@media screen and (max-width: 749px) {
+  /* The mobile file is a vertical composition with the subject centred, so
+     it needs no bias. */
+  .carat-hero--light .carat-hero__img { object-position: center; }
+}
 
 /* Back to the page scheme: on ivory the inverted dark-hero buttons were
    white-on-white. */
@@ -674,7 +689,16 @@
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
+  /* Descriptions run to two or three lines, which left the arrow cues at
+     five different heights and made a tidy row look ragged along the
+     bottom. The copy block fills the card and the cue is pushed down, so
+     the cues line up regardless of how long the sentence is. */
+  flex: 1;
 }
+
+.carat-path__cue { margin-block-start: auto; }
+
+.carat-path { height: 100%; }
 
 .carat-path__title {
   font-size: 2rem;

@@ -3,8 +3,8 @@
     "hero": {
       "type": "carat-hero",
       "settings": {
-        "image_desktop": "shopify://shop_images/carat-stone.png",
-        "image_mobile": "shopify://shop_images/carat-stone.png",
+        "image_desktop": "shopify://shop_images/carat-b-hero-desktop.png",
+        "image_mobile": "shopify://shop_images/carat-b-hero-mobile.png",
         "height": "medium",
         "tone": "light",
         "text_position": "left",
@@ -26,7 +26,8 @@
           "settings": {
             "title": "Shop Jewelry",
             "text": "Ready-to-buy fine jewelry.",
-            "link": "/collections/all"
+            "link": "/collections/all",
+            "image": "shopify://shop_images/carat-b-shop.png"
           }
         },
         "groupbuy": {
@@ -34,7 +35,8 @@
           "settings": {
             "title": "Group Buy",
             "text": "More buyers. Better pricing.",
-            "link": "/pages/group-buy"
+            "link": "/pages/group-buy",
+            "image": "shopify://shop_images/carat-b-groupbuy.png"
           }
         },
         "steals": {
@@ -42,7 +44,8 @@
           "settings": {
             "title": "Luxury Steals",
             "text": "Exceptional pieces at limited pricing.",
-            "link": "/pages/luxury-steals"
+            "link": "/pages/luxury-steals",
+            "image": "shopify://shop_images/carat-b-steals.png"
           }
         },
         "custom": {
@@ -50,7 +53,8 @@
           "settings": {
             "title": "Custom Jewelry",
             "text": "Create something made for you.",
-            "link": "/pages/custom-jewelry"
+            "link": "/pages/custom-jewelry",
+            "image": "shopify://shop_images/carat-b-custom.png"
           }
         },
         "quote": {
@@ -58,7 +62,8 @@
           "settings": {
             "title": "Beat Your Quote",
             "text": "Already have a jewelry quote? Let us compete for your business.",
-            "link": "/pages/let-us-beat-your-quote"
+            "link": "/pages/let-us-beat-your-quote",
+            "image": "shopify://shop_images/carat-b-quote.png"
           }
         }
       },
