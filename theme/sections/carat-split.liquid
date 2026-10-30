@@ -1,0 +1,85 @@
+{%- comment -%}
+  CARAT SPLIT — 60/40 editorial image + text, alternating alignment.
+
+  This is the workhorse that replaces rows of equal-width text cards. One
+  large image, one short piece of copy, deliberately UNequal so the page has
+  a direction to read in. `media_side` alternates down the page.
+
+  Full-bleed by choice: the image runs to the edge of the viewport while the
+  copy stays on the text column, which is the composition Dawn's multicolumn
+  cannot express.
+{%- endcomment -%}
+
+{{ 'carat-editorial.css' | asset_url | stylesheet_tag }}
+
+{%- liquid
+  assign img = section.settings.image
+  assign scheme = section.settings.color_scheme | default: 'scheme-1'
+-%}
+
+<section class="carat-split color-{{ scheme }} gradient carat-split--media-{{ section.settings.media_side }}{% if section.settings.compact %} carat-split--compact{% endif %}">
+  <div class="carat-split__media">
+    {%- if img != blank -%}
+      <img
+        src="{{ img | image_url: width: 1400 }}"
+        srcset="{{ img | image_url: width: 800 }} 800w, {{ img | image_url: width: 1400 }} 1400w, {{ img | image_url: width: 1900 }} 1900w"
+        sizes="(min-width: 750px) 58vw, 100vw"
+        alt="{{ img.alt | escape }}"
+        width="{{ img.width }}"
+        height="{{ img.height }}"
+        loading="lazy"
+        class="carat-split__img"
+      >
+    {%- else -%}
+      <div class="carat-split__img carat-split__img--placeholder"></div>
+    {%- endif -%}
+  </div>
+
+  <div class="carat-split__body">
+    <div class="carat-split__copy">
+      {%- if section.settings.eyebrow != blank -%}
+        <p class="carat-eyebrow">{{ section.settings.eyebrow | escape }}</p>
+      {%- endif -%}
+      {%- if section.settings.heading != blank -%}
+        <h2 class="carat-split__heading">{{ section.settings.heading | escape }}</h2>
+      {%- endif -%}
+      {%- if section.settings.text != blank -%}
+        <div class="carat-split__text rte">{{ section.settings.text }}</div>
+      {%- endif -%}
+      {%- if section.settings.cta_label != blank -%}
+        <a class="carat-link" href="{{ section.settings.cta_link | default: '#' }}">
+          {{- section.settings.cta_label | escape -}}
+          <span aria-hidden="true">&rarr;</span>
+        </a>
+      {%- endif -%}
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Carat split",
+  "tag": "section",
+  "settings": [
+    { "type": "image_picker", "id": "image", "label": "Image" },
+    {
+      "type": "select",
+      "id": "media_side",
+      "label": "Image side (desktop)",
+      "default": "left",
+      "options": [
+        { "value": "left", "label": "Left" },
+        { "value": "right", "label": "Right" }
+      ]
+    },
+    { "type": "color_scheme", "id": "color_scheme", "label": "Colour scheme", "default": "scheme-1" },
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow" },
+    { "type": "text", "id": "heading", "label": "Heading" },
+    { "type": "richtext", "id": "text", "label": "Text" },
+    { "type": "text", "id": "cta_label", "label": "Link label" },
+    { "type": "url", "id": "cta_link", "label": "Link" },
+    { "type": "checkbox", "id": "compact", "label": "Compact height", "default": false }
+  ],
+  "presets": [{ "name": "Carat split" }]
+}
+{% endschema %}

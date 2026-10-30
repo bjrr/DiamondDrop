@@ -1,0 +1,85 @@
+{%- comment -%}
+  CARAT BREAK — a full-bleed image moment between commercial sections.
+
+  Its whole job is rhythm. A page of content blocks reads as a brochure; an
+  oversized image with almost nothing on it gives the eye somewhere to rest
+  and makes the next block land harder.
+
+  Optional oversized type over the image. Kept to one line: the moment this
+  grows a paragraph it stops being a break.
+{%- endcomment -%}
+
+{{ 'carat-editorial.css' | asset_url | stylesheet_tag }}
+
+{%- assign img = section.settings.image -%}
+
+<section class="carat-break carat-break--{{ section.settings.height }}{% if section.settings.parallax %} carat-break--parallax{% endif %}">
+  {%- if img != blank -%}
+    <img
+      src="{{ img | image_url: width: 1800 }}"
+      srcset="{{ img | image_url: width: 900 }} 900w, {{ img | image_url: width: 1800 }} 1800w, {{ img | image_url: width: 2400 }} 2400w"
+      sizes="100vw"
+      alt="{{ img.alt | escape }}"
+      width="{{ img.width }}"
+      height="{{ img.height }}"
+      loading="lazy"
+      class="carat-break__img"
+    >
+  {%- else -%}
+    <div class="carat-break__img carat-break__img--placeholder"></div>
+  {%- endif -%}
+
+  {%- if section.settings.statement != blank -%}
+    <div class="carat-break__scrim"></div>
+    <div class="carat-break__inner carat-break__inner--{{ section.settings.text_position }}">
+      {%- if section.settings.eyebrow != blank -%}
+        <p class="carat-eyebrow carat-eyebrow--on-dark">{{ section.settings.eyebrow | escape }}</p>
+      {%- endif -%}
+      <p class="carat-break__statement">{{ section.settings.statement | escape }}</p>
+      {%- if section.settings.cta_label != blank -%}
+        <a class="carat-link carat-link--on-dark" href="{{ section.settings.cta_link | default: '#' }}">
+          {{- section.settings.cta_label | escape -}}
+          <span aria-hidden="true">&rarr;</span>
+        </a>
+      {%- endif -%}
+    </div>
+  {%- endif -%}
+</section>
+
+{% schema %}
+{
+  "name": "Carat image break",
+  "tag": "section",
+  "settings": [
+    { "type": "image_picker", "id": "image", "label": "Image" },
+    {
+      "type": "select",
+      "id": "height",
+      "label": "Height",
+      "default": "medium",
+      "options": [
+        { "value": "short", "label": "Short" },
+        { "value": "medium", "label": "Medium" },
+        { "value": "tall", "label": "Tall" }
+      ]
+    },
+    {
+      "type": "select",
+      "id": "text_position",
+      "label": "Text position",
+      "default": "center",
+      "options": [
+        { "value": "left", "label": "Left" },
+        { "value": "center", "label": "Centre" },
+        { "value": "right", "label": "Right" }
+      ]
+    },
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow" },
+    { "type": "text", "id": "statement", "label": "Single statement" },
+    { "type": "text", "id": "cta_label", "label": "Link label" },
+    { "type": "url", "id": "cta_link", "label": "Link" },
+    { "type": "checkbox", "id": "parallax", "label": "Subtle parallax", "default": false }
+  ],
+  "presets": [{ "name": "Carat image break" }]
+}
+{% endschema %}

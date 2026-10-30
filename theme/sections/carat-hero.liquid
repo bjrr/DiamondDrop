@@ -1,0 +1,155 @@
+{%- comment -%}
+  CARAT EDITORIAL HERO
+  ===========================================================================
+  Full-bleed, image-led, cinematic. Replaces the text-driven rich-text hero,
+  which read as an information page rather than a campaign.
+
+  THREE THINGS THIS DOES THAT DAWN'S IMAGE BANNER DOES NOT:
+
+  1. Separate desktop and mobile art. A 21:9 cinematic crop is unusable on a
+     phone — the subject ends up a speck. The mobile file is a different
+     composition, not the same file squeezed.
+  2. A real typographic system over the image: small-caps eyebrow, oversized
+     serif display, constrained measure. Dawn gives you one heading size and
+     a paragraph.
+  3. Restrained motion — a slow scale on the image only, killed outright
+     under prefers-reduced-motion.
+
+  PERFORMANCE. The hero is the LCP element on the busiest page, so the image
+  is eager with fetchpriority high, sized with a real srcset, and the overlay
+  is a CSS gradient rather than a second image.
+{%- endcomment -%}
+
+{{ 'carat-editorial.css' | asset_url | stylesheet_tag }}
+
+{%- liquid
+  assign d = section.settings.image_desktop
+  assign m = section.settings.image_mobile
+  if m == blank
+    assign m = d
+  endif
+-%}
+
+<section
+  class="carat-hero carat-hero--{{ section.settings.height }}{% if section.settings.animate %} carat-hero--animate{% endif %}"
+  aria-label="{{ section.settings.heading | default: 'Introduction' | escape }}"
+>
+  <div class="carat-hero__media">
+    {%- if d != blank -%}
+      <picture>
+        <source
+          media="(max-width: 749px)"
+          srcset="
+            {{ m | image_url: width: 750 }} 750w,
+            {{ m | image_url: width: 1100 }} 1100w,
+            {{ m | image_url: width: 1500 }} 1500w
+          "
+          sizes="100vw"
+        >
+        <img
+          src="{{ d | image_url: width: 1800 }}"
+          srcset="
+            {{ d | image_url: width: 1200 }} 1200w,
+            {{ d | image_url: width: 1800 }} 1800w,
+            {{ d | image_url: width: 2400 }} 2400w
+          "
+          sizes="100vw"
+          alt="{{ d.alt | escape }}"
+          width="{{ d.width }}"
+          height="{{ d.height }}"
+          loading="eager"
+          fetchpriority="high"
+          class="carat-hero__img"
+        >
+      </picture>
+    {%- else -%}
+      {%- comment -%} No art chosen: a flat dark field still reads, a broken
+      image does not. {%- endcomment -%}
+      <div class="carat-hero__img carat-hero__img--placeholder"></div>
+    {%- endif -%}
+  </div>
+
+  <div class="carat-hero__scrim carat-hero__scrim--{{ section.settings.text_position }}"></div>
+
+  <div class="carat-hero__inner carat-hero__inner--{{ section.settings.text_position }}">
+    {%- if section.settings.eyebrow != blank -%}
+      <p class="carat-eyebrow">{{ section.settings.eyebrow | escape }}</p>
+    {%- endif -%}
+
+    {%- if section.settings.heading != blank -%}
+      <h1 class="carat-hero__heading">{{ section.settings.heading | escape }}</h1>
+    {%- endif -%}
+
+    {%- if section.settings.subheading != blank -%}
+      <p class="carat-hero__sub">{{ section.settings.subheading | escape }}</p>
+    {%- endif -%}
+
+    {%- if section.settings.cta_label != blank or section.settings.cta2_label != blank -%}
+      <div class="carat-hero__actions">
+        {%- if section.settings.cta_label != blank -%}
+          <a class="button carat-button" href="{{ section.settings.cta_link | default: '#' }}">
+            {{- section.settings.cta_label | escape -}}
+          </a>
+        {%- endif -%}
+        {%- if section.settings.cta2_label != blank -%}
+          <a class="button button--secondary carat-button" href="{{ section.settings.cta2_link | default: '#' }}">
+            {{- section.settings.cta2_label | escape -}}
+          </a>
+        {%- endif -%}
+      </div>
+    {%- endif -%}
+
+    {%- comment -%}
+      Imagery honesty, per CLAUDE.md: renders, photographs and AI
+      visualisations are labelled. Brand/abstract imagery that depicts no
+      purchasable piece carries no claim, so the credit stays optional and
+      is set per section rather than assumed.
+    {%- endcomment -%}
+    {%- if section.settings.media_credit != blank -%}
+      <p class="carat-hero__credit">{{ section.settings.media_credit | escape }}</p>
+    {%- endif -%}
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Carat hero",
+  "tag": "section",
+  "settings": [
+    { "type": "image_picker", "id": "image_desktop", "label": "Desktop image" },
+    { "type": "image_picker", "id": "image_mobile", "label": "Mobile image (different crop)" },
+    {
+      "type": "select",
+      "id": "height",
+      "label": "Height",
+      "default": "tall",
+      "options": [
+        { "value": "medium", "label": "Medium" },
+        { "value": "tall", "label": "Tall" },
+        { "value": "full", "label": "Full screen" }
+      ]
+    },
+    {
+      "type": "select",
+      "id": "text_position",
+      "label": "Text position",
+      "default": "left",
+      "options": [
+        { "value": "left", "label": "Left" },
+        { "value": "center", "label": "Centre" },
+        { "value": "right", "label": "Right" }
+      ]
+    },
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow" },
+    { "type": "text", "id": "heading", "label": "Heading" },
+    { "type": "text", "id": "subheading", "label": "Subheading" },
+    { "type": "text", "id": "cta_label", "label": "Primary button" },
+    { "type": "url", "id": "cta_link", "label": "Primary link" },
+    { "type": "text", "id": "cta2_label", "label": "Secondary button" },
+    { "type": "url", "id": "cta2_link", "label": "Secondary link" },
+    { "type": "text", "id": "media_credit", "label": "Image credit / label" },
+    { "type": "checkbox", "id": "animate", "label": "Slow image zoom", "default": true }
+  ],
+  "presets": [{ "name": "Carat hero" }]
+}
+{% endschema %}

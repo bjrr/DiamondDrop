@@ -1,0 +1,98 @@
+{%- comment -%}
+  CARAT TILES — asymmetric editorial campaign tiles.
+
+  Replaces the four-identical-boxes pattern. Each tile is a large image with
+  a few words over it, and the grid is deliberately UNEVEN: the first tile
+  spans wider than the rest, so the row reads as a composition rather than a
+  table of equal cells.
+
+  On mobile they become immersive full-width stacked cards, which is the one
+  place where equal widths are correct — a phone has no second column to
+  play against.
+{%- endcomment -%}
+
+{{ 'carat-editorial.css' | asset_url | stylesheet_tag }}
+
+<section class="carat-tiles color-{{ section.settings.color_scheme | default: 'scheme-1' }} gradient">
+  <div class="carat-tiles__head page-width">
+    {%- if section.settings.eyebrow != blank -%}
+      <p class="carat-eyebrow">{{ section.settings.eyebrow | escape }}</p>
+    {%- endif -%}
+    {%- if section.settings.heading != blank -%}
+      <h2 class="carat-tiles__heading">{{ section.settings.heading | escape }}</h2>
+    {%- endif -%}
+  </div>
+
+  <div class="carat-tiles__grid carat-tiles__grid--{{ section.blocks.size }}">
+    {%- for block in section.blocks -%}
+      {%- assign img = block.settings.image -%}
+      <a
+        class="carat-tile{% if forloop.first and section.settings.feature_first %} carat-tile--wide{% endif %}"
+        href="{{ block.settings.link | default: '#' }}"
+        {{ block.shopify_attributes }}
+      >
+        <div class="carat-tile__media">
+          {%- if img != blank -%}
+            <img
+              src="{{ img | image_url: width: 1200 }}"
+              srcset="{{ img | image_url: width: 700 }} 700w, {{ img | image_url: width: 1200 }} 1200w, {{ img | image_url: width: 1700 }} 1700w"
+              sizes="(min-width: 750px) 50vw, 100vw"
+              alt="{{ img.alt | escape }}"
+              width="{{ img.width }}"
+              height="{{ img.height }}"
+              loading="lazy"
+              class="carat-tile__img"
+            >
+          {%- else -%}
+            <div class="carat-tile__img carat-tile__img--placeholder"></div>
+          {%- endif -%}
+          <div class="carat-tile__scrim"></div>
+        </div>
+        <div class="carat-tile__copy">
+          {%- if block.settings.kicker != blank -%}
+            <p class="carat-eyebrow carat-eyebrow--on-dark">{{ block.settings.kicker | escape }}</p>
+          {%- endif -%}
+          <h3 class="carat-tile__title">{{ block.settings.title | escape }}</h3>
+          {%- if block.settings.text != blank -%}
+            <p class="carat-tile__text">{{ block.settings.text | escape }}</p>
+          {%- endif -%}
+          {%- if block.settings.cta != blank -%}
+            <span class="carat-link carat-link--on-dark">
+              {{- block.settings.cta | escape -}}
+              <span aria-hidden="true">&rarr;</span>
+            </span>
+          {%- endif -%}
+        </div>
+      </a>
+    {%- endfor -%}
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Carat tiles",
+  "tag": "section",
+  "max_blocks": 6,
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow" },
+    { "type": "text", "id": "heading", "label": "Heading" },
+    { "type": "color_scheme", "id": "color_scheme", "label": "Colour scheme", "default": "scheme-1" },
+    { "type": "checkbox", "id": "feature_first", "label": "Make the first tile wider", "default": true }
+  ],
+  "blocks": [
+    {
+      "type": "tile",
+      "name": "Tile",
+      "settings": [
+        { "type": "image_picker", "id": "image", "label": "Image" },
+        { "type": "text", "id": "kicker", "label": "Kicker" },
+        { "type": "text", "id": "title", "label": "Title", "default": "Title" },
+        { "type": "text", "id": "text", "label": "Short line" },
+        { "type": "text", "id": "cta", "label": "Link label" },
+        { "type": "url", "id": "link", "label": "Link" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Carat tiles" }]
+}
+{% endschema %}

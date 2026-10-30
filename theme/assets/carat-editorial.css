@@ -1,0 +1,518 @@
+/*
+ * CaratForUs editorial sections.
+ * ===========================================================================
+ * Styles for carat-hero / carat-split / carat-break / carat-tiles.
+ *
+ * Separate from carat-brand.css on purpose: that file refines Dawn globally,
+ * this one owns four bespoke sections. Keeping them apart means a change to
+ * the hero cannot quietly restyle the cart.
+ *
+ * The compositional rules these encode:
+ *   - full bleed, because a jewelry campaign has no margins
+ *   - UNEQUAL splits, because equal columns read as a spreadsheet
+ *   - type over image with a real scrim, never over bare photography
+ *   - one accent, used once per screen
+ *   - motion only where it is slow enough to be felt rather than noticed
+ */
+
+/* --------------------------------------------------------------- shared */
+
+.carat-eyebrow {
+  font-size: 1.1rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 500;
+  margin: 0 0 1.6rem;
+  opacity: 0.75;
+}
+
+.carat-eyebrow--on-dark {
+  color: #f7f5f1;
+  opacity: 0.85;
+}
+
+.carat-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+  font-size: 1.4rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  /* Without this the browser's default link blue wins and a luxury page
+     sprouts hyperlink-blue CTAs. Inherit the section's scheme colour. */
+  color: inherit;
+  border-bottom: 1px solid currentColor;
+  padding-block-end: 0.4rem;
+  transition: gap 0.22s ease, opacity 0.22s ease;
+}
+
+.carat-link:visited {
+  color: inherit;
+}
+
+.carat-link:hover {
+  gap: 1.4rem;
+}
+
+.carat-link--on-dark {
+  color: #f7f5f1;
+}
+
+/* Full-bleed escape from Dawn's centred page container. */
+.carat-hero,
+.carat-break,
+.carat-split,
+.carat-tiles__grid {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* ----------------------------------------------------------------- hero */
+
+.carat-hero {
+  position: relative;
+  display: grid;
+  isolation: isolate;
+  overflow: hidden;
+  background: #0f0f0f;
+}
+
+.carat-hero--medium { min-height: 58vh; }
+.carat-hero--tall   { min-height: 78vh; }
+.carat-hero--full   { min-height: 92vh; }
+
+.carat-hero__media,
+.carat-hero__scrim,
+.carat-hero__inner {
+  grid-area: 1 / 1;
+}
+
+.carat-hero__media { position: relative; }
+
+.carat-hero__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.carat-hero__img--placeholder,
+.carat-split__img--placeholder,
+.carat-break__img--placeholder,
+.carat-tile__img--placeholder {
+  background: linear-gradient(135deg, #23282a, #0f0f0f);
+  min-height: 40rem;
+}
+
+/* The image is dark already; the scrim only has to protect the type side. */
+.carat-hero__scrim--left {
+  background: linear-gradient(90deg, rgba(10, 10, 10, 0.82) 0%, rgba(10, 10, 10, 0.55) 42%, rgba(10, 10, 10, 0) 72%);
+}
+.carat-hero__scrim--right {
+  background: linear-gradient(270deg, rgba(10, 10, 10, 0.82) 0%, rgba(10, 10, 10, 0.55) 42%, rgba(10, 10, 10, 0) 72%);
+}
+.carat-hero__scrim--center {
+  background: radial-gradient(ellipse at center, rgba(10, 10, 10, 0.68) 0%, rgba(10, 10, 10, 0.3) 70%);
+}
+
+.carat-hero__inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 8rem 5vw;
+  max-width: 62rem;
+  color: #f7f5f1;
+}
+
+.carat-hero__inner--center {
+  max-width: 76rem;
+  margin-inline: auto;
+  text-align: center;
+  align-items: center;
+}
+
+.carat-hero__inner--right {
+  margin-inline-start: auto;
+  text-align: left;
+}
+
+.carat-hero__heading {
+  /* Oversized and fluid. This is the one place the serif should feel loud. */
+  font-size: clamp(4.2rem, 7vw, 9rem);
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  margin: 0;
+  color: #fbf9f6;
+  text-wrap: balance;
+}
+
+.carat-hero__sub {
+  font-size: 1.7rem;
+  line-height: 1.55;
+  margin: 2.4rem 0 0;
+  max-width: 46rem;
+  opacity: 0.88;
+}
+
+.carat-hero__inner--center .carat-hero__sub { margin-inline: auto; }
+
+.carat-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.4rem;
+  margin-block-start: 3.6rem;
+}
+
+.carat-hero__credit {
+  margin: 3.2rem 0 0;
+  font-size: 1.1rem;
+  letter-spacing: 0.06em;
+  opacity: 0.55;
+}
+
+/* Buttons sit on dark photography, and the page scheme is ink-on-paper —
+   so an unstyled primary button is near-black on near-black and effectively
+   invisible. Both variants are inverted for this context. */
+.carat-hero .carat-button {
+  min-width: 22rem;
+}
+
+.carat-hero .button:not(.button--secondary) {
+  background: #fbf9f6;
+  color: #16181a;
+  border-color: #fbf9f6;
+}
+
+.carat-hero .button:not(.button--secondary):hover {
+  background: #ffffff;
+  border-color: #ffffff;
+}
+
+.carat-hero .button--secondary {
+  color: #f7f5f1;
+  background: rgba(16, 16, 16, 0.3);
+  backdrop-filter: blur(2px);
+}
+
+.carat-hero .button--secondary:hover {
+  background: rgba(16, 16, 16, 0.5);
+}
+
+/* Dawn paints the button's fill AND its border through ::before / ::after
+   using the section's colour scheme, so the rules above were being drawn
+   over. Neutralising both pseudo-elements fixes the fill but ALSO removes
+   the border — which left the secondary CTA as floating text with no edge.
+   So the outline is reinstated here as a real border. */
+.carat-hero .button::after,
+.carat-hero .button::before {
+  box-shadow: none;
+  background: transparent;
+}
+
+.carat-hero .button {
+  border-style: solid;
+  border-width: 1px;
+}
+
+.carat-hero .button--secondary {
+  border-color: rgba(247, 245, 241, 0.65);
+}
+
+.carat-hero .button--secondary:hover {
+  border-color: #f7f5f1;
+}
+
+/* Slow push-in. Long enough to be atmosphere, not an effect. */
+.carat-hero--animate .carat-hero__img {
+  animation: carat-slow-zoom 22s ease-out forwards;
+}
+
+@keyframes carat-slow-zoom {
+  from { transform: scale(1.06); }
+  to   { transform: scale(1); }
+}
+
+/* ---------------------------------------------------------------- split */
+
+.carat-split {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.carat-split__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.carat-split__body {
+  display: flex;
+  align-items: center;
+  padding: 7rem 5vw;
+}
+
+.carat-split__copy { max-width: 48rem; }
+
+.carat-split__heading {
+  font-size: clamp(3rem, 3.6vw, 4.6rem);
+  line-height: 1.08;
+  margin: 0 0 2rem;
+}
+
+.carat-split__text {
+  font-size: 1.6rem;
+  line-height: 1.65;
+  margin-block-end: 2.8rem;
+  opacity: 0.88;
+}
+
+.carat-split__text p:last-child { margin-block-end: 0; }
+
+@media screen and (min-width: 750px) {
+  /* 58/42 — deliberately not half and half. */
+  .carat-split { grid-template-columns: 58fr 42fr; min-height: 62vh; }
+  .carat-split--compact { min-height: 46vh; }
+
+  .carat-split--media-right .carat-split__media { order: 2; }
+  .carat-split--media-right .carat-split__body { order: 1; justify-content: flex-end; }
+  .carat-split--media-right .carat-split__copy { margin-inline-end: 2vw; }
+  .carat-split--media-left .carat-split__copy { margin-inline-start: 2vw; }
+}
+
+/* ---------------------------------------------------------------- break */
+
+.carat-break {
+  position: relative;
+  display: grid;
+  isolation: isolate;
+  overflow: hidden;
+  background: #0f0f0f;
+}
+
+.carat-break--short  { min-height: 34vh; }
+.carat-break--medium { min-height: 52vh; }
+.carat-break--tall   { min-height: 72vh; }
+
+.carat-break__img,
+.carat-break__scrim,
+.carat-break__inner { grid-area: 1 / 1; }
+
+.carat-break__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.carat-break__scrim {
+  background:
+    radial-gradient(ellipse 70% 60% at center, rgba(8, 9, 10, 0.72) 0%, rgba(8, 9, 10, 0.15) 100%),
+    linear-gradient(180deg, rgba(8, 9, 10, 0.4) 0%, rgba(8, 9, 10, 0.55) 100%);
+}
+
+.carat-break__inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 6rem 6vw;
+  color: #f7f5f1;
+}
+
+.carat-break__inner--center { align-items: center; text-align: center; }
+.carat-break__inner--right  { align-items: flex-end; text-align: right; }
+
+.carat-break__statement {
+  font-family: var(--font-heading-family);
+  font-size: clamp(2.8rem, 4.6vw, 6rem);
+  line-height: 1.08;
+  letter-spacing: -0.015em;
+  margin: 0;
+  max-width: 24ch;
+  text-wrap: balance;
+}
+
+.carat-break__inner .carat-link { margin-block-start: 2.8rem; }
+
+/* Parallax via background-attachment is cheap and jank-free; it is ignored
+   on iOS, which degrades to a normal static image rather than breaking. */
+@media (prefers-reduced-motion: no-preference) and (min-width: 750px) {
+  .carat-break--parallax .carat-break__img {
+    transform: scale(1.08);
+  }
+}
+
+/* ---------------------------------------------------------------- tiles */
+
+.carat-tiles { padding-block: 8rem; }
+
+.carat-tiles__head { margin-block-end: 4rem; }
+
+.carat-tiles__heading {
+  font-size: clamp(3rem, 4vw, 5rem);
+  line-height: 1.06;
+  margin: 0;
+  max-width: 20ch;
+}
+
+.carat-tiles__grid {
+  display: grid;
+  gap: 1.2rem;
+  grid-template-columns: 1fr;
+  padding-inline: 1.2rem;
+}
+
+.carat-tile {
+  position: relative;
+  display: grid;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 46rem;
+  text-decoration: none;
+  color: #f7f5f1;
+  background: #16181a;
+}
+
+.carat-tile__media,
+.carat-tile__copy { grid-area: 1 / 1; }
+
+.carat-tile__media {
+  position: relative;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Absolutely positioned so the IMAGE's intrinsic aspect ratio cannot drive
+   the tile height. With the images sized in markup, a portrait file was
+   forcing its row to 880px while the landscape row stayed at 540 — the grid
+   looked broken rather than asymmetric. The tile decides its height; the
+   image fills whatever it is given. */
+.carat-tile__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.carat-tile:hover .carat-tile__img { transform: scale(1.04); }
+
+/* Tuned against the BRIGHTEST art in the set, not the darkest. The first
+   pass used a gentle 0.1 → 0.78 ramp, which held up over the dark chain
+   shot and left the copy illegible over the pale sketch-and-paper one.
+   A scrim that only works on half the library is not a scrim. */
+.carat-tile__scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(8, 9, 10, 0.06) 0%, rgba(8, 9, 10, 0.34) 100%);
+}
+
+.carat-tile__copy {
+  position: relative;
+  z-index: 1;
+  align-self: end;
+  width: 100%;
+  padding: 9rem 3.6rem 3.6rem;
+  background: linear-gradient(
+    180deg,
+    rgba(8, 9, 10, 0) 0%,
+    rgba(8, 9, 10, 0.62) 34%,
+    rgba(8, 9, 10, 0.88) 68%,
+    rgba(8, 9, 10, 0.95) 100%
+  );
+}
+
+.carat-tile__title {
+  font-size: clamp(2.4rem, 2.4vw, 3.4rem);
+  line-height: 1.1;
+  margin: 0 0 1rem;
+  color: #fbf9f6;
+}
+
+.carat-tile__text {
+  font-size: 1.5rem;
+  line-height: 1.55;
+  margin: 0 0 1.8rem;
+  max-width: 38ch;
+  opacity: 0.86;
+}
+
+@media screen and (min-width: 750px) {
+  .carat-tiles__grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.6rem;
+    padding-inline: 1.6rem;
+  }
+
+  .carat-tile { min-height: 0; }
+
+  /* THE MOSAIC. A 2x2 grid of equal tiles is the thing we are trying not to
+     be, so each count gets a deliberate composition instead.
+
+     Four tiles — the homepage case — read as: one tall portrait on the
+     left holding two rows, two stacked beside it, and a wide landscape
+     closing the block. Nothing lines up into a rectangle. */
+  .carat-tiles__grid--4 {
+    grid-template-rows: 30rem 30rem 42rem;
+  }
+  .carat-tiles__grid--4 > .carat-tile:nth-child(1) { grid-row: span 2; }
+  .carat-tiles__grid--4 > .carat-tile:nth-child(4) { grid-column: span 2; }
+
+  /* Odd counts: the featured tile takes the full row. */
+  .carat-tiles__grid--3 .carat-tile--wide,
+  .carat-tiles__grid--5 .carat-tile--wide {
+    grid-column: span 2;
+  }
+  .carat-tiles__grid--3,
+  .carat-tiles__grid--5 { grid-auto-rows: 42rem; }
+
+  .carat-tiles__grid--2,
+  .carat-tiles__grid--6 { grid-auto-rows: 46rem; }
+}
+
+/* --------------------------------------------------------------- motion */
+
+@media (prefers-reduced-motion: reduce) {
+  .carat-hero--animate .carat-hero__img { animation: none; }
+  .carat-tile__img,
+  .carat-link { transition: none; }
+  .carat-tile:hover .carat-tile__img { transform: none; }
+  .carat-break--parallax .carat-break__img { transform: none; }
+}
+
+/* --------------------------------------------------------------- mobile */
+
+@media screen and (max-width: 749px) {
+  .carat-hero--medium { min-height: 64vh; }
+  .carat-hero--tall,
+  .carat-hero--full { min-height: 86vh; }
+
+  .carat-hero__inner { padding: 6rem 7vw; }
+
+  .carat-hero__heading { font-size: clamp(3.6rem, 11vw, 5.4rem); }
+  .carat-hero__sub { font-size: 1.55rem; }
+
+  /* Dawn's global mobile rule makes every button full width. In the hero
+     that is right — two full-width CTAs read as a clear stack. */
+  .carat-hero__actions { width: 100%; }
+  .carat-hero .carat-button { width: 100%; }
+
+  .carat-split__body { padding: 5rem 7vw; }
+  .carat-split__media { min-height: 52vh; }
+
+  .carat-tiles { padding-block: 5rem; }
+  .carat-tiles__head { margin-block-end: 2.4rem; }
+  .carat-tile { min-height: 42rem; }
+  .carat-tile__copy { padding: 2.6rem; }
+
+  .carat-break--short  { min-height: 30vh; }
+  .carat-break--medium { min-height: 42vh; }
+  .carat-break--tall   { min-height: 58vh; }
+}
