@@ -7,6 +7,7 @@ import {
   recordCustomJewelryUpload,
   toCustomJewelryProjectConfirmation,
 } from "~/db/repositories/customJewelryProjectRepository.server";
+import { findStoneSessionByReference, markHandedToCustom } from "~/db/repositories/stoneSessionRepository.server";
 import { consumeUploadDestination } from "~/db/repositories/uploadDestinationRepository.server";
 import { buildCustomJewelryIntakeConfirmationEmail } from "~/domain/customjewelry/intakeConfirmationEmail";
 import { resolveEmailPort } from "~/lib/email/configuredPort.server";
@@ -75,7 +76,25 @@ const bodySchema = z
     email: z.string().trim().email().max(320),
     phone: z.string().trim().min(1).max(50),
 
-    startingPoint: z.enum(["existing_design", "from_scratch"]),
+    /**
+     * `customer_stone` is the Set Your Own Stone handoff
+     * (docs/SET-YOUR-OWN-STONE.md §9.1, "Customer is supplying the center
+     * stone = Yes"). Additive: the two original values behave exactly as
+     * before, and a caller that never heard of stones is unaffected.
+     */
+    startingPoint: z.enum(["existing_design", "from_scratch", "customer_stone"]),
+
+    /**
+     * A Set Your Own Stone session to attach (§9.2).
+     *
+     * A LINK, NOT A COPY. The stone's attributes stay on `stone_session`,
+     * which is their single source of truth; §10 asks not to duplicate the
+     * same stone fields across tables. This route therefore never reads or
+     * rewrites stone details — it only records which session this project
+     * grew out of, which is also why the customer is not asked to retype
+     * anything (§9.2, §15.12).
+     */
+    stoneSessionReference: z.string().trim().min(1).max(64).optional(),
     promptText: z.string().trim().min(1).max(5000),
 
     jewelryType: z.string().trim().min(1).max(200).optional(),
@@ -180,6 +199,36 @@ export async function action({ request }: ActionFunctionArgs) {
     return badRequest("choose either a desired completion date or no deadline, not both");
   }
 
+  /**
+   * Resolve the Set Your Own Stone session, if one was named (§9.2).
+   *
+   * AUTHORISATION, not just lookup. A session reference is a bearer string
+   * with eight characters of entropy: fine for resuming your own anonymous
+   * session, not fine as the only thing between one customer and another's
+   * certificate and stone details. So a session that belongs to a signed-in
+   * customer may only be attached by THAT customer. An anonymous session
+   * (customerRef null) may be claimed, which is what lets a visitor describe
+   * a stone and then sign in before finishing.
+   *
+   * An unknown or unauthorised reference is refused rather than ignored.
+   * Silently dropping it would create a project whose stone details the
+   * customer believes were carried over and which staff would never see.
+   */
+  let stoneSessionId: string | null = null;
+  if (body.stoneSessionReference) {
+    const session = await findStoneSessionByReference(body.stoneSessionReference);
+    if (!session) {
+      return badRequest("that stone session could not be found");
+    }
+    if (session.customerRef !== null && session.customerRef !== customerRef) {
+      logger.warn("custom_jewelry_intake.stone_session_not_owned", {
+        sessionReference: session.sessionReference,
+      });
+      return Response.json({ error: "unauthorized" }, { status: 403 });
+    }
+    stoneSessionId = session.id;
+  }
+
   const uploads = body.uploads ?? [];
 
   // UPLOADS REQUIRE AN ACCOUNT EVEN THOUGH THE ENQUIRY DOES NOT.
@@ -261,6 +310,9 @@ export async function action({ request }: ActionFunctionArgs) {
     desiredCompletionDate: body.desiredCompletionDate ? new Date(`${body.desiredCompletionDate}T00:00:00.000Z`) : null,
     hasNoDeadline: body.hasNoDeadline ?? false,
     followUpPreference: body.followUpPreference,
+    // The Set Your Own Stone link (§9.2). Null for the overwhelming
+    // majority of projects, which involve no customer-supplied stone.
+    stoneSessionId,
     // Keyed on uploads.length, NOT on whether projectId happens to be
     // present. A client-chosen primary key is accepted for exactly one
     // reason — binding files uploaded before the project existed — so with no
@@ -285,9 +337,28 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
 
+  // The stone session has done its job; mark it handed off (§9.1).
+  //
+  // AFTER the project exists and deliberately not inside its transaction: if
+  // this status update fails, a real project still exists with a real link to
+  // a real session, and the only cost is a session that still reads "open".
+  // Letting a cosmetic status write roll back a submitted enquiry would be a
+  // far worse trade.
+  if (stoneSessionId && body.stoneSessionReference) {
+    try {
+      await markHandedToCustom(body.stoneSessionReference);
+    } catch (error) {
+      logger.warn("custom_jewelry_intake.stone_session_status_not_updated", {
+        projectReference: project.projectReference,
+        error: error instanceof Error ? error.name : "unknown",
+      });
+    }
+  }
+
   logger.info("custom_jewelry_intake.submitted", {
     projectReference: project.projectReference,
     authenticated: customerRef !== null,
+    fromStoneSession: stoneSessionId !== null,
   });
 
   // CONFIRMATION EMAIL — BEST EFFORT, AFTER THE PROJECT EXISTS.

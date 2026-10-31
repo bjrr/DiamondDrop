@@ -98,6 +98,16 @@ export interface CreateCustomJewelryProjectInput {
   readonly desiredCompletionDate?: Date | null;
   readonly hasNoDeadline?: boolean;
   readonly followUpPreference: CustomJewelryFollowUpPreference;
+
+  /**
+   * A Set Your Own Stone session this project grew out of
+   * (docs/SET-YOUR-OWN-STONE.md §9.2).
+   *
+   * A LINK, NOT A COPY — the stone's attributes stay on `stone_session`,
+   * their single source of truth. Optional, and null for the overwhelming
+   * majority of projects, which involve no customer-supplied stone.
+   */
+  readonly stoneSessionId?: string | null;
 }
 
 /**
@@ -132,6 +142,7 @@ export async function createCustomJewelryProject(
           desiredCompletionDate: input.desiredCompletionDate ?? null,
           hasNoDeadline: input.hasNoDeadline ?? false,
           followUpPreference: input.followUpPreference,
+          stoneSessionId: input.stoneSessionId ?? null,
         },
       });
     } catch (error) {
