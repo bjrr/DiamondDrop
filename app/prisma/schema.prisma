@@ -3513,6 +3513,15 @@ model CustomJewelryProject {
 
   startingPoint CustomJewelryStartingPoint @map("starting_point")
 
+  /// Set Your Own Stone handoff (docs/SET-YOUR-OWN-STONE.md §9.2).
+  ///
+  /// A LINK, NOT A COPY. The stone's attributes stay on `StoneSession`,
+  /// which is their single source of truth; §10 asks not to duplicate the
+  /// same stone fields across tables. Nullable because almost every project
+  /// has no customer-supplied stone, and the ones that do arrive this way.
+  stoneSessionId String?       @map("stone_session_id") @db.Uuid
+  stoneSession   StoneSession? @relation(fields: [stoneSessionId], references: [id])
+
   /// Free text, required: "let the customer explain what they want to create
   /// or change". The structured fields below stay deliberately few.
   promptText String @map("prompt_text")
@@ -3707,6 +3716,11 @@ enum CustomJewelryStartingPoint {
   existing_design
   /// "I have my own idea / Starting from scratch."
   from_scratch
+  /// Arrived from Set Your Own Stone: the customer is supplying the centre
+  /// stone (docs/SET-YOUR-OWN-STONE.md §9.1, "Customer is supplying the
+  /// center stone = Yes"). Additive — existing rows and the existing intake
+  /// contract are unaffected.
+  customer_stone
 
   @@map("custom_jewelry_starting_point")
 }
@@ -4404,4 +4418,242 @@ model GroupBuyDemandSignal {
   @@index([kind, createdAt])
   @@index([campaignRef])
   @@map("group_buy_demand_signal")
+}
+
+// ===========================================================================
+// SET YOUR OWN STONE
+//
+// Authoritative source: docs/SET-YOUR-OWN-STONE.md (owner-locked).
+// Plan: docs/specs/SET-YOUR-OWN-STONE-IMPLEMENTATION-PLAN.md
+//
+// TWO DECISIONS ARE ENCODED IN THE SHAPE OF THESE TABLES.
+//
+// 1. THE APP DATABASE IS THE SYSTEM OF RECORD FOR COMPATIBILITY, not a
+//    Shopify metafield. §11 requires matching to be deterministic
+//    server-side logic with "no client-only trust boundary", and a metafield
+//    is cheap to read exactly where the customer can edit it. A
+//    `carat.sys_eligible` variant metafield mirrors eligibility for PDP
+//    badges and decides nothing — the same split CLAUDE.md already mandates
+//    for Bank Payment Discount Eligible and Luxury Steals.
+//
+// 2. THE STONE SESSION IS ITS OWN RECORD, and CustomJewelryProject links to
+//    it rather than copying it. The customer describes their stone BEFORE
+//    choosing between a ready setting and custom, and may never reach Custom
+//    Jewelry at all, so a project cannot be the first record. §10 asks to
+//    "avoid duplicating the same stone fields across unrelated tables" and
+//    to "preserve a clear source of truth"; a nullable foreign key does both.
+//
+// DIMENSIONS ARE INTEGER MICROMETRES, NEVER FLOATS. 10.12 mm is 10120. §11
+// asks for "no floating-point surprises for dimension comparisons", and
+// CLAUDE.md rule 6 already forbids float money for the same reason — a
+// 0.01 mm comparison earns the same discipline. Carat weight IS a Decimal,
+// because it is display and staff-review data that never enters a
+// compatibility decision (§4, §15.5).
+// ===========================================================================
+
+// NOTE ON `StoneType`: the pricing engine already defines one
+// (natural_diamond, lab_diamond, moissanite, colored_gemstone,
+// accent_melee) for `MasterVariantStone`, and this feature REUSES it rather
+// than introducing a second vocabulary for the same concept. The spec's
+// three customer-facing choices map onto it as natural_diamond,
+// lab_diamond and colored_gemstone; the narrowing to those three is a
+// presentation constraint enforced at the route boundary, not a new enum.
+
+/// Centre-stone shapes. Shared by customer stones and ready-setting
+/// compatibility rows, so a mismatch is impossible to express.
+enum StoneShape {
+  round
+  oval
+  cushion
+  princess
+  emerald
+  radiant
+  pear
+  marquise
+  asscher
+  heart
+
+  @@map("stone_shape")
+}
+
+/// The verdict the matching service reached. `no_match` is persisted only
+/// when a customer explicitly selected something; candidates that simply did
+/// not qualify are never stored.
+enum StoneCompatibilityStatus {
+  automatic
+  review_required
+  no_match
+
+  @@map("stone_compatibility_status")
+}
+
+/// Which rule produced a verdict. §10 requires recording the "rule/data used
+/// to derive" the status — six months later, "why was this shown to the
+/// customer" has to have an answer.
+enum StoneCompatibilityRule {
+  not_eligible
+  shape_mismatch
+  vendor_range_inside
+  vendor_range_outside
+  exact_nominal
+  approved_tolerance
+  review_band
+  outside_all_rules
+
+  @@map("stone_compatibility_rule")
+}
+
+enum StoneSessionStatus {
+  /// Stone captured; customer is browsing.
+  open
+  /// Customer chose a ready setting and asked for review.
+  setting_submitted
+  /// Customer moved into Custom Jewelry; the project carries it from here.
+  handed_to_custom
+
+  @@map("stone_session_status")
+}
+
+/// Structured compatibility metadata for one ready setting variant (§5).
+///
+/// MUTABLE CONFIGURATION, not evidence: staff correct a mistyped nominal
+/// size, and should be able to. What must never be silently adjusted is the
+/// verdict a customer was actually shown, which is why `StoneSession`
+/// snapshots its own compatibility result rather than recomputing from here.
+///
+/// Dimensions are never parsed from product titles (§5). Nothing in this
+/// table is derived from a string at runtime.
+model ReadySettingCompatibility {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// One row per purchasable setting configuration. If a design is offered
+  /// in several centre sizes, each is its own variant and its own row —
+  /// which is how §7 routes a customer to the right configuration without
+  /// making them choose "10 x 7 mm" themselves.
+  shopifyVariantGid String @unique @map("shopify_variant_gid")
+  shopifyProductGid String @map("shopify_product_gid")
+
+  shape StoneShape
+
+  /// Vendor's nominal/recommended centre size, in micrometres.
+  nominalLengthUm Int  @map("nominal_length_um")
+  nominalWidthUm  Int  @map("nominal_width_um")
+  nominalDepthUm  Int? @map("nominal_depth_um")
+
+  /// An explicit manufacturer-accepted range (§6.2). ALL FOUR OR NONE: a
+  /// half-specified range is not a range, and filling in the missing half
+  /// would be inventing the tolerance §6.2 forbids. The matching service
+  /// ignores a partial range rather than guessing.
+  minLengthUm Int? @map("min_length_um")
+  maxLengthUm Int? @map("max_length_um")
+  minWidthUm  Int? @map("min_width_um")
+  maxWidthUm  Int? @map("max_width_um")
+
+  /// Where the range came from, e.g. a vendor spec sheet reference. Recorded
+  /// because "the manufacturer said so" is the whole reason a range outranks
+  /// our own nominal bookkeeping.
+  vendorRangeSource String? @map("vendor_range_source")
+
+  eligibleForSetYourOwnStone Boolean @default(false) @map("eligible_for_set_your_own_stone")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([shape, eligibleForSetYourOwnStone])
+  @@map("ready_setting_compatibility")
+}
+
+/// The server-authoritative record of a customer's stone and where they got
+/// to (§10). Mutable: the customer corrects a measurement, picks a different
+/// setting, changes their mind about custom.
+model StoneSession {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Customer-facing reference, e.g. "SYS-7Q2MPX4N". Generated with a
+  /// collision retry exactly like `CustomJewelryProject.projectReference`,
+  /// and unambiguous enough to read aloud to support.
+  sessionReference String @unique @map("session_reference")
+
+  /// The authenticated Shopify customer when there is one. Populated from
+  /// the App Proxy's SIGNED `logged_in_customer_id` only, never from the
+  /// request body — the same rule Custom Jewelry intake follows.
+  customerRef String? @map("customer_ref")
+
+  stoneType StoneType  @map("stone_type")
+  shape     StoneShape
+
+  /// DISPLAY AND STAFF REVIEW ONLY. Never an input to compatibility (§4,
+  /// §15.5). Decimal rather than float because it is a measurement a
+  /// customer reads off a certificate and we echo back verbatim.
+  caratWeight Decimal @map("carat_weight") @db.Decimal(8, 3)
+
+  lengthUm Int  @map("length_um")
+  widthUm  Int  @map("width_um")
+  depthUm  Int? @map("depth_um")
+
+  certLab    String? @map("cert_lab")
+  certNumber String? @map("cert_number")
+
+  /// Whether the stone is loose or still set in something. Captured because
+  /// it changes what staff ask next, not because it affects matching.
+  isCurrentlyMounted Boolean @default(false) @map("is_currently_mounted")
+
+  notes String?
+
+  /// The ready setting the customer chose or was last looking at. Kept even
+  /// after a handoff to Custom Jewelry, where §9.3 wants it preserved as
+  /// design inspiration.
+  selectedVariantGid String? @map("selected_variant_gid")
+  selectedProductGid String? @map("selected_product_gid")
+  /// Metal, ring size and similar — whatever the product legitimately
+  /// offers. Json because the option set belongs to the product, not to us.
+  selectedOptions    Json?   @map("selected_options")
+
+  /// A SNAPSHOT of the verdict the customer was actually shown, with the
+  /// rule that produced it. Deliberately not recomputed on read: the
+  /// compatibility config is mutable, and what matters in a later dispute is
+  /// what the customer saw at the time.
+  compatibilityStatus StoneCompatibilityStatus? @map("compatibility_status")
+  compatibilityRule   StoneCompatibilityRule?   @map("compatibility_rule")
+
+  status StoneSessionStatus @default(open)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  uploads  StoneSessionUpload[]
+  /// Every Custom Jewelry project handed off from this session. Plural
+  /// because a customer may come back and start a second design around the
+  /// same stone.
+  projects CustomJewelryProject[]
+
+  @@index([customerRef])
+  @@index([status])
+  @@map("stone_session")
+}
+
+/// A grading report or certificate the customer uploaded (§4).
+///
+/// Its own table rather than a new kind on `CustomJewelryProjectUpload`
+/// because an upload has to belong to a session that may never become a
+/// project. It consumes the SAME upload-destination repository and the same
+/// presigned flow — §9.4 forbids duplicating upload infrastructure, and this
+/// duplicates none of it, only the ownership row.
+model StoneSessionUpload {
+  id        String       @id @default(uuid()) @db.Uuid
+  sessionId String       @map("session_id") @db.Uuid
+  session   StoneSession @relation(fields: [sessionId], references: [id])
+
+  kind        WarrantyClaimUploadKind @map("kind")
+  storageKey  String                  @map("storage_key")
+  contentType String                  @map("content_type")
+  sizeBytes   BigInt                  @map("size_bytes")
+  checksum    String
+
+  uploadedByActorType ActorType @map("uploaded_by_actor_type")
+  uploadedByActorRef  String?   @map("uploaded_by_actor_ref")
+  uploadedAt          DateTime  @default(now()) @map("uploaded_at") @db.Timestamptz(6)
+
+  @@index([sessionId])
+  @@map("stone_session_upload")
 }
