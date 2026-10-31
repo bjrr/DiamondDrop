@@ -1,0 +1,383 @@
+# Set Your Own Stone — Locked MVP1 Requirements
+
+Status: **Owner-approved feature requirements**
+Scope: CaratForUs storefront + application backend
+Feature name: **Set Your Own Stone**
+
+This document is authoritative for the Set Your Own Stone feature. If a general README summary conflicts with this document, this document controls for this feature. Do not invent unresolved business rules or broaden the service beyond what is specified here.
+
+## 1. Purpose
+
+CaratForUs must provide a dedicated customer path for people who already own a diamond or gemstone and want CaratForUs to:
+
+1. set that stone into an eligible existing/ready-made CaratForUs mounting; or
+2. create a custom mounting around the customer's stone.
+
+The feature should feel simple and high-trust. It is a front door into either a ready-setting selection flow or the existing Custom Jewelry workflow. It is **not** a separate second custom-jewelry system.
+
+Customer-facing positioning may use:
+
+**Set Your Own Stone**
+
+Supporting concept:
+
+**Your stone. Your setting.**
+
+The page should make clear that the customer can browse compatible ready settings first and move into Custom Jewelry if they do not find what they want.
+
+## 2. Customer experience — top-level flow
+
+The customer flow is:
+
+1. Customer tells CaratForUs about the stone they already own.
+2. CaratForUs shows eligible ready-made settings based on the stone's shape and dimensions.
+3. Customer may select a ready setting and submit it for compatibility/project review.
+4. If the customer does not find the setting they want, they may choose **Create a Custom Setting**.
+5. When moving to Custom Jewelry, all stone information already supplied must transfer automatically. The customer must not be required to re-enter it.
+6. The existing Custom Jewelry workflow then governs custom design, inspiration uploads, consultation, design deposit, approvals, and downstream ordering.
+
+The page must not make the customer understand technical mounting/head-size terminology to browse.
+
+## 3. Set Your Own Stone landing page
+
+The landing page should be concise and functional, not a long operational explanation.
+
+Recommended structure:
+
+### Compact hero
+- Heading: **Set Your Own Stone**
+- Supporting message: customer already owns a diamond or gemstone and can choose a ready CaratForUs setting or create a custom one.
+- Primary action: begin with the customer's stone.
+- Secondary action may explain the simple process.
+
+### Two paths
+After stone details are known, clearly expose:
+
+**Choose an Existing Setting**
+- Browse ready-made settings intended for the customer's stone shape/size.
+
+**Create a Custom Setting**
+- Continue into the existing Custom Jewelry workflow using the stone information already supplied.
+
+Do not create a separate duplicate custom-design form on the Set Your Own Stone page.
+
+## 4. Stone information collected once
+
+Collect only information needed to identify the stone and match ready settings.
+
+Required unless otherwise noted:
+
+- stone type:
+  - Natural diamond
+  - Lab-grown diamond
+  - Gemstone
+- shape
+- carat weight
+- exact length in millimeters
+- exact width in millimeters
+- depth in millimeters, when known
+- certification/report lab, optional
+- certification/report number, optional
+- certificate upload, optional
+- whether the stone is currently loose or currently mounted
+- optional customer notes
+
+The UI should explain that length/width/depth can usually be found on a grading report/certificate.
+
+**Carat weight must not be the primary ready-mount compatibility rule.** Two stones with the same carat weight can have materially different dimensions. Ready-setting matching is based primarily on **shape + millimeter dimensions**.
+
+## 5. Ready-mount compatibility metadata
+
+Every ready-made setting that participates in this feature must have structured compatibility metadata.
+
+At minimum, each eligible setting/variant must be able to define:
+
+- supported center-stone shape
+- recommended/nominal center-stone length in mm
+- recommended/nominal center-stone width in mm
+- recommended/nominal depth in mm if the supplier provides it
+- whether the item is eligible for Set Your Own Stone
+- Shopify product/variant identity
+- setting title/handle/SKU as applicable
+- setting image
+- metal/options already supported by the product
+- optional explicit minimum/maximum accepted dimensions when supplied by the manufacturer/vendor
+- optional compatibility tolerance only when explicitly approved/configured
+
+These values must be structured data, not parsed from product titles at runtime.
+
+Prefer existing Shopify-native product/variant metadata/metafields where practical, with app persistence only where needed. Do not hard-code a catalog of mount sizes into storefront JavaScript.
+
+## 6. Compatibility matching rules
+
+### 6.1 Primary matching
+Ready settings are filtered first by:
+
+1. eligible for Set Your Own Stone;
+2. compatible stone shape; and
+3. recommended stone dimensions.
+
+Example:
+
+A ready mounting specified for an **Oval 10 x 7 mm** center should be surfaced for a customer's oval stone when the approved compatibility logic maps the supplied stone dimensions to that recommended size.
+
+Do not match a 10 x 7 oval mounting merely because the customer owns a stone of a similar carat weight.
+
+### 6.2 Nominal sizes and tolerances
+Vendors commonly describe ready mountings by nominal recommended sizes such as 10 x 7 mm, 9 x 7 mm, 12 x 6 mm, etc.
+
+The application must support those nominal dimensions directly.
+
+**Do not invent a universal jewelry-fit tolerance.** Fit tolerance can vary by shape, head/basket design, vendor, and construction.
+
+For MVP1:
+
+- where the setting record has an explicit manufacturer/vendor accepted range, use that range;
+- where an owner-approved compatibility tolerance is configured, use it;
+- where only a nominal size is available and no tolerance/range has been approved, only an exact nominal-size match may be represented as an automatic match;
+- near-size candidates may be surfaced only as **review required**, not as a guaranteed fit.
+
+The matching service must make tolerance/range data configurable so a later owner-approved rule does not require rewriting the storefront.
+
+### 6.3 Customer-facing compatibility language
+The website must not promise guaranteed physical fit from an automated calculation.
+
+Allowed concepts:
+- **Matches your stone size**
+- **Recommended size match**
+- **May work — review required**
+- **Custom setting recommended**
+
+Any automatic match should be accompanied by concise language that CaratForUs confirms compatibility before the customer sends the stone.
+
+Do not use **Guaranteed fit**.
+
+### 6.4 No-match behavior
+If no ready setting qualifies as an automatic match:
+
+- do not show irrelevant mountings as if compatible;
+- offer review-required candidates only when the matching rules permit;
+- prominently offer **Create a Custom Setting**.
+
+## 7. Ready-setting browse experience
+
+After stone information is provided, the customer should land on a browse experience framed around their stone, for example:
+
+**Settings for your oval diamond**
+2.34 ct · 10.12 x 7.08 mm
+
+The ready-setting results should:
+
+- show only relevant shape/size results by default;
+- preserve normal useful product options such as metal and ring size where applicable;
+- show the setting's compatibility status;
+- allow the customer to view setting details;
+- allow the customer to choose a ready setting for review;
+- keep a persistent path to **Create a Custom Setting**.
+
+The customer should not need to manually choose a head size such as 10 x 7 mm when the system already knows the customer's stone dimensions.
+
+If the same design is available with multiple center heads/sizes, model those sizes in structured variant/compatibility data and route the customer to the appropriate configuration internally.
+
+## 8. Ready-setting selection
+
+When the customer selects a ready setting, preserve:
+
+- the customer's stone information;
+- the selected Shopify product/variant;
+- the selected setting's nominal/recommended stone size;
+- selected metal/options/ring size where applicable;
+- compatibility result;
+- customer notes.
+
+The primary action should submit or continue the project for CaratForUs review/next steps.
+
+Customer-facing copy should state, in substance:
+
+**We’ll review your stone and setting choice and confirm compatibility before you send us your stone.**
+
+Do not instruct the customer to ship the stone before CaratForUs confirms the project and provides next-step/shipping instructions.
+
+## 9. Custom-setting handoff
+
+### 9.1 Reuse the existing Custom Jewelry workflow
+Selecting **Create a Custom Setting** must continue into the existing Custom Jewelry flow. Do not create a second custom-jewelry implementation.
+
+The Custom Jewelry flow should know that:
+
+**Customer is supplying the center stone = Yes**
+
+### 9.2 Transfer all prior data
+The transition must preserve the same project/session context and prefill all applicable data already provided, including:
+
+- stone type
+- natural/lab status where applicable
+- shape
+- carat weight
+- dimensions
+- certificate/report information
+- certificate upload reference if present
+- loose/currently-mounted status
+- notes
+- customer/contact context already known
+
+Do not ask the customer to re-enter information already supplied.
+
+### 9.3 Carry source-setting inspiration
+If the customer enters Custom Jewelry from a ready setting they viewed or nearly selected, preserve the source setting as inspiration:
+
+- product/variant identity
+- title/SKU/handle
+- image/reference
+- selected options where relevant
+
+The Custom Jewelry workflow may present this as the starting design reference.
+
+Provide an action such as **Customize this setting for my stone** where appropriate.
+
+### 9.4 Inspiration uploads
+Once in Custom Jewelry, customers must be able to upload inspiration images/sketches using the existing Custom Jewelry upload capability when that capability is enabled/deployed.
+
+Do not duplicate upload infrastructure specifically for Set Your Own Stone.
+
+Existing Custom Jewelry rules, including the $49 Design Deposit and approval-before-production workflow, continue to apply after the handoff unless a later owner decision changes them.
+
+## 10. Persistence / backend requirements
+
+The feature must preserve customer state across navigation and handoff.
+
+Implement a server-authoritative project/session record or reuse an existing suitable Custom Jewelry intake/project record. Do not rely solely on client-side query parameters/localStorage for authoritative data.
+
+The persisted context must support at least:
+
+- project/session ID
+- authenticated customer ID when available/required by the existing workflow
+- stone attributes
+- optional certificate metadata/file reference
+- selected ready setting/product/variant
+- selected ready-setting options
+- compatibility status + rule/data used to derive it
+- source-setting reference when handing off to Custom Jewelry
+- timestamps/status needed for safe resume/continuation
+
+Avoid duplicating the same stone fields across unrelated tables unless the architecture requires a snapshot. Preserve a clear source of truth.
+
+## 11. Matching service / backend logic
+
+Implement ready-setting discovery as server-side/domain logic that can be tested independently from the storefront UI.
+
+Inputs:
+- stone type as needed for eligibility
+- stone shape
+- exact customer dimensions
+- eligible setting compatibility metadata
+
+Outputs should classify candidates, at minimum, into:
+- automatic recommended-size matches;
+- review-required candidates where explicitly allowed by configured data/rules;
+- non-matches.
+
+Requirements:
+- deterministic;
+- no floating-point surprises for dimension comparisons;
+- no carat-only compatibility decisions;
+- no client-only trust boundary;
+- no hard-coded universal tolerance;
+- unit tested around shape mismatch, exact nominal match, explicit ranges, configured tolerance, and no-match/custom fallback.
+
+## 12. Frontend requirements
+
+The frontend should:
+
+- be mobile-first and accessible;
+- collect stone details once;
+- validate millimeter inputs clearly;
+- show the customer's stone summary during ready-setting browse;
+- filter/display relevant ready settings;
+- display compatibility status without promising guaranteed fit;
+- expose a clear Custom Setting escape path at all times;
+- preserve state when moving into Custom Jewelry;
+- avoid technical jargon where the customer does not need it;
+- avoid requiring the customer to understand mount/head size codes;
+- avoid duplicate Custom Jewelry forms.
+
+Do not make changes to unrelated homepage sections or existing purchase paths merely to add this feature.
+
+Navigation/homepage placement for the new page is a separate merchandising decision unless the owner explicitly approves it.
+
+## 13. Customer-facing operational scope
+
+Keep operational language intentionally light.
+
+The Set Your Own Stone page should **not** advertise a detailed stone-intake/chain-of-custody process.
+
+Do not promise:
+- detailed arrival photography/video;
+- weighing/measurement procedures;
+- laser-inscription verification;
+- specific inbound insurance coverage;
+- appraisal;
+- guaranteed acceptance;
+- guaranteed fit;
+- other operational intake steps that have not been separately approved.
+
+A concise instruction is sufficient:
+
+**Please do not send your stone until CaratForUs confirms your project and provides shipping instructions.**
+
+Some stones may require additional review before CaratForUs accepts the project. Keep that statement general unless a later policy defines specific gemstone exclusions/conditions.
+
+## 14. Out of scope unless separately approved
+
+Do not add these merely because the feature exists:
+
+- a second Custom Jewelry workflow;
+- automated appraisal/valuation;
+- customer-facing chain-of-custody promises;
+- universal hard-coded setting tolerances;
+- automatic acceptance of every gemstone;
+- removing a stone from an existing piece as a promised service;
+- new shipping-insurance guarantees;
+- complex computer-vision measurement from uploaded images;
+- automatic manufacturer ordering;
+- homepage/navigation restructuring beyond explicit owner instruction.
+
+## 15. Acceptance criteria
+
+Implementation is complete only when all of the following are demonstrated:
+
+1. A customer can open Set Your Own Stone and enter a stone once.
+2. Shape + millimeter dimensions are captured and validated.
+3. Eligible ready settings carry structured compatibility metadata.
+4. Ready-setting results are filtered by shape and dimension compatibility rules.
+5. Carat weight alone can never cause a setting to be marked compatible.
+6. A setting with the wrong shape is not shown as an automatic match.
+7. An exact nominal-dimension match can be surfaced correctly.
+8. Explicit vendor min/max ranges work when configured.
+9. No universal tolerance is silently invented.
+10. Near-size candidates without an approved rule are not represented as guaranteed fits.
+11. No-match customers receive a clear Custom Setting path.
+12. The customer can enter Custom Jewelry without retyping prior stone information.
+13. A source ready setting can transfer as inspiration into Custom Jewelry.
+14. Custom Jewelry inspiration uploads continue through the existing upload capability rather than a duplicate upload system.
+15. Existing Custom Jewelry deposit/approval rules still apply after handoff.
+16. The customer is told not to send the stone until CaratForUs confirms the project and provides instructions.
+17. The page does not advertise unapproved intake, insurance, appraisal, or guaranteed-fit promises.
+18. Matching rules have deterministic automated tests.
+19. Frontend handoff/resume behavior has integration coverage.
+20. Existing Buy Now, Group Buy, Luxury Steals, Beat Your Quote, bank-payment, warranty, and return behavior is not regressed.
+
+## 16. Implementation process
+
+This is a non-trivial cross-frontend/backend feature.
+
+Before implementation:
+
+1. read this document, README.md, CLAUDE.md, and the existing Custom Jewelry implementation;
+2. inspect how Custom Jewelry intake/project persistence and upload references currently work;
+3. create a bounded feature spec/implementation plan using the repository's existing Claude workflow;
+4. prefer Shopify-native product/variant metadata for ready-mount compatibility where practical;
+5. reuse existing Custom Jewelry persistence/upload/deposit flows rather than duplicating them;
+6. implement backend matching logic with tests before wiring storefront claims to it;
+7. stage theme/storefront work on a draft theme and follow the required safe theme-push process;
+8. verify mobile + desktop, state transfer, compatibility classification, and regression tests before release.
