@@ -3572,6 +3572,7 @@ model CustomJewelryProject {
 
   @@index([customerRef])
   @@index([status])
+  @@index([stoneSessionId])
   @@map("custom_jewelry_project")
 }
 
