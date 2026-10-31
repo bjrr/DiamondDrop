@@ -23,6 +23,7 @@ Authoritative MVP1 policy documents:
 - `docs/WARRANTY-CLAIMS.md` — 1-year limited manufacturing warranty claim intake, authorization, inbound shipping, inspection, coverage decision, remedies, and evidence.
 - `docs/BANK-CARD-PRICING.md` — locked Bank Payment Price vs Regular/Card Price policy, tiered card-price increases, $5 card-price rounding, eligible bank-payment methods, checkout behavior, and customer-facing savings display.
 - `docs/REQUIRED-CUSTOMER-ACCOUNTS.md` — locked requirement that every purchase and customer self-service order workflow use an authenticated Shopify customer account; guest purchase and guest magic-link access are not supported.
+- `docs/SET-YOUR-OWN-STONE.md` — Set Your Own Stone ready-mount compatibility, shape/dimension matching, ready-setting browse, and seamless handoff into the existing Custom Jewelry workflow.
 - `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` — locked post-Slice-1 owner decisions for recalculation cadence/failures, Buy Now price placement, Group Buy payment selection/display, and the future campaign-options JSON contract.
 - `docs/CASH-CARD-PRICING.md` — superseded historical policy retained only for reproducibility of earlier versioned calculations.
 
@@ -65,6 +66,7 @@ Custom functionality is justified for:
 - frozen Group Buy pricing snapshots;
 - variant-aware Group Buy pricing and final-price/refund ledger;
 - custom-design intake and approval evidence;
+- Set Your Own Stone stone-detail intake, ready-mount compatibility matching, and state-preserving handoff into Custom Jewelry;
 - RMA/return workflow and evidence required by locked policy;
 - Luxury Steals acknowledgment/evidence where Shopify does not provide the required record;
 - Let Us Beat Your Quote intake, verification workflow, eligibility calculations, acknowledgments, and evidence;
