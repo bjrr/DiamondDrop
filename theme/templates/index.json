@@ -36,7 +36,7 @@
             "title": "Custom Jewelry",
             "text": "Create something made for you.",
             "link": "/pages/custom-jewelry",
-            "image": "shopify://shop_images/carat-c-custom.png"
+            "image": "shopify://shop_images/carat-c-custom-bespoke.png"
           }
         },
         "quote": {
@@ -138,71 +138,48 @@
         "cta_link": "/pages/why-buy-from-us"
       }
     },
-    "atmosphere": {
-      "type": "carat-break",
-      "settings": {
-        "image": "shopify://shop_images/carat-drop.png",
-        "height": "short",
-        "text_position": "right",
-        "statement": "One piece. One price. Then it is gone.",
-        "eyebrow": "Luxury Steals",
-        "cta_label": "See Luxury Steals",
-        "cta_link": "/pages/luxury-steals",
-        "parallax": false
-      }
-    },
     "heroslider": {
       "type": "carat-hero-slider",
       "blocks": {
-        "s1": {
-          "type": "slide",
+        "i1": {
+          "type": "image",
           "settings": {
             "image_desktop": "shopify://shop_images/carat-c-hero1-rings-desktop.png",
-            "image_mobile": "shopify://shop_images/carat-c-hero1-rings-mobile.png",
-            "eyebrow": "CaratForUs",
-            "heading": "Fine jewelry. Smarter ways to buy.",
-            "subheading": "Shop exceptional diamond jewelry, join a Group Buy, create something custom, discover limited Luxury Steals, or let us beat your quote.",
-            "cta_label": "Shop jewelry",
-            "cta_link": "/collections/all",
-            "cta2_label": "How Group Buy works",
-            "cta2_link": "/pages/group-buy"
+            "image_mobile": "shopify://shop_images/carat-c-hero1-rings-mobile.png"
           }
         },
-        "s2": {
-          "type": "slide",
+        "i2": {
+          "type": "image",
           "settings": {
             "image_desktop": "shopify://shop_images/carat-c-hero2-gold-desktop.png",
-            "image_mobile": "shopify://shop_images/carat-c-hero2-gold-mobile.png",
-            "eyebrow": "Everyday gold",
-            "heading": "More than rings.",
-            "subheading": "Earrings, pendants and bangles in warm 18 carat gold — from pieces you wear every day to one that finishes the outfit.",
-            "cta_label": "Browse the catalog",
-            "cta_link": "/collections/all"
+            "image_mobile": "shopify://shop_images/carat-c-hero2-gold-mobile.png"
           }
         },
-        "s3": {
-          "type": "slide",
+        "i3": {
+          "type": "image",
           "settings": {
             "image_desktop": "shopify://shop_images/carat-c-hero3-signature-desktop.png",
-            "image_mobile": "shopify://shop_images/carat-c-hero3-signature-mobile.png",
-            "eyebrow": "The range",
-            "heading": "Delicate to serious.",
-            "subheading": "White and coloured diamonds, across rings, earrings, pendants and bangles — priced from cost, not down from a list price.",
-            "cta_label": "Why buy from us",
-            "cta_link": "/pages/why-buy-from-us"
+            "image_mobile": "shopify://shop_images/carat-c-hero3-signature-mobile.png"
           }
         }
       },
       "block_order": [
-        "s1",
-        "s2",
-        "s3"
+        "i1",
+        "i2",
+        "i3"
       ],
       "settings": {
+        "eyebrow": "CaratForUs",
+        "heading": "Fine jewelry. Smarter ways to buy.",
+        "subheading": "Shop exceptional diamond jewelry, join a Group Buy, create something custom, discover limited Luxury Steals, or let us beat your quote.",
+        "cta_label": "Shop jewelry",
+        "cta_link": "/collections/all",
+        "cta2_label": "How Group Buy works",
+        "cta2_link": "/pages/group-buy",
+        "autoplay": true,
+        "interval": 6,
         "height": "medium",
         "tone": "overlay",
-        "autoplay": true,
-        "interval": 7,
         "aria_label": "Featured jewelry"
       }
     }
@@ -211,7 +188,6 @@
     "heroslider",
     "paths",
     "groupbuy_steps",
-    "why",
-    "atmosphere"
+    "why"
   ]
 }

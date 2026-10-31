@@ -1208,20 +1208,21 @@
 }
 
 /* ===========================================================================
-   HERO SLIDER
+   HERO — STATIONARY COPY, CROSSFADING PHOTOGRAPHY
    ---------------------------------------------------------------------------
-   A rotating hero. Shares the visual language of `carat-hero` but needs its
-   own layout, because every slide stacks into ONE grid cell and only the
-   active one is painted.
+   The message is rendered once and never moves. Only the photograph behind
+   it changes, by opacity. Nothing here animates position, so there is no
+   reflow and no layout shift when the picture changes.
 
-   THE `overlay` TONE IS THE POINT. `carat-hero` has `dark` (light type on a
-   near-black scrim) and `light` (type beside the image). The new art is
-   deliberately high-key ivory with half the frame left empty for the
-   headline, so a near-black scrim would destroy the brightness it was made
-   for and the beside-the-image layout would waste the empty half. `overlay`
-   puts dark ink in the image's own negative space behind a soft IVORY veil:
-   strong enough to hold contrast if a crop gets busy, invisible when it
-   does not.
+   NO LAYOUT SHIFT BY CONSTRUCTION. The photo stage and the copy occupy the
+   SAME grid cell, and every photograph is absolutely positioned inside that
+   stage. The section height therefore depends on the copy and the
+   min-height alone — never on which image happens to be showing.
+
+   THE `overlay` TONE. The art is deliberately high-key ivory with half the
+   frame left empty for the headline, so a near-black scrim would destroy
+   the brightness it was made for. `overlay` puts dark ink in the negative
+   space of the image behind a soft IVORY veil.
    =========================================================================== */
 
 .carat-hslider {
@@ -1238,57 +1239,52 @@
 .carat-hslider--tall   { min-height: 78vh; }
 .carat-hslider--full   { min-height: 92vh; }
 
-.carat-hslider__viewport { display: grid; grid-area: 1 / 1; }
-
-/* Every slide occupies the same cell, so the section's height is the tallest
-   slide and nothing reflows as they rotate. */
-.carat-hslide {
-  grid-area: 1 / 1;
-  display: grid;
-  isolation: isolate;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity .55s ease;
-}
-
-.carat-hslide.is-active { opacity: 1; visibility: visible; }
-
-/* No JavaScript: the first slide still shows rather than all three stacking
-   into an unreadable pile. */
-.no-js .carat-hslide { opacity: 0; visibility: hidden; }
-.no-js .carat-hslide:first-child { opacity: 1; visibility: visible; }
-
-.carat-hslide__media,
+/* Stage, veil and copy all share one cell. */
+.carat-hslider__stage,
 .carat-hslide__veil,
 .carat-hslide__inner { grid-area: 1 / 1; }
 
-.carat-hslide__media { position: relative; }
+.carat-hslider__stage { position: relative; }
 
-.carat-hslide__img {
+/* Absolute, so a photograph can never contribute to the section height. */
+.carat-hshot {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 1.1s ease-in-out;
+}
+
+.carat-hshot.is-active { opacity: 1; }
+
+/* No JavaScript: show the first photograph rather than none. */
+.no-js .carat-hshot { opacity: 0; }
+.no-js .carat-hshot:first-child { opacity: 1; }
+
+.carat-hshot,
+.carat-hshot picture { display: block; height: 100%; }
+
+.carat-hshot__img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
 
-.carat-hslide__img--placeholder {
+.carat-hshot__img--placeholder {
   background: linear-gradient(135deg, var(--carat-stone, #f2eee7), #e4ded4);
-  min-height: 40rem;
 }
 
 /**
  * THE MEASURE IS CAPPED PROPORTIONALLY, NOT IN rem.
  *
  * At 62rem the content box came out around 476px once the 5vw padding was
- * taken off, which wrapped "Fine jewelry. Smarter ways to buy." onto three
- * lines. Widening it fixes the wrap but walks the copy into the jewelry,
- * and the two constraints meet at different places on different screens: a
- * fixed 72rem clears the art at 1440 and overruns it at 1280.
+ * taken off, which wrapped the headline onto three lines. Widening it fixes
+ * the wrap but walks the copy into the jewelry, and the two constraints
+ * meet in different places on different screens: a fixed 72rem clears the
+ * art at 1440 and overruns it at 1280.
  *
  * `min(72rem, 50vw)` keeps the block inside the left half of the frame at
- * every width — which is exactly the half the art was composed to leave
- * empty — and the display size is tuned so the longest line still fits the
- * narrower of the two.
+ * every width — exactly the half the art was composed to leave empty.
  */
 .carat-hslide__inner {
   position: relative;
@@ -1332,7 +1328,6 @@
 
 .carat-hslider--overlay .carat-hslide__inner { color: rgb(var(--color-foreground)); }
 
-/* Soft ivory, not black. Fades out well before the jewelry on the right. */
 .carat-hslider--overlay .carat-hslide__veil {
   background: linear-gradient(
     90deg,
@@ -1351,43 +1346,24 @@
   background: linear-gradient(90deg, rgba(8,9,10,.9) 0%, rgba(8,9,10,.8) 30%, rgba(8,9,10,.55) 50%, rgba(8,9,10,.14) 72%, rgba(8,9,10,0) 88%);
 }
 
-/* ------------------------------------------------------------- controls */
+/* ------------------------------------------------------------------ dots
 
-.carat-hslider__controls {
+   Deliberately small and quiet. There are no arrows: the photographs are
+   not a sequence to step through, they are a few views of one unchanged
+   message. The dots exist mainly so a visitor under prefers-reduced-motion,
+   for whom nothing rotates, can still reach every picture. The visual dot
+   is 8px; the button around it is 24px, which is what a thumb needs. */
+
+.carat-hslider__dots {
   grid-area: 1 / 1;
   align-self: end;
   justify-self: start;
   z-index: 2;
   display: flex;
-  align-items: center;
-  gap: 1.4rem;
+  gap: .4rem;
   margin: 0 0 2.4rem 5vw;
 }
 
-.carat-hslider__arrow {
-  width: 3.6rem;
-  height: 3.6rem;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  font-size: 1.5rem;
-  line-height: 1;
-  background: rgba(252, 251, 248, 0.78);
-  border: 1px solid rgba(28, 27, 25, 0.18);
-  color: rgb(var(--color-foreground));
-  transition: background .18s ease, border-color .18s ease;
-}
-
-.carat-hslider__arrow:hover {
-  background: rgb(var(--color-background));
-  border-color: rgba(28, 27, 25, 0.4);
-}
-
-.carat-hslider__dots { display: flex; gap: .7rem; }
-
-/* Deliberately generous hit area around a small visual dot: the dot is 8px,
-   the button is 24px, which is what a thumb actually needs. */
 .carat-hslider__dot {
   width: 2.4rem;
   height: 2.4rem;
@@ -1404,32 +1380,21 @@
   width: .8rem;
   height: .8rem;
   border-radius: 50%;
-  background: rgba(28, 27, 25, 0.28);
+  background: rgba(28, 27, 25, 0.26);
   transition: background .18s ease, transform .18s ease;
 }
 
 .carat-hslider__dot.is-active::after {
-  background: rgb(var(--color-foreground));
-  transform: scale(1.25);
+  background: rgba(28, 27, 25, 0.82);
+  transform: scale(1.2);
 }
 
-.carat-hslider--dark .carat-hslider__arrow {
-  background: rgba(16, 16, 16, 0.55);
-  border-color: rgba(247, 245, 241, 0.3);
-  color: #f7f5f1;
-}
 .carat-hslider--dark .carat-hslider__dot::after { background: rgba(247, 245, 241, 0.4); }
 .carat-hslider--dark .carat-hslider__dot.is-active::after { background: #f7f5f1; }
 
-.carat-hslider__arrow:focus-visible,
 .carat-hslider__dot:focus-visible {
   outline: 2px solid rgb(var(--color-foreground));
   outline-offset: 2px;
-}
-
-.carat-hslider--empty {
-  padding: 4rem 5vw;
-  background: var(--carat-stone, #f2eee7);
 }
 
 /* --------------------------------------------------------------- mobile */
@@ -1440,19 +1405,14 @@
   .carat-hslider--full { min-height: 86vh; }
 
   /* The portrait art leaves its empty space at the TOP, so the copy goes
-     there. Centring it would print the headline straight over the jewelry.
+     there. Centring it would print the headline over the jewelry.
 
-     THE COPY BLOCK HAS TO FINISH BEFORE THE JEWELRY STARTS, and on the
-     busiest slide it did not. Measured on the first slide — the only one
-     with two buttons and a five-clause subheading — the block reached 57%
-     of the image height at 390px and 61% at 360px, while the jewelry
-     begins around 57%. The second button was sitting on the pink ring.
-
-     Nothing is cropped, so geometry cannot fix it: the image and the box
-     are the same ratio (0.5628 vs 0.5626), and making the hero taller
-     would crop the SIDES, cutting the jewelry the other way. The copy
-     block itself has to be smaller. Every value below is tightened just
-     enough to clear the art while keeping the type comfortable. */
+     THE COPY BLOCK HAS TO FINISH BEFORE THE JEWELRY STARTS. Measured: with
+     the earlier values the block reached 57% of image height at 390px and
+     61% at 360px, while the jewelry begins around 57% — the second CTA was
+     sitting on the pink ring. Nothing is cropped (image 0.5628 vs box
+     0.5626), so geometry could not fix it and the block itself had to be
+     smaller. These values bring it to 51% and 54%. */
   .carat-hslide__inner {
     justify-content: flex-start;
     padding: 3.4rem 7vw 0;
@@ -1486,9 +1446,10 @@
     background: linear-gradient(180deg, rgba(8,9,10,.88) 0%, rgba(8,9,10,.6) 34%, rgba(8,9,10,.12) 60%, rgba(8,9,10,0) 76%);
   }
 
-  .carat-hslider__controls { margin: 0 0 2rem 7vw; gap: 1rem; }
+  .carat-hslider__dots { margin: 0 0 1.8rem 7vw; }
 }
 
+/* The crossfade is the only motion here, and it is the first thing to go. */
 @media (prefers-reduced-motion: reduce) {
-  .carat-hslide { transition: none; }
+  .carat-hshot { transition: none; }
 }
