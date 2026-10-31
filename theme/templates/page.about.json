@@ -25,43 +25,43 @@
     "pillars": {
       "type": "multicolumn",
       "blocks": {
-        "inspect": {
+        "cost": {
           "type": "column",
           "settings": {
-            "title": "We inspect before you receive",
-            "text": "<p>Every piece is checked by us before it ships, so the first person to find a problem is us and not you.</p>"
+            "title": "Priced up from cost, not down from a list price",
+            "text": "<p>We start from what the metal and the stones actually cost, add a margin we can defend, and show you that number. There is no inflated list price to discount from, so a sale price here would mean the first price was wrong.</p>"
           }
         },
-        "accountable": {
+        "now": {
           "type": "column",
           "settings": {
-            "title": "We are one accountable seller",
-            "text": "<p>Not a marketplace, not a middleman passing you down the chain. If it came from us, it is ours to put right.</p>"
+            "title": "Buy at today's price, or wait for it to fall",
+            "text": "<p>Buy Now is the current calculated price for the piece you configure. A Group Buy opens one design for a set window and the price steps down for everyone as more people order — at close, everyone settles at the lowest tier the group reached.</p>"
           }
         },
-        "honest": {
+        "made": {
           "type": "column",
           "settings": {
-            "title": "We tell you what it is",
-            "text": "<p>Metal, weight, stone specification, and whether an image is a CAD render, a photograph of the actual piece, or an AI visualisation. Labelled, every time.</p>"
+            "title": "Made to your design, or a one-off we cannot repeat",
+            "text": "<p>Custom Jewelry begins with a $49 design deposit and renders you approve before anything is produced. Luxury Steals are a small number of pieces at a price we will not see again; every one of them is final sale, and we say so before you buy.</p>"
           }
         },
-        "support": {
+        "quote": {
           "type": "column",
           "settings": {
-            "title": "We support it after you have it",
-            "text": "<p>A one-year limited warranty against manufacturing faults, handled by the same company that sold you the piece.</p>"
+            "title": "Already holding a quote",
+            "text": "<p>Send us a recent written custom quote and we will tell you plainly whether we can beat it. An online listing or a competing group buy we will still review honestly, but without the same guarantee attached — and we tell you which applies before you decide anything.</p>"
           }
         }
       },
       "block_order": [
-        "inspect",
-        "accountable",
-        "honest",
-        "support"
+        "cost",
+        "now",
+        "made",
+        "quote"
       ],
       "settings": {
-        "title": "What that means in practice",
+        "title": "How the model works",
         "heading_size": "h1",
         "image_width": "full",
         "image_ratio": "adapt",
@@ -83,14 +83,14 @@
         "heading": {
           "type": "heading",
           "settings": {
-            "heading": "Better value, better protection, a better buying experience",
+            "heading": "Where to start",
             "heading_size": "h1"
           }
         },
         "body": {
           "type": "text",
           "settings": {
-            "text": "<p>That is the whole proposition. Buy at today's price, join a Group Buy and watch the price fall as more people join, or have something made that does not exist yet.</p>"
+            "text": "<p>Browse what is ready to buy today, or read what you get when you buy from us.</p>"
           }
         },
         "actions": {
@@ -126,7 +126,7 @@
         "color_scheme": "scheme-1",
         "eyebrow": "About CaratForUs",
         "heading": "In the gap between two bad options",
-        "subheading": "Priced honestly, supported here, and labelled for what it is.",
+        "subheading": "How we price fine jewelry, and the five ways you can buy it.",
         "image": "shopify://shop_images/carat-b-groupbuy.png"
       }
     }

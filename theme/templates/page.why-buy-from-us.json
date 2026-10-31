@@ -6,8 +6,8 @@
         "price": {
           "type": "column",
           "settings": {
-            "title": "The price makes sense",
-            "text": "<p>We work from the actual cost of the metal and the stones, plus a margin we can defend. No invented list price to discount from. When you pay by bank instead of card, the price is lower — because our costs are, and we pass that through rather than keeping it.</p>"
+            "title": "Two prices, and you see both",
+            "text": "<p>The Regular/Card Price and the lower Bank Payment Price are both shown for the exact piece you have configured, on the product page and in the cart, before you commit to anything. Neither is a promotion that expires.</p>"
           }
         },
         "seeit": {
@@ -34,8 +34,8 @@
         "yourway": {
           "type": "column",
           "settings": {
-            "title": "Buy it your way",
-            "text": "<p>Buy it now at today's price. Join a Group Buy and let the price fall as more people join. Or have something made that does not exist yet.</p>"
+            "title": "Five ways to buy, one standard",
+            "text": "<p>Buy at today's price. Join a Group Buy and let the price fall as more people order. Have something made to your design. Take a Luxury Steal while it lasts. Or send us a quote you already hold and let us try to beat it. The inspection, the warranty and the people answering your email are the same whichever you choose.</p>"
           }
         }
       },
