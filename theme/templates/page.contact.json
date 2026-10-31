@@ -16,7 +16,7 @@
         "level": "functional",
         "color_scheme": "scheme-1",
         "heading": "How can we help?",
-        "subheading": "Email orders@caratforus.com or use the form. Include an order or reference number where you have one."
+        "subheading": "Use the form below or email orders@caratforus.com."
       }
     },
     "rail": {
@@ -26,7 +26,7 @@
           "type": "note",
           "settings": {
             "title": "For the fastest help",
-            "text": "<p>Email <strong>orders@caratforus.com</strong> or use the form. Include the applicable order or reference number so we can find you.</p>"
+            "text": "<p>For an existing order, return, warranty claim, Group Buy, or Custom Jewelry project, include your order or reference number so we can locate it quickly.</p>"
           }
         },
         "include": {

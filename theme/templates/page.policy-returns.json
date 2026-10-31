@@ -18,7 +18,7 @@
         "body": {
           "type": "text",
           "settings": {
-            "text": "<p>Most things we sell can be returned. A few cannot, and we say which on the product itself before you buy, never afterwards.</p><p>If you want to return a Buy Now purchase, start by emailing <strong>orders@caratforus.com</strong>. We will tell you whether the item qualifies, and if it does we will issue a return authorisation with the address and the deadline. Please do not send anything back before you have that — an unannounced parcel is one we cannot match to an order or insure.</p><p>Return shipping is arranged and paid by you, and must be tracked and insured for the full value. That is not us being difficult: an uninsured parcel that disappears leaves neither of us with a remedy.</p><p>The exact terms you agreed to are below.</p>"
+            "text": "<p>A few things cannot be returned, and we say which on the product itself before you buy, never afterwards.</p><p>If you want to return a Buy Now purchase, start by emailing <strong>orders@caratforus.com</strong>. We will tell you whether the item qualifies, and if it does we will issue a return authorisation with the address and the deadline. Please do not send anything back before you have that — an unannounced parcel is one we cannot match to an order or insure.</p><p>Return shipping is arranged and paid by you, and must be tracked and insured for the full value. That is not us being difficult: an uninsured parcel that disappears leaves neither of us with a remedy.</p><p>The exact terms you agreed to are below.</p>"
           }
         }
       },
@@ -40,7 +40,9 @@
         "level": "functional",
         "color_scheme": "scheme-1",
         "heading": "Returns and cancellations",
-        "subheading": "Most things we sell can be returned. Here is how, and what to expect."
+        "subheading": "Most things we sell can be returned. Here is how, and what to expect.",
+        "cta_label": "Email us to start a return",
+        "cta_link": "mailto:orders@caratforus.com"
       }
     }
   },

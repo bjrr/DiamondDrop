@@ -18,7 +18,7 @@
         "body": {
           "type": "text",
           "settings": {
-            "text": "<p>Every piece carries a one-year limited warranty against manufacturing faults. It covers workmanship — a setting that fails, a clasp that was never right. It does not cover accidents, ordinary wear, loss, or damage from repairs done elsewhere.</p><p>To make a claim, use the <a href=\"/pages/warranty-claim\">Warranty Claim form</a> and include clear photographs of the problem. We may ask you to send the piece in so we can look at it properly; if we do, inbound shipping is arranged and paid by you, and must be tracked and insured.</p><p>Once we have inspected it we will tell you what we are going to do about it. The terms you agreed to are below.</p>"
+            "text": "<p>The limited warranty covers workmanship — a setting that fails, a clasp that was never right. It does not cover accidents, ordinary wear, loss, or damage from repairs done elsewhere.</p><p>To make a claim, use the <a href=\"/pages/warranty-claim\">Warranty Claim form</a> and include clear photographs of the problem. We may ask you to send the piece in so we can look at it properly; if we do, inbound shipping is arranged and paid by you, and must be tracked and insured.</p><p>Once we have inspected it we will tell you what we are going to do about it. The terms you agreed to are below.</p>"
           }
         }
       },
