@@ -9,6 +9,7 @@ Build CaratForUs MVP1 as a lean Shopify-centered jewelry commerce business with 
 - `docs/LUXURY-STEALS.md` is authoritative for Luxury Steals inventory/scarcity, Final Sale, acknowledgment, claim/warranty separation and evidence.
 - `docs/LET-US-BEAT-YOUR-QUOTE.md` plus `docs/LET-US-BEAT-YOUR-QUOTE-AMENDMENT.md` govern competitor submissions. **The amendment controls any conflict:** only qualifying verified recent custom quotes receive the guarantee/fallback; active online listings and competing Group Buys are review-only with no guarantee/fallback; fallback expires 90 calendar days after issuance.
 - `docs/WARRANTY-CLAIMS.md` is authoritative for the 1-year limited manufacturing warranty claim workflow, customer-paid tracked/insured inbound warranty shipping, inspection, remedy selection and internal-only local-jeweler option.
+- `docs/SET-YOUR-OWN-STONE.md` is authoritative for customer-owned stone intake fields, ready-mount shape/dimension compatibility, ready-setting browsing, and the state-preserving handoff into the existing Custom Jewelry workflow. Do not invent a universal fit tolerance or duplicate Custom Jewelry.
 - `docs/BANK-CARD-PRICING.md` is authoritative for Bank Payment Price vs Regular/Card Price behavior, tiered card-price increases, $5 card-price rounding, eligible bank-payment methods, checkout treatment, and customer-facing savings. `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` is authoritative for the post-Slice-1 display, recalculation-failure, Group Buy payment-selection, and campaign-options JSON decisions. `docs/CASH-CARD-PRICING.md` is superseded history only.
 - Locked policy documents override conflicting README summaries, assumptions and generic ecommerce conventions.
 - Do not silently change a locked business decision. Flag conflicts for owner approval.
@@ -144,6 +145,9 @@ Group Buy option dimensions are campaign-specific and must not be hard-coded aro
 
 ### Custom Jewelry / Let Us Beat Your Quote
 MVP1 consultation/revisions remain email-driven. Provide lightweight intake, $49 Design Deposit, reusable Shopify approval/purchase template and quote-acquisition flow. Read both quote documents; the amendment controls conflicts. Review remains manual; automate intake/evidence/eligibility calculations/acknowledgments/status but never auto-commit CaratForUs to competitor pricing.
+
+### Set Your Own Stone
+Use `docs/SET-YOUR-OWN-STONE.md`. Collect the customer-owned stone once, use shape + millimeter dimensions (not carat alone) to discover eligible ready mountings from structured compatibility metadata, and preserve the same project context when the customer moves to Custom Jewelry. Reuse the existing Custom Jewelry flow and upload/deposit/approval behavior; do not create a parallel custom-design system. Do not promise guaranteed fit or advertise unapproved stone-intake/insurance procedures.
 
 ### Warranty
 Provide a dedicated Warranty Claim Form and auditable claim workflow per `docs/WARRANTY-CLAIMS.md`. Customer pays tracked, appropriately insured inbound shipping after authorization for inspection. CaratForUs determines repair, replacement, refund or other appropriate remedy after inspection. The possible local-jeweler repair path is internal-only until CaratForUs selects/authorizes it for a specific claim; do not advertise it as a customer entitlement.
