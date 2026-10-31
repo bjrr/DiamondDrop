@@ -1426,17 +1426,37 @@
   .carat-hslider--full { min-height: 86vh; }
 
   /* The portrait art leaves its empty space at the TOP, so the copy goes
-     there. Centring it would print the headline straight over the jewelry. */
+     there. Centring it would print the headline straight over the jewelry.
+
+     THE COPY BLOCK HAS TO FINISH BEFORE THE JEWELRY STARTS, and on the
+     busiest slide it did not. Measured on the first slide — the only one
+     with two buttons and a five-clause subheading — the block reached 57%
+     of the image height at 390px and 61% at 360px, while the jewelry
+     begins around 57%. The second button was sitting on the pink ring.
+
+     Nothing is cropped, so geometry cannot fix it: the image and the box
+     are the same ratio (0.5628 vs 0.5626), and making the hero taller
+     would crop the SIDES, cutting the jewelry the other way. The copy
+     block itself has to be smaller. Every value below is tightened just
+     enough to clear the art while keeping the type comfortable. */
   .carat-hslide__inner {
     justify-content: flex-start;
-    padding: 4.5rem 7vw 0;
+    padding: 3.4rem 7vw 0;
     max-width: none;
   }
 
-  .carat-hslide__heading { font-size: clamp(3rem, 9vw, 4.4rem); }
-  .carat-hslide__sub { font-size: 1.5rem; max-width: 34ch; }
-  .carat-hslide__actions { margin-top: 2rem; }
+  .carat-hslide__heading { font-size: clamp(2.7rem, 8vw, 3.8rem); }
+
+  .carat-hslide__sub {
+    font-size: 1.4rem;
+    line-height: 1.45;
+    margin-top: 1.1rem;
+    max-width: 36ch;
+  }
+
+  .carat-hslide__actions { margin-top: 1.3rem; gap: .7rem; }
   .carat-hslide__actions .button { width: 100%; }
+  .carat-hslide__credit { margin-top: 1.2rem; }
 
   /* Vertical fade for a vertical composition. */
   .carat-hslider--overlay .carat-hslide__veil {
