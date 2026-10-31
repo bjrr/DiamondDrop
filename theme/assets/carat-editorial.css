@@ -1276,6 +1276,20 @@
   min-height: 40rem;
 }
 
+/**
+ * THE MEASURE IS CAPPED PROPORTIONALLY, NOT IN rem.
+ *
+ * At 62rem the content box came out around 476px once the 5vw padding was
+ * taken off, which wrapped "Fine jewelry. Smarter ways to buy." onto three
+ * lines. Widening it fixes the wrap but walks the copy into the jewelry,
+ * and the two constraints meet at different places on different screens: a
+ * fixed 72rem clears the art at 1440 and overruns it at 1280.
+ *
+ * `min(72rem, 50vw)` keeps the block inside the left half of the frame at
+ * every width — which is exactly the half the art was composed to leave
+ * empty — and the display size is tuned so the longest line still fits the
+ * narrower of the two.
+ */
 .carat-hslide__inner {
   position: relative;
   z-index: 1;
@@ -1283,11 +1297,11 @@
   flex-direction: column;
   justify-content: center;
   padding: 7rem 5vw;
-  max-width: 62rem;
+  max-width: min(72rem, 50vw);
 }
 
 .carat-hslide__heading {
-  font-size: clamp(3.4rem, 5.4vw, 6.4rem);
+  font-size: clamp(3.4rem, 4.4vw, 5.6rem);
   line-height: 1.04;
   letter-spacing: -0.015em;
   margin: 0;
