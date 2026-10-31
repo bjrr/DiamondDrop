@@ -922,10 +922,22 @@
     grid-column: 2;
   }
 
-  /* Inside the pair the inner page-width wrappers would re-centre and
-     re-pad against the viewport, which inside a 36% column is wrong. */
-  #MainContent:has(.carat-pair--lead) > .shopify-section:has(.carat-pair--lead) .page-width,
-  #MainContent:has(.carat-pair--lead) > .shopify-section:has(.carat-pair--lead) + .shopify-section .page-width {
+  /* The inner page-width wrappers would re-centre and re-pad against the
+     viewport. Inside a 36% column that is wrong, and it is equally wrong in
+     the full-width rows: the GRID CONTAINER already supplies the gutter
+     (`padding-inline: 3rem` above), so any `page-width` inside it adds a
+     second one.
+
+     This previously listed only the two paired sections, which left the
+     page header — a full-width row, not part of the pair — padding itself
+     again. Measured on /pages/contact at 1440px: the header's text sat at
+     100px while the rail and form below it sat at 50px, so the title was
+     indented half a gutter from its own page. Custom Jewelry and Let Us
+     Beat Your Quote share the layout and shared the defect.
+
+     Matching every section child fixes all three and needs no per-page
+     exception: inside this grid, re-padding is never right. */
+  #MainContent:has(.carat-pair--lead) > .shopify-section .page-width {
     max-width: none;
     padding-inline: 0;
   }

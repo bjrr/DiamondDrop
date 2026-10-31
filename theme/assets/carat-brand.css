@@ -319,3 +319,43 @@ button.shopify-payment-button__button--unbranded {
 [hidden] {
   display: none !important;
 }
+
+/* ===========================================================================
+   MULTICOLUMN TEXT SHOULD START WHERE THE PAGE STARTS
+   ---------------------------------------------------------------------------
+   Dawn, at >=750px, gives a backgroundless multicolumn card
+   `padding: * 1.5rem` on `__info`:
+
+     .background-none .multicolumn-list .multicolumn-card__info {
+       padding-left: 1.5rem; padding-right: 1.5rem;
+     }
+
+   That padding exists to keep text off the edge of a card that has a
+   visible background or an image. These cards have neither — About Us and
+   Why Buy From Us use multicolumn purely as a text grid — so the padding
+   buys nothing and costs alignment.
+
+   Measured on /pages/about-us at 1440px before this rule: the list item
+   and the card both sat correctly at 70px, and only `__info` was inset,
+   putting every heading and paragraph at 85px against 70px for the page
+   title and prose above. Fifteen pixels is small enough to read as sloppy
+   rather than deliberate, which is the worst amount to be off by.
+
+   Scoped tightly, because the padding is RIGHT in the cases it was written
+   for: backgroundless only, non-slider only, and only when the card has no
+   image wrapper to indent against. `.center` cards are excluded — their
+   padding is a deliberate 2.5rem inset for centred text, not an accident.
+   The grid's own column gap still separates the columns, so removing the
+   padding changes alignment and nothing else.
+   =========================================================================== */
+
+@media screen and (min-width: 750px) {
+  .multicolumn.background-none
+    .multicolumn-list:not(.slider)
+    .multicolumn-list__item:not(.center)
+    .multicolumn-card:not(:has(.multicolumn-card__image-wrapper))
+    .multicolumn-card__info {
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
