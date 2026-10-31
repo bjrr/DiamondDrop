@@ -1,0 +1,278 @@
+{%- comment -%}
+  CARAT HERO SLIDER
+  ===========================================================================
+  A rotating version of `carat-hero`. Deliberately a SEPARATE section rather
+  than extra settings bolted onto the existing one: `carat-hero` is live on
+  the homepage and working, and a new file means switching back is a
+  one-line template change rather than a revert.
+
+  WHY A THIRD TONE. `carat-hero` offers `dark` (light type over a near-black
+  scrim) and `light` (type beside the image on ivory). Neither fits the new
+  art. These heroes are deliberately HIGH-KEY ivory with 50% of the frame
+  left empty for the headline — a near-black scrim would destroy exactly the
+  brightness they were made for, and the beside-the-image layout would waste
+  that empty half. So `overlay` puts dark ink in the image's own negative
+  space behind a soft IVORY veil, strong enough to guarantee contrast on a
+  busy crop and invisible on a clean one.
+
+  MOBILE IS A DIFFERENT COMPOSITION, NOT A SQUEEZE. Each slide carries its
+  own portrait file whose empty space is at the TOP, so the copy moves to the
+  top on small screens. A 21:9 frame centre-cropped to a phone would cut out
+  the jewelry entirely — it all sits in the right third.
+
+  ACCESSIBILITY. Real carousel semantics (`aria-roledescription`), a live
+  region announcing slide changes, labelled previous/next controls, dot
+  controls that are real buttons, left/right arrow key support, autoplay that
+  pauses on hover and on keyboard focus, and NO autoplay at all under
+  `prefers-reduced-motion`.
+
+  PERFORMANCE. The hero is the LCP element. Only the first slide's image is
+  eager with `fetchpriority="high"`; the rest are lazy.
+
+  NO JAVASCRIPT. Slides are stacked in one grid cell with only the first
+  visible, so the section degrades to a static hero rather than a pile of
+  three.
+{%- endcomment -%}
+
+{{ 'carat-editorial.css' | asset_url | stylesheet_tag }}
+<script src="{{ 'carat-hero-slider.js' | asset_url }}" defer="defer"></script>
+
+{%- liquid
+  assign slides = section.blocks | where: 'type', 'slide'
+  assign count = slides.size
+  assign autoplay = section.settings.autoplay
+  if count < 2
+    assign autoplay = false
+  endif
+-%}
+
+{%- if count == 0 -%}
+  {%- comment -%} Nothing configured yet: say so in the editor, render
+  nothing to a shopper. {%- endcomment -%}
+  {%- if request.design_mode -%}
+    <section class="carat-hslider carat-hslider--empty">
+      <p>Add at least one slide to the hero slider.</p>
+    </section>
+  {%- endif -%}
+{%- else -%}
+
+<section
+  class="carat-hslider carat-hslider--{{ section.settings.height }} carat-hslider--{{ section.settings.tone }}"
+  data-carat-hslider
+  data-autoplay="{% if autoplay %}true{% else %}false{% endif %}"
+  data-interval="{{ section.settings.interval | times: 1000 }}"
+  role="region"
+  aria-roledescription="carousel"
+  aria-label="{{ section.settings.aria_label | default: 'Featured jewelry' | escape }}"
+>
+  <div class="carat-hslider__viewport" data-carat-hslider-viewport>
+    {%- for block in slides -%}
+      {%- liquid
+        assign d = block.settings.image_desktop
+        assign m = block.settings.image_mobile
+        if m == blank
+          assign m = d
+        endif
+      -%}
+      <div
+        class="carat-hslide{% if forloop.first %} is-active{% endif %}"
+        data-carat-hslide
+        role="group"
+        aria-roledescription="slide"
+        aria-label="{{ forloop.index }} of {{ count }}"
+        {% unless forloop.first %}aria-hidden="true"{% endunless %}
+        {{ block.shopify_attributes }}
+      >
+        <div class="carat-hslide__media">
+          {%- if d != blank -%}
+            <picture>
+              <source
+                media="(max-width: 749px)"
+                srcset="
+                  {{ m | image_url: width: 750 }} 750w,
+                  {{ m | image_url: width: 1100 }} 1100w,
+                  {{ m | image_url: width: 1500 }} 1500w
+                "
+                sizes="100vw"
+              >
+              <img
+                src="{{ d | image_url: width: 1800 }}"
+                srcset="
+                  {{ d | image_url: width: 1200 }} 1200w,
+                  {{ d | image_url: width: 1800 }} 1800w,
+                  {{ d | image_url: width: 2400 }} 2400w
+                "
+                sizes="100vw"
+                alt="{{ d.alt | escape }}"
+                width="{{ d.width }}"
+                height="{{ d.height }}"
+                {% if forloop.first %}
+                  loading="eager"
+                  fetchpriority="high"
+                {% else %}
+                  loading="lazy"
+                  fetchpriority="low"
+                {% endif %}
+                class="carat-hslide__img"
+              >
+            </picture>
+          {%- else -%}
+            <div class="carat-hslide__img carat-hslide__img--placeholder"></div>
+          {%- endif -%}
+        </div>
+
+        <div class="carat-hslide__veil"></div>
+
+        <div class="carat-hslide__inner">
+          {%- if block.settings.eyebrow != blank -%}
+            <p class="carat-eyebrow">{{ block.settings.eyebrow | escape }}</p>
+          {%- endif -%}
+
+          {%- comment -%}
+            ONE h1 PER PAGE. The first slide carries the real heading; the
+            rest are h2. Three h1 elements on the homepage would be a
+            genuine accessibility defect, and the visual weight is identical
+            either way because the class does the sizing.
+          {%- endcomment -%}
+          {%- if block.settings.heading != blank -%}
+            {%- if forloop.first -%}
+              <h1 class="carat-hslide__heading">{{ block.settings.heading | escape }}</h1>
+            {%- else -%}
+              <h2 class="carat-hslide__heading">{{ block.settings.heading | escape }}</h2>
+            {%- endif -%}
+          {%- endif -%}
+
+          {%- if block.settings.subheading != blank -%}
+            <p class="carat-hslide__sub">{{ block.settings.subheading | escape }}</p>
+          {%- endif -%}
+
+          {%- if block.settings.cta_label != blank or block.settings.cta2_label != blank -%}
+            <div class="carat-hslide__actions">
+              {%- if block.settings.cta_label != blank -%}
+                <a class="button carat-button" href="{{ block.settings.cta_link | default: '#' }}">
+                  {{- block.settings.cta_label | escape -}}
+                </a>
+              {%- endif -%}
+              {%- if block.settings.cta2_label != blank -%}
+                <a class="button button--secondary carat-button" href="{{ block.settings.cta2_link | default: '#' }}">
+                  {{- block.settings.cta2_label | escape -}}
+                </a>
+              {%- endif -%}
+            </div>
+          {%- endif -%}
+
+          {%- if block.settings.media_credit != blank -%}
+            <p class="carat-hslide__credit">{{ block.settings.media_credit | escape }}</p>
+          {%- endif -%}
+        </div>
+      </div>
+    {%- endfor -%}
+  </div>
+
+  {%- if count > 1 -%}
+    {%- comment -%}
+      Controls live OUTSIDE the viewport so they are not inside an
+      aria-hidden slide, which would make them unreachable to a screen
+      reader the moment their slide rotated out.
+    {%- endcomment -%}
+    <div class="carat-hslider__controls">
+      <button
+        type="button"
+        class="carat-hslider__arrow carat-hslider__arrow--prev"
+        data-carat-hslider-prev
+        aria-label="{{ 'general.slider.previous_slide' | t | default: 'Previous slide' }}"
+      >
+        <span aria-hidden="true">&#8592;</span>
+      </button>
+
+      <div class="carat-hslider__dots" role="tablist" aria-label="Choose a slide">
+        {%- for block in slides -%}
+          <button
+            type="button"
+            class="carat-hslider__dot{% if forloop.first %} is-active{% endif %}"
+            data-carat-hslider-dot
+            data-index="{{ forloop.index0 }}"
+            role="tab"
+            aria-selected="{% if forloop.first %}true{% else %}false{% endif %}"
+            aria-label="Slide {{ forloop.index }} of {{ count }}"
+          ></button>
+        {%- endfor -%}
+      </div>
+
+      <button
+        type="button"
+        class="carat-hslider__arrow carat-hslider__arrow--next"
+        data-carat-hslider-next
+        aria-label="{{ 'general.slider.next_slide' | t | default: 'Next slide' }}"
+      >
+        <span aria-hidden="true">&#8594;</span>
+      </button>
+    </div>
+
+    <p class="visually-hidden" aria-live="polite" data-carat-hslider-live></p>
+  {%- endif -%}
+</section>
+
+{%- endif -%}
+
+{% schema %}
+{
+  "name": "Carat hero slider",
+  "tag": "section",
+  "max_blocks": 5,
+  "settings": [
+    {
+      "type": "select",
+      "id": "height",
+      "label": "Height",
+      "default": "medium",
+      "options": [
+        { "value": "medium", "label": "Medium" },
+        { "value": "tall", "label": "Tall" },
+        { "value": "full", "label": "Full screen" }
+      ]
+    },
+    {
+      "type": "select",
+      "id": "tone",
+      "label": "Tone",
+      "default": "overlay",
+      "options": [
+        { "value": "overlay", "label": "Overlay — dark copy over a bright image" },
+        { "value": "dark", "label": "Dark — light copy over a dark image" }
+      ]
+    },
+    { "type": "checkbox", "id": "autoplay", "label": "Rotate automatically", "default": true },
+    {
+      "type": "range",
+      "id": "interval",
+      "label": "Seconds per slide",
+      "min": 4,
+      "max": 12,
+      "step": 1,
+      "default": 7,
+      "unit": "s"
+    },
+    { "type": "text", "id": "aria_label", "label": "Carousel label (screen readers)", "default": "Featured jewelry" }
+  ],
+  "blocks": [
+    {
+      "type": "slide",
+      "name": "Slide",
+      "settings": [
+        { "type": "image_picker", "id": "image_desktop", "label": "Desktop image (wide)" },
+        { "type": "image_picker", "id": "image_mobile", "label": "Mobile image (tall crop)" },
+        { "type": "text", "id": "eyebrow", "label": "Eyebrow" },
+        { "type": "text", "id": "heading", "label": "Heading" },
+        { "type": "text", "id": "subheading", "label": "Subheading" },
+        { "type": "text", "id": "cta_label", "label": "Primary button" },
+        { "type": "url", "id": "cta_link", "label": "Primary link" },
+        { "type": "text", "id": "cta2_label", "label": "Secondary button" },
+        { "type": "url", "id": "cta2_link", "label": "Secondary link" },
+        { "type": "text", "id": "media_credit", "label": "Image credit / label" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Carat hero slider", "blocks": [{ "type": "slide" }] }]
+}
+{% endschema %}

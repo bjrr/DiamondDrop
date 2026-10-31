@@ -1,23 +1,5 @@
 {
   "sections": {
-    "hero": {
-      "type": "carat-hero",
-      "settings": {
-        "image_desktop": "shopify://shop_images/carat-b-hero-desktop.png",
-        "image_mobile": "shopify://shop_images/carat-b-hero-mobile.png",
-        "height": "medium",
-        "tone": "light",
-        "text_position": "left",
-        "eyebrow": "CaratForUs",
-        "heading": "Fine jewelry. Smarter ways to buy.",
-        "subheading": "Shop exceptional diamond jewelry, join a Group Buy, create something custom, discover limited Luxury Steals, or let us beat your quote.",
-        "cta_label": "Shop jewelry",
-        "cta_link": "/collections/all",
-        "cta2_label": "How Group Buy works",
-        "cta2_link": "/pages/group-buy",
-        "animate": false
-      }
-    },
     "paths": {
       "type": "carat-paths",
       "blocks": {
@@ -27,7 +9,7 @@
             "title": "Shop Jewelry",
             "text": "Ready-to-buy fine jewelry.",
             "link": "/collections/all",
-            "image": "shopify://shop_images/carat-b-shop.png"
+            "image": "shopify://shop_images/carat-c-shop.png"
           }
         },
         "groupbuy": {
@@ -36,7 +18,7 @@
             "title": "Group Buy",
             "text": "More buyers. Better pricing.",
             "link": "/pages/group-buy",
-            "image": "shopify://shop_images/carat-b-groupbuy.png"
+            "image": "shopify://shop_images/carat-c-groupbuy.png"
           }
         },
         "steals": {
@@ -45,7 +27,7 @@
             "title": "Luxury Steals",
             "text": "Exceptional pieces at limited pricing.",
             "link": "/pages/luxury-steals",
-            "image": "shopify://shop_images/carat-b-steals.png"
+            "image": "shopify://shop_images/carat-c-steals.png"
           }
         },
         "custom": {
@@ -54,7 +36,7 @@
             "title": "Custom Jewelry",
             "text": "Create something made for you.",
             "link": "/pages/custom-jewelry",
-            "image": "shopify://shop_images/carat-b-custom.png"
+            "image": "shopify://shop_images/carat-c-custom.png"
           }
         },
         "quote": {
@@ -63,7 +45,7 @@
             "title": "Beat Your Quote",
             "text": "Already have a jewelry quote? Let us compete for your business.",
             "link": "/pages/let-us-beat-your-quote",
-            "image": "shopify://shop_images/carat-b-quote.png"
+            "image": "shopify://shop_images/carat-c-quote.png"
           }
         }
       },
@@ -168,10 +150,65 @@
         "cta_link": "/pages/luxury-steals",
         "parallax": false
       }
+    },
+    "heroslider": {
+      "type": "carat-hero-slider",
+      "blocks": {
+        "s1": {
+          "type": "slide",
+          "settings": {
+            "image_desktop": "shopify://shop_images/carat-c-hero1-rings-desktop.png",
+            "image_mobile": "shopify://shop_images/carat-c-hero1-rings-mobile.png",
+            "eyebrow": "CaratForUs",
+            "heading": "Fine jewelry. Smarter ways to buy.",
+            "subheading": "Shop exceptional diamond jewelry, join a Group Buy, create something custom, discover limited Luxury Steals, or let us beat your quote.",
+            "cta_label": "Shop jewelry",
+            "cta_link": "/collections/all",
+            "cta2_label": "How Group Buy works",
+            "cta2_link": "/pages/group-buy"
+          }
+        },
+        "s2": {
+          "type": "slide",
+          "settings": {
+            "image_desktop": "shopify://shop_images/carat-c-hero2-gold-desktop.png",
+            "image_mobile": "shopify://shop_images/carat-c-hero2-gold-mobile.png",
+            "eyebrow": "Everyday gold",
+            "heading": "More than rings.",
+            "subheading": "Earrings, pendants and bangles in warm 18 carat gold — from pieces you wear every day to one that finishes the outfit.",
+            "cta_label": "Browse the catalog",
+            "cta_link": "/collections/all"
+          }
+        },
+        "s3": {
+          "type": "slide",
+          "settings": {
+            "image_desktop": "shopify://shop_images/carat-c-hero3-signature-desktop.png",
+            "image_mobile": "shopify://shop_images/carat-c-hero3-signature-mobile.png",
+            "eyebrow": "The range",
+            "heading": "Delicate to serious.",
+            "subheading": "White and coloured diamonds, across rings, earrings, pendants and bangles — priced from cost, not down from a list price.",
+            "cta_label": "Why buy from us",
+            "cta_link": "/pages/why-buy-from-us"
+          }
+        }
+      },
+      "block_order": [
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "settings": {
+        "height": "medium",
+        "tone": "overlay",
+        "autoplay": true,
+        "interval": 7,
+        "aria_label": "Featured jewelry"
+      }
     }
   },
   "order": [
-    "hero",
+    "heroslider",
     "paths",
     "groupbuy_steps",
     "why",

@@ -1206,3 +1206,255 @@
   .carat-empty { padding-block: 4rem; }
   .carat-empty__actions .button { width: 100%; }
 }
+
+/* ===========================================================================
+   HERO SLIDER
+   ---------------------------------------------------------------------------
+   A rotating hero. Shares the visual language of `carat-hero` but needs its
+   own layout, because every slide stacks into ONE grid cell and only the
+   active one is painted.
+
+   THE `overlay` TONE IS THE POINT. `carat-hero` has `dark` (light type on a
+   near-black scrim) and `light` (type beside the image). The new art is
+   deliberately high-key ivory with half the frame left empty for the
+   headline, so a near-black scrim would destroy the brightness it was made
+   for and the beside-the-image layout would waste the empty half. `overlay`
+   puts dark ink in the image's own negative space behind a soft IVORY veil:
+   strong enough to hold contrast if a crop gets busy, invisible when it
+   does not.
+   =========================================================================== */
+
+.carat-hslider {
+  position: relative;
+  display: grid;
+  isolation: isolate;
+  overflow: hidden;
+  width: 100%;
+  max-width: 100%;
+  background: rgb(var(--color-background));
+}
+
+.carat-hslider--medium { min-height: 58vh; }
+.carat-hslider--tall   { min-height: 78vh; }
+.carat-hslider--full   { min-height: 92vh; }
+
+.carat-hslider__viewport { display: grid; grid-area: 1 / 1; }
+
+/* Every slide occupies the same cell, so the section's height is the tallest
+   slide and nothing reflows as they rotate. */
+.carat-hslide {
+  grid-area: 1 / 1;
+  display: grid;
+  isolation: isolate;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .55s ease;
+}
+
+.carat-hslide.is-active { opacity: 1; visibility: visible; }
+
+/* No JavaScript: the first slide still shows rather than all three stacking
+   into an unreadable pile. */
+.no-js .carat-hslide { opacity: 0; visibility: hidden; }
+.no-js .carat-hslide:first-child { opacity: 1; visibility: visible; }
+
+.carat-hslide__media,
+.carat-hslide__veil,
+.carat-hslide__inner { grid-area: 1 / 1; }
+
+.carat-hslide__media { position: relative; }
+
+.carat-hslide__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.carat-hslide__img--placeholder {
+  background: linear-gradient(135deg, var(--carat-stone, #f2eee7), #e4ded4);
+  min-height: 40rem;
+}
+
+.carat-hslide__inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 7rem 5vw;
+  max-width: 62rem;
+}
+
+.carat-hslide__heading {
+  font-size: clamp(3.4rem, 5.4vw, 6.4rem);
+  line-height: 1.04;
+  letter-spacing: -0.015em;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.carat-hslide__sub {
+  margin: 1.4rem 0 0;
+  font-size: 1.7rem;
+  line-height: 1.55;
+  max-width: 44ch;
+}
+
+.carat-hslide__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 2.6rem;
+}
+
+.carat-hslide__credit {
+  margin: 2rem 0 0;
+  font-size: 1.2rem;
+  opacity: .72;
+}
+
+/* -------------------------------------------------- tone: bright overlay */
+
+.carat-hslider--overlay .carat-hslide__inner { color: rgb(var(--color-foreground)); }
+
+/* Soft ivory, not black. Fades out well before the jewelry on the right. */
+.carat-hslider--overlay .carat-hslide__veil {
+  background: linear-gradient(
+    90deg,
+    rgba(252, 251, 248, 0.82) 0%,
+    rgba(252, 251, 248, 0.66) 34%,
+    rgba(252, 251, 248, 0.26) 56%,
+    rgba(252, 251, 248, 0) 74%
+  );
+}
+
+/* ----------------------------------------------------------- tone: dark */
+
+.carat-hslider--dark { background: #0f0f0f; }
+.carat-hslider--dark .carat-hslide__inner { color: #f7f5f1; }
+.carat-hslider--dark .carat-hslide__veil {
+  background: linear-gradient(90deg, rgba(8,9,10,.9) 0%, rgba(8,9,10,.8) 30%, rgba(8,9,10,.55) 50%, rgba(8,9,10,.14) 72%, rgba(8,9,10,0) 88%);
+}
+
+/* ------------------------------------------------------------- controls */
+
+.carat-hslider__controls {
+  grid-area: 1 / 1;
+  align-self: end;
+  justify-self: start;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 1.4rem;
+  margin: 0 0 2.4rem 5vw;
+}
+
+.carat-hslider__arrow {
+  width: 3.6rem;
+  height: 3.6rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  font-size: 1.5rem;
+  line-height: 1;
+  background: rgba(252, 251, 248, 0.78);
+  border: 1px solid rgba(28, 27, 25, 0.18);
+  color: rgb(var(--color-foreground));
+  transition: background .18s ease, border-color .18s ease;
+}
+
+.carat-hslider__arrow:hover {
+  background: rgb(var(--color-background));
+  border-color: rgba(28, 27, 25, 0.4);
+}
+
+.carat-hslider__dots { display: flex; gap: .7rem; }
+
+/* Deliberately generous hit area around a small visual dot: the dot is 8px,
+   the button is 24px, which is what a thumb actually needs. */
+.carat-hslider__dot {
+  width: 2.4rem;
+  height: 2.4rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.carat-hslider__dot::after {
+  content: "";
+  width: .8rem;
+  height: .8rem;
+  border-radius: 50%;
+  background: rgba(28, 27, 25, 0.28);
+  transition: background .18s ease, transform .18s ease;
+}
+
+.carat-hslider__dot.is-active::after {
+  background: rgb(var(--color-foreground));
+  transform: scale(1.25);
+}
+
+.carat-hslider--dark .carat-hslider__arrow {
+  background: rgba(16, 16, 16, 0.55);
+  border-color: rgba(247, 245, 241, 0.3);
+  color: #f7f5f1;
+}
+.carat-hslider--dark .carat-hslider__dot::after { background: rgba(247, 245, 241, 0.4); }
+.carat-hslider--dark .carat-hslider__dot.is-active::after { background: #f7f5f1; }
+
+.carat-hslider__arrow:focus-visible,
+.carat-hslider__dot:focus-visible {
+  outline: 2px solid rgb(var(--color-foreground));
+  outline-offset: 2px;
+}
+
+.carat-hslider--empty {
+  padding: 4rem 5vw;
+  background: var(--carat-stone, #f2eee7);
+}
+
+/* --------------------------------------------------------------- mobile */
+
+@media screen and (max-width: 749px) {
+  .carat-hslider--medium { min-height: 72vh; }
+  .carat-hslider--tall,
+  .carat-hslider--full { min-height: 86vh; }
+
+  /* The portrait art leaves its empty space at the TOP, so the copy goes
+     there. Centring it would print the headline straight over the jewelry. */
+  .carat-hslide__inner {
+    justify-content: flex-start;
+    padding: 4.5rem 7vw 0;
+    max-width: none;
+  }
+
+  .carat-hslide__heading { font-size: clamp(3rem, 9vw, 4.4rem); }
+  .carat-hslide__sub { font-size: 1.5rem; max-width: 34ch; }
+  .carat-hslide__actions { margin-top: 2rem; }
+  .carat-hslide__actions .button { width: 100%; }
+
+  /* Vertical fade for a vertical composition. */
+  .carat-hslider--overlay .carat-hslide__veil {
+    background: linear-gradient(
+      180deg,
+      rgba(252, 251, 248, 0.88) 0%,
+      rgba(252, 251, 248, 0.7) 30%,
+      rgba(252, 251, 248, 0.22) 52%,
+      rgba(252, 251, 248, 0) 68%
+    );
+  }
+  .carat-hslider--dark .carat-hslide__veil {
+    background: linear-gradient(180deg, rgba(8,9,10,.88) 0%, rgba(8,9,10,.6) 34%, rgba(8,9,10,.12) 60%, rgba(8,9,10,0) 76%);
+  }
+
+  .carat-hslider__controls { margin: 0 0 2rem 7vw; gap: 1rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .carat-hslide { transition: none; }
+}
