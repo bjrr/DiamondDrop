@@ -79,7 +79,25 @@
 }
 
 @media screen and (min-width: 750px) {
+  /**
+   * HANG THE RULE IN THE GUTTER.
+   *
+   * The left rule marks a quoted, versioned term and is worth keeping. But
+   * `border-left` plus `padding-left` pushed the TERM TEXT inboard of every
+   * other block on the page: measured at 1440px, term text sat at 87px while
+   * the page heading, intro and body all sat at 70px — a second left edge on
+   * six policy pages (Warranty, Returns, Group Buy, Luxury Steals, Custom
+   * Jewelry, Let Us Beat Your Quote).
+   *
+   * Pulling the item left by exactly the rule plus its gap puts the text back
+   * on the page's edge and leaves the rule in the gutter, which is where a
+   * hanging rule belongs. The eye aligns on text, not on a hairline.
+   *
+   * Desktop only: below 750px the page gutter is 1.5rem, so there is no room
+   * to hang anything — the rule would fall off the viewport.
+   */
   .carat-policy-terms__item {
     padding-left: 1.5rem;
+    margin-left: calc(-1.5rem - 2px);
   }
 }

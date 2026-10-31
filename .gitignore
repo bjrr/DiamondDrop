@@ -37,3 +37,6 @@ Thumbs.db
 /app/c.cjs
 /f.cjs
 /app/f.cjs
+
+# Theme backups and push logs (local forensics, not source)
+.theme-backups/

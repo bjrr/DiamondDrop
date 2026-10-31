@@ -69,6 +69,35 @@ For non-trivial work:
 
 Do not claim tests passed unless actually run successfully.
 
+## Shopify theme deployment discipline
+On 2026-10-30 the then-live theme `187633434842` was reduced from ~410 files
+to 4. The survivors were exactly the set Shopify refuses to delete
+(`config/settings_data.json`, `config/settings_schema.json`,
+`layout/theme.liquid`, `templates/gift_card.liquid`) — the signature of a
+full-directory sync run against a directory with nothing to upload.
+
+**Always push through `scripts/theme-push.sh`.** Never invoke
+`shopify theme push` directly. The rules it enforces:
+
+1. **Never a bare `shopify theme push`.** Without `--only`, push is a *mirror*:
+   it deletes every remote file absent locally. There is no "push everything"
+   mode in the script, by design.
+2. **Always `--nodelete`.** Deletion requires `DELETE=1` and is refused
+   outright against the live theme.
+3. **Always `cd` to the theme root inside the same command or script.** The
+   shell's working directory resets to the repo root between tool calls, and
+   **the repo root is not a theme root** — the theme is in `theme/`. A push
+   from the repo root finds no files to upload and deletes the remote.
+4. **Never pipe push output through `tail -N`.** That is how a theme-destroying
+   push was mistaken for a successful one: the file list and the deletion
+   summary scrolled past unseen. The script tees the full log to
+   `.theme-backups/logs/` and flags any mention of deletion.
+5. **Pull a backup before changing a live theme**, and **stage changes on a
+   draft theme**, verify it, then publish. Do not edit the live theme in place.
+6. **Verify after publishing** against real URLs — homepage, Group Buy, Custom
+   Jewelry, Luxury Steals, Let Us Beat Your Quote. A 200 is not proof: a parked
+   domain returns 200 for every path. Assert on markup only the real theme emits.
+
 ## Git discipline
 - Keep changes focused; do not rewrite unrelated files.
 - No force-push, branch deletion, shared reset or destructive operations without owner approval.
