@@ -193,3 +193,38 @@ describe("the reader stays read-only", () => {
     expect(body).not.toMatch(/r2Client|STORAGE_|createUploadDestination/);
   });
 });
+
+// ============================== the variant profile reference takes priority
+
+describe("profile resolution prefers the per-variant reference", () => {
+  // Added after productOptionUpdate silently refused to link the pilot
+  // mounting's option. The variant reference is the route that works; the
+  // linked option value remains the fallback for products where it took.
+  it("is the documented order in the module header", () => {
+    const src = readFileSync(
+      new URL("./syosProductReader.server.ts", import.meta.url),
+      "utf8"
+    );
+    expect(src).toMatch(/AUTHORITATIVE/);
+    expect(src).toMatch(/custom\.syos_center_size_profile/);
+    // The fallback must still be present, not deleted.
+    expect(src).toMatch(/linkedMetafieldValue/);
+  });
+
+  it("reads the variant metafield in the product query", () => {
+    const src = readFileSync(
+      new URL("./syosProductReader.server.ts", import.meta.url),
+      "utf8"
+    );
+    expect(src).toContain('centerSizeProfile: metafield(namespace: "custom", key: "syos_center_size_profile")');
+  });
+
+  it("still never derives a dimension from the option label", () => {
+    const src = readFileSync(new URL("./syosProductReader.server.ts", import.meta.url), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/(^|[^:])\/\/.*$/gm, "$1");
+    // No parsing of "9x7 mm" style text anywhere in the reader.
+    expect(src).not.toMatch(/\[x×\]/);
+    expect(src).not.toMatch(/parseFloat|parseInt/);
+  });
+});

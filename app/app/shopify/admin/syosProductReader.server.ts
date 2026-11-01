@@ -14,10 +14,27 @@
  *   variant metafields   the vendor range for THIS mounting at THIS size
  *   linked metaobject    shape and nominal dimensions, shared per centre size
  *
- * The third is reachable only through the option: a variant names its centre
- * size option value, that value carries `linkedMetafieldValue`, and that is a
- * metaobject id. This module walks that chain and hands the projection layer a
- * flat structure, so the projection never talks to Shopify and stays pure.
+ * The third is reached TWO ways, and the order matters:
+ *
+ *   1. `variant.custom.syos_center_size_profile` -- a direct metaobject
+ *      reference on the variant. AUTHORITATIVE.
+ *   2. the centre-size option value's `linkedMetafieldValue`, used only when
+ *      the variant carries no direct reference.
+ *
+ * The variant reference leads because `productOptionUpdate` silently refuses
+ * to attach `linkedMetafield` to the pilot mounting's existing option --
+ * HTTP 200, `userErrors: []`, and the option still unlinked on readback, with
+ * our own app token on 2026-10 and a configuration verified correct down to
+ * the metaobject_definition_id validation. The same call succeeds in dev.
+ * Rather than keep debugging an undocumented platform edge, the pointer moved
+ * to the variant, which Shopify writes without complaint.
+ *
+ * Route 2 is kept because it costs nothing and is the better model where it
+ * works: one linked option instead of a reference per variant.
+ *
+ * NEITHER ROUTE READS THE LABEL. "9x7 mm" is display and manufacturing data.
+ * Dimensions come from the referenced profile, and the projection layer
+ * separately reports a label that disagrees with it.
  *
  * READ-ONLY. Authoring is Shopify Product Admin. A write here would mean two
  * editable sources of truth for one product.
@@ -74,6 +91,9 @@ const READ_PRODUCT = `#graphql
           title
           selectedOptions { name optionValue { id name } }
           metafields(first: 25, namespace: $namespace) { nodes { key value } }
+          centerSizeProfile: metafield(namespace: "custom", key: "syos_center_size_profile") {
+            value
+          }
         }
       }
     }
@@ -131,7 +151,15 @@ export async function readSyosProduct(
     }
   }
 
-  const profiles = await readSizeProfiles(client, [...new Set(profileIdByOptionValueId.values())]);
+  // Every profile id this product could need, from either route, resolved in
+  // one call rather than one per variant.
+  const variantProfileIds = (product.variants?.nodes ?? [])
+    .map((v) => v.centerSizeProfile?.value ?? null)
+    .filter((x): x is string => typeof x === "string" && x.length > 0);
+
+  const profiles = await readSizeProfiles(client, [
+    ...new Set([...profileIdByOptionValueId.values(), ...variantProfileIds]),
+  ]);
 
   const variants = (product.variants?.nodes ?? []).map((variant) => {
     // Which of this variant's selected options is the centre size. Resolved
@@ -141,7 +169,12 @@ export async function readSyosProduct(
       centerOption ? centerOption.optionValues.some((v) => v.id === s.optionValue?.id) : false
     );
     const optionValueId = selected?.optionValue?.id ?? null;
-    const profileId = optionValueId ? profileIdByOptionValueId.get(optionValueId) ?? null : null;
+
+    // The variant's own reference wins. The linked option value is the
+    // fallback, for products where that linkage did take.
+    const profileId =
+      variant.centerSizeProfile?.value ??
+      (optionValueId ? profileIdByOptionValueId.get(optionValueId) ?? null : null);
 
     return {
       variantGid: variant.id,
@@ -222,6 +255,8 @@ interface RawProduct {
       title: string;
       selectedOptions?: { name: string; optionValue?: { id: string; name: string } | null }[];
       metafields?: { nodes?: { key: string; value: string | null }[] };
+      /** The authoritative per-variant profile reference, when present. */
+      centerSizeProfile?: { value: string | null } | null;
     }[];
   };
 }
