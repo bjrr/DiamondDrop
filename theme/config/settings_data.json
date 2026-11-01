@@ -1,6 +1,6 @@
 {
   "current": {
-    "logo_width": 90,
+    "logo_width": 170,
     "customer_account_menu": "customer-account-main-menu",
     "color_schemes": {
       "scheme-1": {
@@ -188,7 +188,8 @@
           "color_scheme": "scheme-1"
         }
       }
-    }
+    },
+    "logo": "shopify://shop_images/caratforus-logo.png"
   },
   "presets": {
     "Dawn": {
