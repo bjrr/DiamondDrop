@@ -178,19 +178,77 @@ Scheduled machines, authenticating with the header the routes already require.
 `curl -fsS` fails the run on a non-2xx, so a rejected secret surfaces as a
 failed job rather than a silent no-op.
 
+**The command is POSITIONAL, after a `--` separator. `--command` is not it.**
+
+This cost us two jobs. `--command` on `flyctl machine run` belongs to
+`--shell`; passing the curl line to it is silently accepted and produces a
+machine with a schedule and **no command at all**, which boots the image's
+default entrypoint — the web server — once an hour and never calls the job.
+`cron-group-buy-bank-payment-window` and `cron-group-buy-milestones` were
+created that way on 2026-10-15 and did not run once until 2026-11-01. Nothing
+alerted, because a machine that starts successfully looks healthy.
+
+The header must use **double** quotes. Single quotes stop the shell expanding
+`$CRON_SECRET`, so the route receives the literal string and returns 401 —
+which `curl -fsS` at least turns into a failed run rather than a silent no-op.
+
+On Git Bash, prefix with `MSYS_NO_PATHCONV=1` or `/bin/sh` is rewritten to a
+Windows path and the entrypoint becomes nonsense.
+
 ```bash
-flyctl machine run . --schedule hourly --app caratforus \
-  --command "curl -fsS -X POST https://caratforus.fly.dev/internal/jobs/bank-payment-guarantee -H 'x-carat-cron-secret: $CRON_SECRET'"
+IMG="registry.fly.io/caratforus:deployment-<current>"   # or . to build
 
-flyctl machine run . --schedule daily --app caratforus \
-  --command "curl -fsS -X POST https://caratforus.fly.dev/internal/jobs/price-recalculation -H 'x-carat-cron-secret: $CRON_SECRET'"
+MSYS_NO_PATHCONV=1 flyctl machine run "$IMG" --app caratforus \
+  --name cron-bank-payment-guarantee \
+  --schedule hourly --restart on-failure --vm-memory 512 \
+  --entrypoint /bin/sh \
+  -- -c "curl -fsS -X POST https://caratforus.fly.dev/internal/jobs/bank-payment-guarantee -H \"x-carat-cron-secret: \$CRON_SECRET\""
 
-flyctl machine run . --schedule hourly --app caratforus \
-  --command "curl -fsS -X POST https://caratforus.fly.dev/internal/jobs/group-buy-bank-payment-window -H 'x-carat-cron-secret: $CRON_SECRET'"
+MSYS_NO_PATHCONV=1 flyctl machine run "$IMG" --app caratforus \
+  --name cron-price-recalculation \
+  --schedule daily --restart on-failure --vm-memory 512 \
+  --entrypoint /bin/sh \
+  -- -c "curl -fsS -X POST https://caratforus.fly.dev/internal/jobs/price-recalculation -H \"x-carat-cron-secret: \$CRON_SECRET\""
 
-flyctl machine run . --schedule hourly --app caratforus \
-  --command "curl -fsS -X POST https://caratforus.fly.dev/internal/jobs/group-buy-milestones -H 'x-carat-cron-secret: $CRON_SECRET'"
+MSYS_NO_PATHCONV=1 flyctl machine run "$IMG" --app caratforus \
+  --name cron-group-buy-bank-payment-window \
+  --schedule hourly --restart on-failure --vm-memory 512 \
+  --entrypoint /bin/sh \
+  -- -c "curl -fsS -X POST https://caratforus.fly.dev/internal/jobs/group-buy-bank-payment-window -H \"x-carat-cron-secret: \$CRON_SECRET\""
+
+MSYS_NO_PATHCONV=1 flyctl machine run "$IMG" --app caratforus \
+  --name cron-group-buy-milestones \
+  --schedule hourly --restart on-failure --vm-memory 512 \
+  --entrypoint /bin/sh \
+  -- -c "curl -fsS -X POST https://caratforus.fly.dev/internal/jobs/group-buy-milestones -H \"x-carat-cron-secret: \$CRON_SECRET\""
 ```
+
+`flyctl machine run` prints `timeout reached waiting for machine's state to
+change` for a scheduled machine. That is the CLI waiting for `started` on
+something that runs a short command and exits; check the machine reached
+`stopped` rather than assuming the run failed.
+
+**After creating or updating any of these, verify the config rather than the
+exit code** — the failure mode above is invisible otherwise:
+
+```bash
+flyctl machine status <id> --app caratforus --display-config \
+  | grep -E '"entrypoint"|"-c"|internal/jobs|"schedule"|"image"'
+```
+
+Every cron machine must show `/bin/sh`, a `-c`, an `internal/jobs/<name>` URL,
+a schedule, and the **current** deployment image. A machine whose config has
+`"init": {}` is not running a job.
+
+`flyctl deploy` does NOT update these machines — they are not in the `app`
+process group. Bring them forward explicitly after a deploy:
+
+```bash
+flyctl machine update <id> --app caratforus --image "$IMG" --yes
+```
+
+That preserves entrypoint, cmd, schedule and restart policy; only the image
+changes.
 
 **Hourly is a floor, not a preference.** The Buy Now guarantee is 24 hours; run
 that sweep daily and an order can sit a full day past expiry, during which a
