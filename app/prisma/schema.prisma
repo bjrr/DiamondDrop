@@ -4586,6 +4586,39 @@ model ReadySettingCompatibility {
   /// verdict and impossible to forget to check.
   isActive Boolean @default(true) @map("is_active")
 
+  /// The Shopify ProductOptionValue this configuration's centre size belongs
+  /// to (owner direction 2026-11-01).
+  ///
+  /// A STABLE IDENTITY, not a label. It is what lets the storefront preselect
+  /// the matched centre size using real Shopify catalogue data instead of a
+  /// string, and what lets a historical session name the configuration it
+  /// matched even after the display label is reworded. Nullable because a
+  /// mounting offered in exactly one centre size legitimately has no such
+  /// option.
+  centerSizeOptionValueId String? @map("center_size_option_value_id")
+
+  /// ---------------------------------------------------------------------
+  /// THIS ROW IS DERIVED, NOT AUTHORED
+  /// ---------------------------------------------------------------------
+  /// Shopify product and variant metafields are the only editable copy of
+  /// this data; staff maintain it in Shopify Product Admin. These three
+  /// columns record where this projection came from and when, so the index
+  /// can be rebuilt from Shopify at any time and the dashboard can show that
+  /// a product changed but the sync has not caught up.
+  syncedFromShopifyAt DateTime? @map("synced_from_shopify_at") @db.Timestamptz(6)
+
+  /// Hash of the metafield values this row was projected from. Lets a
+  /// reconciliation pass skip rows that cannot have changed, and makes a
+  /// silent divergence detectable rather than invisible.
+  syncSourceHash String? @map("sync_source_hash")
+
+  /// Problems found while projecting: missing dimensions, a half-specified
+  /// vendor range, a label disagreeing with the structured data. A row with
+  /// problems is forced ineligible, so a misconfiguration costs a missing
+  /// mounting rather than a wrong match -- and the dashboard can tell
+  /// "nobody configured this yet" apart from "this is configured wrongly".
+  syncProblems Json? @map("sync_problems")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -4645,6 +4678,23 @@ model StoneSession {
   /// what the customer saw at the time.
   compatibilityStatus StoneCompatibilityStatus? @map("compatibility_status")
   compatibilityRule   StoneCompatibilityRule?   @map("compatibility_rule")
+
+  /// The mounting side of the comparison, exactly as it stood when the
+  /// decision was made (owner approval 2026-11-01).
+  ///
+  /// HISTORICAL EVIDENCE, WRITE-ONCE. `compatibilityStatus` and
+  /// `compatibilityRule` record WHAT was decided; without this they cannot
+  /// explain WHY. Shopify metafields are now the editable source of truth,
+  /// so a mounting's nominal size, vendor range or prong eligibility can
+  /// change the day after a customer was shown a match -- and "we told them
+  /// 10 x 7 fits" has to remain answerable from the numbers actually used.
+  ///
+  /// Captures: product and variant gid, centre-size option value id, shape,
+  /// nominal length/width/depth, the vendor range applied, prong-adjustable
+  /// state, tolerance eligibility, the resulting rule and status, and the
+  /// timestamp. A database trigger refuses any UPDATE that would change it
+  /// once set -- application discipline is not enough for evidence.
+  matchedSnapshot Json? @map("matched_snapshot")
 
   status StoneSessionStatus @default(open)
 
