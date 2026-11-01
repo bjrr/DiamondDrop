@@ -330,17 +330,23 @@ automatically_update_urls_on_dev = true
 # record whatever Shopify's state was at some arbitrary past moment. Asking for
 # the data anyway also broke Shopify's query-complexity limit of 100, which is
 # a fair hint that the data was not needed.
-#
-# [events] api_version is independent of [webhooks] api_version above, so
-# 2026-10 here leaves the existing 2026-07 classic deliveries alone.
+# Its api_version is independent of [webhooks] above, so 2026-10 here leaves
+# the existing 2026-07 classic deliveries alone.
 [events]
 api_version = "2026-10"
 
 # -----------------------------------------------------------------------------
 # PRODUCT -- the mounting itself
 # -----------------------------------------------------------------------------
-# Variant metafields arrive on this topic too: Shopify delivers child-entity
+# NAMESPACE-LEVEL metafield triggers: the key argument is optional, so one
+# trigger covers every SYOS field on the product and every one on its variants.
+# Variant metafields arrive on this topic because Shopify delivers child-entity
 # changes on the parent, which is why there is no ProductVariant topic.
+#
+# It does mean an edit to an unrelated `carat` metafield -- a price, a Luxury
+# Steal flag -- also wakes this handler. That costs one product re-read and
+# produces an identical row, which is a better trade than twelve subscriptions
+# to maintain by hand every time a field is added.
 [[events.subscription]]
 handle = "syos-product-compatibility"
 topic = "Product"
@@ -348,21 +354,9 @@ actions = ["create", "update", "delete"]
 triggers = [
   "product.status",
   "product.options.*",
-  "product.options.optionValues.*",
-  "product.options.linkedMetafield.*",
   "product.variants.*",
-  "product.metafield(namespace: 'carat', key: 'syos_eligible').*",
-  "product.metafield(namespace: 'carat', key: 'syos_stone_shape').*",
-  "product.metafield(namespace: 'carat', key: 'syos_setting_style').*",
-  "product.metafield(namespace: 'carat', key: 'syos_prong_adjustable').*",
-  "product.metafield(namespace: 'carat', key: 'syos_prong_tolerance_eligible').*",
-  "product.metafield(namespace: 'carat', key: 'syos_vendor').*",
-  "product.variants.metafield(namespace: 'carat', key: 'syos_vendor_min_length_mm').*",
-  "product.variants.metafield(namespace: 'carat', key: 'syos_vendor_max_length_mm').*",
-  "product.variants.metafield(namespace: 'carat', key: 'syos_vendor_min_width_mm').*",
-  "product.variants.metafield(namespace: 'carat', key: 'syos_vendor_max_width_mm').*",
-  "product.variants.metafield(namespace: 'carat', key: 'syos_vendor_range_source').*",
-  "product.variants.metafield(namespace: 'carat', key: 'syos_compatibility_active').*",
+  "product.metafield(namespace: 'carat').*",
+  "product.variants.metafield(namespace: 'carat').*",
 ]
 uri = "/webhooks/carat/events/syos-product"
 query = """
@@ -390,11 +384,7 @@ handle = "syos-center-size-profile"
 topic = "Metaobject"
 actions = ["create", "update", "delete"]
 triggers = [
-  "metaobject(type: '$app:syos_center_size_profile').field(key: 'display_name').*",
-  "metaobject(type: '$app:syos_center_size_profile').field(key: 'stone_shape').*",
-  "metaobject(type: '$app:syos_center_size_profile').field(key: 'nominal_length_mm').*",
-  "metaobject(type: '$app:syos_center_size_profile').field(key: 'nominal_width_mm').*",
-  "metaobject(type: '$app:syos_center_size_profile').field(key: 'nominal_depth_mm').*",
+  "metaobject(type: '$app:syos_center_size_profile').*",
 ]
 uri = "/webhooks/carat/events/syos-profile"
 query = """
