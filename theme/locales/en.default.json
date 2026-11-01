@@ -566,7 +566,10 @@
         "summary_heading": "Settings for your [shape] [type]",
         "no_matches": "No ready settings match this stone right now.",
         "choose": "Choose this setting",
-        "edit": "Edit my stone details"
+        "edit": "Edit my stone details",
+        "matchedSize": "Matched for your stone: ",
+        "from": "From ",
+        "unavailable": "That combination is not available. Try another metal or ring size."
       },
       "custom": {
         "heading": "Create a Custom Setting",

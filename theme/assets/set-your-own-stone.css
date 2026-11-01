@@ -303,3 +303,81 @@
 @media (prefers-reduced-motion: reduce) {
   .carat-syos * { scroll-behavior: auto !important; }
 }
+
+/* ------------------------------------------------------- mounting cards */
+
+/* One card per mounting, not per variant. The matcher returns every
+   compatible variant -- fifteen for the pilot -- and the server groups them,
+   so this styles a single ring with its selectors rather than a grid of
+   duplicates. */
+.carat-syos__mounting {
+  border: 1px solid rgba(var(--color-foreground), 0.2);
+  border-radius: 2px;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.carat-syos__mounting-image {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  display: block;
+}
+
+.carat-syos__mounting-body {
+  padding: 1.4rem 1.6rem 1.6rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+
+.carat-syos__mounting-title {
+  margin: 0;
+  font-size: 1.7rem;
+  line-height: 1.3;
+}
+
+/* The centre size is settled information, not a control. Styled as a stated
+   fact so it does not read as something still to choose. */
+.carat-syos__mounting-matched {
+  margin: 0;
+  font-size: 1.4rem;
+  font-variant-numeric: tabular-nums;
+  color: rgba(var(--color-foreground), 0.85);
+}
+
+.carat-syos__mounting-price {
+  margin: 0;
+  font-size: 1.6rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.carat-syos__mounting-body .carat-syos__field {
+  width: 100%;
+  margin-block-end: 0;
+}
+
+.carat-syos__mounting .carat-syos__choose {
+  width: 100%;
+  min-height: 4.4rem;
+  margin-block-start: 0.4rem;
+}
+
+.carat-syos__mounting .carat-syos__choose[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media screen and (min-width: 750px) {
+  /* Image beside the detail once there is room; stacked on a phone so the
+     selectors stay full-width and thumb-sized. */
+  .carat-syos__mounting {
+    grid-template-columns: 18rem 1fr;
+    align-items: start;
+  }
+  .carat-syos__mounting-image { aspect-ratio: 1 / 1; height: 100%; }
+  .carat-syos__mounting .carat-syos__choose { width: auto; min-width: 22rem; }
+  .carat-syos__mounting-body .carat-syos__field { max-width: 26rem; }
+}

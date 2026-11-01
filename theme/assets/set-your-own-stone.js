@@ -194,35 +194,160 @@
       }
     }
 
-    function renderCandidate(candidate, qualifier) {
-      var card = el('div', 'carat-syos__card');
-      card.appendChild(el('p', 'carat-syos__card-size',
-        candidate.nominalLengthMm + ' × ' + candidate.nominalWidthMm + ' mm'));
+    /**
+     * One mounting, not one variant.
+     *
+     * The matcher answers per variant and the pilot's 9 x 7 pear matches
+     * fifteen of them -- three metals times five ring sizes, all genuinely
+     * compatible. The server groups them; this renders the group.
+     *
+     * THE CENTRE SIZE IS SHOWN, NOT OFFERED. It was decided by measuring the
+     * customer's stone. Handing it back as a dropdown would invite them to
+     * pick a head that does not fit the diamond they already own.
+     *
+     * Metal and ring size resolve to a REAL Shopify variant from the list the
+     * server sent. Nothing here invents an identity; the chosen variant gid
+     * is one Shopify already issued.
+     */
+    function renderMounting(card, qualifier) {
+      var root = el('div', 'carat-syos__mounting');
 
-      var badge = el('span', 'carat-syos__badge carat-syos__badge--' + candidate.status, candidate.label);
-      card.appendChild(badge);
-
-      // §6.3: an automatic match always carries the confirmation line.
-      if (candidate.status === 'automatic' && qualifier) {
-        card.appendChild(el('p', 'carat-syos__card-qualifier', qualifier));
+      if (card.featuredImageUrl) {
+        var img = document.createElement('img');
+        img.className = 'carat-syos__mounting-image';
+        img.src = card.featuredImageUrl;
+        img.alt = card.productTitle;
+        img.loading = 'lazy';
+        root.appendChild(img);
       }
 
-      var choose = el('button', 'button button--secondary carat-syos__choose',
-        s('choose', 'Choose this setting'));
-      choose.type = 'button';
-      choose.addEventListener('click', function () {
-        selectSetting(candidate);
+      var body = el('div', 'carat-syos__mounting-body');
+      body.appendChild(el('h3', 'carat-syos__mounting-title', card.productTitle));
+
+      var badge = el('span', 'carat-syos__badge carat-syos__badge--' + card.status, card.label);
+      body.appendChild(badge);
+
+      body.appendChild(el('p', 'carat-syos__mounting-matched',
+        s('matchedSize', 'Matched for your stone: ') + card.matchedCenterSize));
+
+      if (card.status === 'automatic' && qualifier) {
+        body.appendChild(el('p', 'carat-syos__card-qualifier', qualifier));
+      }
+
+      var priceEl = el('p', 'carat-syos__mounting-price', '');
+      body.appendChild(priceEl);
+
+      // ---- selectors, one per option the customer still chooses
+      var chosen = {};
+      var selects = [];
+
+      card.options.forEach(function (option) {
+        var field = el('div', 'carat-syos__field');
+        var id = 'syos-opt-' + card.productGid.replace(/\D/g, '') + '-' +
+          option.name.replace(/\W/g, '');
+
+        var label = el('label', 'carat-syos__label', option.name);
+        label.setAttribute('for', id);
+        field.appendChild(label);
+
+        var select = document.createElement('select');
+        select.className = 'carat-syos__input';
+        select.id = id;
+        option.values.forEach(function (value, i) {
+          var opt = document.createElement('option');
+          opt.value = value;
+          opt.textContent = value;
+          if (i === 0) opt.selected = true;
+          select.appendChild(opt);
+        });
+        chosen[option.name] = option.values[0];
+        select.addEventListener('change', function () {
+          chosen[option.name] = select.value;
+          refresh();
+        });
+        selects.push(select);
+        field.appendChild(select);
+        root.appendChild(field);
+        body.appendChild(field);
       });
-      card.appendChild(choose);
-      return card;
+
+      var choose = el('button', 'button carat-syos__choose', s('choose', 'Choose this setting'));
+      choose.type = 'button';
+      body.appendChild(choose);
+
+      var unavailable = el('p', 'carat-syos__field-error', s('unavailable',
+        'That combination is not available. Try another metal or ring size.'));
+      unavailable.hidden = true;
+      body.appendChild(unavailable);
+
+      /** Which real Shopify variant do the current choices name? */
+      function currentVariant() {
+        for (var i = 0; i < card.variants.length; i += 1) {
+          var v = card.variants[i];
+          var ok = true;
+          for (var name in chosen) {
+            if (Object.prototype.hasOwnProperty.call(chosen, name) &&
+                v.selections[name] !== chosen[name]) { ok = false; break; }
+          }
+          if (ok) return v;
+        }
+        return null;
+      }
+
+      function refresh() {
+        var v = currentVariant();
+        if (v && v.price) {
+          priceEl.textContent = formatMoney(v.price, card.currencyCode);
+        } else if (card.priceFrom) {
+          priceEl.textContent = s('from', 'From ') + formatMoney(card.priceFrom, card.currencyCode);
+        } else {
+          priceEl.textContent = '';
+        }
+        // A real combination that Shopify says is sold out must not look
+        // buyable, and a combination that does not exist must not silently
+        // submit the wrong variant.
+        var usable = !!v && v.availableForSale !== false;
+        choose.disabled = !usable;
+        unavailable.hidden = usable;
+      }
+
+      choose.addEventListener('click', function () {
+        var v = currentVariant();
+        if (!v) return;
+        selectSetting({
+          variantGid: v.variantGid,
+          productGid: card.productGid,
+          selectedOptions: chosen,
+        });
+      });
+
+      refresh();
+      root.appendChild(body);
+      return root;
+    }
+
+    /** Money as the shop stores it. No rounding, no re-derivation. */
+    function formatMoney(amount, currency) {
+      if (!amount) return '';
+      try {
+        return new Intl.NumberFormat(undefined, {
+          style: 'currency',
+          currency: currency || 'USD',
+        }).format(Number(amount));
+      } catch (e) {
+        return amount;
+      }
     }
 
     function renderResults(payload) {
       if (!resultsBox) return;
       resultsBox.innerHTML = '';
 
-      var m = payload.matches;
-      var any = m.automatic.length + m.reviewRequired.length;
+      // One card per mounting, from the server's grouping. The flat
+      // `matches` list is still in the payload for diagnostics; rendering it
+      // would put fifteen identical cards on screen.
+      var cards = payload.mountings || [];
+      var any = cards.length;
 
       if (any === 0) {
         // §6.4 — no irrelevant mountings dressed up as compatible. An
@@ -238,11 +363,10 @@
 
       if (customBlock) customBlock.classList.remove('carat-syos__custom--lead');
 
-      m.automatic.forEach(function (c) {
-        resultsBox.appendChild(renderCandidate(c, payload.qualifier));
-      });
-      m.reviewRequired.forEach(function (c) {
-        resultsBox.appendChild(renderCandidate(c, null));
+      cards.forEach(function (c) {
+        resultsBox.appendChild(
+          renderMounting(c, c.status === 'automatic' ? payload.qualifier : null)
+        );
       });
     }
 
@@ -256,6 +380,7 @@
           sessionReference: sessionReference,
           variantGid: candidate.variantGid,
           productGid: candidate.productGid || candidate.variantGid,
+          selectedOptions: candidate.selectedOptions || undefined,
         }),
       })
         .then(function (r) {

@@ -26,6 +26,7 @@ import type { ActionFunctionArgs } from "react-router";
 import { z } from "zod";
 
 import { findEligibleSettingsForShape } from "~/db/repositories/readySettingRepository.server";
+import { groupMountings, type MatchedVariant } from "~/domain/setyourownstone/groupMountings";
 import {
   createStoneSession,
   toStoneSessionView,
@@ -42,6 +43,8 @@ import {
 import { resolveMatchingPolicy } from "~/domain/setyourownstone/policy.server";
 import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
+import { adminClientForShop } from "~/shopify/admin/offlineClient.server";
+import { readVariantDisplay } from "~/shopify/admin/syosProductReader.server";
 import { verifyAppProxySignature } from "~/shopify/proxy";
 
 const SHAPES = [
@@ -125,6 +128,18 @@ function toCandidateView(result: MatchResult): CandidateView {
   };
 }
 
+/** The matcher's answer, in the shape the grouping function consumes. */
+function toMatchedVariant(result: MatchResult): MatchedVariant {
+  return {
+    variantGid: result.setting.shopifyVariantGid,
+    status: result.status,
+    label: labelFor(result),
+    centerSizeProfileId: result.setting.centerSizeProfileId ?? null,
+    nominalLengthMm: micrometresToMm(result.setting.nominalLengthUm),
+    nominalWidthMm: micrometresToMm(result.setting.nominalWidthUm),
+  };
+}
+
 export async function action({ request }: ActionFunctionArgs) {
   if (request.method !== "POST") {
     return Response.json({ error: "method_not_allowed" }, { status: 405 });
@@ -198,6 +213,39 @@ export async function action({ request }: ActionFunctionArgs) {
     await resolveMatchingPolicy()
   );
 
+  // ------------------------------------------------- the customer-facing cards
+  //
+  // The matcher answers per variant, correctly: the pilot's 9 x 7 pear
+  // matches fifteen variants of one ring. Fifteen identical cards would be
+  // absurd, so they collapse to one per mounting + matched centre size, with
+  // metal and ring size left for the customer and the centre size shown as
+  // settled information.
+  //
+  // DISPLAY DATA IS READ FROM SHOPIFY, NOT MIRRORED. Title, image, price and
+  // availability are Shopify's to change; a stale price on a card is a worse
+  // failure than one extra read. If that read fails the customer still gets a
+  // usable answer -- the verdict is already computed -- so it degrades to an
+  // empty card list rather than a 500.
+  const matched = [...summary.automatic, ...summary.reviewRequired].map(toMatchedVariant);
+  let mountings: ReturnType<typeof groupMountings> = [];
+
+  if (matched.length > 0 && shop) {
+    try {
+      const admin = await adminClientForShop(shop);
+      if (admin) {
+        const display = await readVariantDisplay(admin, matched.map((m) => m.variantGid));
+        mountings = groupMountings(matched, display);
+      } else {
+        logger.warn("stone_session.no_admin_client", { shop });
+      }
+    } catch (error) {
+      logger.warn("stone_session.display_read_failed", {
+        shop,
+        message: error instanceof Error ? error.message : "unknown",
+      });
+    }
+  }
+
   logger.info("stone_session.created", {
     sessionReference: session.sessionReference,
     authenticated: customerRef !== null,
@@ -205,6 +253,7 @@ export async function action({ request }: ActionFunctionArgs) {
     eligibleSettingsConsidered: settings.length,
     automatic: summary.automatic.length,
     reviewRequired: summary.reviewRequired.length,
+    mountingsShown: mountings.length,
   });
 
   return Response.json(
@@ -215,6 +264,12 @@ export async function action({ request }: ActionFunctionArgs) {
         widthMm: micrometresToMm(widthUm),
         depthMm: depthUm === null ? null : micrometresToMm(depthUm),
       },
+      /**
+       * What the storefront renders: one card per mounting + matched centre
+       * size. The flat `matches` below is retained for diagnostics and for
+       * the existing tests; the UI reads this.
+       */
+      mountings,
       matches: {
         automatic: summary.automatic.map(toCandidateView),
         reviewRequired: summary.reviewRequired.map(toCandidateView),

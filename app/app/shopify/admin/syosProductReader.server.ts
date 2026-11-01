@@ -48,6 +48,7 @@
  * per variant would be 360 calls for six distinct answers and would exhaust
  * the rate limit on a single product.
  */
+import type { VariantDisplay } from "~/domain/setyourownstone/groupMountings";
 import type { SizeProfile } from "~/domain/setyourownstone/metafieldProjection";
 import type { ShopifyProductCompatibilityInput } from "~/domain/setyourownstone/metafieldProjection";
 import {
@@ -326,4 +327,84 @@ async function run<T>(
     throw new AdminApiError(operation, ["response contained no data"]);
   }
   return envelope.data;
+}
+
+// ---------------------------------------------- display data for the cards
+
+const READ_VARIANT_DISPLAY = `#graphql
+  query SyosVariantDisplay($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on ProductVariant {
+        id
+        price
+        availableForSale
+        selectedOptions { name value }
+        product {
+          id
+          title
+          handle
+          featuredMedia { preview { image { url } } }
+        }
+      }
+    }
+  }`;
+
+/**
+ * What the storefront needs to RENDER a matched mounting: title, image,
+ * price, availability and the customer-facing option values.
+ *
+ * Read from Shopify at request time rather than mirrored into our index. The
+ * index exists to answer "does this fit", which is our question; title, price
+ * and availability are Shopify's, change without our involvement, and a stale
+ * price on a card is a worse failure than an extra read.
+ *
+ * ONE CALL FOR EVERY MATCHED VARIANT. The pilot matches fifteen variants of
+ * one ring, so a per-variant read would be fifteen round trips for one card.
+ */
+export async function readVariantDisplay(
+  client: AdminGraphqlClient,
+  variantGids: readonly string[]
+): Promise<Map<string, VariantDisplay>> {
+  const out = new Map<string, VariantDisplay>();
+  if (variantGids.length === 0) return out;
+
+  // `nodes` is capped; page in chunks rather than silently truncating.
+  const CHUNK = 100;
+  for (let i = 0; i < variantGids.length; i += CHUNK) {
+    const data = await run<{ nodes?: (RawVariantDisplay | null)[] }>(
+      client,
+      READ_VARIANT_DISPLAY,
+      { ids: variantGids.slice(i, i + CHUNK) },
+      "nodes(variantDisplay)"
+    );
+
+    for (const n of data.nodes ?? []) {
+      if (!n?.product) continue;
+      out.set(n.id, {
+        variantGid: n.id,
+        productGid: n.product.id,
+        productTitle: n.product.title,
+        productHandle: n.product.handle,
+        featuredImageUrl: n.product.featuredMedia?.preview?.image?.url ?? null,
+        price: n.price ?? null,
+        currencyCode: null,
+        availableForSale: n.availableForSale ?? false,
+        selections: Object.fromEntries((n.selectedOptions ?? []).map((o) => [o.name, o.value])),
+      });
+    }
+  }
+  return out;
+}
+
+interface RawVariantDisplay {
+  id: string;
+  price?: string | null;
+  availableForSale?: boolean;
+  selectedOptions?: { name: string; value: string }[];
+  product?: {
+    id: string;
+    title: string;
+    handle: string;
+    featuredMedia?: { preview?: { image?: { url?: string | null } | null } | null } | null;
+  } | null;
 }
