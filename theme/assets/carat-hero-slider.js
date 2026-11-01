@@ -76,10 +76,27 @@
       });
     });
 
-    // Hovering the hero usually means reading it. A tab in the background is
-    // wasted work.
-    root.addEventListener('mouseenter', pause);
-    root.addEventListener('mouseleave', start);
+    // NO HOVER PAUSE. There used to be one, and it was a real bug: this hero
+    // is full-bleed at the top of the page, so a cursor resting anywhere near
+    // the middle of the window is ON it. Autoplay paused on mouseenter and
+    // only resumed on mouseleave, which meant someone who loaded the page and
+    // did not move their mouse saw a slideshow that never moved. Measured:
+    // with the cursor parked over the hero, one slide in sixteen seconds;
+    // moved away, three.
+    //
+    // Hovering is not interacting with the slideshow anyway. Choosing a dot
+    // is, and that still stops it for good.
+
+    // Keyboard focus IS an interaction: someone tabbing to the dots is about
+    // to choose, and moving the picture under them would be rude.
+    if (dots.length > 0) {
+      var dotsWrap = dots[0].parentNode;
+      dotsWrap.addEventListener('focusin', pause);
+      dotsWrap.addEventListener('focusout', start);
+    }
+
+    // A hidden tab is wasted work, and resuming on return is invisible to the
+    // reader either way.
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) pause(); else start();
     });

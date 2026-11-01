@@ -187,7 +187,7 @@
         "cta2_label": "How Group Buy works",
         "cta2_link": "/pages/group-buy",
         "autoplay": true,
-        "interval": 6,
+        "interval": 5,
         "height": "medium",
         "tone": "overlay",
         "aria_label": "Featured jewelry"
