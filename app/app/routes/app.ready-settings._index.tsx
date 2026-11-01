@@ -64,6 +64,36 @@ interface ActionData {
   readonly saved?: string;
 }
 
+/**
+ * `staff:<shopify user id>`, from the ONLINE session only — never a form field.
+ *
+ * Three independent technical barriers stand in front of every write here, and
+ * none of them is the staff review step further down the workflow:
+ *
+ *   1. `authenticate.admin` validates a Shopify session token. A request
+ *      without one is redirected to auth and never reaches the action.
+ *   2. React Router's `throwIfPotentialCSRFAttack` rejects a mutation whose
+ *      Origin differs from this app's own host. Shopify Admin frames this
+ *      route at the app's own URL, so its forms are same-origin by
+ *      construction while anything cross-origin is refused.
+ *   3. This function. An OFFLINE session carries no associated user, and a
+ *      write with no staff identity is refused outright rather than recorded
+ *      against nobody.
+ *
+ * The third exists because the first two establish "a valid session for this
+ * shop", which is not the same claim as "a known member of staff did this".
+ * Compatibility data decides what a customer is told about their own diamond,
+ * so an unattributable change to it is not something to accept and sort out
+ * afterwards.
+ */
+function resolveStaffActorRef(
+  session: Awaited<ReturnType<typeof authenticate.admin>>["session"]
+): string | null {
+  const associatedUser = session.onlineAccessInfo?.associated_user;
+  if (!associatedUser) return null;
+  return `staff:${associatedUser.id}`;
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   await authenticate.admin(request);
   return {
@@ -74,6 +104,26 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export async function action({ request }: ActionFunctionArgs) {
   const { session } = await authenticate.admin(request);
+
+  if (request.method !== "POST") {
+    return Response.json({ formError: "Method not allowed." } satisfies ActionData, { status: 405 });
+  }
+
+  // Refused BEFORE the body is read, so an unattributable request does no work
+  // at all and cannot be distinguished by timing from one that was merely
+  // malformed.
+  const actorRef = resolveStaffActorRef(session);
+  if (!actorRef) {
+    logger.warn("ready_setting.write_without_staff_identity", { shop: session.shop });
+    return Response.json(
+      {
+        formError:
+          "This change could not be attributed to a staff account. Reopen this page from Shopify Admin and try again.",
+      } satisfies ActionData,
+      { status: 401 }
+    );
+  }
+
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
 
@@ -87,6 +137,7 @@ export async function action({ request }: ActionFunctionArgs) {
     logger.info("ready_setting.active_toggled", {
       shopifyVariantGid: updated.shopifyVariantGid,
       isActive: updated.isActive,
+      actorRef,
       shop: session.shop,
     });
     return Response.json({
@@ -125,6 +176,7 @@ export async function action({ request }: ActionFunctionArgs) {
     prongSetToleranceEligible: saved.prongSetToleranceEligible,
     eligibleForSetYourOwnStone: saved.eligibleForSetYourOwnStone,
     isActive: saved.isActive,
+    actorRef,
     shop: session.shop,
   });
 

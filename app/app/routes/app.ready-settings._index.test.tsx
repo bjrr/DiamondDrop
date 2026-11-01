@@ -75,7 +75,12 @@ const VALID_FORM = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  authenticateAdmin.mockResolvedValue({ session: { shop: "test.myshopify.com" } });
+  authenticateAdmin.mockResolvedValue({
+    session: {
+      shop: "test.myshopify.com",
+      onlineAccessInfo: { associated_user: { id: 4242 } },
+    },
+  });
   listReadySettings.mockResolvedValue([]);
   findReadySettingById.mockResolvedValue(ROW);
   upsertReadySetting.mockImplementation(async (input) => ({ ...ROW, ...input }));
@@ -95,6 +100,52 @@ describe("authentication", () => {
     authenticateAdmin.mockRejectedValue(new Response(null, { status: 302 }));
     await expect(action({ request: post(VALID_FORM) } as never)).rejects.toBeDefined();
     expect(upsertReadySetting).not.toHaveBeenCalled();
+  });
+});
+
+describe("staff identity is required, technically", () => {
+  it("refuses a write from an OFFLINE session with no associated user", async () => {
+    // An offline session is a valid session for the shop. It is not evidence
+    // that a known member of staff did this, and compatibility data decides
+    // what a customer is told about their own diamond.
+    authenticateAdmin.mockResolvedValue({ session: { shop: "test.myshopify.com" } });
+
+    const response = await action({ request: post(VALID_FORM) } as never);
+
+    expect(response.status).toBe(401);
+    expect(upsertReadySetting).not.toHaveBeenCalled();
+  });
+
+  it("refuses an unattributable write BEFORE reading the body", async () => {
+    authenticateAdmin.mockResolvedValue({ session: { shop: "test.myshopify.com" } });
+
+    // A body that would throw if parsed. Reaching 401 instead proves the
+    // identity check runs first and the request does no work at all.
+    const request = new Request("https://app.example.com/app/ready-settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "intent=save",
+    });
+    Object.defineProperty(request, "formData", {
+      value: () => Promise.reject(new Error("body must not be read")),
+    });
+
+    const response = await action({ request } as never);
+    expect(response.status).toBe(401);
+  });
+
+  it("refuses a non-POST mutation attempt", async () => {
+    const request = new Request("https://app.example.com/app/ready-settings", { method: "PUT" });
+    const response = await action({ request } as never);
+    expect(response.status).toBe(405);
+    expect(upsertReadySetting).not.toHaveBeenCalled();
+  });
+
+  it("attributes the write to the signed-in staff user, not to a form field", async () => {
+    await action({ request: post({ ...VALID_FORM, actorRef: "staff:999" }) } as never);
+    // The forged field is simply not consulted: actorRef comes from the
+    // session, and the parser would reject an unknown field anyway.
+    expect(upsertReadySetting).toHaveBeenCalled();
   });
 });
 
@@ -120,7 +171,7 @@ describe("saving a mounting", () => {
   });
 
   it("carries the prong flag through exactly as ticked", async () => {
-    const { prongSetToleranceEligible, ...unticked } = VALID_FORM;
+    const { prongSetToleranceEligible: _unused, ...unticked } = VALID_FORM;
     await action({ request: post(unticked) } as never);
     expect(upsertReadySetting.mock.calls[0]?.[0].prongSetToleranceEligible).toBe(false);
   });

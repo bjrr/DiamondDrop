@@ -107,16 +107,22 @@ const EXEMPT_UI_ACTION_ROUTES: Readonly<Record<string, string>> = {
     "so a form inside it posts with the app's own Origin and is same-origin " +
     "by construction, while throwIfPotentialCSRFAttack rejects a mutation " +
     "whose Origin differs from the app's own host. " +
-    "WHAT THIS ROUTE CAN DO IF THE EXEMPTION WERE WRONG, stated plainly " +
-    "because it is not nothing: it writes the shape and millimetre data the " +
-    "matching rules consult, so a forged write could make a mounting claim " +
-    "'Matches your stone size' for a stone it cannot hold, or flip a bezel " +
-    "setting to prong-adjustable and hand it the +/-0.3 mm allowance. It " +
-    "touches no money, no order and no Shopify API, and every match is still " +
-    "reviewed by staff before a customer is asked to send a stone (SYOS " +
-    "section 8) — but the bound on the damage is a human review step, not a " +
-    "technical one. If this route ever accepts a POST from anywhere but its " +
-    "own rendered form, this exemption stops being true and must be re-argued.",
+    "A THIRD TECHNICAL BARRIER STANDS BEHIND THE ORIGIN CHECK, and the " +
+    "exemption does not rest on process. Every write requires an ONLINE " +
+    "session with an associated Shopify user and returns 401 without one, " +
+    "refused before the request body is read. Same-origin plus a valid " +
+    "session token establishes 'a valid session for this shop'; it does not " +
+    "establish 'a known member of staff did this', and compatibility data " +
+    "decides what a customer is told about their own diamond. " +
+    "What a forged write would otherwise reach, stated plainly: the shape " +
+    "and millimetre data the matching rules consult, so it could make a " +
+    "mounting claim 'Matches your stone size' for a stone it cannot hold, or " +
+    "flip a bezel setting to prong-adjustable and hand it the +/-0.3 mm " +
+    "allowance. It touches no money, no order and no Shopify API. The later " +
+    "staff review of each project is a workflow step, NOT part of this " +
+    "security argument. If this route ever accepts a POST from anywhere but " +
+    "its own rendered form, or ever accepts one without a staff identity, " +
+    "this exemption stops being true and must be re-argued.",
   "app.group-buy-demand.tsx":
     "the Group Buy demand worklist (Slice 13). Same argument as " +
     "app.bank-payments.$id.tsx, not _index.tsx: this route IS a real production " +
