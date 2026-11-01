@@ -52,10 +52,36 @@ describe("no pricing module re-derives the vendor base ring size", () => {
     expect(files.map((f) => f.file)).toContain("mountingPricing.ts");
   });
 
-  it("none of them imports the import-time title parser", () => {
-    const offenders = pricingSources()
-      .filter(({ source }) => /vendorDefaultRingSize/.test(stripComments(source)))
-      .map(({ file }) => file);
+  it("none of them calls the import-time title parser", () => {
+    // The hazard is CALLING the parser, not sharing a module with it.
+    // `vendorMountingInputs.ts` legitimately imports the 1-11 range constants
+    // so the supported range is stated once; it must not import either
+    // function that reads a title.
+    const FORBIDDEN = ["extractVendorDefaultRingSize", "verifyStoredDefaultRingSize"];
+    const offenders: string[] = [];
+    for (const { file, source } of pricingSources()) {
+      const code = stripComments(source);
+      for (const fn of FORBIDDEN) {
+        if (new RegExp(`\\b${fn}\\b`).test(code)) offenders.push(`${file}: ${fn}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("only the range constants may be imported from the parser's module", () => {
+    // Checked by name rather than by module, so a new title-reading export
+    // added to that module is refused here by default instead of sliding in.
+    const ALLOWED = new Set(["MIN_VENDOR_RING_SIZE", "MAX_VENDOR_RING_SIZE"]);
+    const offenders: string[] = [];
+    for (const { file, source } of pricingSources()) {
+      const code = stripComments(source);
+      const importBlock = /import\s*\{([^}]*)\}\s*from\s*"\.\/vendorDefaultRingSize"/.exec(code);
+      if (!importBlock) continue;
+      for (const raw of importBlock[1]!.split(",")) {
+        const name = raw.replace(/\btype\b/, "").trim();
+        if (name !== "" && !ALLOWED.has(name)) offenders.push(`${file}: ${name}`);
+      }
+    }
     expect(offenders).toEqual([]);
   });
 

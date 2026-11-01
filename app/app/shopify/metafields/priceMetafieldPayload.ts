@@ -160,6 +160,78 @@ export function shopifyLegacyIdFromGid(gid: string): string {
   return digits;
 }
 
+/**
+ * A VENDOR MOUNTING's bank payment payload (owner decisions 2026-11-01 §1/§4).
+ *
+ * Same key, same namespace, same four customer-facing figures and the same
+ * R14 self-validating pair, so `snippets/price.liquid` renders it with no
+ * change at all — it reads `bankPaymentPriceMinorUnits`,
+ * `bankPaymentSavingsMinorUnits`, `shopifyVariantId` and
+ * `cardPriceAnchorMinorUnits`, and nothing else.
+ *
+ * WHAT IT DELIBERATELY OMITS, AND WHY THAT IS NOT A GAP. A George's mounting
+ * is authored in Shopify and has no `MasterVariant` or `PriceCalculation` row,
+ * so it has no `masterVariantId` and no `priceCalculationId`. Those are NOT
+ * filled with a synthesised uuid: an audit id pointing at a row that does not
+ * exist is worse than no id, because every tool that resolves it reports a
+ * missing record rather than a wrong one.
+ *
+ * Their job is still done. `priceCalculationId` existed to catch a
+ * partially-applied write, and R14's pair already catches strictly more than
+ * it did — `cardPriceAnchorMinorUnits` is compared against Shopify's own live
+ * `variant.price`, which cannot itself go stale. The theme's coherence gate is
+ * that comparison, not the id.
+ *
+ * `priceSource` is the discriminator a server-side reader needs to tell the
+ * two payload shapes apart, so nothing tries to look up a MasterVariant for a
+ * mounting that has none. No rule id, cost, markup, fee, uplift rate or tier
+ * label appears here — C-S5/R14 forbids all of them in a metafield, and the
+ * pricing rule's identity is an internal fact.
+ */
+export interface VendorMountingBankPaymentMetafieldPayload {
+  readonly priceSource: "shopify_vendor_mounting";
+  readonly currency: string;
+  readonly bankPaymentPriceMinorUnits: string;
+  readonly regularCardPriceMinorUnits: string;
+  readonly bankPaymentSavingsMinorUnits: string;
+  readonly shopifyVariantId: string;
+  readonly cardPriceAnchorMinorUnits: string;
+}
+
+/** The figures a vendor mounting's payload is built from. Nothing else. */
+export interface VendorMountingPublishedPrice {
+  readonly bankPaymentPriceMinorUnits: bigint;
+  readonly regularCardPriceMinorUnits: bigint;
+  readonly bankPaymentSavingsMinorUnits: bigint;
+  readonly currency: string;
+}
+
+/**
+ * Variant-level `carat.bank_payment_price_minor_units` for a Shopify-native
+ * vendor mounting. Type `json`, same as the engine-backed builder.
+ */
+export function buildVendorMountingBankPaymentPriceMetafield(
+  shopifyVariantGid: string,
+  price: VendorMountingPublishedPrice
+): PriceMetafieldWriteInput {
+  const payload: VendorMountingBankPaymentMetafieldPayload = {
+    priceSource: "shopify_vendor_mounting",
+    currency: price.currency,
+    bankPaymentPriceMinorUnits: price.bankPaymentPriceMinorUnits.toString(),
+    regularCardPriceMinorUnits: price.regularCardPriceMinorUnits.toString(),
+    bankPaymentSavingsMinorUnits: price.bankPaymentSavingsMinorUnits.toString(),
+    shopifyVariantId: shopifyLegacyIdFromGid(shopifyVariantGid),
+    cardPriceAnchorMinorUnits: price.regularCardPriceMinorUnits.toString(),
+  };
+  return {
+    ownerId: shopifyVariantGid,
+    namespace: PRICE_METAFIELD_NAMESPACE,
+    key: "bank_payment_price_minor_units",
+    type: "json",
+    value: JSON.stringify(payload),
+  };
+}
+
 export interface VariantBankPaymentMetafieldPayload extends PriceBearingMetafieldPayload {
   readonly regularCardPriceMinorUnits: string;
   readonly bankPaymentSavingsMinorUnits: string;

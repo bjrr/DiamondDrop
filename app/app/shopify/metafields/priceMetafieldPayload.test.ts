@@ -10,6 +10,7 @@ import {
   buildVariantBankPaymentEligibleMetafield,
   buildVariantBankPaymentPriceMetafield,
   buildVariantSyncSuspendedMetafield,
+  buildVendorMountingBankPaymentPriceMetafield,
   compareMetafieldToPublishedCalculation,
   parsePriceBearingMetafieldValue,
   shopifyLegacyIdFromGid,
@@ -262,5 +263,97 @@ describe("compareMetafieldToPublishedCalculation", () => {
     const result = compareMetafieldToPublishedCalculation("calc-1", null);
     expect(result.coherent).toBe(false);
     expect(result.publishedPriceCalculationId).toBeNull();
+  });
+});
+
+describe("vendor mounting bank payment payload", () => {
+  // A George's mounting is authored in Shopify and has no MasterVariant or
+  // PriceCalculation row. The payload must still render in price.liquid with
+  // no theme change, and must not invent audit ids.
+  const PRICE = {
+    bankPaymentPriceMinorUnits: 49350n,
+    regularCardPriceMinorUnits: 52000n,
+    bankPaymentSavingsMinorUnits: 2650n,
+    currency: "USD",
+  };
+  const VARIANT = "gid://shopify/ProductVariant/67939609051354";
+
+  function payload() {
+    const input = buildVendorMountingBankPaymentPriceMetafield(VARIANT, PRICE);
+    return { input, value: JSON.parse(input.value) as Record<string, unknown> };
+  }
+
+  it("writes the same namespace, key and type the theme already reads", () => {
+    const { input } = payload();
+    expect(input.namespace).toBe("carat");
+    expect(input.key).toBe("bank_payment_price_minor_units");
+    expect(input.type).toBe("json");
+    expect(input.ownerId).toBe(VARIANT);
+  });
+
+  it("carries exactly the fields price.liquid reads", () => {
+    const { value } = payload();
+    expect(value.bankPaymentPriceMinorUnits).toBe("49350");
+    expect(value.bankPaymentSavingsMinorUnits).toBe("2650");
+    expect(value.shopifyVariantId).toBe("67939609051354");
+    expect(value.cardPriceAnchorMinorUnits).toBe("52000");
+  });
+
+  it("anchors the card price to the figure actually published", () => {
+    // R14: the theme compares this against Shopify's live variant.price, so a
+    // failed price write makes the pair self-detecting.
+    const { value } = payload();
+    expect(value.cardPriceAnchorMinorUnits).toBe(value.regularCardPriceMinorUnits);
+  });
+
+  it("emits every money figure as a decimal STRING, never a JSON number", () => {
+    const { value } = payload();
+    for (const k of [
+      "bankPaymentPriceMinorUnits",
+      "regularCardPriceMinorUnits",
+      "bankPaymentSavingsMinorUnits",
+      "shopifyVariantId",
+      "cardPriceAnchorMinorUnits",
+    ]) {
+      expect(typeof value[k]).toBe("string");
+    }
+  });
+
+  it("declares its source so nothing looks up a MasterVariant it does not have", () => {
+    expect(payload().value.priceSource).toBe("shopify_vendor_mounting");
+  });
+
+  it("does NOT synthesise audit ids it cannot honour", () => {
+    // An id pointing at a row that does not exist is worse than no id: every
+    // tool that resolves it reports a missing record rather than a wrong one.
+    const { value } = payload();
+    expect(value).not.toHaveProperty("masterVariantId");
+    expect(value).not.toHaveProperty("priceCalculationId");
+  });
+
+  it("leaks no cost, markup, fee, rate, tier or rule id (C-S5 / R14)", () => {
+    // `priceSource` is the one permitted non-figure: it names which payload
+    // SHAPE this is, which a server-side reader needs, and says nothing about
+    // economics. Everything below is what R14 actually forbids.
+    const { input, value } = payload();
+    expect(Object.keys(value).sort()).toEqual([
+      "bankPaymentPriceMinorUnits",
+      "bankPaymentSavingsMinorUnits",
+      "cardPriceAnchorMinorUnits",
+      "currency",
+      "priceSource",
+      "regularCardPriceMinorUnits",
+      "shopifyVariantId",
+    ]);
+    expect(input.value).not.toMatch(/cost|margin|markup|uplift|tier|supplier|ruleId|rule_id/i);
+    expect(input.value).not.toMatch(/breakdown|largeStone|bandPave|hiddenHalo|ringSizeAdjustment/i);
+    // The markup, the fees and the rule's name must not be inferable either.
+    expect(input.value).not.toMatch(/1\.75|175|_V1|24200|7000|2500|4000/);
+  });
+
+  it("refuses a malformed variant gid rather than writing an unanchored price", () => {
+    expect(() =>
+      buildVendorMountingBankPaymentPriceMetafield("gid://shopify/ProductVariant/", PRICE)
+    ).toThrow(MalformedShopifyGidError);
   });
 });
