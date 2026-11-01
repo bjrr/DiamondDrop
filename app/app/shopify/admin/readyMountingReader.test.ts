@@ -228,3 +228,49 @@ describe("profile resolution prefers the per-variant reference", () => {
     expect(src).not.toMatch(/parseFloat|parseInt/);
   });
 });
+
+// ==================== the $app: type is resolved on read, and must still match
+
+describe("size profile type matching survives Shopify resolving $app:", () => {
+  // The bug this pins cost a full pilot sync: we declare the metaobject type
+  // as "$app:syos_center_size_profile" and every READ returns
+  // "app--424838725633--syos_center_size_profile". Strict equality matched
+  // nothing, so all 75 configurations synced as "not linked to a profile"
+  // while their metafields were correct the whole time.
+  const declared = "$app:syos_center_size_profile";
+  const resolved = "app--424838725633--syos_center_size_profile";
+  const otherInstall = "app--999999999999--syos_center_size_profile";
+
+  function isSizeProfileType(type: string): boolean {
+    const bare = declared.replace(/^\$app:/, "");
+    return type === declared || type.endsWith(`--${bare}`);
+  }
+
+  it("accepts the declared $app: spelling", () => {
+    expect(isSizeProfileType(declared)).toBe(true);
+  });
+
+  it("accepts the resolved app-- spelling Shopify actually returns", () => {
+    expect(isSizeProfileType(resolved)).toBe(true);
+  });
+
+  it("accepts a different install's app id", () => {
+    // The numeric app id differs between installs, so hard-coding ours would
+    // break the dev store and any reinstall.
+    expect(isSizeProfileType(otherInstall)).toBe(true);
+  });
+
+  it("rejects a different metaobject type", () => {
+    expect(isSizeProfileType("app--424838725633--something_else")).toBe(false);
+    expect(isSizeProfileType("syos_center_size_profile_extra")).toBe(false);
+    expect(isSizeProfileType("lookbook")).toBe(false);
+  });
+
+  it("is what the reader actually uses, not just a copy in this test", () => {
+    const src = readFileSync(new URL("./syosProductReader.server.ts", import.meta.url), "utf8");
+    expect(src).toContain("function isSizeProfileType");
+    expect(src).toContain("isSizeProfileType(node.type)");
+    // The strict comparison that caused the bug must be gone.
+    expect(src).not.toMatch(/node\.type !== SYOS_PROFILE_TYPE/);
+  });
+});

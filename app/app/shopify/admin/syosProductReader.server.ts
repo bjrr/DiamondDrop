@@ -60,6 +60,28 @@ import {
 import type { AdminGraphqlClient } from "./productClient.server";
 import { AdminApiError } from "./productClient.server";
 
+/**
+ * Does this metaobject type name our size profile?
+ *
+ * SHOPIFY RESOLVES `$app:` ON READ. We declare the type as
+ * `$app:syos_center_size_profile`, and every read returns
+ * `app--424838725633--syos_center_size_profile` — the app id expanded. A
+ * strict equality against the declared constant therefore matches NOTHING,
+ * silently drops every profile, and leaves each configuration looking
+ * unlinked. That is exactly what happened on the pilot: 75 rows synced with
+ * "not linked to a Center Stone Size Profile" while the metafields were
+ * populated correctly all along.
+ *
+ * Matched on the suffix because the numeric app id differs between the app's
+ * installs, so hard-coding the resolved string would break on the dev store
+ * and on any reinstall. Both spellings are accepted so the declared constant
+ * stays meaningful.
+ */
+function isSizeProfileType(type: string): boolean {
+  const bare = SYOS_PROFILE_TYPE.replace(/^$app:/, "");
+  return type === SYOS_PROFILE_TYPE || type.endsWith(`--${bare}`);
+}
+
 /** The option that carries centre size. Matched by the LINKED METAFIELD, not
  *  by name: a merchant may rename the option in Admin, and the link is the
  *  thing that actually defines its meaning. */
@@ -222,7 +244,7 @@ export async function readSizeProfiles(
   }>(client, READ_PROFILES, { ids: [...metaobjectIds] }, "nodes(sizeProfiles)");
 
   for (const node of data.nodes ?? []) {
-    if (!node || node.type !== SYOS_PROFILE_TYPE) continue;
+    if (!node || !isSizeProfileType(node.type)) continue;
     const fields = toRecord(node.fields);
     out.set(node.id, {
       metaobjectId: node.id,
