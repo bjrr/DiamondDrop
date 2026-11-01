@@ -103,6 +103,12 @@ At minimum, each eligible setting/variant must be able to define:
 - metal/options already supported by the product
 - optional explicit minimum/maximum accepted dimensions when supplied by the manufacturer/vendor
 - optional compatibility tolerance only when explicitly approved/configured
+- **whether the mounting's setting style is reasonably adjustable by prong setting**, which determines whether it receives the approved ±0.3 mm allowance of §6.2 (owner decision 2026-10-31)
+- **active/inactive status**, so a mounting can be withdrawn from Set Your Own Stone without deleting its compatibility record and losing the history of what customers were shown
+
+Prong-adjustability must default to **not eligible**. A mounting that has not been assessed must never inherit a fit allowance: a bezel, channel or tension setting advertised as a size match would be discovered at the bench, after the customer has already posted their own stone.
+
+Staff must be able to maintain all of the above through an **operator screen in the embedded CaratForUs admin**. Direct database editing is not an acceptable normal workflow (owner decision 2026-10-31).
 
 These values must be structured data, not parsed from product titles at runtime.
 
@@ -128,16 +134,31 @@ Vendors commonly describe ready mountings by nominal recommended sizes such as 1
 
 The application must support those nominal dimensions directly.
 
-**Do not invent a universal jewelry-fit tolerance.** Fit tolerance can vary by shape, head/basket design, vendor, and construction.
+**Do not invent a universal jewelry-fit tolerance.** Fit tolerance can vary by shape, head/basket design, vendor, and construction. This prohibition binds the implementation, not the owner: a tolerance that is explicitly approved and recorded here is a decision, not an invention.
 
-For MVP1:
+### 6.2.1 Approved matching behavior (owner decision, locked 2026-10-31)
 
-- where the setting record has an explicit manufacturer/vendor accepted range, use that range;
-- where an owner-approved compatibility tolerance is configured, use it;
-- where only a nominal size is available and no tolerance/range has been approved, only an exact nominal-size match may be represented as an automatic match;
-- near-size candidates may be surfaced only as **review required**, not as a guaranteed fit.
+Professional prong-set mountings routinely accommodate small dimensional differences during setting. The owner has therefore approved the following, which is **authoritative for MVP1**:
 
-The matching service must make tolerance/range data configurable so a later owner-approved rule does not require rewriting the storefront.
+| Condition | Outcome |
+| --- | --- |
+| Explicit manufacturer/vendor min/max range present | **The vendor range decides, always.** Inside the range is an automatic match; outside it is not a candidate. |
+| Same shape, exact nominal length and width | Automatic match |
+| Same shape, prong-adjustable mounting, difference up to and including **±0.3 mm** in the relevant length and/or width | Automatic match — **Matches your stone size** |
+| Difference greater than 0.3 mm but no more than **1.0 mm** | **Review Required** |
+| Difference greater than 1.0 mm | Not presented as a normal compatible ready-mount candidate; direct the customer toward **Create a Custom Setting** |
+
+Three constraints on the above, each of which must hold independently:
+
+1. **Explicit manufacturer/vendor ranges always take precedence.** The ±0.3 mm allowance never overrides a published vendor restriction, and never extends one. Where a vendor range exists it is the only dimensional rule consulted — whether its bounds are narrower or wider than ±0.3 mm.
+2. **Mountings that are not prong-adjustable do not receive the ±0.3 mm automatic allowance.** Eligibility is recorded per mounting (§5) and defaults to not eligible.
+3. **The 1.0 mm figure is a review/discovery band only. It is not a compatibility promise**, and must never be described to a customer as a fit, a tolerance, or a range we accept.
+
+Shape is matched before any dimension is compared. A difference within either band never admits a mounting of the wrong shape.
+
+**Never use "Guaranteed fit"** — see §6.3.
+
+The matching service must make tolerance/range data configurable so a later owner-approved rule does not require rewriting the storefront. Both figures above are configuration, held in one place, not constants scattered through storefront JavaScript.
 
 ### 6.3 Customer-facing compatibility language
 The website must not promise guaranteed physical fit from an automated calculation.
@@ -148,9 +169,18 @@ Allowed concepts:
 - **May work — review required**
 - **Custom setting recommended**
 
+Which phrasing applies, per the 2026-10-31 decision:
+
+- an exact nominal match, a mounting inside its vendor range, and a mounting inside the approved ±0.3 mm prong-setting allowance all read **Matches your stone size**;
+- **Recommended size match** is reserved for a future owner-approved per-shape tolerance, which is not configured in MVP1;
+- anything in the 0.3–1.0 mm review band reads **May work — review required**;
+- anything beyond reads **Custom setting recommended**.
+
+An exact nominal match must not read less confidently than a stone 0.3 mm away from nominal.
+
 Any automatic match should be accompanied by concise language that CaratForUs confirms compatibility before the customer sends the stone.
 
-Do not use **Guaranteed fit**.
+Do not use **Guaranteed fit**. Do not state the ±0.3 mm or 1.0 mm figures to the customer as a promise, a tolerance, or an accepted range; they are internal matching configuration.
 
 ### 6.4 No-match behavior
 If no ready setting qualifies as an automatic match:
@@ -356,6 +386,12 @@ Implementation is complete only when all of the following are demonstrated:
 8. Explicit vendor min/max ranges work when configured.
 9. No universal tolerance is silently invented.
 10. Near-size candidates without an approved rule are not represented as guaranteed fits.
+10a. A prong-adjustable mounting matches a same-shape stone up to and including ±0.3 mm from nominal, and reads **Matches your stone size** (§6.2.1).
+10b. A difference over 0.3 mm and up to 1.0 mm is **Review Required**, never an automatic match, at any configured band width.
+10c. A difference over 1.0 mm is not presented as a normal compatible candidate; the customer is directed to **Create a Custom Setting**.
+10d. An explicit vendor range takes precedence in both directions: it refuses a stone inside ±0.3 mm when the range is narrower, and admits one outside ±0.3 mm when the range is wider.
+10e. A mounting not marked prong-adjustable receives no automatic allowance, including every record that has never been assessed.
+10f. Staff can maintain every compatibility field from the embedded admin without direct database access.
 11. No-match customers receive a clear Custom Setting path.
 12. The customer can enter Custom Jewelry without retyping prior stone information.
 13. A source ready setting can transfer as inspiration into Custom Jewelry.

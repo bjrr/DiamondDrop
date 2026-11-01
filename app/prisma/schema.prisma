@@ -4573,6 +4573,19 @@ model ReadySettingCompatibility {
   /// already in the post by the time anyone finds out.
   prongSetToleranceEligible Boolean @default(false) @map("prong_set_tolerance_eligible")
 
+  /// Whether this compatibility record is current (owner decision 2026-10-31).
+  ///
+  /// SEPARATE FROM `eligibleForSetYourOwnStone`, which answers a different
+  /// question. Eligibility is "does this mounting participate in the
+  /// feature"; active is "is this record still in force". A discontinued
+  /// mounting is deactivated rather than deleted, so the record of what
+  /// customers were shown — and why a past session matched it — survives.
+  ///
+  /// Enforced in the repository queries, not in the matching service: an
+  /// inactive row never reaches the matcher at all, which is cheaper than a
+  /// verdict and impossible to forget to check.
+  isActive Boolean @default(true) @map("is_active")
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 

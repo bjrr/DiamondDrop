@@ -32,17 +32,29 @@ export async function findEligibleSettingsForShape(
   shape: StoneShape
 ): Promise<ReadySettingCompatibility[]> {
   const rows = await prisma.readySettingCompatibility.findMany({
-    where: { shape, eligibleForSetYourOwnStone: true },
+    // `isActive` is enforced here rather than in the matcher. A withdrawn
+    // mounting has no verdict to render — it is simply not in the catalogue —
+    // and filtering in SQL means there is no code path where someone forgets
+    // to check it before showing a result.
+    where: { shape, eligibleForSetYourOwnStone: true, isActive: true },
     orderBy: { shopifyVariantGid: "asc" },
   });
   return rows.map(toDomain);
 }
 
+/**
+ * One setting, for recording a selection.
+ *
+ * ALSO GATED ON `isActive`, which matters more here than it looks. A customer
+ * sitting on a tab opened before staff withdrew a mounting would otherwise be
+ * able to select it, and the selection route's "not available for Set Your
+ * Own Stone" refusal is exactly the right answer in that case.
+ */
 export async function findSettingByVariantGid(
   shopifyVariantGid: string
 ): Promise<ReadySettingCompatibility | null> {
-  const row = await prisma.readySettingCompatibility.findUnique({
-    where: { shopifyVariantGid },
+  const row = await prisma.readySettingCompatibility.findFirst({
+    where: { shopifyVariantGid, isActive: true },
   });
   return row ? toDomain(row) : null;
 }

@@ -191,11 +191,23 @@ export const COMPATIBILITY_QUALIFIER =
 export function labelFor(result: MatchResult): string {
   if (result.status === "review_required") return COMPATIBILITY_LABELS.review;
   if (result.status === "no_match") return COMPATIBILITY_LABELS.custom;
-  // An explicit vendor range is a stronger statement than our nominal
-  // bookkeeping, so it gets the stronger of the two allowed phrasings.
-  return result.rule === "vendor_range_inside"
-    ? COMPATIBILITY_LABELS.matches
-    : COMPATIBILITY_LABELS.recommended;
+
+  /**
+   * The owner's 2026-10-31 lock states the prong case plainly: "up to ±0.3 mm
+   * in relevant length/width → automatic **Matches your stone size**". So
+   * that rule gets the stronger phrasing, and `exact_nominal` must too —
+   * leaving it on the weaker label would tell a customer whose stone is
+   * EXACTLY the nominal size something less confident than one 0.3 mm off,
+   * which reads as a bug to anyone who notices.
+   *
+   * `approved_tolerance` keeps "Recommended size match". It is the per-shape
+   * dial, currently empty: a future owner decision might approve a wider,
+   * less certain allowance for some shape, and the weaker of the two phrasings
+   * from §6.3 should stay available for it rather than being retired here.
+   */
+  return result.rule === "approved_tolerance"
+    ? COMPATIBILITY_LABELS.recommended
+    : COMPATIBILITY_LABELS.matches;
 }
 
 /** True only when all four bounds are present — see the interface comment. */

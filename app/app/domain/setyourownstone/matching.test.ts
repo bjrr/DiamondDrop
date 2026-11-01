@@ -69,7 +69,9 @@ describe("exact nominal match (§15.7)", () => {
     const r = classify(oval(10_000, 7_000), OVAL_10x7);
     expect(r.status).toBe("automatic");
     expect(r.rule).toBe("exact_nominal");
-    expect(labelFor(r)).toBe(COMPATIBILITY_LABELS.recommended);
+    // The strong phrasing: an exact nominal hit cannot read less confident
+    // than the +/-0.3 mm case the owner assigned "Matches your stone size".
+    expect(labelFor(r)).toBe(COMPATIBILITY_LABELS.matches);
   });
 
   it("does NOT match one micrometre away, with no tolerance configured (§15.9)", () => {
@@ -264,7 +266,8 @@ describe("the owner's prong-setting tolerance (decision 2026-10-31)", () => {
   it("never produces the forbidden phrasing", () => {
     const r = classify(oval(10_200, 7_100), PRONG_10x7, LOCKED);
     expect(labelFor(r)).not.toMatch(/guarantee/i);
-    expect(labelFor(r)).toBe(COMPATIBILITY_LABELS.recommended);
+    // Named by the owner decision verbatim.
+    expect(labelFor(r)).toBe(COMPATIBILITY_LABELS.matches);
   });
 });
 

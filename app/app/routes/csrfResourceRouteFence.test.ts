@@ -98,6 +98,25 @@ const EXEMPT_UI_ACTION_ROUTES: Readonly<Record<string, string>> = {
     "which arrives from somewhere else. " +
     "If this route ever accepts a POST from anywhere but its own rendered form, " +
     "this exemption stops being true and must be re-argued.",
+  "app.ready-settings._index.tsx":
+    "the Set Your Own Stone ready-mount compatibility operator surface (owner " +
+    "decision 2026-10-31, which requires staff maintain this data without " +
+    "direct database edits). Same argument as app.bank-payments.$id.tsx, not " +
+    "_index.tsx: this IS a real production mutation, and it stands on the " +
+    "first leg alone — Shopify Admin iframes this route at the app's own URL, " +
+    "so a form inside it posts with the app's own Origin and is same-origin " +
+    "by construction, while throwIfPotentialCSRFAttack rejects a mutation " +
+    "whose Origin differs from the app's own host. " +
+    "WHAT THIS ROUTE CAN DO IF THE EXEMPTION WERE WRONG, stated plainly " +
+    "because it is not nothing: it writes the shape and millimetre data the " +
+    "matching rules consult, so a forged write could make a mounting claim " +
+    "'Matches your stone size' for a stone it cannot hold, or flip a bezel " +
+    "setting to prong-adjustable and hand it the +/-0.3 mm allowance. It " +
+    "touches no money, no order and no Shopify API, and every match is still " +
+    "reviewed by staff before a customer is asked to send a stone (SYOS " +
+    "section 8) — but the bound on the damage is a human review step, not a " +
+    "technical one. If this route ever accepts a POST from anywhere but its " +
+    "own rendered form, this exemption stops being true and must be re-argued.",
   "app.group-buy-demand.tsx":
     "the Group Buy demand worklist (Slice 13). Same argument as " +
     "app.bank-payments.$id.tsx, not _index.tsx: this route IS a real production " +
