@@ -59,14 +59,20 @@ describe("the pilot: 9x7 pear solitaire, vendor cost $242, base size 6.5", () =>
     expect(bank(PILOT_9X7, "8")).toBe("53350");
   });
 
-  it("never prices a larger size below a smaller one", () => {
-    // The production defect, stated as a property. Size 6.5 was $43.75 under
-    // size 6 because the $25 adjustment had been multiplied by the markup.
-    const six = BigInt(bank(PILOT_9X7, "6"));
-    const sixHalf = BigInt(bank(PILOT_9X7, "6.5"));
-    const seven = BigInt(bank(PILOT_9X7, "7"));
-    expect(sixHalf).toBeLessThan(six);
-    expect(six).toBeLessThan(seven);
+  it("makes the vendor's base size the cheapest, by exactly the stated gaps", () => {
+    // The base size being cheapest is the RULE, not the defect: 6.5 carries
+    // +$0 and every other size carries an adjustment. What was wrong in
+    // production was the SIZE of the gaps — $43.75 instead of $25 and $40,
+    // because the adjustment had been multiplied by the markup. So this pins
+    // the gaps, not the ordering, which is what actually went wrong.
+    const base = BigInt(bank(PILOT_9X7, "6.5"));
+    expect(BigInt(bank(PILOT_9X7, "6")) - base).toBe(2500n);
+    expect(BigInt(bank(PILOT_9X7, "7")) - base).toBe(4000n);
+    expect(BigInt(bank(PILOT_9X7, "8")) - base).toBe(4000n);
+    // $43.75 is the defect's signature, at any size.
+    for (const size of ["6", "7", "7.5", "8"]) {
+      expect(BigInt(bank(PILOT_9X7, size)) - base).not.toBe(4375n);
+    }
   });
 
   it("derives the card price through the shared locked rule", () => {
