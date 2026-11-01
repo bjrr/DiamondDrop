@@ -81,6 +81,17 @@ export interface ReadySettingCompatibility {
   readonly maxWidthUm?: Micrometres;
   readonly eligibleForSetYourOwnStone: boolean;
   /**
+   * Shopify identities the MATCHER NEVER READS.
+   *
+   * Carried on this type so the historical snapshot can name the exact
+   * configuration a decision was made against -- the stable option value, and
+   * the shared profile that supplied the dimensions -- after a label is
+   * reworded or a profile edited. Optional because a single-size mounting
+   * legitimately has neither.
+   */
+  readonly centerSizeOptionValueId?: string | null;
+  readonly centerSizeProfileId?: string | null;
+  /**
    * Whether this mounting's setting style is reasonably adjustable by prong
    * setting, and so qualifies for the owner's ±0.3 mm accommodation
    * (decision 2026-10-31).

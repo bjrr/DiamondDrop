@@ -4597,6 +4597,16 @@ model ReadySettingCompatibility {
   /// option.
   centerSizeOptionValueId String? @map("center_size_option_value_id")
 
+  /// Which shared Center Stone Size Profile supplied this row's shape and
+  /// nominal dimensions (owner direction 2026-11-01).
+  ///
+  /// THE REVERSE INDEX FOR PROFILE EVENTS. A merchant editing
+  /// "Pear 10 x 7 mm" touches no product, so the only way to find every
+  /// configuration that must be re-projected is to have recorded which
+  /// profile each row came from. Without this column a profile edit would
+  /// require scanning every product in the catalogue.
+  centerSizeProfileId String? @map("center_size_profile_id")
+
   /// ---------------------------------------------------------------------
   /// THIS ROW IS DERIVED, NOT AUTHORED
   /// ---------------------------------------------------------------------

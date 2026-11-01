@@ -3,12 +3,21 @@
  *
  * Authoritative requirements: docs/SET-YOUR-OWN-STONE.md §5 and §11.
  *
- * THIS TABLE IS THE SYSTEM OF RECORD, not the Shopify metafield mirror. §11
- * requires matching to be deterministic server-side logic with "no
- * client-only trust boundary"; a variant metafield is cheap to read exactly
- * where the customer can edit it, so it badges a PDP and decides nothing.
- * CLAUDE.md already draws the same line for Bank Payment Discount Eligible
- * and Luxury Steals.
+ * ---------------------------------------------------------------------------
+ * THIS TABLE IS DERIVED. SHOPIFY IS THE SOURCE OF TRUTH.
+ * ---------------------------------------------------------------------------
+ * That reversed on 2026-11-01. It used to be the system of record, authored
+ * through our own admin; it is now a projection of Shopify product metafields,
+ * variant metafields and app-owned Center Stone Size Profiles, written only by
+ * `syncCompatibility.server.ts` from events and reconciliation. Nothing here
+ * or in the admin edits it, and the whole index must be rebuildable from
+ * Shopify alone.
+ *
+ * WHY KEEP IT AT ALL, rather than matching against Shopify directly: §11
+ * requires deterministic server-side matching with "no client-only trust
+ * boundary", and a Shopify read per candidate per request would be both slow
+ * and rate-limited. The table is an index for speed, validation, auditability
+ * and historical explanation — not a second place to author anything.
  */
 import type { ReadySettingCompatibility as Row } from "@prisma/client";
 
@@ -97,5 +106,7 @@ function toDomain(row: Row): ReadySettingCompatibility {
     maxWidthUm: row.maxWidthUm ?? undefined,
     eligibleForSetYourOwnStone: row.eligibleForSetYourOwnStone,
     prongSetToleranceEligible: row.prongSetToleranceEligible,
+    centerSizeOptionValueId: row.centerSizeOptionValueId,
+    centerSizeProfileId: row.centerSizeProfileId,
   };
 }

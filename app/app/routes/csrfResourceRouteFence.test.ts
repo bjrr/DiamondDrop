@@ -98,31 +98,6 @@ const EXEMPT_UI_ACTION_ROUTES: Readonly<Record<string, string>> = {
     "which arrives from somewhere else. " +
     "If this route ever accepts a POST from anywhere but its own rendered form, " +
     "this exemption stops being true and must be re-argued.",
-  "app.ready-settings._index.tsx":
-    "the Set Your Own Stone ready-mount compatibility operator surface (owner " +
-    "decision 2026-10-31, which requires staff maintain this data without " +
-    "direct database edits). Same argument as app.bank-payments.$id.tsx, not " +
-    "_index.tsx: this IS a real production mutation, and it stands on the " +
-    "first leg alone — Shopify Admin iframes this route at the app's own URL, " +
-    "so a form inside it posts with the app's own Origin and is same-origin " +
-    "by construction, while throwIfPotentialCSRFAttack rejects a mutation " +
-    "whose Origin differs from the app's own host. " +
-    "A THIRD TECHNICAL BARRIER STANDS BEHIND THE ORIGIN CHECK, and the " +
-    "exemption does not rest on process. Every write requires an ONLINE " +
-    "session with an associated Shopify user and returns 401 without one, " +
-    "refused before the request body is read. Same-origin plus a valid " +
-    "session token establishes 'a valid session for this shop'; it does not " +
-    "establish 'a known member of staff did this', and compatibility data " +
-    "decides what a customer is told about their own diamond. " +
-    "What a forged write would otherwise reach, stated plainly: the shape " +
-    "and millimetre data the matching rules consult, so it could make a " +
-    "mounting claim 'Matches your stone size' for a stone it cannot hold, or " +
-    "flip a bezel setting to prong-adjustable and hand it the +/-0.3 mm " +
-    "allowance. It touches no money, no order and no Shopify API. The later " +
-    "staff review of each project is a workflow step, NOT part of this " +
-    "security argument. If this route ever accepts a POST from anywhere but " +
-    "its own rendered form, or ever accepts one without a staff identity, " +
-    "this exemption stops being true and must be re-argued.",
   "app.group-buy-demand.tsx":
     "the Group Buy demand worklist (Slice 13). Same argument as " +
     "app.bank-payments.$id.tsx, not _index.tsx: this route IS a real production " +

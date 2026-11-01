@@ -133,6 +133,9 @@ export interface RecordSettingSelectionInput {
    *  from the request body. */
   readonly compatibilityStatus: CompatibilityStatus;
   readonly compatibilityRule: CompatibilityRule;
+  /** The mounting side of the comparison, as it stood at decision time.
+   *  Write-once; the database refuses a later change. */
+  readonly matchedSnapshot?: unknown;
 }
 
 /**
@@ -155,6 +158,14 @@ export async function recordSettingSelection(
       selectedOptions: (input.selectedOptions ?? undefined) as Prisma.InputJsonValue | undefined,
       compatibilityStatus: input.compatibilityStatus,
       compatibilityRule: input.compatibilityRule,
+      // WRITE-ONCE HISTORICAL EVIDENCE. A database trigger refuses any update
+      // that would change a populated matched_snapshot, so this write only
+      // succeeds the first time -- which is the intent. The status and rule
+      // above say WHAT was decided; this says why, from the mounting figures
+      // actually used, and must survive every later Shopify edit.
+      matchedSnapshot: (input.matchedSnapshot ?? undefined) as
+        | Prisma.InputJsonValue
+        | undefined,
       status: "setting_submitted",
     },
   });

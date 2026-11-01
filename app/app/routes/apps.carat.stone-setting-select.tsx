@@ -28,6 +28,7 @@ import {
   findStoneSessionByReference,
   recordSettingSelection,
 } from "~/db/repositories/stoneSessionRepository.server";
+import { buildMatchedSnapshot } from "~/domain/setyourownstone/matchedSnapshot";
 import {
   COMPATIBILITY_QUALIFIER,
   classify,
@@ -127,6 +128,22 @@ export async function action({ request }: ActionFunctionArgs) {
     await resolveMatchingPolicy()
   );
 
+  // Built from the SAME verdict that is being recorded, so the evidence and
+  // the decision cannot disagree. Shopify may change the mounting tomorrow;
+  // this is what the customer was actually shown today.
+  const policy = await resolveMatchingPolicy();
+  const snapshot = buildMatchedSnapshot({
+    result: verdict,
+    shopifyProductGid: body.productGid,
+    centerSizeOptionValueId: setting.centerSizeOptionValueId ?? null,
+    centerSizeProfileId: setting.centerSizeProfileId ?? null,
+    policy: {
+      prongSetToleranceUm: policy.prongSetToleranceUm ?? 0,
+      reviewBandUm: policy.reviewBandUm ?? 0,
+    },
+    decidedAt: new Date(),
+  });
+
   const updated = await recordSettingSelection({
     sessionReference: session.sessionReference,
     selectedProductGid: body.productGid,
@@ -134,6 +151,7 @@ export async function action({ request }: ActionFunctionArgs) {
     selectedOptions: body.selectedOptions ?? null,
     compatibilityStatus: verdict.status,
     compatibilityRule: verdict.rule,
+    matchedSnapshot: snapshot,
   });
 
   logger.info("stone_setting_select.recorded", {
