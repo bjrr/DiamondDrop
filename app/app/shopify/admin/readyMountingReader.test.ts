@@ -241,9 +241,25 @@ describe("size profile type matching survives Shopify resolving $app:", () => {
   const resolved = "app--424838725633--syos_center_size_profile";
   const otherInstall = "app--999999999999--syos_center_size_profile";
 
+  /**
+   * The REAL implementation, lifted out of the source and executed.
+   *
+   * The previous version of this test defined its own copy. The copy was
+   * correct and the shipped function was not — an escape had been eaten in
+   * transit, so the source read `/^$app:/`, a pattern matching nothing — and
+   * this test passed green while every profile in production silently failed
+   * to resolve. Testing a reimplementation is testing nothing.
+   */
+  const source = readFileSync(new URL("./syosProductReader.server.ts", import.meta.url), "utf8");
+  const extracted = source.match(/function isSizeProfileType[\s\S]*?\n\}/)?.[0];
+
   function isSizeProfileType(type: string): boolean {
-    const bare = declared.replace(/^\$app:/, "");
-    return type === declared || type.endsWith(`--${bare}`);
+    if (!extracted) throw new Error("isSizeProfileType not found in the reader source");
+    const js = extracted.replace(/: string/g, "").replace(/: boolean/g, "");
+    const build = new Function("SYOS_PROFILE_TYPE", `${js}; return isSizeProfileType;`) as (
+      t: string
+    ) => (type: string) => boolean;
+    return build(declared)(type);
   }
 
   it("accepts the declared $app: spelling", () => {
@@ -266,11 +282,19 @@ describe("size profile type matching survives Shopify resolving $app:", () => {
     expect(isSizeProfileType("lookbook")).toBe(false);
   });
 
-  it("is what the reader actually uses, not just a copy in this test", () => {
-    const src = readFileSync(new URL("./syosProductReader.server.ts", import.meta.url), "utf8");
-    expect(src).toContain("function isSizeProfileType");
-    expect(src).toContain("isSizeProfileType(node.type)");
-    // The strict comparison that caused the bug must be gone.
-    expect(src).not.toMatch(/node\.type !== SYOS_PROFILE_TYPE/);
+  it("is wired into the read path, not merely defined", () => {
+    expect(source).toContain("isSizeProfileType(node.type)");
+    expect(source).not.toMatch(/node\.type !== SYOS_PROFILE_TYPE/);
+  });
+
+  it("uses no regex in its CODE, which is how the escape was lost last time", () => {
+    expect(extracted).toBeDefined();
+    // Comments are excluded: the explanation of the bug necessarily quotes the
+    // broken pattern, and an assertion that fires on its own documentation is
+    // the trap `stripComments` already exists for elsewhere in this codebase.
+    const code = extracted!
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/(^|[^:])\/\/.*$/gm, "$1");
+    expect(code).not.toContain("/^");
   });
 });

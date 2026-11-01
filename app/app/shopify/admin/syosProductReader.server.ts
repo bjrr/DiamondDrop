@@ -78,7 +78,16 @@ import { AdminApiError } from "./productClient.server";
  * stays meaningful.
  */
 function isSizeProfileType(type: string): boolean {
-  const bare = SYOS_PROFILE_TYPE.replace(/^$app:/, "");
+  // Deliberately NOT a regex. The first version of this line used
+  // `.replace(/^\$app:/, "")`, the escape was eaten in transit, and the
+  // source shipped as `/^$app:/` — a pattern that matches nothing, so `bare`
+  // kept its prefix, every comparison failed, and all 75 pilot rows synced as
+  // "not linked to a profile" a second time. A prefix constant and a slice
+  // cannot be mangled that way.
+  const APP_PREFIX = "$app:";
+  const bare = SYOS_PROFILE_TYPE.startsWith(APP_PREFIX)
+    ? SYOS_PROFILE_TYPE.slice(APP_PREFIX.length)
+    : SYOS_PROFILE_TYPE;
   return type === SYOS_PROFILE_TYPE || type.endsWith(`--${bare}`);
 }
 
