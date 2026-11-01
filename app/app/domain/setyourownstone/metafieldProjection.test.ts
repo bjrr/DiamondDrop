@@ -14,6 +14,7 @@ import {
   projectProduct,
   umToMm,
   type ShopifyProductCompatibilityInput,
+  type SizeProfile,
 } from "./metafieldProjection";
 
 const PRODUCT = "gid://shopify/Product/111";
@@ -25,6 +26,7 @@ function input(
     productStatus?: string;
     product?: Record<string, string | null>;
     variant?: Record<string, string | null>;
+    profile?: Partial<SizeProfile> | null;
     optionValueName?: string | null;
     optionValueId?: string | null;
   } = {}
@@ -51,10 +53,19 @@ function input(
             : overrides.optionValueId,
         centerSizeOptionValueName:
           overrides.optionValueName === undefined ? "10 × 7 mm" : overrides.optionValueName,
+        profile:
+          overrides.profile === null
+            ? null
+            : {
+                metaobjectId: "gid://shopify/Metaobject/55",
+                displayName: "Pear 10 × 7 mm",
+                stoneShape: "pear",
+                nominalLengthMm: "10",
+                nominalWidthMm: "7",
+                nominalDepthMm: null,
+                ...(overrides.profile ?? {}),
+              },
         metafields: {
-          syos_nominal_length_mm: "10",
-          syos_nominal_width_mm: "7",
-          syos_nominal_depth_mm: null,
           syos_vendor_min_length_mm: null,
           syos_vendor_max_length_mm: null,
           syos_vendor_min_width_mm: null,
@@ -94,7 +105,7 @@ describe("a correctly configured mounting", () => {
   });
 
   it("accepts a decimal depth", () => {
-    expect(only(input({ variant: { syos_nominal_depth_mm: "4.25" } })).nominalDepthUm).toBe(4_250);
+    expect(only(input({ profile: { nominalDepthMm: "4.25" } })).nominalDepthUm).toBe(4_250);
   });
 });
 
@@ -158,35 +169,92 @@ describe("the two prong flags must agree", () => {
   });
 });
 
-describe("shape", () => {
-  it("flags an unset shape", () => {
-    const row = only(input({ product: { syos_stone_shape: null } }));
-    expect(row.problems.join(" ")).toMatch(/Stone Shape is not set/);
+describe("shape comes from the profile, and the declaration is checked against it", () => {
+  it("takes the shape from the linked profile", () => {
+    expect(only(input()).shape).toBe("pear");
+  });
+
+  it("flags a profile with no shape", () => {
+    const row = only(input({ profile: { stoneShape: null } }));
+    expect(row.problems.join(" ")).toMatch(/has no Stone Shape/);
     expect(row.eligibleForSetYourOwnStone).toBe(false);
   });
 
-  it("flags a shape the matcher does not know", () => {
+  it("flags a profile shape the matcher does not know", () => {
+    const row = only(input({ profile: { stoneShape: "trillion" } }));
+    expect(row.problems.join(" ")).toMatch(/matching does not understand/);
+    expect(row.eligibleForSetYourOwnStone).toBe(false);
+  });
+
+  it("accepts a profile shape in any casing", () => {
+    expect(only(input({ profile: { stoneShape: "Pear" } })).shape).toBe("pear");
+  });
+
+  it("flags a pear mounting wired to an oval profile, and the PROFILE wins", () => {
+    // The exact mistake the duplicated product-level shape exists to catch.
+    const row = only(
+      input({ product: { syos_stone_shape: "pear" }, profile: { stoneShape: "oval" } })
+    );
+    expect(row.problems.join(" ")).toMatch(/is linked to a/);
+    expect(row.problems.join(" ")).toMatch(/profile is authoritative/);
+    expect(row.shape).toBe("oval");
+    expect(row.eligibleForSetYourOwnStone).toBe(false);
+  });
+
+  it("flags an unusable product declaration without letting it decide", () => {
     const row = only(input({ product: { syos_stone_shape: "trillion" } }));
     expect(row.problems.join(" ")).toMatch(/not one of the shapes/);
+    expect(row.shape).toBe("pear");
     expect(row.eligibleForSetYourOwnStone).toBe(false);
   });
 
-  it("accepts a shape in any casing", () => {
-    expect(only(input({ product: { syos_stone_shape: "Pear" } })).shape).toBe("pear");
+  it("is content when the product declares nothing at all", () => {
+    const row = only(input({ product: { syos_stone_shape: null } }));
+    expect(row.problems).toEqual([]);
+    expect(row.shape).toBe("pear");
+    expect(row.eligibleForSetYourOwnStone).toBe(true);
   });
 });
 
-describe("nominal dimensions", () => {
+describe("an unlinked configuration is a misconfiguration, not a fallback", () => {
+  it("refuses to guess when no profile is linked", () => {
+    const row = only(input({ profile: null }));
+    expect(row.problems.join(" ")).toMatch(/not linked to a Center Stone Size Profile/);
+    expect(row.eligibleForSetYourOwnStone).toBe(false);
+    expect(row.centerSizeProfileId).toBeNull();
+  });
+
+  it("does NOT fall back to the option label, even when the label looks perfect", () => {
+    const row = only(input({ profile: null, optionValueName: "10 × 7 mm" }));
+    expect(row.eligibleForSetYourOwnStone).toBe(false);
+    expect(row.nominalLengthUm).toBe(1);
+  });
+});
+
+describe("the profile display name", () => {
+  it("is required, because without it the option shows an app identifier", () => {
+    const row = only(input({ profile: { displayName: null } }));
+    expect(row.problems.join(" ")).toMatch(/no Display Name/);
+    expect(row.eligibleForSetYourOwnStone).toBe(false);
+  });
+});
+
+describe("nominal dimensions come from the profile", () => {
+  it("records which profile supplied them", () => {
+    // So a profile edit can find every row it must re-project.
+    expect(only(input()).centerSizeProfileId).toBe("gid://shopify/Metaobject/55");
+  });
+
   it("flags a missing length, and stays ineligible", () => {
-    const row = only(input({ variant: { syos_nominal_length_mm: null } }));
-    expect(row.problems.join(" ")).toMatch(/Nominal Stone Length \(mm\) is not set/);
+    const row = only(input({ profile: { nominalLengthMm: null } }));
+    expect(row.problems.join(" ")).toMatch(/has no Nominal Stone Length/);
     expect(row.eligibleForSetYourOwnStone).toBe(false);
   });
 
   it.each([["10.3mm"], ["1e2"], ["10.1234"], ["-5"], ["0"], ["abc"], ["10,3"], ["about 10"]])(
     "flags %s rather than truncating it",
     (value) => {
-      const row = only(input({ variant: { syos_nominal_length_mm: value } }));
+      const row = only(input({ profile: { nominalLengthMm: value } }));
       expect(row.problems.join(" ")).toMatch(/not a measurement in millimetres/);
       expect(row.eligibleForSetYourOwnStone).toBe(false);
     }
@@ -195,14 +263,12 @@ describe("nominal dimensions", () => {
   it("flags a dimension of 100 mm or more", () => {
     // Catches micrometres typed into a millimetre field, which would store a
     // plausible-looking integer.
-    const row = only(input({ variant: { syos_nominal_length_mm: "10250" } }));
+    const row = only(input({ profile: { nominalLengthMm: "10250" } }));
     expect(row.eligibleForSetYourOwnStone).toBe(false);
   });
 
   it("flags swapped length and width", () => {
-    const row = only(
-      input({ variant: { syos_nominal_length_mm: "7", syos_nominal_width_mm: "10" } })
-    );
+    const row = only(input({ profile: { nominalLengthMm: "7", nominalWidthMm: "10" } }));
     expect(row.problems.join(" ")).toMatch(/swapped/i);
     expect(row.eligibleForSetYourOwnStone).toBe(false);
   });
@@ -211,7 +277,7 @@ describe("nominal dimensions", () => {
     const row = only(
       input({
         product: { syos_stone_shape: "round" },
-        variant: { syos_nominal_length_mm: "6", syos_nominal_width_mm: "6" },
+        profile: { stoneShape: "round", nominalLengthMm: "6", nominalWidthMm: "6" },
         optionValueName: "6 mm",
       })
     );
@@ -300,10 +366,8 @@ describe("the label is cross-checked, never trusted", () => {
 
   it("cannot be used to supply a missing dimension", () => {
     // A label that reads "10 × 7 mm" does not rescue an unset metafield.
-    const row = only(
-      input({ variant: { syos_nominal_length_mm: null }, optionValueName: "10 × 7 mm" })
-    );
-    expect(row.problems.join(" ")).toMatch(/Nominal Stone Length \(mm\) is not set/);
+    const row = only(input({ profile: { nominalLengthMm: null }, optionValueName: "10 × 7 mm" }));
+    expect(row.problems.join(" ")).toMatch(/has no Nominal Stone Length/);
     expect(row.eligibleForSetYourOwnStone).toBe(false);
   });
 });
@@ -320,7 +384,7 @@ describe("product status gates everything", () => {
 
 describe("product-level problems reach every variant", () => {
   it("attaches a bad shape to all configurations", () => {
-    const base = input({ product: { syos_stone_shape: null } });
+    const base = input({ product: { syos_stone_shape: "trillion" } });
     const two: ShopifyProductCompatibilityInput = {
       ...base,
       variants: [
@@ -331,7 +395,7 @@ describe("product-level problems reach every variant", () => {
 
     const result = projectProduct(two);
     expect(result.rows).toHaveLength(2);
-    expect(result.productProblems.join(" ")).toMatch(/Stone Shape is not set/);
+    expect(result.productProblems.join(" ")).toMatch(/not one of the shapes/);
     for (const row of result.rows) {
       expect(row.eligibleForSetYourOwnStone).toBe(false);
     }

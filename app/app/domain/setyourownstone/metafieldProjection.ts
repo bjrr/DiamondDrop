@@ -50,6 +50,22 @@ const SHAPES: readonly StoneShape[] = [
  *  millimetre field, which would otherwise store a plausible integer. */
 const MAX_DIMENSION_UM = 100_000;
 
+/**
+ * One app-owned Center Stone Size Profile, as read from Shopify.
+ *
+ * Values arrive as the strings Shopify stores. Converting them is this
+ * module's job, not the reader's, so there is exactly one place where a
+ * millimetre string becomes an integer.
+ */
+export interface SizeProfile {
+  readonly metaobjectId: string;
+  readonly displayName: string | null;
+  readonly stoneShape: string | null;
+  readonly nominalLengthMm: string | null;
+  readonly nominalWidthMm: string | null;
+  readonly nominalDepthMm: string | null;
+}
+
 /** What Shopify hands us for one product, already shaped by the reader. */
 export interface ShopifyProductCompatibilityInput {
   readonly productGid: string;
@@ -58,12 +74,20 @@ export interface ShopifyProductCompatibilityInput {
   readonly productMetafields: Readonly<Record<string, string | null>>;
   readonly variants: readonly {
     readonly variantGid: string;
-    /** Shopify's own display title, e.g. "10 × 7 mm / 14K Yellow Gold / 6.5".
-     *  Used ONLY to cross-check the structured data, never to obtain it. */
+    /** Shopify's own display title, e.g. "10 × 7 mm / 14K Yellow Gold / 6.5". */
     readonly title: string;
     /** The centre-size option value, when the product uses that option. */
     readonly centerSizeOptionValueId: string | null;
     readonly centerSizeOptionValueName: string | null;
+    /**
+     * The app-owned Center Stone Size Profile this option value links to,
+     * already resolved from `linkedMetafieldValue`.
+     *
+     * THE AUTHORITY FOR SHAPE AND NOMINAL DIMENSIONS. Null means the option
+     * value is not linked to a profile, which is a misconfiguration rather
+     * than a licence to fall back to the label.
+     */
+    readonly profile: SizeProfile | null;
     readonly metafields: Readonly<Record<string, string | null>>;
   }[];
 }
@@ -72,6 +96,9 @@ export interface ProjectedReadySetting {
   readonly shopifyProductGid: string;
   readonly shopifyVariantGid: string;
   readonly centerSizeOptionValueId: string | null;
+  /** Which shared profile supplied the shape and nominal dimensions. Recorded
+   *  so a profile edit can find every row it must re-project. */
+  readonly centerSizeProfileId: string | null;
   readonly shape: StoneShape;
   readonly nominalLengthUm: number;
   readonly nominalWidthUm: number;
@@ -156,12 +183,15 @@ export function projectProduct(input: ShopifyProductCompatibilityInput): Project
   const productProblems: string[] = [];
   const pm = input.productMetafields;
 
-  const shapeRaw = text(pm.syos_stone_shape);
-  const shape = SHAPES.find((s) => s === shapeRaw?.toLowerCase()) ?? null;
-  if (shapeRaw === null) {
-    productProblems.push("Stone Shape is not set.");
-  } else if (shape === null) {
-    productProblems.push(`Stone Shape “${shapeRaw}” is not one of the shapes matching understands.`);
+  // The product's DECLARED shape. Not authoritative — each centre-size
+  // profile carries the real one — but cross-checked below, which is what
+  // catches a pear mounting wired to an oval profile.
+  const declaredShapeRaw = text(pm.syos_stone_shape);
+  const declaredShape = SHAPES.find((s) => s === declaredShapeRaw?.toLowerCase()) ?? null;
+  if (declaredShapeRaw !== null && declaredShape === null) {
+    productProblems.push(
+      `Stone Shape “${declaredShapeRaw}” is not one of the shapes matching understands.`
+    );
   }
 
   const productEligible = bool(pm.syos_eligible);
@@ -193,31 +223,79 @@ export function projectProduct(input: ShopifyProductCompatibilityInput): Project
     const problems: string[] = [...productProblems];
     const vm = variant.metafields;
 
-    const nominalLengthUm = mmToUm(vm.syos_nominal_length_mm);
-    const nominalWidthUm = mmToUm(vm.syos_nominal_width_mm);
-
-    if (vm.syos_nominal_length_mm === null || vm.syos_nominal_length_mm === undefined || String(vm.syos_nominal_length_mm).trim() === "") {
-      problems.push("Nominal Stone Length (mm) is not set.");
-    } else if (nominalLengthUm === null) {
-      problems.push(`Nominal Stone Length “${vm.syos_nominal_length_mm}” is not a measurement in millimetres.`);
-    }
-
-    if (vm.syos_nominal_width_mm === null || vm.syos_nominal_width_mm === undefined || String(vm.syos_nominal_width_mm).trim() === "") {
-      problems.push("Nominal Stone Width (mm) is not set.");
-    } else if (nominalWidthUm === null) {
-      problems.push(`Nominal Stone Width “${vm.syos_nominal_width_mm}” is not a measurement in millimetres.`);
-    }
-
-    if (nominalLengthUm !== null && nominalWidthUm !== null && nominalWidthUm > nominalLengthUm) {
-      problems.push("Nominal width is greater than nominal length — check whether the two are swapped.");
-    }
-
+    // ----------------------------------------------- the size profile
+    //
+    // Shape and nominal dimensions come from the app-owned profile the
+    // option value links to. Nothing here reads the label for a value.
+    const profile = variant.profile;
+    let shape: StoneShape | null = null;
+    let nominalLengthUm: number | null = null;
+    let nominalWidthUm: number | null = null;
     let nominalDepthUm: number | null = null;
-    const depthRaw = vm.syos_nominal_depth_mm;
-    if (depthRaw !== null && depthRaw !== undefined && String(depthRaw).trim() !== "") {
-      nominalDepthUm = mmToUm(depthRaw);
-      if (nominalDepthUm === null) {
-        problems.push(`Nominal Stone Depth “${depthRaw}” is not a measurement in millimetres.`);
+
+    if (profile === null) {
+      problems.push(
+        "This configuration is not linked to a Center Stone Size Profile, so its shape and dimensions are unknown."
+      );
+    } else {
+      const profileShapeRaw = text(profile.stoneShape);
+      shape = SHAPES.find((x) => x === profileShapeRaw?.toLowerCase()) ?? null;
+      if (profileShapeRaw === null) {
+        problems.push(`Profile “${profile.displayName ?? profile.metaobjectId}” has no Stone Shape.`);
+      } else if (shape === null) {
+        problems.push(
+          `Profile “${profile.displayName ?? profile.metaobjectId}” has Stone Shape “${profileShapeRaw}”, which matching does not understand.`
+        );
+      }
+
+      // The product's declaration must agree with the profile it points at.
+      // The profile wins; a disagreement is reported rather than resolved.
+      if (shape !== null && declaredShape !== null && shape !== declaredShape) {
+        problems.push(
+          `This mounting declares shape “${declaredShape}” but is linked to a “${shape}” size profile. The profile is authoritative; correct one of the two.`
+        );
+      }
+
+      nominalLengthUm = mmToUm(profile.nominalLengthMm);
+      nominalWidthUm = mmToUm(profile.nominalWidthMm);
+
+      if (text(profile.nominalLengthMm) === null) {
+        problems.push(`Profile “${profile.displayName ?? profile.metaobjectId}” has no Nominal Stone Length.`);
+      } else if (nominalLengthUm === null) {
+        problems.push(
+          `Profile Nominal Stone Length “${profile.nominalLengthMm}” is not a measurement in millimetres.`
+        );
+      }
+
+      if (text(profile.nominalWidthMm) === null) {
+        problems.push(`Profile “${profile.displayName ?? profile.metaobjectId}” has no Nominal Stone Width.`);
+      } else if (nominalWidthUm === null) {
+        problems.push(
+          `Profile Nominal Stone Width “${profile.nominalWidthMm}” is not a measurement in millimetres.`
+        );
+      }
+
+      if (nominalLengthUm !== null && nominalWidthUm !== null && nominalWidthUm > nominalLengthUm) {
+        problems.push(
+          "Profile nominal width is greater than its nominal length — check whether the two are swapped."
+        );
+      }
+
+      if (text(profile.nominalDepthMm) !== null) {
+        nominalDepthUm = mmToUm(profile.nominalDepthMm);
+        if (nominalDepthUm === null) {
+          problems.push(
+            `Profile Nominal Stone Depth “${profile.nominalDepthMm}” is not a measurement in millimetres.`
+          );
+        }
+      }
+
+      if (text(profile.displayName) === null) {
+        // Without it Shopify labels the option from the definition and the
+        // customer sees an app identifier.
+        problems.push(
+          `Profile ${profile.metaobjectId} has no Display Name, so its Center Stone Size option label will show an app identifier.`
+        );
       }
     }
 
@@ -294,6 +372,7 @@ export function projectProduct(input: ShopifyProductCompatibilityInput): Project
       shopifyProductGid: input.productGid,
       shopifyVariantGid: variant.variantGid,
       centerSizeOptionValueId: variant.centerSizeOptionValueId,
+      centerSizeProfileId: profile?.metaobjectId ?? null,
       shape: shape ?? "round",
       // A row with problems is forced ineligible, so these placeholders are
       // never consulted by the matcher. 1µm rather than 0 because the column
