@@ -344,6 +344,10 @@ const READ_VARIANT_DISPLAY = `#graphql
           title
           handle
           featuredMedia { preview { image { url } } }
+          # Shopify's own option ordering. Without it the card lists values in
+          # whatever order variants came back, and ring sizes render as
+          # "6.5, 6, 7, 7.5, 8" — which looks like a bug to a customer.
+          options { name optionValues { name } }
         }
       }
     }
@@ -390,6 +394,9 @@ export async function readVariantDisplay(
         currencyCode: null,
         availableForSale: n.availableForSale ?? false,
         selections: Object.fromEntries((n.selectedOptions ?? []).map((o) => [o.name, o.value])),
+        optionOrder: Object.fromEntries(
+          (n.product.options ?? []).map((o) => [o.name, (o.optionValues ?? []).map((v) => v.name)])
+        ),
       });
     }
   }
@@ -406,5 +413,6 @@ interface RawVariantDisplay {
     title: string;
     handle: string;
     featuredMedia?: { preview?: { image?: { url?: string | null } | null } | null } | null;
+    options?: { name: string; optionValues?: { name: string }[] }[];
   } | null;
 }

@@ -50,6 +50,16 @@ export interface VariantDisplay {
   readonly availableForSale: boolean;
   /** Option name -> value, e.g. { Metal: "14K Yellow Gold", "Ring Size": "6.5" }. */
   readonly selections: Readonly<Record<string, string>>;
+  /**
+   * Shopify's own ordering for each option, when the reader supplied it.
+   *
+   * Without this the card lists values in whatever order the variants came
+   * back, and ring sizes render as "6.5, 6, 7, 7.5, 8" — which reads as a
+   * bug. Sorting numerically instead would be a guess that breaks on sizes
+   * like "6 1/2" or on metals, so the authoritative order is taken from
+   * Shopify rather than invented here.
+   */
+  readonly optionOrder?: Readonly<Record<string, readonly string[]>>;
 }
 
 export interface MountingOption {
@@ -172,7 +182,16 @@ export function groupMountings(
       centerSizeProfileId: first.centerSizeProfileId,
       priceFrom: lowestPrice(ds.map((d) => d.price)),
       currencyCode: firstD.currencyCode,
-      options: optionOrder.map((name) => ({ name, values: valuesByOption.get(name)! })),
+      options: optionOrder.map((name) => {
+        const seen = valuesByOption.get(name)!;
+        const canonical = firstD.optionOrder?.[name];
+        // Shopify's order, filtered to the values that actually matched.
+        // Falls back to first-seen if the reader did not supply an order.
+        const values = canonical
+          ? canonical.filter((v) => seen.includes(v))
+          : seen;
+        return { name, values: values.length > 0 ? values : seen };
+      }),
       variants: ds.map((d) => ({
         variantGid: d.variantGid,
         price: d.price,

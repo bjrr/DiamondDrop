@@ -178,13 +178,6 @@ async function run<T>(
   return envelope.data;
 }
 
-function assertNoUserErrors(
-  operation: string,
-  userErrors: { field?: string[] | null; message: string }[] | undefined
-): void {
-  if (!userErrors || userErrors.length === 0) return;
-  throw new AdminApiError(
-    operation,
-    userErrors.map((e) => `${(e.field ?? []).join(".") || "(general)"}: ${e.message}`)
-  );
-}
+// There is deliberately no userErrors helper here. `userErrors` is a mutation
+// concept, and this module only reads: ready mountings are authored in Shopify
+// Product Admin (direction change 2026-11-01), so nothing in it writes.

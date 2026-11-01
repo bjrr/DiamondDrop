@@ -218,3 +218,60 @@ describe("nothing internal leaks into the card", () => {
     expect(json).not.toMatch(/syncProblems|eligibleForSetYourOwnStone/);
   });
 });
+
+describe("option values follow Shopify's order, not variant return order", () => {
+  // Without this the card listed ring sizes as "6.5, 6, 7, 7.5, 8" on the
+  // live pilot — the order variants happened to come back in. A customer
+  // reads that as a bug. Sorting numerically would be a guess that breaks on
+  // "6 1/2" or on metals, so Shopify's own order is authoritative.
+  function withOrder() {
+    const { matches, display } = pilot();
+    for (const [k, d] of display) {
+      display.set(k, {
+        ...d,
+        optionOrder: {
+          Metal: METALS,
+          "Ring Size": ["6", "6.5", "7", "7.5", "8"],
+        },
+      });
+    }
+    return { matches, display };
+  }
+
+  it("renders ring sizes in ascending order", () => {
+    const { matches, display } = withOrder();
+    const cards = groupMountings(matches, display);
+    expect(cards[0]?.options[1]?.values).toEqual(["6", "6.5", "7", "7.5", "8"]);
+  });
+
+  it("keeps metals in the merchant's chosen order", () => {
+    const { matches, display } = withOrder();
+    expect(groupMountings(matches, display)[0]?.options[0]?.values).toEqual(METALS);
+  });
+
+  it("lists only the values that actually matched", () => {
+    // A mounting may offer sizes this stone cannot use; the card must not
+    // advertise them.
+    const { matches, display } = withOrder();
+    for (const [k, d] of display) {
+      display.set(k, {
+        ...d,
+        optionOrder: { ...d.optionOrder, "Ring Size": ["4", "5", "6", "6.5", "7", "7.5", "8", "9"] },
+      });
+    }
+    // 4, 5 and 9 exist on the mounting but did not match; they must not appear.
+    expect(groupMountings(matches, display)[0]?.options[1]?.values).toEqual([
+      "6",
+      "6.5",
+      "7",
+      "7.5",
+      "8",
+    ]);
+  });
+
+  it("falls back to first-seen order when Shopify's order is absent", () => {
+    const { matches, display } = pilot();
+    const cards = groupMountings(matches, display);
+    expect(cards[0]?.options[1]?.values.length).toBe(5);
+  });
+});

@@ -29,7 +29,7 @@ const THEME = join(process.cwd(), "..", "theme");
 
 function loadToMinorUnits(): (raw: unknown) => string | null {
   const source = readFileSync(join(THEME, "assets", "beat-quote-form.js"), "utf8");
-  const match = source.match(/function toMinorUnits\(raw\) \{[\s\S]*?\n  \}/);
+  const match = source.match(/function toMinorUnits\(raw\) \{[\s\S]*?\n {2}\}/);
   if (!match) throw new Error("toMinorUnits not found in beat-quote-form.js");
   // eslint-disable-next-line no-new-func
   return new Function(`${match[0]}; return toMinorUnits;`)() as (raw: unknown) => string | null;
@@ -79,9 +79,11 @@ describe("customer-entered amounts become exact minor units", () => {
     // many ordinary values. Walking every cent of a realistic jewelry price
     // range would catch any reintroduction of float arithmetic.
     for (let cents = 1; cents <= 500_000; cents += 7) {
-      const whole = Math.trunc(cents / 100);
-      const frac = cents % 100;
-      const typed = `${whole}.${String(frac).padStart(2, "0")}`;
+      // Built by splitting the digit string, not by dividing. `cents / 100`
+      // would be the very float arithmetic this test exists to catch, and a
+      // drifting expectation can only hide a drifting implementation.
+      const digits = String(cents).padStart(3, "0");
+      const typed = `${digits.slice(0, -2)}.${digits.slice(-2)}`;
       expect(toMinorUnits(typed)).toBe(String(cents));
     }
   });
