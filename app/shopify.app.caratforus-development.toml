@@ -317,12 +317,19 @@ automatically_update_urls_on_dev = true
 # Two subscriptions, because two different edits can invalidate the derived
 # compatibility index and only one of them touches a product.
 #
-# WHY NOT JUST products/update, WHICH WE ALREADY HAVE: that topic says only
-# that "something changed". These triggers name the exact field in
-# fields_changed and carry a custom query, so the handler knows whether a
-# compatibility field moved or someone merely edited the description. The
-# classic topic cannot distinguish those, and re-projecting on every product
-# edit would be a self-inflicted rate-limit problem.
+# EVERY METAFIELD KEY IS NAMED, not wildcarded by namespace. Shopify's
+# validator requires both namespace and key on a metafield trigger, which is
+# stricter than the namespace wildcard first attempted here and better: a
+# delivery now identifies the exact field that moved, and an edit to an
+# unrelated `carat` metafield (a price, a Luxury Steal flag) does not wake
+# this handler at all.
+#
+# THE PAYLOAD QUERIES RETURN ONLY AN ID, deliberately. The handlers treat a
+# delivery as a trigger and re-read everything from Shopify, because a delivery
+# can be replayed or arrive after a later edit -- a payload-derived write would
+# record whatever Shopify's state was at some arbitrary past moment. Asking for
+# the data anyway also broke Shopify's query-complexity limit of 100, which is
+# a fair hint that the data was not needed.
 #
 # [events] api_version is independent of [webhooks] api_version above, so
 # 2026-10 here leaves the existing 2026-07 classic deliveries alone.
@@ -332,43 +339,35 @@ api_version = "2026-10"
 # -----------------------------------------------------------------------------
 # PRODUCT -- the mounting itself
 # -----------------------------------------------------------------------------
-# Namespace-scoped, so an edit to someone else's metafield is not our problem.
-# `product.variants.metafield` is the trigger that covers VARIANT metafields;
-# Shopify delivers child-entity changes on the parent topic, which is why
-# there is no separate ProductVariant topic to subscribe to.
+# Variant metafields arrive on this topic too: Shopify delivers child-entity
+# changes on the parent, which is why there is no ProductVariant topic.
 [[events.subscription]]
 handle = "syos-product-compatibility"
 topic = "Product"
 actions = ["create", "update", "delete"]
 triggers = [
   "product.status",
-  "product.metafield(namespace: 'carat').*",
-  "product.variants.metafield(namespace: 'carat').*",
-  "product.variants",
-  "product.options",
+  "product.options.*",
+  "product.options.optionValues.*",
+  "product.options.linkedMetafield.*",
+  "product.variants.*",
+  "product.metafield(namespace: 'carat', key: 'syos_eligible').*",
+  "product.metafield(namespace: 'carat', key: 'syos_stone_shape').*",
+  "product.metafield(namespace: 'carat', key: 'syos_setting_style').*",
+  "product.metafield(namespace: 'carat', key: 'syos_prong_adjustable').*",
+  "product.metafield(namespace: 'carat', key: 'syos_prong_tolerance_eligible').*",
+  "product.metafield(namespace: 'carat', key: 'syos_vendor').*",
+  "product.variants.metafield(namespace: 'carat', key: 'syos_vendor_min_length_mm').*",
+  "product.variants.metafield(namespace: 'carat', key: 'syos_vendor_max_length_mm').*",
+  "product.variants.metafield(namespace: 'carat', key: 'syos_vendor_min_width_mm').*",
+  "product.variants.metafield(namespace: 'carat', key: 'syos_vendor_max_width_mm').*",
+  "product.variants.metafield(namespace: 'carat', key: 'syos_vendor_range_source').*",
+  "product.variants.metafield(namespace: 'carat', key: 'syos_compatibility_active').*",
 ]
 uri = "/webhooks/carat/events/syos-product"
 query = """
 query SyosProductEvent($productId: ID!) {
-  product(id: $productId) {
-    id
-    status
-    metafields(first: 20, namespace: "carat") { nodes { key value } }
-    options {
-      id
-      name
-      linkedMetafield { namespace key }
-      optionValues { id name linkedMetafieldValue }
-    }
-    variants(first: 100) {
-      nodes {
-        id
-        title
-        selectedOptions { name optionValue { id name } }
-        metafields(first: 20, namespace: "carat") { nodes { key value } }
-      }
-    }
-  }
+  product(id: $productId) { id }
 }
 """
 
@@ -376,22 +375,21 @@ query SyosProductEvent($productId: ID!) {
 # METAOBJECT -- the shared centre-size profile
 # -----------------------------------------------------------------------------
 # THE SUBSCRIPTION THAT PREVENTS A FALSE MATCH. A merchant can edit
-# "Pear 10 x 7 mm" from 10.0 to 10.5 without touching a single product: the
-# option value still points at the same metaobject id, so no Product event
-# fires. Without this, every mounting using that profile would keep being
-# matched against the old dimensions -- a wrong compatibility answer, not a
-# stale label.
+# "Pear 10 x 7 mm" from 10.0 to 10.5 without touching any product: the option
+# value still points at the same metaobject id, so no Product event fires and
+# nothing in the product graph changed. Without this, every mounting using that
+# profile would keep being matched against dimensions that no longer exist --
+# a wrong compatibility answer, not a stale label.
 #
-# Requires read_metaobjects. Verified empirically: the topic is refused
-# without it, even though app-owned metaobject reads and writes are exempt.
+# Requires read_metaobjects. Verified empirically: the topic is refused without
+# it, even though app-owned metaobject reads and writes are exempt.
 #
-# Every trigger must name the type, per Shopify's own caution.
+# Every trigger names the type, per Shopify's own caution.
 [[events.subscription]]
 handle = "syos-center-size-profile"
 topic = "Metaobject"
 actions = ["create", "update", "delete"]
 triggers = [
-  "metaobject(type: '$app:syos_center_size_profile').displayName",
   "metaobject(type: '$app:syos_center_size_profile').field(key: 'display_name').*",
   "metaobject(type: '$app:syos_center_size_profile').field(key: 'stone_shape').*",
   "metaobject(type: '$app:syos_center_size_profile').field(key: 'nominal_length_mm').*",
@@ -401,11 +399,63 @@ triggers = [
 uri = "/webhooks/carat/events/syos-profile"
 query = """
 query SyosProfileEvent($metaobjectId: ID!) {
-  metaobject(id: $metaobjectId) {
-    id
-    type
-    displayName
-    fields { key value }
-  }
+  metaobject(id: $metaobjectId) { id type }
 }
 """
+
+# =============================================================================
+# APP-OWNED METAOBJECT -- Center Stone Size Profile
+# =============================================================================
+#
+# One entry per REAL centre size, shared by every mounting offered in that
+# size. "Pear 10 x 7 mm" means the same measurements catalogue-wide, so the
+# dimensions live here once rather than being copied onto every variant that
+# offers them.
+#
+# APP-OWNED (`metaobjects.app.*`), which is what exempts reading AND writing
+# these entries from read_metaobjects / write_metaobjects -- Shopify's 2026-04
+# change, verified with this app's own token before anything was requested.
+# The read_metaobjects scope added above is for the Metaobject EVENTS topic
+# only, which is not covered by that exemption.
+#
+# `access.admin = "merchant_read_write"` is the point: staff maintain profiles
+# in Shopify Admin with no custom app involved.
+#
+# The display name is load-bearing, not cosmetic. Without a display-name field
+# Shopify labels the linked option value from the definition, and a probe
+# produced the customer-facing label
+# "App 424838725633 Probe Center Size Merchant #B1GMFLSE".
+[metaobjects.app.syos_center_size_profile]
+name = "Center Stone Size Profile"
+description = "A real centre-stone size - shape and nominal millimetre dimensions - shared by every mounting offered in that size."
+access.admin = "merchant_read_write"
+access.storefront = "public_read"
+
+[metaobjects.app.syos_center_size_profile.fields.display_name]
+name = "Display Name"
+description = "What customers and staff see, for example Pear 10 x 7 mm. This becomes the Center Stone Size option label."
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.syos_center_size_profile.fields.stone_shape]
+name = "Stone Shape"
+description = "The centre-stone shape this size is for. Matching compares shape before any dimension, so a wrong value hides every mounting using this profile."
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.syos_center_size_profile.fields.nominal_length_mm]
+name = "Nominal Stone Length (mm)"
+description = "The centre-stone length this size is built for, in millimetres. For example 10.25."
+type = "number_decimal"
+required = true
+
+[metaobjects.app.syos_center_size_profile.fields.nominal_width_mm]
+name = "Nominal Stone Width (mm)"
+description = "The centre-stone width this size is built for, in millimetres."
+type = "number_decimal"
+required = true
+
+[metaobjects.app.syos_center_size_profile.fields.nominal_depth_mm]
+name = "Nominal Stone Depth (mm)"
+description = "Optional. The centre-stone depth, if the supplier states one."
+type = "number_decimal"
