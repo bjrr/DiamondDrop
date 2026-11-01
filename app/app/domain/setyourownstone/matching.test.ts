@@ -29,6 +29,7 @@ const OVAL_10x7: ReadySettingCompatibility = {
   nominalLengthUm: 10_000,
   nominalWidthUm: 7_000,
   eligibleForSetYourOwnStone: true,
+  prongSetToleranceEligible: false,
 };
 
 const ROUND_6: ReadySettingCompatibility = {
@@ -37,6 +38,7 @@ const ROUND_6: ReadySettingCompatibility = {
   nominalLengthUm: 6_000,
   nominalWidthUm: 6_000,
   eligibleForSetYourOwnStone: true,
+  prongSetToleranceEligible: false,
 };
 
 const oval = (lengthUm: number, widthUm: number): StoneDimensions => ({
@@ -149,6 +151,120 @@ describe("owner-approved tolerance (§6.2)", () => {
   it("does not leak the tolerance to a shape it was not approved for", () => {
     const round = (l: number, w: number): StoneDimensions => ({ shape: "round", lengthUm: l, widthUm: w });
     expect(classify(round(6_100, 6_100), ROUND_6, policy).status).toBe("no_match");
+  });
+});
+
+describe("the owner's prong-setting tolerance (decision 2026-10-31)", () => {
+  /** The policy actually in force. Kept in step with `policy.server.ts` by
+   *  the parity test at the bottom of this file, so this cannot drift into
+   *  testing a tolerance we do not ship. */
+  const LOCKED: MatchingPolicy = {
+    approvedToleranceUmByShape: {},
+    prongSetToleranceUm: 300,
+    reviewBandUm: 1_000,
+  };
+
+  /** Same 10 x 7 mm oval mounting, declared prong-set adjustable. */
+  const PRONG_10x7: ReadySettingCompatibility = {
+    ...OVAL_10x7,
+    prongSetToleranceEligible: true,
+  };
+
+  // ---------------------------------------------------------------- the three
+  // worked examples from the decision, verbatim. These are the acceptance
+  // criteria, so they are written as the owner wrote them.
+
+  it("10.2 x 7.1 against 10 x 7 may be shown as matching", () => {
+    const r = classify(oval(10_200, 7_100), PRONG_10x7, LOCKED);
+    expect(r.status).toBe("automatic");
+    expect(r.rule).toBe("prong_set_tolerance");
+  });
+
+  it("10.3 x 7.3 against 10 x 7 still qualifies — the tolerance is inclusive at 0.3", () => {
+    // Exactly on the bound in BOTH dimensions. An exclusive comparison here
+    // would fail the owner's own example, and 0.3 mm was stated as the
+    // allowance, not as the first value outside it.
+    const r = classify(oval(10_300, 7_300), PRONG_10x7, LOCKED);
+    expect(r.status).toBe("automatic");
+    expect(r.rule).toBe("prong_set_tolerance");
+  });
+
+  it("10.5 x 7.4 against 10 x 7 is Review Required, not a match", () => {
+    const r = classify(oval(10_500, 7_400), PRONG_10x7, LOCKED);
+    expect(r.status).toBe("review_required");
+    expect(r.rule).toBe("review_band");
+    expect(labelFor(r)).toBe(COMPATIBILITY_LABELS.review);
+  });
+
+  it("one micrometre past the tolerance drops to review, not match", () => {
+    // The boundary is the whole point of an integer representation: 0.301 mm
+    // is outside, unambiguously, with no floating-point argument about it.
+    const r = classify(oval(10_301, 7_000), PRONG_10x7, LOCKED);
+    expect(r.status).toBe("review_required");
+  });
+
+  // ------------------------------------------------------- the two exclusions
+
+  it("does NOT apply to a mounting that is not prong-set adjustable", () => {
+    // Same stone, same numbers, same policy — only the mounting's setting
+    // style differs. A bezel or channel setting must not inherit a prong
+    // allowance, because the bench cannot absorb the difference and the
+    // customer's own diamond is already in the post by the time anyone knows.
+    const r = classify(oval(10_200, 7_100), OVAL_10x7, LOCKED);
+    expect(r.status).not.toBe("automatic");
+    expect(r.rule).not.toBe("prong_set_tolerance");
+  });
+
+  it("does NOT override an explicit vendor restriction", () => {
+    // The vendor caps length at 10.1 mm. A 10.25 mm stone is inside OUR
+    // 0.3 mm allowance and outside THEIRS, and the manufacturer wins — a
+    // general rule about prong work cannot overrule a specific published
+    // limit on a specific mounting.
+    const restricted: ReadySettingCompatibility = {
+      ...PRONG_10x7,
+      minLengthUm: 9_900,
+      maxLengthUm: 10_100,
+      minWidthUm: 6_900,
+      maxWidthUm: 7_100,
+    };
+    const r = classify(oval(10_250, 7_000), restricted, LOCKED);
+    expect(r.status).toBe("no_match");
+    expect(r.rule).toBe("vendor_range_outside");
+  });
+
+  it("a WIDER vendor range still wins, and grants more than our tolerance would", () => {
+    // Precedence is not "whichever is stricter" — it is the vendor's range,
+    // full stop. Here theirs is more generous and a 0.45 mm difference
+    // matches on their authority, which our 0.3 mm rule would have refused.
+    const generous: ReadySettingCompatibility = {
+      ...PRONG_10x7,
+      minLengthUm: 9_000,
+      maxLengthUm: 11_000,
+      minWidthUm: 6_500,
+      maxWidthUm: 7_500,
+    };
+    const r = classify(oval(10_450, 7_200), generous, LOCKED);
+    expect(r.status).toBe("automatic");
+    expect(r.rule).toBe("vendor_range_inside");
+  });
+
+  it("still refuses a wrong-shape mounting at a tolerable distance", () => {
+    // Shape is checked before any measuring, so the tolerance never becomes a
+    // way in for the wrong outline.
+    const prongRound: ReadySettingCompatibility = { ...ROUND_6, prongSetToleranceEligible: true };
+    const r = classify({ shape: "oval", lengthUm: 6_100, widthUm: 6_100 }, prongRound, LOCKED);
+    expect(r.rule).toBe("shape_mismatch");
+  });
+
+  it("is off by default, so it only ever applies because someone decided it", () => {
+    expect(DEFAULT_MATCHING_POLICY.prongSetToleranceUm).toBe(0);
+    expect(classify(oval(10_200, 7_100), PRONG_10x7).status).toBe("no_match");
+  });
+
+  it("never produces the forbidden phrasing", () => {
+    const r = classify(oval(10_200, 7_100), PRONG_10x7, LOCKED);
+    expect(labelFor(r)).not.toMatch(/guarantee/i);
+    expect(labelFor(r)).toBe(COMPATIBILITY_LABELS.recommended);
   });
 });
 

@@ -80,12 +80,29 @@ export interface ReadySettingCompatibility {
   readonly minWidthUm?: Micrometres;
   readonly maxWidthUm?: Micrometres;
   readonly eligibleForSetYourOwnStone: boolean;
+  /**
+   * Whether this mounting's setting style is reasonably adjustable by prong
+   * setting, and so qualifies for the owner's ±0.3 mm accommodation
+   * (decision 2026-10-31).
+   *
+   * NOT A DEFAULT-ON FLAG. The decision says a design "not reasonably
+   * adjustable by prong setting" must not get the rule automatically, and the
+   * only way to honour that is for silence to mean no. A bezel, channel or
+   * tension setting that inherited an on-by-default tolerance would be shown
+   * as a size match to a stone a bench cannot actually set — which is the
+   * expensive direction to be wrong in, since the customer's own diamond is
+   * already in the post by the time anyone finds out.
+   */
+  readonly prongSetToleranceEligible: boolean;
 }
 
 /**
- * Owner-configurable policy. Both values default to ZERO, which is the
+ * Owner-configurable policy. Every dial defaults to ZERO, which is the
  * strictest reading of §6.2: with no configuration, nothing is matched or
  * surfaced on the strength of a tolerance this system made up.
+ *
+ * The owner's locked decision of 2026-10-31 populates these; see
+ * `policy.server.ts` for the values actually in force and their derivation.
  */
 export interface MatchingPolicy {
   /**
@@ -93,8 +110,23 @@ export interface MatchingPolicy {
    * band of the nominal size becomes an AUTOMATIC match. Only an owner
    * decision may populate this (§6.2 "where an owner-approved compatibility
    * tolerance is configured, use it").
+   *
+   * Retained alongside `prongSetToleranceUm` because the two answer different
+   * questions: this one is "does this SHAPE tolerate more or less", the other
+   * is "is this MOUNTING adjustable at all". A future shape-specific decision
+   * lands here without disturbing the prong rule.
    */
   readonly approvedToleranceUmByShape?: Partial<Record<StoneShape, Micrometres>>;
+  /**
+   * The owner's prong-setting accommodation, in micrometres — 300 (±0.3 mm)
+   * under the 2026-10-31 decision.
+   *
+   * APPLIES ONLY TO MOUNTINGS FLAGGED `prongSetToleranceEligible`. The
+   * decision is explicit that a design not reasonably adjustable by prong
+   * setting does not get this rule automatically, so the tolerance is a
+   * property of the policy AND the mounting, never of the policy alone.
+   */
+  readonly prongSetToleranceUm?: Micrometres;
   /**
    * How far from nominal a candidate may sit and still be shown to the
    * customer as "review required". NOT a fit claim. Zero disables it.
@@ -104,6 +136,7 @@ export interface MatchingPolicy {
 
 export const DEFAULT_MATCHING_POLICY: MatchingPolicy = {
   approvedToleranceUmByShape: {},
+  prongSetToleranceUm: 0,
   reviewBandUm: 0,
 };
 
@@ -124,6 +157,10 @@ export type CompatibilityRule =
   | "vendor_range_outside"
   | "exact_nominal"
   | "approved_tolerance"
+  /** The owner's ±0.3 mm prong-setting accommodation (decision 2026-10-31).
+   *  Recorded distinctly from `approved_tolerance` so that if the decision is
+   *  ever revisited, the matches it produced can be found. */
+  | "prong_set_tolerance"
   | "review_band"
   | "outside_all_rules";
 
@@ -226,6 +263,24 @@ export function classify(
   const approved = policy.approvedToleranceUmByShape?.[stone.shape] ?? 0;
   if (approved > 0 && withinBand(stone, setting, approved)) {
     return { setting, status: "automatic", rule: "approved_tolerance" };
+  }
+
+  // The owner's prong-setting accommodation (decision 2026-10-31): up to
+  // ±0.3 mm in length and/or width is routinely absorbed when a bench sets
+  // prongs.
+  //
+  // REACHED ONLY AFTER THE VENDOR RANGE, by position in this function. The
+  // decision states the tolerance "does NOT override an explicit
+  // manufacturer/vendor restriction", and the vendor branch above returns
+  // unconditionally — inside or outside — so a mounting with a published
+  // range never arrives here. That ordering IS the precedence rule; it is not
+  // an accident of layout.
+  //
+  // AND ONLY FOR MOUNTINGS THAT SAY THEY ARE ADJUSTABLE. A setting style that
+  // cannot be opened up by prong work does not get this automatically.
+  const prong = policy.prongSetToleranceUm ?? 0;
+  if (prong > 0 && setting.prongSetToleranceEligible && withinBand(stone, setting, prong)) {
+    return { setting, status: "automatic", rule: "prong_set_tolerance" };
   }
 
   const band = policy.reviewBandUm ?? 0;

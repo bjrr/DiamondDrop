@@ -84,5 +84,6 @@ function toDomain(row: Row): ReadySettingCompatibility {
     minWidthUm: row.minWidthUm ?? undefined,
     maxWidthUm: row.maxWidthUm ?? undefined,
     eligibleForSetYourOwnStone: row.eligibleForSetYourOwnStone,
+    prongSetToleranceEligible: row.prongSetToleranceEligible,
   };
 }
