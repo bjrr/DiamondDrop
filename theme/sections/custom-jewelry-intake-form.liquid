@@ -253,6 +253,26 @@
         </div>
       </div>
 
+      {%- comment -%}
+        SET YOUR OWN STONE HANDOFF (docs/SET-YOUR-OWN-STONE.md §9.2).
+
+        Hidden unless the customer arrived from the stone page, which the
+        controller detects from the query string. It confirms their stone
+        carried over, so nobody is left wondering whether the measurements
+        they typed survived the jump.
+
+        It shows the REFERENCE, not the stone. The measurements, certificate
+        and selected setting stay server-side, where they are the single
+        source of truth; reprinting them here would make this page a second
+        copy that could drift.
+      {%- endcomment -%}
+      <div class="carat-custom-jewelry__stone-banner" data-carat-cj-stone-banner hidden>
+        <p>
+          {{- 'templates.custom_jewelry.form.stone_carried_over' | t -}}
+          <strong data-carat-cj-stone-reference></strong>
+        </p>
+      </div>
+
       <fieldset class="carat-custom-jewelry__fieldset">
         <legend class="carat-custom-jewelry__legend">
           {{- 'templates.custom_jewelry.form.starting_point_legend' | t }}

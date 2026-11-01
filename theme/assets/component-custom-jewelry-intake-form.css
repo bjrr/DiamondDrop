@@ -219,3 +219,19 @@
   color: rgb(var(--color-foreground));
   margin: 1.6rem 0 0;
 }
+
+/* Set Your Own Stone handoff banner (docs/SET-YOUR-OWN-STONE.md §9.2).
+   Hidden until the customer arrives from the stone page. It confirms the
+   measurements survived the jump — the details themselves stay server-side. */
+.carat-custom-jewelry__stone-banner {
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  background: rgba(var(--color-foreground), 0.03);
+  padding: 1.3rem 1.5rem;
+  margin-block-end: 2.4rem;
+  font-size: 1.45rem;
+  line-height: 1.55;
+}
+
+.carat-custom-jewelry__stone-banner[hidden] { display: none !important; }
+.carat-custom-jewelry__stone-banner p { margin: 0; }
+.carat-custom-jewelry__stone-banner strong { font-variant-numeric: tabular-nums; }

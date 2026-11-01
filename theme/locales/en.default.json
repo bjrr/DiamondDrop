@@ -434,7 +434,8 @@
         "follow_up_legend": "How would you like us to follow up?",
         "follow_up_schedule_consultation": "Schedule a consultation",
         "follow_up_contact_me": "Please contact me",
-        "submit": "Send request"
+        "submit": "Send request",
+        "stone_carried_over": "Your stone details have carried over from Set Your Own Stone. Reference: "
       }
     },
     "bank_payment_orders": {
@@ -521,6 +522,69 @@
       "upload_hint": "PDF, or a clear photo of a printed quote. Up to 5 files, 25 MB each. Optional — you can send it later if you do not have it to hand.",
       "upload_signin_required": "Sign in to attach the quote. You can still submit without one, and we will ask for it by email.",
       "upload_signin_link": "Sign in"
+    },
+    "set_your_own_stone": {
+      "stone": {
+        "heading": "Set Your Own Stone",
+        "lede": "Already own a diamond or gemstone? Tell us about it once, and we will show you the ready settings it fits — or design something around it.",
+        "about_legend": "Your stone",
+        "type_label": "Stone type",
+        "type_natural": "Natural diamond",
+        "type_lab": "Lab-grown diamond",
+        "type_gemstone": "Gemstone",
+        "shape_label": "Shape",
+        "carat_label": "Carat weight",
+        "carat_hint": "Carat tells us the weight, not the size. The measurements below are what decide which settings fit.",
+        "size_legend": "Measurements",
+        "size_hint": "You can usually find these on your grading report, in millimetres.",
+        "length_label": "Length (mm)",
+        "width_label": "Width (mm)",
+        "depth_label": "Depth (mm, if you know it)",
+        "report_legend": "Report and condition",
+        "cert_lab_label": "Grading lab (optional)",
+        "cert_number_label": "Report number (optional)",
+        "cert_upload_label": "Upload your report (optional)",
+        "mounted_label": "Where is the stone now?",
+        "mounted_loose": "Loose",
+        "mounted_set": "Currently set in a piece",
+        "notes_label": "Anything else we should know (optional)",
+        "submit": "Find settings for my stone"
+      },
+      "shape": {
+        "round": "Round",
+        "oval": "Oval",
+        "cushion": "Cushion",
+        "princess": "Princess",
+        "emerald": "Emerald",
+        "radiant": "Radiant",
+        "pear": "Pear",
+        "marquise": "Marquise",
+        "asscher": "Asscher",
+        "heart": "Heart"
+      },
+      "results": {
+        "summary_heading": "Settings for your [shape] [type]",
+        "no_matches": "No ready settings match this stone right now.",
+        "choose": "Choose this setting",
+        "edit": "Edit my stone details"
+      },
+      "custom": {
+        "heading": "Create a Custom Setting",
+        "text": "We can design a setting around your stone. Your measurements carry over — you will not need to enter them again.",
+        "cta": "Create a Custom Setting"
+      },
+      "done": {
+        "heading": "Thank you — we have your stone details",
+        "reference_label": "Your reference"
+      },
+      "do_not_send": "Please do not send your stone until CaratForUs confirms your project and provides shipping instructions.",
+      "errors": {
+        "required": "This is required.",
+        "bad_number": "Enter a number with up to 3 decimal places.",
+        "width_over_length": "Length should be the longer measurement — are these swapped?",
+        "session": "We could not save your stone details. Please try again.",
+        "select": "We could not record that choice. Please try again."
+      }
     }
   },
   "sections": {

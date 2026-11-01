@@ -1,0 +1,22 @@
+{
+  "sections": {
+    "head": {
+      "type": "carat-pagehead",
+      "settings": {
+        "level": "functional",
+        "color_scheme": "scheme-1",
+        "heading": "Set Your Own Stone",
+        "subheading": "Your stone. Your setting. Tell us about the diamond or gemstone you already own."
+      }
+    },
+    "stone": {
+      "type": "set-your-own-stone",
+      "settings": {
+        "color_scheme": "scheme-1",
+        "custom_jewelry_url": "/pages/custom-jewelry",
+        "enable_uploads": false
+      }
+    }
+  },
+  "order": ["head", "stone"]
+}

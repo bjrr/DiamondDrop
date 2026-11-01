@@ -456,16 +456,45 @@
     return legend ? legend.textContent.replace('*', '').trim() : '';
   }
 
+  /**
+   * The Set Your Own Stone session, when the customer arrived from there
+   * (docs/SET-YOUR-OWN-STONE.md §9.2).
+   *
+   * A REFERENCE, NOT THE STONE. The measurements, certificate and selected
+   * setting stay server-side on `stone_session`, which the intake route
+   * looks up and links. That is what lets the customer skip re-entering
+   * anything (§15.12) without this page ever holding data it would then be
+   * the second source of truth for.
+   *
+   * Read from the query string because that is how a link carries a
+   * pointer between two pages. The reference alone proves nothing: the
+   * server re-checks ownership before attaching it.
+   */
+  function stoneSessionReference() {
+    try {
+      var value = new URLSearchParams(window.location.search).get('stone');
+      return value && value.length > 0 && value.length <= 64 ? value : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   function buildPayload() {
+    var stoneRef = stoneSessionReference();
     var payload = {
       firstName: valueOf('first_name'),
       lastName: valueOf('last_name'),
       email: valueOf('email'),
       phone: valueOf('phone'),
-      startingPoint: checkedValueOf('starting_point'),
+      // Arriving from Set Your Own Stone means the customer is supplying
+      // the centre stone (§9.1), which is a different starting point from
+      // either of the two this form offers on its own.
+      startingPoint: stoneRef ? 'customer_stone' : checkedValueOf('starting_point'),
       promptText: valueOf('prompt_text'),
       followUpPreference: checkedValueOf('follow_up_preference'),
     };
+
+    if (stoneRef) payload.stoneSessionReference = stoneRef;
 
     var jewelryType = valueOf('jewelry_type');
     if (jewelryType) payload.jewelryType = jewelryType;
@@ -584,7 +613,47 @@
       });
   }
 
+  /**
+   * Adapt the form when the customer arrived from Set Your Own Stone
+   * (docs/SET-YOUR-OWN-STONE.md §9.1, §9.2).
+   *
+   * The starting-point question is ANSWERED ALREADY — they are supplying
+   * their own centre stone — so asking it again is both redundant and
+   * wrong, since neither offered option is true. The fieldset is hidden and
+   * its `required` removed; leaving `required` on a hidden radio group
+   * blocks submission with a validation message pointing at a control the
+   * customer cannot see, which is a genuinely baffling dead end.
+   *
+   * A short banner replaces it, confirming the stone carried over so the
+   * customer is not left wondering whether their measurements survived the
+   * jump. The details themselves stay server-side; this page shows that a
+   * link exists, not what is behind it.
+   */
+  function initStoneHandoff() {
+    var reference = stoneSessionReference();
+    if (!reference) return;
+
+    var radios = form.querySelectorAll('[data-carat-cj-starting-point]');
+    Array.prototype.forEach.call(radios, function (radio) {
+      radio.removeAttribute('required');
+      radio.checked = false;
+    });
+
+    if (radios.length > 0) {
+      var fieldset = radios[0].closest('fieldset');
+      if (fieldset) fieldset.hidden = true;
+    }
+
+    var banner = form.querySelector('[data-carat-cj-stone-banner]');
+    if (banner) {
+      var refSlot = banner.querySelector('[data-carat-cj-stone-reference]');
+      if (refSlot) refSlot.textContent = reference;
+      banner.hidden = false;
+    }
+  }
+
   form.addEventListener('submit', handleSubmit);
   initUploads();
   initTiming();
+  initStoneHandoff();
 })();

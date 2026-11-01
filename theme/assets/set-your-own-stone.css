@@ -1,0 +1,297 @@
+/**
+ * Set Your Own Stone.
+ *
+ * Mobile-first, per docs/SET-YOUR-OWN-STONE.md §12. Shares the ivory/ink
+ * palette and the single-left-edge rule the rest of the storefront follows,
+ * so this reads as the same shop rather than a bolted-on tool.
+ *
+ * THE COMPATIBILITY BADGES ARE NOT COLOUR-CODED ALONE. Each carries its own
+ * words, because "green means it fits" is unreadable to a colour-blind
+ * customer and meaningless read aloud. Colour reinforces the label; it never
+ * replaces it.
+ */
+
+.carat-syos {
+  padding-block: 4rem 6rem;
+}
+
+.carat-syos__intro {
+  max-width: 60ch;
+  margin-block-end: 3rem;
+}
+
+.carat-syos__heading {
+  font-size: clamp(2.6rem, 4vw, 3.6rem);
+  line-height: 1.1;
+  margin: 0 0 1rem;
+  text-wrap: balance;
+}
+
+/* The step headings take focus when a step appears, so a keyboard user is
+   not left at the bottom of a panel that is no longer on screen. That focus
+   must be visible but must not look like a text cursor sitting in a heading. */
+.carat-syos__heading:focus-visible {
+  outline: 2px solid rgb(var(--color-foreground));
+  outline-offset: 4px;
+}
+
+.carat-syos__lede {
+  margin: 0;
+  font-size: 1.6rem;
+  line-height: 1.6;
+  color: rgba(var(--color-foreground), 0.8);
+}
+
+/* ------------------------------------------------------------------ form */
+
+.carat-syos__form {
+  max-width: 68rem;
+}
+
+.carat-syos__fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0 0 3rem;
+}
+
+.carat-syos__legend {
+  font-size: 1.1rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(var(--color-foreground), 0.6);
+  padding: 0;
+  margin-block-end: 1.4rem;
+}
+
+.carat-syos__row {
+  display: grid;
+  gap: 1.6rem;
+  grid-template-columns: 1fr;
+}
+
+.carat-syos__field {
+  display: flex;
+  flex-direction: column;
+  margin-block-end: 1.6rem;
+}
+
+.carat-syos__label {
+  font-size: 1.4rem;
+  margin-block-end: 0.6rem;
+}
+
+.carat-syos__input {
+  font-size: 1.6rem;
+  padding: 1.1rem 1.2rem;
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  border-radius: 2px;
+  background: rgb(var(--color-background));
+  color: rgb(var(--color-foreground));
+  /* 16px minimum on the real control: anything smaller makes iOS Safari zoom
+     the page on focus, which on a measurement field is actively hostile. */
+  min-height: 4.4rem;
+}
+
+.carat-syos__input:focus-visible {
+  outline: 2px solid rgb(var(--color-foreground));
+  outline-offset: 1px;
+}
+
+.carat-syos__input[aria-invalid="true"] {
+  border-color: rgb(var(--color-foreground));
+  border-width: 2px;
+}
+
+.carat-syos__hint {
+  font-size: 1.3rem;
+  line-height: 1.5;
+  margin: 0.6rem 0 0;
+  color: rgba(var(--color-foreground), 0.7);
+}
+
+.carat-syos__field-error {
+  font-size: 1.3rem;
+  margin-block-start: 0.6rem;
+  color: rgb(var(--color-foreground));
+  font-weight: 500;
+}
+
+.carat-syos__choice {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  font-size: 1.5rem;
+  margin-block-start: 0.8rem;
+}
+
+.carat-syos__choice input {
+  width: 1.8rem;
+  height: 1.8rem;
+  accent-color: rgb(var(--color-foreground));
+}
+
+/* --------------------------------------------------------------- notices */
+
+/* The one operational instruction (§13). Given a real border rather than a
+   dimmed hint: it is the sentence that stops someone posting a diamond
+   before we have agreed to receive it. */
+.carat-syos__notice {
+  border: 1px solid rgba(var(--color-foreground), 0.35);
+  padding: 1.4rem 1.6rem;
+  margin: 2.4rem 0 0;
+  font-size: 1.45rem;
+  line-height: 1.55;
+  background: rgba(var(--color-foreground), 0.02);
+}
+
+.carat-syos__error {
+  border: 1px solid rgb(var(--color-foreground));
+  padding: 1.2rem 1.4rem;
+  margin-block-end: 2rem;
+  font-size: 1.5rem;
+}
+
+.carat-syos__error[hidden],
+.carat-syos__field-error[hidden],
+.carat-syos__step[hidden] {
+  display: none !important;
+}
+
+.carat-syos__actions {
+  margin-block-start: 2.4rem;
+}
+
+.carat-syos__submit {
+  width: 100%;
+}
+
+/* --------------------------------------------------------------- results */
+
+.carat-syos__summary {
+  padding-block-end: 2rem;
+  border-block-end: 1px solid rgba(var(--color-foreground), 0.15);
+  margin-block-end: 2.4rem;
+}
+
+/* "2.34 ct · 10.12 × 7.08 mm" — tabular figures so the numbers line up and
+   read as measurements rather than prose. */
+.carat-syos__stone-line {
+  margin: 0.4rem 0 1.2rem;
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+  color: rgba(var(--color-foreground), 0.8);
+}
+
+.carat-syos__edit {
+  background: none;
+  border: 0;
+  border-block-end: 1px solid currentColor;
+  padding: 0 0 0.3rem;
+  cursor: pointer;
+  font-size: 1.35rem;
+  color: inherit;
+}
+
+.carat-syos__results {
+  display: grid;
+  gap: 1.6rem;
+  grid-template-columns: 1fr;
+}
+
+.carat-syos__card {
+  border: 1px solid rgba(var(--color-foreground), 0.2);
+  padding: 1.8rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.9rem;
+}
+
+.carat-syos__card-size {
+  margin: 0;
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Words first, colour second — see the file header. */
+.carat-syos__badge {
+  font-size: 1.25rem;
+  letter-spacing: 0.04em;
+  padding: 0.4em 0.9em;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+}
+
+.carat-syos__badge--automatic {
+  color: #2f5d3f;
+  background: rgba(47, 93, 63, 0.07);
+}
+
+.carat-syos__badge--review_required {
+  color: #7a5a20;
+  background: rgba(122, 90, 32, 0.07);
+}
+
+.carat-syos__card-qualifier {
+  margin: 0;
+  font-size: 1.3rem;
+  line-height: 1.5;
+  color: rgba(var(--color-foreground), 0.75);
+}
+
+.carat-syos__empty {
+  margin: 0;
+  padding: 2.4rem 0;
+  font-size: 1.6rem;
+  color: rgba(var(--color-foreground), 0.8);
+}
+
+/* ---------------------------------------------------------------- custom */
+
+/* Always present (§12), but it LEADS when nothing matched (§6.4) — which is
+   also the launch state, with no ready settings in the catalogue yet. */
+.carat-syos__custom {
+  margin-block-start: 3rem;
+  padding: 2.4rem;
+  background: var(--carat-stone, #f2eee7);
+  border: 1px solid rgba(var(--color-foreground), 0.12);
+}
+
+.carat-syos__custom--lead {
+  margin-block-start: 0;
+}
+
+.carat-syos__custom-heading {
+  margin: 0 0 0.8rem;
+  font-size: 2rem;
+}
+
+.carat-syos__custom-text {
+  margin: 0 0 1.8rem;
+  font-size: 1.5rem;
+  line-height: 1.6;
+  max-width: 54ch;
+}
+
+.carat-syos__reference {
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+  margin: 1.2rem 0 0;
+}
+
+/* --------------------------------------------------------------- desktop */
+
+@media screen and (min-width: 750px) {
+  .carat-syos { padding-block: 5rem 7rem; }
+
+  .carat-syos__row { grid-template-columns: 1fr 1fr; gap: 2rem; }
+  .carat-syos__row--three { grid-template-columns: repeat(3, 1fr); }
+
+  .carat-syos__submit { width: auto; min-width: 24rem; }
+
+  .carat-syos__results { grid-template-columns: repeat(2, 1fr); gap: 2rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .carat-syos * { scroll-behavior: auto !important; }
+}

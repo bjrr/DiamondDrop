@@ -163,11 +163,19 @@ export function labelFor(result: MatchResult): string {
 
 /** True only when all four bounds are present — see the interface comment. */
 function hasCompleteVendorRange(s: ReadySettingCompatibility): boolean {
+  // `!= null` deliberately, catching null as well as undefined.
+  //
+  // The repository converts Prisma's nulls to undefined before the domain
+  // ever sees them, so this is belt-and-braces. But the failure it prevents
+  // is a bad one and completely silent: a null bound read as PRESENT makes
+  // `length <= null` false, which returns `vendor_range_outside` — turning
+  // an exact-size match into a confident no with no error anywhere. Being
+  // strict about undefined buys nothing here and costs that.
   return (
-    s.minLengthUm !== undefined &&
-    s.maxLengthUm !== undefined &&
-    s.minWidthUm !== undefined &&
-    s.maxWidthUm !== undefined
+    s.minLengthUm != null &&
+    s.maxLengthUm != null &&
+    s.minWidthUm != null &&
+    s.maxWidthUm != null
   );
 }
 

@@ -1,0 +1,298 @@
+{%- comment -%}
+  SET YOUR OWN STONE
+  ===========================================================================
+  Authoritative requirements: docs/SET-YOUR-OWN-STONE.md
+  Plan: docs/specs/SET-YOUR-OWN-STONE-IMPLEMENTATION-PLAN.md
+
+  ONE PAGE, THREE STEPS, NO PAGE LOADS. The customer describes their stone,
+  sees the settings that match it, and either picks one or steps into Custom
+  Jewelry. Steps are sections of one document shown and hidden, so the
+  browser back button and a mis-tap never cost someone their measurements.
+
+  THIS PAGE COMPUTES NOTHING. Every compatibility verdict is decided by
+  `/apps/carat/stone-session` and rendered here verbatim. §11 requires no
+  client-only trust boundary, and a fit claim is exactly the thing worth
+  forging — so the only numbers this file knows are the ones the server
+  just sent it.
+
+  THERE IS NO SECOND CUSTOM FORM HERE (§9.1 forbids one). The custom path
+  hands the session reference to the existing Custom Jewelry page, which
+  then does what it always did.
+
+  OPERATIONAL COPY IS DELIBERATELY THIN (§13). No chain of custody, no
+  arrival photography, no laser-inscription check, no insurance promise, no
+  appraisal. One instruction: do not send the stone until we confirm. Saying
+  more would be advertising a process nobody has approved.
+{%- endcomment -%}
+
+{{ 'set-your-own-stone.css' | asset_url | stylesheet_tag }}
+
+{%- comment -%}
+  Every customer-facing string the script needs, handed over as data so the
+  JavaScript hard-codes no copy and nothing bypasses the locale file. Same
+  pattern the warranty-claim and bank-payment-orders controllers use.
+{%- endcomment -%}
+<script>
+  window.setYourOwnStoneStrings = {
+    required: {{ 'templates.set_your_own_stone.errors.required' | t | json }},
+    badNumber: {{ 'templates.set_your_own_stone.errors.bad_number' | t | json }},
+    widthOverLength: {{ 'templates.set_your_own_stone.errors.width_over_length' | t | json }},
+    sessionError: {{ 'templates.set_your_own_stone.errors.session' | t | json }},
+    selectError: {{ 'templates.set_your_own_stone.errors.select' | t | json }},
+    summaryHeading: {{ 'templates.set_your_own_stone.results.summary_heading' | t | json }},
+    noMatches: {{ 'templates.set_your_own_stone.results.no_matches' | t | json }},
+    choose: {{ 'templates.set_your_own_stone.results.choose' | t | json }},
+    referenceLabel: {{ 'templates.set_your_own_stone.done.reference_label' | t | json }},
+    type_natural_diamond: {{ 'templates.set_your_own_stone.stone.type_natural' | t | json }},
+    type_lab_diamond: {{ 'templates.set_your_own_stone.stone.type_lab' | t | json }},
+    type_colored_gemstone: {{ 'templates.set_your_own_stone.stone.type_gemstone' | t | json }},
+    shape_round: {{ 'templates.set_your_own_stone.shape.round' | t | json }},
+    shape_oval: {{ 'templates.set_your_own_stone.shape.oval' | t | json }},
+    shape_cushion: {{ 'templates.set_your_own_stone.shape.cushion' | t | json }},
+    shape_princess: {{ 'templates.set_your_own_stone.shape.princess' | t | json }},
+    shape_emerald: {{ 'templates.set_your_own_stone.shape.emerald' | t | json }},
+    shape_radiant: {{ 'templates.set_your_own_stone.shape.radiant' | t | json }},
+    shape_pear: {{ 'templates.set_your_own_stone.shape.pear' | t | json }},
+    shape_marquise: {{ 'templates.set_your_own_stone.shape.marquise' | t | json }},
+    shape_asscher: {{ 'templates.set_your_own_stone.shape.asscher' | t | json }},
+    shape_heart: {{ 'templates.set_your_own_stone.shape.heart' | t | json }}
+  };
+</script>
+<script src="{{ 'set-your-own-stone.js' | asset_url }}" defer="defer"></script>
+
+{%- liquid
+  assign t = 'templates.set_your_own_stone'
+-%}
+
+<section
+  class="carat-syos color-{{ section.settings.color_scheme | default: 'scheme-1' }} gradient"
+  data-carat-syos
+  data-custom-jewelry-url="{{ section.settings.custom_jewelry_url | default: '/pages/custom-jewelry' }}"
+>
+  <div class="page-width">
+
+    {%- comment -%} ------------------------------------------- step 1 {%- endcomment -%}
+    <div class="carat-syos__step" data-carat-syos-step="stone">
+      <div class="carat-syos__intro">
+        <h2 class="carat-syos__heading">{{ 'templates.set_your_own_stone.stone.heading' | t }}</h2>
+        <p class="carat-syos__lede">{{ 'templates.set_your_own_stone.stone.lede' | t }}</p>
+      </div>
+
+      <div class="carat-syos__error" data-carat-syos-error role="alert" hidden></div>
+
+      <form class="carat-syos__form" data-carat-syos-form novalidate>
+        <fieldset class="carat-syos__fieldset">
+          <legend class="carat-syos__legend">{{ 'templates.set_your_own_stone.stone.about_legend' | t }}</legend>
+
+          <div class="carat-syos__row">
+            <div class="carat-syos__field">
+              <label class="carat-syos__label" for="SyosStoneType">
+                {{- 'templates.set_your_own_stone.stone.type_label' | t }} *
+              </label>
+              <select id="SyosStoneType" name="stoneType" class="carat-syos__input" required>
+                <option value="natural_diamond">{{ 'templates.set_your_own_stone.stone.type_natural' | t }}</option>
+                <option value="lab_diamond">{{ 'templates.set_your_own_stone.stone.type_lab' | t }}</option>
+                <option value="colored_gemstone">{{ 'templates.set_your_own_stone.stone.type_gemstone' | t }}</option>
+              </select>
+            </div>
+
+            <div class="carat-syos__field">
+              <label class="carat-syos__label" for="SyosShape">
+                {{- 'templates.set_your_own_stone.stone.shape_label' | t }} *
+              </label>
+              <select id="SyosShape" name="shape" class="carat-syos__input" required>
+                <option value="round">{{ 'templates.set_your_own_stone.shape.round' | t }}</option>
+                <option value="oval">{{ 'templates.set_your_own_stone.shape.oval' | t }}</option>
+                <option value="cushion">{{ 'templates.set_your_own_stone.shape.cushion' | t }}</option>
+                <option value="princess">{{ 'templates.set_your_own_stone.shape.princess' | t }}</option>
+                <option value="emerald">{{ 'templates.set_your_own_stone.shape.emerald' | t }}</option>
+                <option value="radiant">{{ 'templates.set_your_own_stone.shape.radiant' | t }}</option>
+                <option value="pear">{{ 'templates.set_your_own_stone.shape.pear' | t }}</option>
+                <option value="marquise">{{ 'templates.set_your_own_stone.shape.marquise' | t }}</option>
+                <option value="asscher">{{ 'templates.set_your_own_stone.shape.asscher' | t }}</option>
+                <option value="heart">{{ 'templates.set_your_own_stone.shape.heart' | t }}</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="carat-syos__field">
+            <label class="carat-syos__label" for="SyosCarat">
+              {{- 'templates.set_your_own_stone.stone.carat_label' | t }} *
+            </label>
+            <input
+              id="SyosCarat" name="caratWeight" class="carat-syos__input"
+              type="text" inputmode="decimal" autocomplete="off" required
+              placeholder="2.34"
+            >
+            {%- comment -%}
+              Said out loud because the next three fields are the ones that
+              actually decide anything (§4). A customer who believes carat
+              picks the setting will enter dimensions carelessly.
+            {%- endcomment -%}
+            <p class="carat-syos__hint">{{ 'templates.set_your_own_stone.stone.carat_hint' | t }}</p>
+            <small class="carat-syos__field-error" data-carat-syos-field-error hidden></small>
+          </div>
+        </fieldset>
+
+        <fieldset class="carat-syos__fieldset">
+          <legend class="carat-syos__legend">{{ 'templates.set_your_own_stone.stone.size_legend' | t }}</legend>
+          <p class="carat-syos__hint">{{ 'templates.set_your_own_stone.stone.size_hint' | t }}</p>
+
+          <div class="carat-syos__row carat-syos__row--three">
+            <div class="carat-syos__field">
+              <label class="carat-syos__label" for="SyosLength">
+                {{- 'templates.set_your_own_stone.stone.length_label' | t }} *
+              </label>
+              <input id="SyosLength" name="lengthMm" class="carat-syos__input"
+                     type="text" inputmode="decimal" autocomplete="off" required placeholder="10.12">
+              <small class="carat-syos__field-error" data-carat-syos-field-error hidden></small>
+            </div>
+            <div class="carat-syos__field">
+              <label class="carat-syos__label" for="SyosWidth">
+                {{- 'templates.set_your_own_stone.stone.width_label' | t }} *
+              </label>
+              <input id="SyosWidth" name="widthMm" class="carat-syos__input"
+                     type="text" inputmode="decimal" autocomplete="off" required placeholder="7.08">
+              <small class="carat-syos__field-error" data-carat-syos-field-error hidden></small>
+            </div>
+            <div class="carat-syos__field">
+              <label class="carat-syos__label" for="SyosDepth">
+                {{- 'templates.set_your_own_stone.stone.depth_label' | t }}
+              </label>
+              <input id="SyosDepth" name="depthMm" class="carat-syos__input"
+                     type="text" inputmode="decimal" autocomplete="off" placeholder="4.31">
+              <small class="carat-syos__field-error" data-carat-syos-field-error hidden></small>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="carat-syos__fieldset">
+          <legend class="carat-syos__legend">{{ 'templates.set_your_own_stone.stone.report_legend' | t }}</legend>
+
+          <div class="carat-syos__row">
+            <div class="carat-syos__field">
+              <label class="carat-syos__label" for="SyosCertLab">
+                {{- 'templates.set_your_own_stone.stone.cert_lab_label' | t }}
+              </label>
+              <input id="SyosCertLab" name="certLab" class="carat-syos__input" type="text" autocomplete="off">
+            </div>
+            <div class="carat-syos__field">
+              <label class="carat-syos__label" for="SyosCertNumber">
+                {{- 'templates.set_your_own_stone.stone.cert_number_label' | t }}
+              </label>
+              <input id="SyosCertNumber" name="certNumber" class="carat-syos__input" type="text" autocomplete="off">
+            </div>
+          </div>
+
+          {%- comment -%}
+            Certificate upload is hidden until the upload route is deployed,
+            exactly like the Custom Jewelry inspiration control. Exposing a
+            file input against a backend that is not live would fail at the
+            worst possible moment — after the customer picked a file.
+          {%- endcomment -%}
+          {%- if section.settings.enable_uploads -%}
+            <div class="carat-syos__field" data-carat-syos-upload>
+              <label class="carat-syos__label" for="SyosCert">
+                {{- 'templates.set_your_own_stone.stone.cert_upload_label' | t }}
+              </label>
+              <input id="SyosCert" type="file" class="carat-syos__input" accept="application/pdf,image/*">
+            </div>
+          {%- endif -%}
+
+          <div class="carat-syos__field">
+            <span class="carat-syos__label">{{ 'templates.set_your_own_stone.stone.mounted_label' | t }} *</span>
+            <label class="carat-syos__choice">
+              <input type="radio" name="isCurrentlyMounted" value="false" checked>
+              <span>{{ 'templates.set_your_own_stone.stone.mounted_loose' | t }}</span>
+            </label>
+            <label class="carat-syos__choice">
+              <input type="radio" name="isCurrentlyMounted" value="true">
+              <span>{{ 'templates.set_your_own_stone.stone.mounted_set' | t }}</span>
+            </label>
+          </div>
+
+          <div class="carat-syos__field">
+            <label class="carat-syos__label" for="SyosNotes">
+              {{- 'templates.set_your_own_stone.stone.notes_label' | t }}
+            </label>
+            <textarea id="SyosNotes" name="notes" class="carat-syos__input" rows="3"></textarea>
+          </div>
+        </fieldset>
+
+        {%- comment -%}
+          §13 and §15.16. The single operational instruction, said once,
+          where the customer is about to commit. Nothing about intake
+          procedure, insurance or appraisal.
+        {%- endcomment -%}
+        <p class="carat-syos__notice">{{ 'templates.set_your_own_stone.do_not_send' | t }}</p>
+
+        <div class="carat-syos__actions">
+          <button type="submit" class="button carat-syos__submit" data-carat-syos-submit>
+            {{- 'templates.set_your_own_stone.stone.submit' | t -}}
+          </button>
+        </div>
+      </form>
+    </div>
+
+    {%- comment -%} ------------------------------------------- step 2 {%- endcomment -%}
+    <div class="carat-syos__step" data-carat-syos-step="results" hidden>
+      {%- comment -%}
+        "Settings for your oval diamond / 2.34 ct · 10.12 x 7.08 mm" (§7).
+        Built by the script from the server response, so the summary can
+        never drift from the stone that was actually matched.
+      {%- endcomment -%}
+      <div class="carat-syos__summary" data-carat-syos-summary>
+        <h2 class="carat-syos__heading" data-carat-syos-summary-heading></h2>
+        <p class="carat-syos__stone-line" data-carat-syos-summary-line></p>
+        <button type="button" class="carat-link carat-syos__edit" data-carat-syos-edit>
+          {{- 'templates.set_your_own_stone.results.edit' | t -}}
+        </button>
+      </div>
+
+      <div class="carat-syos__results" data-carat-syos-results></div>
+
+      {%- comment -%}
+        THE CUSTOM PATH IS ALWAYS PRESENT, not only when nothing matched
+        (§12 "expose a clear Custom Setting escape path at all times"). It
+        simply leads when there are no matches (§6.4) — which is also the
+        state today, since no ready settings exist yet.
+      {%- endcomment -%}
+      <div class="carat-syos__custom" data-carat-syos-custom>
+        <h3 class="carat-syos__custom-heading">{{ 'templates.set_your_own_stone.custom.heading' | t }}</h3>
+        <p class="carat-syos__custom-text">{{ 'templates.set_your_own_stone.custom.text' | t }}</p>
+        <a class="button button--secondary" data-carat-syos-custom-link href="#">
+          {{- 'templates.set_your_own_stone.custom.cta' | t -}}
+        </a>
+      </div>
+
+      <p class="carat-syos__notice">{{ 'templates.set_your_own_stone.do_not_send' | t }}</p>
+    </div>
+
+    {%- comment -%} ------------------------------------------- step 3 {%- endcomment -%}
+    <div class="carat-syos__step" data-carat-syos-step="done" hidden>
+      <h2 class="carat-syos__heading">{{ 'templates.set_your_own_stone.done.heading' | t }}</h2>
+      <p class="carat-syos__lede" data-carat-syos-done-text></p>
+      <p class="carat-syos__reference" data-carat-syos-done-reference></p>
+      <p class="carat-syos__notice">{{ 'templates.set_your_own_stone.do_not_send' | t }}</p>
+    </div>
+
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Set Your Own Stone",
+  "tag": "section",
+  "settings": [
+    { "type": "color_scheme", "id": "color_scheme", "label": "Colour scheme", "default": "scheme-1" },
+    { "type": "url", "id": "custom_jewelry_url", "label": "Custom Jewelry page" },
+    {
+      "type": "checkbox",
+      "id": "enable_uploads",
+      "label": "Allow certificate upload (needs the upload route deployed)",
+      "default": false
+    }
+  ],
+  "presets": [{ "name": "Set Your Own Stone" }]
+}
+{% endschema %}

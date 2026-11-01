@@ -109,6 +109,26 @@ describe("explicit vendor range (§15.8)", () => {
     expect(r.rule).toBe("vendor_range_outside");
   });
 
+  it("treats null bounds as absent, not as a range of zero", () => {
+    // Prisma spells "no value" as null; the domain spells it undefined, and
+    // the repository converts between them. If a null ever reaches here —
+    // one future caller handing a raw row straight through — reading it as a
+    // PRESENT bound makes `length <= null` false and turns an exact-size
+    // match into a confident `vendor_range_outside`. Silent, and wrong in
+    // the worst direction. So nulls fall through to the nominal rules.
+    const nulled = {
+      ...OVAL_10x7,
+      minLengthUm: null,
+      maxLengthUm: null,
+      minWidthUm: null,
+      maxWidthUm: null,
+    } as unknown as ReadySettingCompatibility;
+
+    const r = classify(oval(10_000, 7_000), nulled);
+    expect(r.status).toBe("automatic");
+    expect(r.rule).toBe("exact_nominal");
+  });
+
   it("ignores a half-specified range rather than guessing the missing half", () => {
     const half: ReadySettingCompatibility = { ...OVAL_10x7, minLengthUm: 9_800, maxLengthUm: 10_300 };
     // Falls through to exact-nominal, which this stone does not satisfy.

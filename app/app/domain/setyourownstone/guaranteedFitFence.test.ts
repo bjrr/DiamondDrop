@@ -75,9 +75,23 @@ function walk(dir: string): string[] {
   return out;
 }
 
-/** This file necessarily contains the banned strings in order to ban them. */
-function isThisFence(path: string): boolean {
-  return path.endsWith("guaranteedFitFence.test.ts");
+/**
+ * Test files are exempt, and this is the one exemption worth arguing for.
+ *
+ * A test that asserts the customer is never told "guaranteed fit" has to
+ * contain the phrase to assert it — the integration suite greps its own JSON
+ * responses for exactly these patterns. Scanning tests would make the fence
+ * fire on the tests enforcing it, which is the same trap `stripComments`
+ * exists for one level down.
+ *
+ * The exemption is narrow by construction: it keys off the `.test.` filename
+ * convention, nothing else. No test file ships a string to a customer — the
+ * theme and the route modules do, and those are still fully scanned. Two
+ * tests below prove this is not an escape hatch: the fence still sees
+ * ordinary source, and the file count stays in the hundreds.
+ */
+function isExempt(path: string): boolean {
+  return /\.test\.(ts|tsx|js)$/.test(path);
 }
 
 /**
@@ -106,7 +120,18 @@ function stripComments(source: string): string {
 }
 
 describe('the phrase "Guaranteed fit" cannot reach a customer (§6.3, §15.17)', () => {
-  const files = SEARCH_ROOTS.flatMap(walk).filter((f) => !isThisFence(f));
+  const files = SEARCH_ROOTS.flatMap(walk).filter((f) => !isExempt(f));
+
+  it("exempts only test files, and still scans the files that ship copy", () => {
+    // The exemption must not be the reason the fence passes. These are the
+    // files that actually put words in front of a customer.
+    const scanned = files.map((f) => f.slice(ROOT.length + 1).replace(/\\/g, "/"));
+    expect(scanned).toContain("theme/sections/set-your-own-stone.liquid");
+    expect(scanned).toContain("theme/assets/set-your-own-stone.js");
+    expect(scanned).toContain("theme/locales/en.default.json");
+    expect(scanned).toContain("app/app/domain/setyourownstone/matching.ts");
+    expect(scanned.filter((f) => /\.test\./.test(f))).toEqual([]);
+  });
 
   it("scans a non-trivial number of files, so a passing result means something", () => {
     // Guards the fence itself: a path typo that found nothing would
