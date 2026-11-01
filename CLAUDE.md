@@ -16,6 +16,7 @@ Build CaratForUs MVP1 as a lean Shopify-centered jewelry commerce business with 
 - Build MVP1 only unless explicitly asked to work on backlog/Post-MVP functionality.
 
 ## Engineering principles
+0. **Shopify-native first.** Before building any custom CaratForUs UI, data model, workflow, media manager, catalog editor, checkout behavior, customer-account feature, admin page, or operational tool, first determine whether Shopify already provides the required capability through native Admin, products/variants, metafields/metaobjects, media, collections, inventory, checkout, customer accounts, Shopify Functions, Flow, app extensions, or other supported platform primitives. Prefer extending/configuring those native capabilities over recreating them. Custom-build only the CaratForUs-specific gap that Shopify cannot reasonably support. If a custom approach duplicates a Shopify-native function, stop and propose the native-first design instead.
 1. Prefer native Shopify capabilities for commodity commerce: storefront primitives, cart, checkout, orders, customer accounts, payments, and standard commerce behavior.
 2. Custom-build only CaratForUs-specific logic or UX that Shopify cannot reasonably provide.
 3. Keep architecture inexpensive, understandable and maintainable for a low-margin startup.
