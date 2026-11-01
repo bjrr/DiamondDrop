@@ -126,3 +126,21 @@ echo "full log: $LOG"
 if grep -qiE '\bdelet(e|ed|ing)\b' "$LOG"; then
   echo "NOTE: the log mentions deletion — read it in full before trusting this push." >&2
 fi
+
+# GUARD 5 — a rejected file must fail the script.
+#
+# `shopify theme push` EXITS 0 when it reports "pushed with errors". A file
+# Shopify refused — a section the theme does not have, a template that will
+# not parse — is a warning on stdout and a success to the shell. That is how
+# an earlier draft went live with a 404 homepage: the error scrolled past and
+# the exit code said fine.
+#
+# Checked against the log rather than the exit code, because the exit code is
+# the thing that is wrong.
+if grep -qiE 'was pushed with errors|does not refer to an existing|Invalid (JSON|schema)' "$LOG"; then
+  echo >&2
+  echo "FAILED: Shopify rejected at least one file. The CLI still exited 0; this script does not." >&2
+  grep -iE 'does not refer to an existing|Invalid (JSON|schema)|^.*error' "$LOG" \
+    | sed -e 's/^[^A-Za-z]*//' -e 's/[^A-Za-z0-9.,:/_ -]*$//' | sort -u | head -20 >&2
+  exit 1
+fi
