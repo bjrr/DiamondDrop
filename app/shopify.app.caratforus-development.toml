@@ -132,7 +132,37 @@ embedded = true
 #                    `logged_in_customer_id` against an order retrieved
 #                    server-side, and a missing scope must keep failing
 #                    closed rather than degrade to a weaker check.
-scopes = "read_products,write_products,read_inventory,read_customers,write_draft_orders,read_orders,write_payment_terms,write_orders,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders"
+#
+#  read_metaobjects   ADDED 2026-11-01. READ ONLY, and only for Metaobject
+#                     Events.
+#
+#                     Set Your Own Stone stores each real centre size as an
+#                     app-owned metaobject ($app:syos_center_size_profile)
+#                     holding shape and nominal dimensions. Reading AND
+#                     WRITING those entries needs no metaobject scope --
+#                     Shopify exempted app-owned metaobjects in 2026-04, and
+#                     that was verified with this app token before anything
+#                     was requested.
+#
+#                     What is NOT exempt is the native Metaobject EVENTS
+#                     topic. Tested directly on the current grant:
+#                     METAOBJECTS_UPDATE returned
+#                       "You cannot create a webhook subscription with the
+#                        specified topic"
+#
+#                     It is needed because a merchant can edit a size
+#                     profile from 10.0 x 7.0 to 10.5 x 7.0 WITHOUT touching
+#                     any product: linkedMetafieldValue does not change, so
+#                     no Product event fires. The derived index would keep
+#                     classifying stones against the old dimensions, which
+#                     is a FALSE COMPATIBILITY RESULT rather than stale
+#                     display. Scheduled reconciliation is recovery, not a
+#                     substitute (owner correction 2026-11-01).
+#
+#                     write_metaobjects is deliberately NOT requested. The
+#                     app writes its own app-owned entries without it, and
+#                     it never writes merchant-owned metaobjects.
+scopes = "read_products,write_products,read_inventory,read_customers,write_draft_orders,read_orders,write_payment_terms,write_orders,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_metaobjects"
 optional_scopes = [ ]
 
 # Token exchange rather than the legacy OAuth redirect dance.
@@ -279,3 +309,103 @@ dev_store_url = "caratforus-dev.myshopify.com"
 # placeholders above workable rather than blocking: the alternative is editing
 # three URLs by hand on every run, which is how they end up stale and wrong.
 automatically_update_urls_on_dev = true
+
+# =============================================================================
+# EVENTS -- Set Your Own Stone compatibility synchronization
+# =============================================================================
+#
+# Two subscriptions, because two different edits can invalidate the derived
+# compatibility index and only one of them touches a product.
+#
+# WHY NOT JUST products/update, WHICH WE ALREADY HAVE: that topic says only
+# that "something changed". These triggers name the exact field in
+# fields_changed and carry a custom query, so the handler knows whether a
+# compatibility field moved or someone merely edited the description. The
+# classic topic cannot distinguish those, and re-projecting on every product
+# edit would be a self-inflicted rate-limit problem.
+#
+# [events] api_version is independent of [webhooks] api_version above, so
+# 2026-10 here leaves the existing 2026-07 classic deliveries alone.
+[events]
+api_version = "2026-10"
+
+# -----------------------------------------------------------------------------
+# PRODUCT -- the mounting itself
+# -----------------------------------------------------------------------------
+# Namespace-scoped, so an edit to someone else's metafield is not our problem.
+# `product.variants.metafield` is the trigger that covers VARIANT metafields;
+# Shopify delivers child-entity changes on the parent topic, which is why
+# there is no separate ProductVariant topic to subscribe to.
+[[events.subscription]]
+handle = "syos-product-compatibility"
+topic = "Product"
+actions = ["create", "update", "delete"]
+triggers = [
+  "product.status",
+  "product.metafield(namespace: 'carat').*",
+  "product.variants.metafield(namespace: 'carat').*",
+  "product.variants",
+  "product.options",
+]
+uri = "/webhooks/carat/events/syos-product"
+query = """
+query SyosProductEvent($productId: ID!) {
+  product(id: $productId) {
+    id
+    status
+    metafields(first: 20, namespace: "carat") { nodes { key value } }
+    options {
+      id
+      name
+      linkedMetafield { namespace key }
+      optionValues { id name linkedMetafieldValue }
+    }
+    variants(first: 100) {
+      nodes {
+        id
+        title
+        selectedOptions { name optionValue { id name } }
+        metafields(first: 20, namespace: "carat") { nodes { key value } }
+      }
+    }
+  }
+}
+"""
+
+# -----------------------------------------------------------------------------
+# METAOBJECT -- the shared centre-size profile
+# -----------------------------------------------------------------------------
+# THE SUBSCRIPTION THAT PREVENTS A FALSE MATCH. A merchant can edit
+# "Pear 10 x 7 mm" from 10.0 to 10.5 without touching a single product: the
+# option value still points at the same metaobject id, so no Product event
+# fires. Without this, every mounting using that profile would keep being
+# matched against the old dimensions -- a wrong compatibility answer, not a
+# stale label.
+#
+# Requires read_metaobjects. Verified empirically: the topic is refused
+# without it, even though app-owned metaobject reads and writes are exempt.
+#
+# Every trigger must name the type, per Shopify's own caution.
+[[events.subscription]]
+handle = "syos-center-size-profile"
+topic = "Metaobject"
+actions = ["create", "update", "delete"]
+triggers = [
+  "metaobject(type: '$app:syos_center_size_profile').displayName",
+  "metaobject(type: '$app:syos_center_size_profile').field(key: 'display_name').*",
+  "metaobject(type: '$app:syos_center_size_profile').field(key: 'stone_shape').*",
+  "metaobject(type: '$app:syos_center_size_profile').field(key: 'nominal_length_mm').*",
+  "metaobject(type: '$app:syos_center_size_profile').field(key: 'nominal_width_mm').*",
+  "metaobject(type: '$app:syos_center_size_profile').field(key: 'nominal_depth_mm').*",
+]
+uri = "/webhooks/carat/events/syos-profile"
+query = """
+query SyosProfileEvent($metaobjectId: ID!) {
+  metaobject(id: $metaobjectId) {
+    id
+    type
+    displayName
+    fields { key value }
+  }
+}
+"""
