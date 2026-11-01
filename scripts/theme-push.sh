@@ -137,10 +137,17 @@ fi
 #
 # Checked against the log rather than the exit code, because the exit code is
 # the thing that is wrong.
-if grep -qiE 'was pushed with errors|does not refer to an existing|Invalid (JSON|schema)' "$LOG"; then
+# MATCHED ON THE BOX HEADER, NOT ON A SENTENCE. The CLI renders errors inside
+# a drawn box and hard-wraps the prose to fit, so "was pushed with errors"
+# arrives split across two lines as "...was pushed" / "with errors" and a
+# phrase grep silently misses it. That happened: a rejected templates/index.json
+# sailed through this guard with exit 0, which is precisely the failure the
+# guard exists to prevent. `╭─ error ─` is a single token the CLI never wraps.
+if grep -qE '╭─ error|was pushed$|with errors|does not refer to an existing|Invalid (JSON|schema)|is invalid' "$LOG"; then
   echo >&2
   echo "FAILED: Shopify rejected at least one file. The CLI still exited 0; this script does not." >&2
-  grep -iE 'does not refer to an existing|Invalid (JSON|schema)|^.*error' "$LOG" \
-    | sed -e 's/^[^A-Za-z]*//' -e 's/[^A-Za-z0-9.,:/_ -]*$//' | sort -u | head -20 >&2
+  # Strip the box drawing so the actual message is readable.
+  sed -n '/╭─ error/,/╰─/p' "$LOG" \
+    | sed -e 's/^[│╭╰─ ]*//' -e 's/[│╮╯─ ]*$//' | grep -v '^$' | head -20 >&2
   exit 1
 fi

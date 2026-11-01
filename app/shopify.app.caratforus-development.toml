@@ -417,6 +417,13 @@ query SyosProfileEvent($metaobjectId: ID!) {
 # "App 424838725633 Probe Center Size Merchant #B1GMFLSE".
 [metaobjects.app.syos_center_size_profile]
 name = "Center Stone Size Profile"
+# THE TOML KEY IS display_name_field, not the GraphQL displayNameKey. Getting
+# this wrong is silent and customer-visible: the released definition came back
+# with displayNameKey = null, which makes Shopify label the linked option value
+# from the definition instead of the entry. A probe produced exactly that --
+# "App 424838725633 Probe Center Size Merchant #B1GMFLSE" -- as the
+# customer-facing option label.
+display_name_field = "display_name"
 description = "A real centre-stone size - shape and nominal millimetre dimensions - shared by every mounting offered in that size."
 access.admin = "merchant_read_write"
 access.storefront = "public_read"

@@ -47,17 +47,27 @@
             "link": "/pages/let-us-beat-your-quote",
             "image": "shopify://shop_images/carat-c-quote.png"
           }
+        },
+        "ownstone": {
+          "type": "path",
+          "settings": {
+            "title": "Set Your Own Stone",
+            "text": "Already own a diamond? Find a setting made for it.",
+            "link": "/pages/set-your-own-stone",
+            "image": "shopify://shop_images/carat-c-custom.png"
+          }
         }
       },
       "block_order": [
         "shop",
+        "ownstone",
         "groupbuy",
         "steals",
         "custom",
         "quote"
       ],
       "settings": {
-        "eyebrow": "Five ways to buy",
+        "eyebrow": "Six ways to buy",
         "heading": "How would you like to shop?",
         "color_scheme": "scheme-1"
       }
@@ -182,11 +192,26 @@
         "tone": "overlay",
         "aria_label": "Featured jewelry"
       }
+    },
+    "syos": {
+      "type": "carat-split",
+      "settings": {
+        "image": "shopify://shop_images/carat-c-custom.png",
+        "media_side": "left",
+        "color_scheme": "scheme-1",
+        "eyebrow": "Set Your Own Stone",
+        "heading": "Already Have Your Diamond?",
+        "text": "<p>Find a setting designed for your stone, or create a custom setting made around it.</p>",
+        "cta_label": "Set Your Own Stone",
+        "cta_link": "/pages/set-your-own-stone",
+        "compact": false
+      }
     }
   },
   "order": [
     "heroslider",
     "paths",
+    "syos",
     "groupbuy_steps",
     "why"
   ]
