@@ -47,6 +47,8 @@ Brand-wide reasons to choose CaratForUs include U.S.-based accountability, QC be
 
 ## MVP1 Architecture Principle
 
+**Shopify-native first.** Before introducing a custom CaratForUs page, data model, workflow, catalog editor, media manager, checkout behavior, account feature, or admin tool, first evaluate Shopify-native capabilities and supported extension points. Prefer configuring or extending Shopify products/variants, metafields/metaobjects, media, collections, inventory, checkout, customer accounts, Shopify Functions, Flow, app extensions, and Admin surfaces rather than rebuilding equivalent functionality.
+
 Use Shopify for commodity commerce and custom-build only CaratForUs-specific gaps.
 
 Prefer Shopify-native capabilities for:
