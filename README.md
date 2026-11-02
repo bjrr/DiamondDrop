@@ -521,6 +521,28 @@ For Buy Now Bank Payment orders, the quoted Bank Payment Price is guaranteed for
 
 See `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` for the authoritative operational rules.
 
+
+## Store-wide SKU transformation rule
+
+All vendor/manufacturer/source SKUs imported into CaratForUs must use the same deterministic **+3 character shift** before being written to Shopify's store/customer-facing SKU field or displayed anywhere on the storefront.
+
+Transformation:
+- **Letters:** shift forward 3 alphabet positions, preserving case and wrapping at the end of the alphabet (for example, X→A, Y→B, Z→C).
+- **Digits:** add 3 modulo 10 (for example, 7→0, 8→1, 9→2).
+- **Symbols, punctuation, spaces and separators:** preserve exactly as supplied.
+
+Canonical example:
+
+`KJ10249N → NM43572Q`
+
+Rules:
+- Apply this consistently to vendor-sourced products and variants throughout the store, including George's Mountings, Kira, and future suppliers.
+- Shopify's product/variant SKU used by CaratForUs and any customer-visible SKU must be the transformed SKU, never the raw vendor SKU.
+- Preserve the original vendor SKU only as internal/admin-only sourcing data when needed for purchasing, reconciliation or vendor lookup; never expose the raw vendor SKU on the storefront.
+- Transform each character exactly once. Never transform an already transformed CaratForUs SKU a second time.
+- Do not infer or alter symbols/separators.
+- Add deterministic tests for letters, wraparound, digits, symbols, and the canonical example above.
+
 ## Guiding Rule
 
 If a feature does not help CaratForUs launch sooner, protect pricing/margins, drive acquisition/conversion, or materially improve customer experience, it belongs in the backlog.
