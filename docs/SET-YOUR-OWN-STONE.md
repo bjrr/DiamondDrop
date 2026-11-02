@@ -30,13 +30,23 @@ The page should make clear that the customer can browse compatible ready setting
 The customer flow is:
 
 1. Customer tells CaratForUs about the stone they already own.
-2. CaratForUs shows eligible ready-made settings based on the stone's shape and dimensions.
-3. Customer may select an eligible ready setting, choose the available customer-facing options (such as metal and ring size), resolve to the exact Shopify variant, and proceed through normal checkout whether the compatibility result is **Matches your stone size** or **May work — jeweler review required**.
-4. A Review Required result is a post-purchase jeweler-review flag, not a checkout blocker. If the customer does not find the setting they want, they may choose **Create a Custom Setting**.
-5. When moving to Custom Jewelry, all stone information already supplied must transfer automatically. The customer must not be required to re-enter it.
-6. The existing Custom Jewelry workflow then governs custom design, inspiration uploads, consultation, design deposit, approvals, and downstream ordering.
+2. Immediately after stone intake, present two equally clear paths:
+   - **Find a Ready Setting** — show compatible ready-made mountings based on the stone's shape and dimensions.
+   - **Create My Own Setting** — skip ready-mount browsing and continue directly into the existing Custom Jewelry workflow with all stone information already carried forward.
+3. If the customer chooses **Find a Ready Setting**, show eligible ready-made mountings based on the stone's shape and dimensions.
+4. Customer may select an eligible ready setting, choose the available customer-facing options (such as metal and ring size), resolve to the exact Shopify variant, and proceed through normal checkout whether the compatibility result is **Matches your stone size** or **May work — jeweler review required**.
+5. A Review Required result is a post-purchase jeweler-review flag, not a checkout blocker.
+6. **Create My Own Setting** must remain available throughout ready-mount browsing and detail views. A customer may switch to Custom Jewelry at any time because:
+   - no ready mounting qualifies;
+   - ready mountings qualify but the customer does not like them;
+   - the customer already has a design/mounting in mind;
+   - the customer wants to upload inspiration, a sketch, or another jeweler/mounting reference;
+   - the customer wants to modify/customize a ready mounting they viewed.
+7. When moving to Custom Jewelry, all stone information already supplied must transfer automatically. The customer must not be required to re-enter it.
+8. If the customer enters Custom Jewelry from a ready mounting they viewed, preserve that mounting as an optional inspiration/reference.
+9. The existing Custom Jewelry workflow then governs inspiration uploads, description of the desired design, consultation, design/CAD work where needed, deposit, approvals, and downstream ordering.
 
-The page must not make the customer understand technical mounting/head-size terminology to browse.
+The page must not make the customer understand technical mounting/head-size terminology to browse, and it must never force a customer to browse ready mountings before choosing Custom Jewelry.
 
 ## 3. Set Your Own Stone landing page
 
@@ -51,15 +61,23 @@ Recommended structure:
 - Secondary action may explain the simple process.
 
 ### Two paths
-After stone details are known, clearly expose:
+After stone details are known, clearly expose both choices at the same level of prominence:
 
-**Choose an Existing Setting**
+**Find a Ready Setting**
+- Supporting concept: **Show me settings that may work with my stone.**
 - Browse ready-made settings intended for the customer's stone shape/size.
+- If no automatic/review candidates qualify, show a clear **Custom setting recommended** state and make **Create My Own Setting** the primary next action.
 
-**Create a Custom Setting**
+**Create My Own Setting**
+- Supporting concept: **I already know what I want or want something custom.**
+- Skip ready-setting browsing entirely.
 - Continue into the existing Custom Jewelry workflow using the stone information already supplied.
+- Allow the customer to upload inspiration photos, sketches, or reference images and describe the mounting/design they want.
+- This path must be available even when compatible ready mountings exist.
 
-Do not create a separate duplicate custom-design form on the Set Your Own Stone page.
+During ready-setting browse, keep a persistent **Create My Own Setting** action visible. If the customer viewed a ready mounting before switching paths, offer **Customize this setting for my stone** where appropriate and carry that mounting forward as inspiration.
+
+Do not create a separate duplicate custom-design form on the Set Your Own Stone page. Reuse the existing Custom Jewelry workflow and upload capability.
 
 ## 4. Stone information collected once
 
