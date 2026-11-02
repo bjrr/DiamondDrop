@@ -275,3 +275,81 @@ describe("option values follow Shopify's order, not variant return order", () =>
     expect(cards[0]?.options[1]?.values.length).toBe(5);
   });
 });
+
+describe("the card carries both prices and the transformed SKU (owner §3/§4)", () => {
+  function priced() {
+    const { matches, display } = pilot();
+    let n = 0;
+    for (const [k, d] of display) {
+      n += 1;
+      // Deliberately varied so "from" is a real minimum rather than the first.
+      const card = n === 1 ? "52000" : "56000";
+      const bank = n === 1 ? "49350" : "53350";
+      display.set(k, {
+        ...d,
+        sku: "U-0--0a8 pp-ZJ-6.32J-4VW-4.33fwv--5pp",
+        prices: {
+          bankPaymentPriceMinorUnits: bank,
+          regularCardPriceMinorUnits: card,
+          bankPaymentSavingsMinorUnits: String(BigInt(card) - BigInt(bank)),
+          currency: "USD",
+        },
+      });
+    }
+    return groupMountings(matches, display);
+  }
+
+  it("exposes the lowest Regular price with ITS bank figure and saving", () => {
+    // Taken as a set, not three independent minima — otherwise the three
+    // numbers on the card could belong to different variants.
+    const p = priced()[0]!.pricesFrom!;
+    expect(p.regularCardPriceMinorUnits).toBe("52000");
+    expect(p.bankPaymentPriceMinorUnits).toBe("49350");
+    expect(p.bankPaymentSavingsMinorUnits).toBe("2650");
+    expect(
+      BigInt(p.regularCardPriceMinorUnits) - BigInt(p.bankPaymentPriceMinorUnits)
+    ).toBe(BigInt(p.bankPaymentSavingsMinorUnits));
+  });
+
+  it("carries prices on every variant so a selection repriced exactly", () => {
+    const card = priced()[0]!;
+    expect(card.variants).toHaveLength(15);
+    for (const v of card.variants) {
+      expect(v.prices).not.toBeNull();
+      expect(BigInt(v.prices!.regularCardPriceMinorUnits)).toBeGreaterThan(
+        BigInt(v.prices!.bankPaymentPriceMinorUnits)
+      );
+    }
+  });
+
+  it("surfaces one CaratForUs SKU for the group", () => {
+    expect(priced()[0]?.sku).toBe("U-0--0a8 pp-ZJ-6.32J-4VW-4.33fwv--5pp");
+  });
+
+  it("reports no group SKU when the variants disagree", () => {
+    const { matches, display } = pilot();
+    let n = 0;
+    for (const [k, d] of display) {
+      n += 1;
+      display.set(k, { ...d, sku: n === 1 ? "AAA" : "BBB" });
+    }
+    expect(groupMountings(matches, display)[0]?.sku).toBeNull();
+  });
+
+  it("shows no price rather than a guess when pricing inputs are incomplete", () => {
+    const cards = groupMountings(...Object.values(pilot()) as [never, never]);
+    expect(cards[0]?.pricesFrom).toBeNull();
+    for (const v of cards[0]!.variants) expect(v.prices).toBeNull();
+  });
+
+  it("leaks no supplier cost, markup or fee component into the card", () => {
+    // §19/§25. The card type has nowhere to put these, and this asserts the
+    // shape rather than trusting the intent.
+    const json = JSON.stringify(priced());
+    expect(json).not.toMatch(/unitCost|supplier|wholesale|markup|1\.75/i);
+    expect(json).not.toMatch(/largeStone|bandPave|hiddenHalo|ringSizeAdjustment/i);
+    expect(json).not.toMatch(/uplift|tier|vendorSku|vendor_sku/i);
+    // Nor the raw George's SKU shape, which starts R- rather than the shifted U-.
+    expect(json).not.toMatch(/"R-\d/);
+  });
+});

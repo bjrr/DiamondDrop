@@ -21,10 +21,39 @@
     {% # theme-check-enable %}
     {{ block.shopify_attributes }}
   >
+    {%- liquid
+      comment
+        SET YOUR OWN STONE: THE CENTRE SIZE IS DECIDED, NOT OFFERED.
+
+        Owner section 2, 2026-11-02. For an SYOS mounting the matcher chooses
+        and locks the centre-size profile from the customer measurements, so
+        the customer picks only Metal and Ring Size. Two things follow, and
+        both are requirements rather than polish:
+
+          - the complete supported-size list must not appear anywhere
+            customer-facing, and
+          - the centre size must not be an editable picker.
+
+        Gated on carat.syos_eligible so this touches ONLY SYOS mountings and
+        cannot strip legitimate options from unrelated products.
+      endcomment
+      assign is_syos_mounting = false
+      if product.metafields.carat.syos_eligible.value == true
+        assign is_syos_mounting = true
+      endif
+    -%}
     {%- for option in product.options_with_values -%}
       {%- liquid
         assign swatch_count = option.values | map: 'swatch' | compact | size
         assign picker_type = block.settings.picker_type
+
+        assign is_locked_center_size = false
+        if is_syos_mounting
+          assign normalised_option = option.name | downcase | replace: ' ', ''
+          if normalised_option == 'centerstonesize' or normalised_option == 'centrestonesize'
+            assign is_locked_center_size = true
+          endif
+        endif
 
         if swatch_count > 0 and block.settings.swatch_shape != 'none'
           if block.settings.picker_type == 'dropdown'
@@ -34,7 +63,44 @@
           endif
         endif
       -%}
-      {%- if picker_type == 'swatch' -%}
+      {%- if is_locked_center_size -%}
+        {%- comment -%}
+          Stated, not selectable. The select carries ONLY the matched value so
+          that Shopify's variant resolution still sees all three options -- it
+          reads `select option[selected]` -- while the DOM never contains the
+          other supported sizes. Visually hidden and removed from the tab order
+          rather than disabled, because a disabled control is still a control.
+        {%- endcomment -%}
+        <div class="product-form__input carat-locked-option">
+          <span class="form__label">{{ 'products.product.matched_setting_size' | t | default: 'Matched setting size' }}</span>
+          <p class="carat-locked-option__value">
+            {{- option.selected_value -}}
+            <span class="carat-locked-option__note">
+              {{- 'products.product.selected_for_your_stone' | t | default: 'Selected for your stone' -}}
+            </span>
+          </p>
+          <select
+            class="visually-hidden"
+            name="options[{{ option.name | escape }}]"
+            form="{{ product_form_id }}"
+            aria-hidden="true"
+            tabindex="-1"
+          >
+            {%- for value in option.values -%}
+              {%- if value.selected -%}
+                <option
+                  selected="selected"
+                  value="{{ value | escape }}"
+                  data-option-value-id="{{ value.id }}"
+                  data-option-name="{{ option.name | escape }}"
+                >
+                  {{ value }}
+                </option>
+              {%- endif -%}
+            {%- endfor -%}
+          </select>
+        </div>
+      {%- elsif picker_type == 'swatch' -%}
         <fieldset class="js product-form__input product-form__input--swatch">
           <legend class="form__label">
             {{ option.name }}:

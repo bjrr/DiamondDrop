@@ -209,23 +209,52 @@
      * server sent. Nothing here invents an identity; the chosen variant gid
      * is one Shopify already issued.
      */
+    /**
+     * One mounting, jewelry-first (owner section 3, 2026-11-02).
+     *
+     * The image is the primary element rather than a thumbnail: someone
+     * choosing a setting for their own diamond is looking at the ring, not
+     * reading a spec list. Image and title are both links into the detail
+     * view, as is an explicit View Details action, because people click
+     * different things.
+     *
+     * THE CENTRE SIZE IS SHOWN, NOT OFFERED. It was decided by measuring the
+     * customer's stone; handing it back as a dropdown would invite them to
+     * pick a head that does not fit the diamond they already own.
+     *
+     * BOTH PRICES, AND THE SAVING AS AN ABSOLUTE FIGURE. Never a percentage,
+     * never "surcharge", "card fee", "cash price" or "cash discount".
+     */
     function renderMounting(card, qualifier) {
       var root = el('div', 'carat-syos__mounting');
+      var detailHref = detailUrlFor(card, null);
 
+      // ---- media, as a link
+      var mediaLink = document.createElement('a');
+      mediaLink.className = 'carat-syos__mounting-media';
+      mediaLink.setAttribute('href', detailHref);
       if (card.featuredImageUrl) {
         var img = document.createElement('img');
         img.className = 'carat-syos__mounting-image';
         img.src = card.featuredImageUrl;
         img.alt = card.productTitle;
         img.loading = 'lazy';
-        root.appendChild(img);
+        mediaLink.appendChild(img);
+      } else {
+        mediaLink.appendChild(el('span', 'carat-syos__mounting-image carat-syos__mounting-image--empty', ''));
       }
+      root.appendChild(mediaLink);
 
       var body = el('div', 'carat-syos__mounting-body');
-      body.appendChild(el('h3', 'carat-syos__mounting-title', card.productTitle));
 
       var badge = el('span', 'carat-syos__badge carat-syos__badge--' + card.status, card.label);
       body.appendChild(badge);
+
+      var titleLink = document.createElement('a');
+      titleLink.className = 'carat-syos__mounting-title-link';
+      titleLink.setAttribute('href', detailHref);
+      titleLink.appendChild(el('h3', 'carat-syos__mounting-title', card.productTitle));
+      body.appendChild(titleLink);
 
       body.appendChild(el('p', 'carat-syos__mounting-matched',
         s('matchedSize', 'Matched for your stone: ') + card.matchedCenterSize));
@@ -234,13 +263,18 @@
         body.appendChild(el('p', 'carat-syos__card-qualifier', qualifier));
       }
 
-      var priceEl = el('p', 'carat-syos__mounting-price', '');
-      body.appendChild(priceEl);
+      // ---- prices: Regular, Bank Payment, and the exact saving
+      var priceBox = el('div', 'carat-syos__prices');
+      var regularEl = el('p', 'carat-syos__price-regular', '');
+      var bankEl = el('p', 'carat-syos__price-bank', '');
+      var saveEl = el('p', 'carat-syos__price-save', '');
+      priceBox.appendChild(regularEl);
+      priceBox.appendChild(bankEl);
+      priceBox.appendChild(saveEl);
+      body.appendChild(priceBox);
 
       // ---- selectors, one per option the customer still chooses
       var chosen = {};
-      var selects = [];
-
       card.options.forEach(function (option) {
         var field = el('div', 'carat-syos__field');
         var id = 'syos-opt-' + card.productGid.replace(/\D/g, '') + '-' +
@@ -265,15 +299,21 @@
           chosen[option.name] = select.value;
           refresh();
         });
-        selects.push(select);
         field.appendChild(select);
-        root.appendChild(field);
         body.appendChild(field);
       });
 
+      var actions = el('div', 'carat-syos__mounting-actions');
       var choose = el('button', 'button carat-syos__choose', s('choose', 'Choose this setting'));
       choose.type = 'button';
-      body.appendChild(choose);
+      actions.appendChild(choose);
+
+      var details = document.createElement('a');
+      details.className = 'carat-syos__details-link';
+      details.setAttribute('href', detailHref);
+      details.textContent = s('viewDetails', 'View details');
+      actions.appendChild(details);
+      body.appendChild(actions);
 
       var unavailable = el('p', 'carat-syos__field-error', s('unavailable',
         'That combination is not available. Try another metal or ring size.'));
@@ -296,19 +336,36 @@
 
       function refresh() {
         var v = currentVariant();
-        if (v && v.price) {
-          priceEl.textContent = formatMoney(v.price, card.currencyCode);
-        } else if (card.priceFrom) {
-          priceEl.textContent = s('from', 'From ') + formatMoney(card.priceFrom, card.currencyCode);
+        var p = (v && v.prices) || card.pricesFrom || null;
+
+        if (p) {
+          regularEl.textContent = s('regularPrice', 'Regular price ') +
+            formatMinor(p.regularCardPriceMinorUnits, p.currency);
+          bankEl.textContent = s('bankPrice', 'Bank Payment Price: ') +
+            formatMinor(p.bankPaymentPriceMinorUnits, p.currency);
+          // An absolute figure, never a percentage (policy section 6).
+          saveEl.textContent = s('bankSavePrefix', 'Save ') +
+            formatMinor(p.bankPaymentSavingsMinorUnits, p.currency) +
+            s('bankSaveSuffix', ' with Bank Payment');
+          saveEl.hidden = p.bankPaymentSavingsMinorUnits === '0';
+        } else if (v && v.price) {
+          // No computed pair: show Shopify's own price rather than nothing.
+          regularEl.textContent = formatMoney(v.price, card.currencyCode);
+          bankEl.textContent = '';
+          saveEl.textContent = '';
         } else {
-          priceEl.textContent = '';
+          regularEl.textContent = '';
+          bankEl.textContent = '';
+          saveEl.textContent = '';
         }
-        // A real combination that Shopify says is sold out must not look
-        // buyable, and a combination that does not exist must not silently
-        // submit the wrong variant.
+
+        // A real combination Shopify says is sold out must not look buyable,
+        // and a combination that does not exist must not silently submit the
+        // wrong variant.
         var usable = !!v && v.availableForSale !== false;
         choose.disabled = !usable;
         unavailable.hidden = usable;
+        details.setAttribute('href', detailUrlFor(card, v));
       }
 
       choose.addEventListener('click', function () {
@@ -324,6 +381,52 @@
       refresh();
       root.appendChild(body);
       return root;
+    }
+
+    /**
+     * Where View Details goes.
+     *
+     * The product handle plus the EXACT matched variant, so the detail page
+     * opens on the locked centre size rather than whichever variant Shopify
+     * considers first. `?stone=<reference>` carries the session so the page
+     * can offer a way back and so returning rehydrates from the server -- the
+     * reference is a pointer, never a copy of the stone.
+     */
+    function detailUrlFor(card, variant) {
+      var href = '/products/' + encodeURIComponent(card.productHandle);
+      var params = [];
+      var v = variant || card.variants[0];
+      if (v && v.variantGid) {
+        var id = String(v.variantGid).split('/').pop();
+        if (id) params.push('variant=' + encodeURIComponent(id));
+      }
+      if (sessionReference) params.push('stone=' + encodeURIComponent(sessionReference));
+      return params.length ? href + '?' + params.join('&') : href;
+    }
+
+    /**
+     * Minor units to a display string.
+     *
+     * The server sends integer minor units as decimal STRINGS and this does
+     * not do arithmetic on them -- it inserts a separator. Parsing a price
+     * into a float to divide by 100 is exactly the floating-point money path
+     * the project forbids, and a cent lost on a ring is a cent lost.
+     */
+    function formatMinor(minorUnits, currency) {
+      if (minorUnits === null || minorUnits === undefined || minorUnits === "") return "";
+      var digits = String(minorUnits).replace(/[^0-9]/g, "");
+      if (!digits) return "";
+      while (digits.length < 3) digits = "0" + digits;
+      var major = digits.slice(0, -2);
+      var cents = digits.slice(-2);
+      try {
+        return new Intl.NumberFormat(undefined, {
+          style: "currency",
+          currency: currency || "USD",
+        }).format(Number(major + "." + cents));
+      } catch (e) {
+        return major + "." + cents;
+      }
     }
 
     /** Money as the shop stores it. No rounding, no re-derivation. */
@@ -457,6 +560,56 @@
           submit.disabled = false;
         });
     });
+
+    /**
+     * REHYDRATE from ?stone=<reference> (owner section 5, 2026-11-02).
+     *
+     * Opening a mounting detail page and coming back must not make the
+     * customer re-enter their stone. The reference in the URL is a POINTER:
+     * the server recomputes the session, the matched profile, the
+     * classification and the cards from its own record. Nothing is restored
+     * from anything the browser kept, which is what keeps this file honest
+     * about state living on the server.
+     *
+     * A reference that is unknown, expired or owned by somebody else simply
+     * leaves the form showing -- the customer enters their stone as normal
+     * rather than meeting an error about a session they never knew existed.
+     */
+    function rehydrateFromUrl() {
+      var ref = null;
+      try {
+        ref = new URLSearchParams(window.location.search).get('stone');
+      } catch (e) {
+        return;
+      }
+      if (!ref) return;
+
+      fetch(SESSION_ENDPOINT + '?stone=' + encodeURIComponent(ref), {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        credentials: 'same-origin',
+      })
+        .then(function (r) {
+          if (!r.ok) throw new Error('rehydrate_failed');
+          return r.json();
+        })
+        .then(function (data) {
+          if (!data || !data.session) return;
+          sessionReference = data.session.sessionReference;
+          if (customLink) {
+            var base = root.getAttribute('data-custom-jewelry-url') || '/pages/custom-jewelry';
+            customLink.setAttribute('href', base + '?stone=' + encodeURIComponent(sessionReference));
+          }
+          renderSummary(data);
+          renderResults(data);
+          show('results');
+        })
+        .catch(function () {
+          /* Leave the form showing. */
+        });
+    }
+
+    rehydrateFromUrl();
 
     var edit = root.querySelector('[data-carat-syos-edit]');
     if (edit) {

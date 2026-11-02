@@ -60,6 +60,28 @@ export interface VariantDisplay {
    * Shopify rather than invented here.
    */
   readonly optionOrder?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * The customer-facing CaratForUs SKU (owner §4). This is Shopify's normal
+   * `variant.sku`, which since 2026-11-02 holds the +3 transformed value; the
+   * raw vendor SKU lives in an admin-only metafield and never comes near here.
+   */
+  readonly sku?: string | null;
+  /**
+   * Both finished prices and the exact saving (owner §3).
+   *
+   * FINISHED FIGURES ONLY. Supplier cost, the markup and the setting/pavé/
+   * halo/ring-size components stay in `syosMountingPricing.server.ts`; there
+   * is deliberately nowhere on this type to put them, which is how §19 and
+   * §25 are kept rather than merely intended. Absent when the mounting's
+   * pricing inputs are incomplete — the card then shows no price instead of a
+   * guessed one.
+   */
+  readonly prices?: {
+    readonly bankPaymentPriceMinorUnits: string;
+    readonly regularCardPriceMinorUnits: string;
+    readonly bankPaymentSavingsMinorUnits: string;
+    readonly currency: string;
+  } | null;
 }
 
 export interface MountingOption {
@@ -80,6 +102,17 @@ export interface MountingCard {
   readonly centerSizeProfileId: string | null;
   readonly priceFrom: string | null;
   readonly currencyCode: string | null;
+  /** The customer-facing CaratForUs SKU for the group, when every variant
+   *  shares one — George's SKUs do not encode ring size, so they usually do. */
+  readonly sku: string | null;
+  /** The lowest Regular/Card price in the group, with its matching Bank
+   *  Payment figure and saving. Null when pricing inputs are incomplete. */
+  readonly pricesFrom: {
+    readonly bankPaymentPriceMinorUnits: string;
+    readonly regularCardPriceMinorUnits: string;
+    readonly bankPaymentSavingsMinorUnits: string;
+    readonly currency: string;
+  } | null;
   /** What the customer still gets to choose. Centre size is excluded on
    *  purpose — it was decided by their stone. */
   readonly options: readonly MountingOption[];
@@ -90,6 +123,13 @@ export interface MountingCard {
     readonly price: string | null;
     readonly availableForSale: boolean;
     readonly selections: Readonly<Record<string, string>>;
+    readonly sku: string | null;
+    readonly prices: {
+      readonly bankPaymentPriceMinorUnits: string;
+      readonly regularCardPriceMinorUnits: string;
+      readonly bankPaymentSavingsMinorUnits: string;
+      readonly currency: string;
+    } | null;
   }[];
 }
 
@@ -111,6 +151,29 @@ function lowestPrice(prices: readonly (string | null)[]): string | null {
     if (best === null || n < best.n) best = { n, s: p };
   }
   return best?.s ?? null;
+}
+
+/** One SKU for the whole group, or null when the group disagrees. George's
+ *  SKUs do not encode ring size, so a group normally shares one. */
+function oneSku(ds: readonly VariantDisplay[]): string | null {
+  const skus = new Set(ds.map((d) => d.sku ?? null));
+  if (skus.size !== 1) return null;
+  return [...skus][0] ?? null;
+}
+
+/** The group's cheapest Regular/Card price, with ITS bank figure and saving.
+ *  Taken as a set rather than three independent minima, so the three numbers
+ *  on the card always belong to the same real variant. */
+function lowestPrices(ds: readonly VariantDisplay[]) {
+  let best: VariantDisplay["prices"] = null;
+  for (const d of ds) {
+    const p = d.prices;
+    if (!p) continue;
+    if (best === null || BigInt(p.regularCardPriceMinorUnits) < BigInt(best.regularCardPriceMinorUnits)) {
+      best = p;
+    }
+  }
+  return best ?? null;
 }
 
 /**
@@ -192,11 +255,15 @@ export function groupMountings(
           : seen;
         return { name, values: values.length > 0 ? values : seen };
       }),
+      sku: oneSku(ds),
+      pricesFrom: lowestPrices(ds),
       variants: ds.map((d) => ({
         variantGid: d.variantGid,
         price: d.price,
         availableForSale: d.availableForSale,
         selections: d.selections,
+        sku: d.sku ?? null,
+        prices: d.prices ?? null,
       })),
     });
   }

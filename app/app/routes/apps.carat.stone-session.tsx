@@ -22,7 +22,7 @@
  * staff review and is not passed to the matcher, which has no parameter for
  * it (§4, §15.5).
  */
-import type { ActionFunctionArgs } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { z } from "zod";
 
 import { findEligibleSettingsForShape } from "~/db/repositories/readySettingRepository.server";
@@ -30,6 +30,7 @@ import { groupMountings, type MatchedVariant } from "~/domain/setyourownstone/gr
 import {
   createStoneSession,
   toStoneSessionView,
+  findStoneSessionByReference,
 } from "~/db/repositories/stoneSessionRepository.server";
 import {
   COMPATIBILITY_QUALIFIER,
@@ -44,6 +45,7 @@ import { resolveMatchingPolicy } from "~/domain/setyourownstone/policy.server";
 import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
 import { adminClientForShop } from "~/shopify/admin/offlineClient.server";
+import { readMountingVariantPrices } from "~/shopify/admin/syosMountingPricing.server";
 import { readVariantDisplay } from "~/shopify/admin/syosProductReader.server";
 import { verifyAppProxySignature } from "~/shopify/proxy";
 
@@ -140,6 +142,144 @@ function toMatchedVariant(result: MatchResult): MatchedVariant {
   };
 }
 
+/**
+ * Match a stone and build everything the storefront renders for it.
+ *
+ * Shared by the POST that creates a session and the GET that REHYDRATES one,
+ * so a customer returning from a mounting detail page sees exactly the cards
+ * they left -- recomputed from the server's own record rather than restored
+ * from anything the browser kept. This file's standing rule is that state
+ * lives on the server and the page holds only an opaque reference; §5 of the
+ * 2026-11-02 direction (preserve the SYOS context) is honoured by making the
+ * reference sufficient, not by copying the stone into storage.
+ */
+async function buildMatchPayload(
+  stone: { shape: StoneShape; lengthUm: number; widthUm: number; depthUm: number | null },
+  shop: string | null
+) {
+  const settings = await findEligibleSettingsForShape(stone.shape);
+  const summary = matchSettings(
+    { shape: stone.shape, lengthUm: stone.lengthUm, widthUm: stone.widthUm, depthUm: stone.depthUm ?? undefined },
+    settings,
+    await resolveMatchingPolicy()
+  );
+
+  // The matcher answers per variant, correctly: the pilot's 9 x 7 pear matches
+  // fifteen variants of one ring. Fifteen identical cards would be absurd, so
+  // they collapse to one per mounting + matched centre size, with metal and
+  // ring size left to the customer and the centre size shown as settled fact.
+  //
+  // DISPLAY AND PRICES ARE READ FROM SHOPIFY, NOT MIRRORED. Title, image and
+  // availability are Shopify's to change, and a stale price on a card is a
+  // worse failure than one extra read. If that read fails the customer still
+  // gets a usable answer -- the verdict is already computed -- so it degrades
+  // to an empty card list rather than a 500.
+  const matched = [...summary.automatic, ...summary.reviewRequired].map(toMatchedVariant);
+  let mountings: ReturnType<typeof groupMountings> = [];
+
+  if (matched.length > 0 && shop) {
+    try {
+      const admin = await adminClientForShop(shop);
+      if (admin) {
+        const gids = matched.map((m) => m.variantGid);
+        const display = await readVariantDisplay(admin, gids);
+        // Both customer-facing prices, COMPUTED from the structured Shopify
+        // inputs by the existing pricing modules -- not read from the
+        // bank-price metafield, which is a presentation cache that money is
+        // never reconciled from. Supplier cost never leaves that module.
+        const prices = await readMountingVariantPrices(admin, gids);
+        for (const [gid, d] of display) {
+          display.set(gid, { ...d, prices: prices.get(gid) ?? null });
+        }
+        mountings = groupMountings(matched, display);
+      } else {
+        logger.warn("stone_session.no_admin_client", { shop });
+      }
+    } catch (error) {
+      logger.warn("stone_session.display_read_failed", {
+        shop,
+        message: error instanceof Error ? error.message : "unknown",
+      });
+    }
+  }
+
+  return { settings, summary, mountings };
+}
+
+/** The payload shape both entry points return. */
+function matchResponse(
+  session: Awaited<ReturnType<typeof createStoneSession>>,
+  stone: { lengthUm: number; widthUm: number; depthUm: number | null },
+  built: Awaited<ReturnType<typeof buildMatchPayload>>
+) {
+  return Response.json(
+    {
+      session: toStoneSessionView(session),
+      display: {
+        lengthMm: micrometresToMm(stone.lengthUm),
+        widthMm: micrometresToMm(stone.widthUm),
+        depthMm: stone.depthUm === null ? null : micrometresToMm(stone.depthUm),
+      },
+      mountings: built.mountings,
+      matches: {
+        automatic: built.summary.automatic.map(toCandidateView),
+        reviewRequired: built.summary.reviewRequired.map(toCandidateView),
+        customRecommended: built.summary.customRecommended,
+      },
+      qualifier: COMPATIBILITY_QUALIFIER,
+    },
+    { headers: { "Cache-Control": "private, no-store" } }
+  );
+}
+
+/**
+ * GET — rehydrate an existing session by its reference.
+ *
+ * Exists so opening a mounting's detail page and coming back does not make the
+ * customer re-enter their stone (§5). Ownership is enforced the same way the
+ * selection route does it: a session belonging to a signed-in customer may
+ * only be read by that customer; an anonymous session stays readable, which is
+ * what makes the flow work before sign-in.
+ */
+export async function loader({ request }: LoaderFunctionArgs) {
+  const url = new URL(request.url);
+  const { verified, loggedInCustomerId, shop, reason } = verifyAppProxySignature(
+    url.searchParams,
+    getEnv().SHOPIFY_API_SECRET,
+    getEnv().SHOPIFY_SHOP_DOMAIN
+  );
+  if (!verified) {
+    logger.warn("stone_session.proxy_rejected", { reason, signedShop: shop });
+    return Response.json({ error: "unauthorized" }, { status: 401 });
+  }
+  const customerRef = loggedInCustomerId ? normalizeCustomerGid(loggedInCustomerId) : null;
+
+  const reference = (url.searchParams.get("stone") ?? "").trim();
+  if (reference === "" || reference.length > 64) return badRequest("a stone session reference is required");
+
+  const session = await findStoneSessionByReference(reference);
+  if (!session) return badRequest("that stone session could not be found");
+  if (session.customerRef !== null && session.customerRef !== customerRef) {
+    logger.warn("stone_session.not_owned", { sessionReference: session.sessionReference });
+    return Response.json({ error: "unauthorized" }, { status: 403 });
+  }
+
+  const built = await buildMatchPayload(
+    {
+      shape: session.shape as StoneShape,
+      lengthUm: session.lengthUm,
+      widthUm: session.widthUm,
+      depthUm: session.depthUm ?? null,
+    },
+    shop
+  );
+  logger.info("stone_session.rehydrated", {
+    sessionReference: session.sessionReference,
+    mountingsShown: built.mountings.length,
+  });
+  return matchResponse(session, { lengthUm: session.lengthUm, widthUm: session.widthUm, depthUm: session.depthUm ?? null }, built);
+}
+
 export async function action({ request }: ActionFunctionArgs) {
   if (request.method !== "POST") {
     return Response.json({ error: "method_not_allowed" }, { status: 405 });
@@ -206,45 +346,11 @@ export async function action({ request }: ActionFunctionArgs) {
     notes: body.notes ?? null,
   });
 
-  const settings = await findEligibleSettingsForShape(body.shape as StoneShape);
-  const summary = matchSettings(
-    { shape: body.shape as StoneShape, lengthUm, widthUm, depthUm: depthUm ?? undefined },
-    settings,
-    await resolveMatchingPolicy()
+  const built = await buildMatchPayload(
+    { shape: body.shape as StoneShape, lengthUm, widthUm, depthUm },
+    shop
   );
-
-  // ------------------------------------------------- the customer-facing cards
-  //
-  // The matcher answers per variant, correctly: the pilot's 9 x 7 pear
-  // matches fifteen variants of one ring. Fifteen identical cards would be
-  // absurd, so they collapse to one per mounting + matched centre size, with
-  // metal and ring size left for the customer and the centre size shown as
-  // settled information.
-  //
-  // DISPLAY DATA IS READ FROM SHOPIFY, NOT MIRRORED. Title, image, price and
-  // availability are Shopify's to change; a stale price on a card is a worse
-  // failure than one extra read. If that read fails the customer still gets a
-  // usable answer -- the verdict is already computed -- so it degrades to an
-  // empty card list rather than a 500.
-  const matched = [...summary.automatic, ...summary.reviewRequired].map(toMatchedVariant);
-  let mountings: ReturnType<typeof groupMountings> = [];
-
-  if (matched.length > 0 && shop) {
-    try {
-      const admin = await adminClientForShop(shop);
-      if (admin) {
-        const display = await readVariantDisplay(admin, matched.map((m) => m.variantGid));
-        mountings = groupMountings(matched, display);
-      } else {
-        logger.warn("stone_session.no_admin_client", { shop });
-      }
-    } catch (error) {
-      logger.warn("stone_session.display_read_failed", {
-        shop,
-        message: error instanceof Error ? error.message : "unknown",
-      });
-    }
-  }
+  const { settings, summary, mountings } = built;
 
   logger.info("stone_session.created", {
     sessionReference: session.sessionReference,

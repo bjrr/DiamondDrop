@@ -1492,3 +1492,30 @@ a.product__text {
     border: none;
   }
 }
+
+/* ------------------------------------------- SYOS: locked centre size
+
+   The matcher chooses the centre-stone size from the customer's measurements,
+   so on an SYOS mounting it is a STATED FACT rather than a control (owner
+   section 2, 2026-11-02). Styled deliberately unlike the Metal and Ring Size
+   pickers beside it: no border, no caret, no affordance. A control that looks
+   like a control but refuses to move reads as a broken page. */
+.carat-locked-option {
+  margin-block-end: 1.2rem;
+}
+
+.carat-locked-option__value {
+  margin: 0.4rem 0 0;
+  font-size: 1.6rem;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.8rem;
+}
+
+.carat-locked-option__note {
+  font-size: 1.3rem;
+  letter-spacing: 0.02em;
+  color: rgba(var(--color-foreground), 0.7);
+}

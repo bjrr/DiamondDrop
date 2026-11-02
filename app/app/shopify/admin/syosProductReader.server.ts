@@ -338,6 +338,10 @@ const READ_VARIANT_DISPLAY = `#graphql
         id
         price
         availableForSale
+        # Shopify's normal sku, which since 2026-11-02 holds the +3
+        # transformed CaratForUs value. The raw vendor SKU is in an
+        # admin-only metafield and is deliberately not read here.
+        sku
         selectedOptions { name value }
         product {
           id
@@ -391,6 +395,7 @@ export async function readVariantDisplay(
         productHandle: n.product.handle,
         featuredImageUrl: n.product.featuredMedia?.preview?.image?.url ?? null,
         price: n.price ?? null,
+        sku: n.sku ?? null,
         currencyCode: null,
         availableForSale: n.availableForSale ?? false,
         selections: Object.fromEntries((n.selectedOptions ?? []).map((o) => [o.name, o.value])),
@@ -406,6 +411,7 @@ export async function readVariantDisplay(
 interface RawVariantDisplay {
   id: string;
   price?: string | null;
+  sku?: string | null;
   availableForSale?: boolean;
   selectedOptions?: { name: string; value: string }[];
   product?: {

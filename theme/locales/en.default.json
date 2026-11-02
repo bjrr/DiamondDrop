@@ -185,7 +185,9 @@
       "taxes_included": "Taxes included.",
       "duties_included": "Duties included.",
       "duties_and_taxes_included": "Duties and taxes included.",
-      "shipping_policy_html": "<a href=\"{{ link }}\">Shipping</a> calculated at checkout."
+      "shipping_policy_html": "<a href=\"{{ link }}\">Shipping</a> calculated at checkout.",
+      "matched_setting_size": "Matched setting size",
+      "selected_for_your_stone": "Selected for your stone"
     },
     "modal": {
       "label": "Media gallery"
@@ -569,7 +571,12 @@
         "edit": "Edit my stone details",
         "matchedSize": "Matched for your stone: ",
         "from": "From ",
-        "unavailable": "That combination is not available. Try another metal or ring size."
+        "unavailable": "That combination is not available. Try another metal or ring size.",
+        "viewDetails": "View details",
+        "regularPrice": "Regular price ",
+        "bankPrice": "Bank Payment Price: ",
+        "bankSavePrefix": "Save ",
+        "bankSaveSuffix": " with Bank Payment"
       },
       "custom": {
         "heading": "Create a Custom Setting",

@@ -527,6 +527,19 @@ describe("R16 step 5 — audit: every Liquid comparison against a JSON metafield
       // decision, so none of this file's cast-before-compare or
       // staleness-marker rules apply.
       join(THEME_ROOT, "snippets", "product-faq.liquid"),
+      // 2026-11-02, owner section 2 (SYOS mounting detail): reads
+      // `product.metafields.carat.syos_eligible.value` to decide whether this
+      // product is an SYOS mounting, and if so renders the Center Stone Size
+      // option as a STATED value rather than a picker -- the matcher locks the
+      // centre size from the customer's measurements, and the complete
+      // supported-size list must not be customer-facing.
+      //
+      // Carries no money. It is a boolean eligibility flag, exactly like the
+      // luxury_steal readers above, and it gates MARKUP only: no price is
+      // read, compared, cast or decided here. The gate also keeps the
+      // suppression off unrelated products, which is why it reads a metafield
+      // at all rather than matching on the option name alone.
+      join(THEME_ROOT, "snippets", "product-variant-picker.liquid"),
     ];
     const allCaratReaders = files.filter((f) =>
       readFileSync(f, "utf8").includes("metafields.carat.")
