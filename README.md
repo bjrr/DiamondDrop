@@ -23,7 +23,9 @@ Authoritative MVP1 policy documents:
 - `docs/WARRANTY-CLAIMS.md` — 1-year limited manufacturing warranty claim intake, authorization, inbound shipping, inspection, coverage decision, remedies, and evidence.
 - `docs/BANK-CARD-PRICING.md` — locked Bank Payment Price vs Regular/Card Price policy, tiered card-price increases, $5 card-price rounding, eligible bank-payment methods, checkout behavior, and customer-facing savings display.
 - `docs/REQUIRED-CUSTOMER-ACCOUNTS.md` — locked requirement that every purchase and customer self-service order workflow use an authenticated Shopify customer account; guest purchase and guest magic-link access are not supported.
-- `docs/SET-YOUR-OWN-STONE.md` — Set Your Own Stone ready-mount compatibility, shape/dimension matching, ready-setting browse, and seamless handoff into the existing Custom Jewelry workflow.
+- `docs/SET-YOUR-OWN-STONE.md` — Set Your Own Stone ready-mount compatibility, purchasable Automatic/Review Required results, mounting detail experience, prong-only stone removal, and seamless handoff into the existing Custom Jewelry workflow.
+- `docs/VENDOR-SKU-TRANSFORMATION.md` — authoritative store-wide +3 SKU transformation, internal raw-vendor-SKU retention, no-double-transform and collision rules.
+- `docs/VENDOR-MOUNTING-PRICING-AND-CATALOG.md` — authoritative vendor-mounting import, structured default ring size, supplier cost, internal mounting pricing components, SYOS-only visibility and pilot-to-bulk rules.
 - `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` — locked post-Slice-1 owner decisions for recalculation cadence/failures, Buy Now price placement, Group Buy payment selection/display, and the future campaign-options JSON contract.
 - `docs/CASH-CARD-PRICING.md` — superseded historical policy retained only for reproducibility of earlier versioned calculations.
 
@@ -522,7 +524,27 @@ For Buy Now Bank Payment orders, the quoted Bank Payment Price is guaranteed for
 See `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` for the authoritative operational rules.
 
 
+## Set Your Own Stone — current locked direction
+
+The detailed authoritative requirements are in `docs/SET-YOUR-OWN-STONE.md` and `docs/VENDOR-MOUNTING-PRICING-AND-CATALOG.md`.
+
+Current owner decisions include:
+
+- shape + millimeter dimensions drive ready-mount matching; carat weight alone does not;
+- both **Matches your stone size** and **May work — jeweler review required** results may be selected, purchased and paid normally;
+- Review Required is an operations/jeweler-review flag, not a pre-payment approval gate;
+- mounting cards are jewelry-first with a large clear product image and an accessible detail view;
+- customers may see details relevant to their chosen mounting but not the complete supported center-size matrix, vendor mounting gram weight, raw vendor SKU, supplier cost, internal tolerance logic or internal pricing components;
+- the matcher locks center-size profile and the customer chooses normal options such as Metal and Ring Size, resolving to a real Shopify variant;
+- SYOS-only vendor mountings must not appear as ordinary products in Shop Jewelry, normal collections/search/recommendations;
+- customer-owned stone removal is offered only for prong-set center stones at a separately itemized **$50 Stone Removal** charge;
+- non-prong mounted stones must be professionally removed before being sent to CaratForUs;
+- all normal mounting/manufacturing charges are rolled into the mounting price and are not separately itemized to the customer.
+
+
 ## Store-wide SKU transformation rule
+
+The authoritative rule is `docs/VENDOR-SKU-TRANSFORMATION.md`.
 
 All vendor/manufacturer/source SKUs imported into CaratForUs must use the same deterministic **+3 character shift** before being written to Shopify's store/customer-facing SKU field or displayed anywhere on the storefront.
 
