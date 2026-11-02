@@ -406,3 +406,104 @@ describe("customer-facing vocabulary is fixed by the spec (§6.3)", () => {
     expect(all).not.toContain("guarantee");
   });
 });
+
+describe("a vendor-documented tolerance replaces the house ones", () => {
+  // Owner decision 2026-11-01. George's documents mounting #2 as "±0.2 mm for
+  // stones under 1 ct and ±0.3 mm for stones over 1 ct"; the ruling is to
+  // apply the conservative ±0.2 mm to all stones on it, with anything beyond
+  // falling into the REVIEW band rather than becoming a flat no.
+  const POLICY = { prongSetToleranceUm: 300, reviewBandUm: 1000, approvedToleranceUmByShape: {} };
+
+  const setting = {
+    shopifyVariantGid: "gid://shopify/ProductVariant/1",
+    shape: "emerald" as const,
+    nominalLengthUm: 9000,
+    nominalWidthUm: 7000,
+    vendorToleranceUm: 200,
+    eligibleForSetYourOwnStone: true,
+    prongSetToleranceEligible: true,
+  };
+  const stone = (l: number, w: number) => ({ shape: "emerald" as const, lengthUm: l, widthUm: w });
+
+  it("calls the exact nominal size an automatic match", () => {
+    const r = classify(stone(9000, 7000), setting, POLICY);
+    expect(r.status).toBe("automatic");
+    expect(r.rule).toBe("exact_nominal");
+  });
+
+  it("calls +0.20 mm automatic, by the VENDOR rule", () => {
+    const r = classify(stone(9200, 7200), setting, POLICY);
+    expect(r.status).toBe("automatic");
+    expect(r.rule).toBe("vendor_tolerance");
+    expect(labelFor(r)).toBe("Matches your stone size");
+  });
+
+  it("calls +0.21 mm REVIEW REQUIRED, not automatic and not a flat no", () => {
+    // The exact boundary the owner asked to be verified. The generic ±0.3 mm
+    // would have called this an automatic match; a vendor min/max RANGE would
+    // have called it no_match. Neither is what was asked for.
+    const r = classify(stone(9210, 7000), setting, POLICY);
+    expect(r.status).toBe("review_required");
+    expect(r.rule).toBe("review_band");
+  });
+
+  it("does not let the prong rule re-widen it to 0.3 mm", () => {
+    for (const d of [210, 250, 300]) {
+      const r = classify(stone(9000 + d, 7000), setting, POLICY);
+      expect(r.status).toBe("review_required");
+      expect(r.rule).not.toBe("prong_set_tolerance");
+    }
+  });
+
+  it("keeps larger review-band cases in review", () => {
+    for (const d of [400, 700, 1000]) {
+      expect(classify(stone(9000 + d, 7000), setting, POLICY).status).toBe("review_required");
+    }
+  });
+
+  it("keeps beyond 1.0 mm outside normal compatibility", () => {
+    const r = classify(stone(10100, 7000), setting, POLICY);
+    expect(r.status).toBe("no_match");
+    expect(r.rule).toBe("outside_all_rules");
+  });
+
+  it("applies the tolerance to width as well as length", () => {
+    expect(classify(stone(9000, 7200), setting, POLICY).rule).toBe("vendor_tolerance");
+    expect(classify(stone(9000, 7210), setting, POLICY).status).toBe("review_required");
+    expect(classify(stone(9000, 6800), setting, POLICY).rule).toBe("vendor_tolerance");
+  });
+
+  it("requires BOTH dimensions inside the vendor tolerance", () => {
+    expect(classify(stone(9200, 7400), setting, POLICY).status).toBe("review_required");
+  });
+
+  it("falls back to the house prong rule when the vendor documents nothing", () => {
+    const house = { ...setting, vendorToleranceUm: undefined };
+    const r = classify(stone(9300, 7000), house, POLICY);
+    expect(r.status).toBe("automatic");
+    expect(r.rule).toBe("prong_set_tolerance");
+  });
+
+  it("can also be WIDER than the house rule, if that is what the vendor says", () => {
+    // Nothing about this is a ceiling on the house value — it is whatever the
+    // vendor documented, in either direction.
+    const wide = { ...setting, vendorToleranceUm: 500 };
+    expect(classify(stone(9450, 7000), wide, POLICY).rule).toBe("vendor_tolerance");
+  });
+
+  it("still yields to an explicit vendor min/max range", () => {
+    // A published range is a harder authority than a published tolerance, and
+    // outside it stays a real no.
+    const ranged = {
+      ...setting,
+      minLengthUm: 8900, maxLengthUm: 9100, minWidthUm: 6900, maxWidthUm: 7100,
+    };
+    expect(classify(stone(9150, 7000), ranged, POLICY).rule).toBe("vendor_range_outside");
+    expect(classify(stone(9050, 7000), ranged, POLICY).rule).toBe("vendor_range_inside");
+  });
+
+  it("does not apply to a mounting that is not eligible", () => {
+    const off = { ...setting, eligibleForSetYourOwnStone: false };
+    expect(classify(stone(9200, 7200), off, POLICY).rule).toBe("not_eligible");
+  });
+});

@@ -105,6 +105,7 @@ function toDomain(row: Row): ReadySettingCompatibility {
     minWidthUm: row.minWidthUm ?? undefined,
     maxWidthUm: row.maxWidthUm ?? undefined,
     eligibleForSetYourOwnStone: row.eligibleForSetYourOwnStone,
+    vendorToleranceUm: row.vendorToleranceUm ?? undefined,
     prongSetToleranceEligible: row.prongSetToleranceEligible,
     centerSizeOptionValueId: row.centerSizeOptionValueId,
     centerSizeProfileId: row.centerSizeProfileId,

@@ -4502,6 +4502,9 @@ enum StoneCompatibilityRule {
   /// Distinct from approved_tolerance so that if the decision is revisited,
   /// every match it produced can be found.
   prong_set_tolerance
+  /// A tolerance the VENDOR documents for a specific mounting, replacing the
+  /// house tolerances rather than competing with them (decision 2026-11-01).
+  vendor_tolerance
   review_band
   outside_all_rules
 
@@ -4558,6 +4561,14 @@ model ReadySettingCompatibility {
   /// because "the manufacturer said so" is the whole reason a range outranks
   /// our own nominal bookkeeping.
   vendorRangeSource String? @map("vendor_range_source")
+  /// A tolerance the vendor documents for this mounting, in integer
+  /// micrometres. Replaces the house tolerances for the automatic decision;
+  /// the review band still applies beyond it. Never derived or guessed.
+  vendorToleranceUm Int? @map("vendor_tolerance_um")
+  /// Where that figure came from, in the vendor words. Required alongside
+  /// the figure: a tolerance with no provenance cannot be audited against
+  /// the source six months later.
+  vendorToleranceSource String? @map("vendor_tolerance_source")
 
   eligibleForSetYourOwnStone Boolean @default(false) @map("eligible_for_set_your_own_stone")
 

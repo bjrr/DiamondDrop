@@ -108,6 +108,9 @@ export interface ProjectedReadySetting {
   readonly minWidthUm: number | null;
   readonly maxWidthUm: number | null;
   readonly vendorRangeSource: string | null;
+  /** A tolerance the VENDOR documents for this mounting, in micrometres. */
+  readonly vendorToleranceUm: number | null;
+  readonly vendorToleranceSource: string | null;
   readonly eligibleForSetYourOwnStone: boolean;
   readonly prongSetToleranceEligible: boolean;
   readonly isActive: boolean;
@@ -368,6 +371,28 @@ export function projectProduct(input: ShopifyProductCompatibilityInput): Project
 
     const compatibilityActive = bool(vm.syos_compatibility_active);
 
+    // A VENDOR-DOCUMENTED TOLERANCE, WHICH REPLACES THE HOUSE ONES.
+    // Product-level, because it describes the mounting rather than one centre
+    // size. A figure with no provenance is a PROBLEM rather than a silently
+    // narrower rule: it cannot be audited against the vendor later, and this
+    // value changes which stones are called an automatic match.
+    const vendorToleranceUm = mmToUm(pm.vendor_tolerance_mm);
+    const vendorToleranceSource = text(pm.vendor_tolerance_source);
+    if (pm.vendor_tolerance_mm != null && String(pm.vendor_tolerance_mm).trim() !== "" && vendorToleranceUm === null) {
+      problems.push(
+        `carat.vendor_tolerance_mm is “${pm.vendor_tolerance_mm}”, which is not a millimetre figure.`
+      );
+    }
+    if (vendorToleranceUm !== null && vendorToleranceUm <= 0) {
+      problems.push("carat.vendor_tolerance_mm must be greater than zero when it is set.");
+    }
+    if (vendorToleranceUm !== null && vendorToleranceSource === null) {
+      problems.push(
+        "carat.vendor_tolerance_mm is set but carat.vendor_tolerance_source is empty. " +
+          "Record what the vendor actually states, or remove the tolerance."
+      );
+    }
+
     return {
       shopifyProductGid: input.productGid,
       shopifyVariantGid: variant.variantGid,
@@ -382,6 +407,8 @@ export function projectProduct(input: ShopifyProductCompatibilityInput): Project
       nominalDepthUm,
       ...range,
       vendorRangeSource: text(vm.syos_vendor_range_source),
+      vendorToleranceUm: vendorToleranceUm !== null && vendorToleranceUm > 0 ? vendorToleranceUm : null,
+      vendorToleranceSource,
       // THE GATE. Every condition must hold. A problem of any kind, a product
       // that is not ACTIVE, an unset product-level flag, or an unparseable
       // shape all mean "do not offer this".

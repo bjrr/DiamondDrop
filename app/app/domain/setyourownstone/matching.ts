@@ -79,6 +79,27 @@ export interface ReadySettingCompatibility {
   readonly maxLengthUm?: Micrometres;
   readonly minWidthUm?: Micrometres;
   readonly maxWidthUm?: Micrometres;
+  /**
+   * A tolerance the VENDOR documents for this mounting, in micrometres, when
+   * it publishes one instead of an explicit min/max range.
+   *
+   * WHY THIS EXISTS SEPARATELY FROM THE RANGE (owner decision 2026-11-01).
+   * George's documents mounting #2 as "±0.2 mm for stones under 1 ct and
+   * ±0.3 mm for stones over 1 ct". The owner's ruling: take the conservative
+   * ±0.2 mm for all stones on that mounting, and anything beyond it falls into
+   * the REVIEW band rather than becoming a flat no.
+   *
+   * The min/max range cannot express that. Its branch returns unconditionally,
+   * so outside a range is `vendor_range_outside` — a real no — by design. Using
+   * it here would turn a 0.21 mm difference into "no match" instead of "review
+   * required", and widening its semantics would weaken a published
+   * manufacturer restriction for every other vendor.
+   *
+   * So this is a narrower thing: it REPLACES the generic CaratForUs tolerance
+   * for the automatic decision, and leaves the review band untouched below it.
+   * Vendor-documented beats house default, which is the owner's rule.
+   */
+  readonly vendorToleranceUm?: Micrometres;
   readonly eligibleForSetYourOwnStone: boolean;
   /**
    * Shopify identities the MATCHER NEVER READS.
@@ -168,6 +189,9 @@ export type CompatibilityRule =
   | "vendor_range_outside"
   | "exact_nominal"
   | "approved_tolerance"
+  /** A tolerance the VENDOR documents for this mounting, replacing the house
+   *  tolerances rather than competing with them (decision 2026-11-01). */
+  | "vendor_tolerance"
   /** The owner's ±0.3 mm prong-setting accommodation (decision 2026-10-31).
    *  Recorded distinctly from `approved_tolerance` so that if the decision is
    *  ever revisited, the matches it produced can be found. */
@@ -283,9 +307,25 @@ export function classify(
     return { setting, status: "automatic", rule: "exact_nominal" };
   }
 
-  const approved = policy.approvedToleranceUmByShape?.[stone.shape] ?? 0;
-  if (approved > 0 && withinBand(stone, setting, approved)) {
-    return { setting, status: "automatic", rule: "approved_tolerance" };
+  // A VENDOR-DOCUMENTED TOLERANCE REPLACES THE HOUSE ONES, TIGHTER OR WIDER
+  // (owner decision 2026-11-01). Placed ahead of both house rules and
+  // returning without falling through to them: if it fell through, a vendor's
+  // ±0.2 mm would be overruled by the generic ±0.3 mm on the very next line,
+  // which is the opposite of deferring to the vendor.
+  //
+  // Beyond it, control continues to the review band rather than returning a
+  // no — the difference from the min/max range branch above, and the reason
+  // this is a separate field.
+  const vendorTolerance = setting.vendorToleranceUm ?? 0;
+  if (vendorTolerance > 0) {
+    if (withinBand(stone, setting, vendorTolerance)) {
+      return { setting, status: "automatic", rule: "vendor_tolerance" };
+    }
+  } else {
+    const approved = policy.approvedToleranceUmByShape?.[stone.shape] ?? 0;
+    if (approved > 0 && withinBand(stone, setting, approved)) {
+      return { setting, status: "automatic", rule: "approved_tolerance" };
+    }
   }
 
   // The owner's prong-setting accommodation (decision 2026-10-31): up to
@@ -301,7 +341,11 @@ export function classify(
   //
   // AND ONLY FOR MOUNTINGS THAT SAY THEY ARE ADJUSTABLE. A setting style that
   // cannot be opened up by prong work does not get this automatically.
-  const prong = policy.prongSetToleranceUm ?? 0;
+  // NOT REACHED WHEN THE VENDOR DOCUMENTS A TOLERANCE. Such a mounting has
+  // already had its automatic decision made above; applying the generic
+  // ±0.3 mm here as well would hand a ±0.2 mm mounting the wider house
+  // allowance through the back door.
+  const prong = setting.vendorToleranceUm ? 0 : policy.prongSetToleranceUm ?? 0;
   if (prong > 0 && setting.prongSetToleranceEligible && withinBand(stone, setting, prong)) {
     return { setting, status: "automatic", rule: "prong_set_tolerance" };
   }
