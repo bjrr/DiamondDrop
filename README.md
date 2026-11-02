@@ -23,7 +23,9 @@ Authoritative MVP1 policy documents:
 - `docs/WARRANTY-CLAIMS.md` — 1-year limited manufacturing warranty claim intake, authorization, inbound shipping, inspection, coverage decision, remedies, and evidence.
 - `docs/BANK-CARD-PRICING.md` — locked Bank Payment Price vs Regular/Card Price policy, tiered card-price increases, $5 card-price rounding, eligible bank-payment methods, checkout behavior, and customer-facing savings display.
 - `docs/REQUIRED-CUSTOMER-ACCOUNTS.md` — locked requirement that every purchase and customer self-service order workflow use an authenticated Shopify customer account; guest purchase and guest magic-link access are not supported.
-- `docs/SET-YOUR-OWN-STONE.md` — Set Your Own Stone ready-mount compatibility, shape/dimension matching, ready-setting browse, and seamless handoff into the existing Custom Jewelry workflow.
+- `docs/SET-YOUR-OWN-STONE.md` — Set Your Own Stone ready-mount compatibility, purchasable Automatic/Review Required results, mounting detail experience, prong-only stone removal, and seamless handoff into the existing Custom Jewelry workflow.
+- `docs/VENDOR-SKU-TRANSFORMATION.md` — authoritative store-wide +3 SKU transformation, internal raw-vendor-SKU retention, no-double-transform and collision rules.
+- `docs/VENDOR-MOUNTING-PRICING-AND-CATALOG.md` — authoritative vendor-mounting import, structured default ring size, supplier cost, internal mounting pricing components, SYOS-only visibility and pilot-to-bulk rules.
 - `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` — locked post-Slice-1 owner decisions for recalculation cadence/failures, Buy Now price placement, Group Buy payment selection/display, and the future campaign-options JSON contract.
 - `docs/CASH-CARD-PRICING.md` — superseded historical policy retained only for reproducibility of earlier versioned calculations.
 
@@ -521,56 +523,50 @@ For Buy Now Bank Payment orders, the quoted Bank Payment Price is guaranteed for
 
 See `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` for the authoritative operational rules.
 
+
+## Set Your Own Stone — current locked direction
+
+The detailed authoritative requirements are in `docs/SET-YOUR-OWN-STONE.md` and `docs/VENDOR-MOUNTING-PRICING-AND-CATALOG.md`.
+
+Current owner decisions include:
+
+- shape + millimeter dimensions drive ready-mount matching; carat weight alone does not;
+- immediately after stone intake, present two equally clear paths: **Find a Ready Setting** or **Create My Own Setting**; customers must never be forced to browse ready mountings before going custom;
+- **Create My Own Setting** remains available throughout ready-setting browse/details and carries forward all entered stone data plus any viewed ready mounting as optional inspiration;
+- both **Matches your stone size** and **May work — jeweler review required** results may be selected, purchased and paid normally;
+- Review Required is an operations/jeweler-review flag, not a pre-payment approval gate;
+- mounting cards are jewelry-first with a large clear product image and an accessible detail view;
+- customers may see details relevant to their chosen mounting but not the complete supported center-size matrix, vendor mounting gram weight, raw vendor SKU, supplier cost, internal tolerance logic or internal pricing components;
+- the matcher locks center-size profile and the customer chooses normal options such as Metal and Ring Size, resolving to a real Shopify variant;
+- SYOS-only vendor mountings must not appear as ordinary products in Shop Jewelry, normal collections/search/recommendations;
+- customer-owned stone removal is offered only for prong-set center stones at a separately itemized **$50 Stone Removal** charge;
+- non-prong mounted stones must be professionally removed before being sent to CaratForUs;
+- all normal mounting/manufacturing charges are rolled into the mounting price and are not separately itemized to the customer.
+
+
+## Store-wide SKU transformation rule
+
+The authoritative rule is `docs/VENDOR-SKU-TRANSFORMATION.md`.
+
+All vendor/manufacturer/source SKUs imported into CaratForUs must use the same deterministic **+3 character shift** before being written to Shopify's store/customer-facing SKU field or displayed anywhere on the storefront.
+
+Transformation:
+- **Letters:** shift forward 3 alphabet positions, preserving case and wrapping at the end of the alphabet (for example, X→A, Y→B, Z→C).
+- **Digits:** add 3 modulo 10 (for example, 7→0, 8→1, 9→2).
+- **Symbols, punctuation, spaces and separators:** preserve exactly as supplied.
+
+Canonical example:
+
+`KJ10249N → NM43572Q`
+
+Rules:
+- Apply this consistently to vendor-sourced products and variants throughout the store, including George's Mountings, Kira, and future suppliers.
+- Shopify's product/variant SKU used by CaratForUs and any customer-visible SKU must be the transformed SKU, never the raw vendor SKU.
+- Preserve the original vendor SKU only as internal/admin-only sourcing data when needed for purchasing, reconciliation or vendor lookup; never expose the raw vendor SKU on the storefront.
+- Transform each character exactly once. Never transform an already transformed CaratForUs SKU a second time.
+- Do not infer or alter symbols/separators.
+- Add deterministic tests for letters, wraparound, digits, symbols, and the canonical example above.
+
 ## Guiding Rule
 
 If a feature does not help CaratForUs launch sooner, protect pricing/margins, drive acquisition/conversion, or materially improve customer experience, it belongs in the backlog.
-
-## SKU transformation (owner-locked 2026-11-02)
-
-Vendor SKUs never reach Shopify's `sku` field or a customer untouched. Every
-one is transformed by the CaratForUs **+3 shift**:
-
-| Input | Rule | Example |
-| --- | --- | --- |
-| Letters | forward 3, wrapping, case preserved | `ABC` → `DEF`, `XYZ` → `ABC` |
-| Digits | +3, wrapping | `0123456789` → `3456789012` |
-| Everything else | unchanged | `-` `_` `/` `.` space stay as-is |
-
-Canonical: `KJ10249N` → `NM43572Q`.
-
-One store, one rule: George's Mountings, Kira, future vendors, SYOS mountings
-and Buy Now merchandise all use it. There are no per-vendor SKU schemes.
-
-The untransformed supplier SKU is retained internally in the
-`carat.vendor_sku` product-variant metafield (storefront access NONE) for
-purchasing, manufacturer lookup, reconciliation and support.
-
-**Each vendor SKU is transformed exactly once.** The transformation always
-derives from the retained vendor SKU rather than from the current Shopify SKU,
-because a twice-shifted SKU is still well-formed and unique — nothing
-downstream would notice it was wrong.
-
-## Set Your Own Stone — two paths (owner-locked 2026-11-02)
-
-The customer enters their stone **once**, then chooses between two paths of
-equal visual weight:
-
-| Path | Supporting copy | What it does |
-| --- | --- | --- |
-| **Find a Ready Setting** | Show me settings that may work with my stone. | Runs the shape + millimetre matcher; shows eligible ready mountings; supports Automatic Match and Review Required. |
-| **Create My Own Setting** | I already know what I want or want something custom. | Skips ready-mount browsing and goes straight into the existing Custom Jewelry workflow, carrying the stone forward. |
-
-Neither is a fallback for the other. This must not read as "browse mountings
-first" with custom as an escape link for people who fail to find something.
-
-Custom stays reachable during browsing and on the mounting detail view. When no
-ready mounting qualifies, custom becomes the primary action under **Custom
-setting recommended** — there is no dead end. A customer who likes a mounting
-but wants it changed gets **Customize this setting for my stone**, carrying that
-mounting into Custom Jewelry as inspiration.
-
-Context travels by REFERENCE to the existing `StoneSession`: stone type,
-natural/lab/gemstone status, shape, carat, dimensions, certificate data,
-loose/mounted state, notes and the viewed mounting all survive the handoff
-without being re-entered or copied into a second table. There is exactly one
-custom-design workflow.

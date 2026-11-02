@@ -9,7 +9,9 @@ Build CaratForUs MVP1 as a lean Shopify-centered jewelry commerce business with 
 - `docs/LUXURY-STEALS.md` is authoritative for Luxury Steals inventory/scarcity, Final Sale, acknowledgment, claim/warranty separation and evidence.
 - `docs/LET-US-BEAT-YOUR-QUOTE.md` plus `docs/LET-US-BEAT-YOUR-QUOTE-AMENDMENT.md` govern competitor submissions. **The amendment controls any conflict:** only qualifying verified recent custom quotes receive the guarantee/fallback; active online listings and competing Group Buys are review-only with no guarantee/fallback; fallback expires 90 calendar days after issuance.
 - `docs/WARRANTY-CLAIMS.md` is authoritative for the 1-year limited manufacturing warranty claim workflow, customer-paid tracked/insured inbound warranty shipping, inspection, remedy selection and internal-only local-jeweler option.
-- `docs/SET-YOUR-OWN-STONE.md` is authoritative for customer-owned stone intake fields, ready-mount shape/dimension compatibility, ready-setting browsing, and the state-preserving handoff into the existing Custom Jewelry workflow. Do not invent a universal fit tolerance or duplicate Custom Jewelry.
+- `docs/SET-YOUR-OWN-STONE.md` is authoritative for customer-owned stone intake fields, ready-mount shape/dimension compatibility, purchasable Automatic/Review Required results, mounting detail UX, prong-only stone removal, and the state-preserving handoff into the existing Custom Jewelry workflow. Do not invent a universal fit tolerance or duplicate Custom Jewelry.
+- `docs/VENDOR-SKU-TRANSFORMATION.md` is authoritative for the store-wide +3 vendor SKU transformation, internal raw-vendor-SKU retention, no-double-transform and collision handling.
+- `docs/VENDOR-MOUNTING-PRICING-AND-CATALOG.md` is authoritative for vendor mounting import, default ring size, supplier cost, internal mounting pricing components, customer-facing price composition, SYOS-only catalog visibility, and pilot-to-bulk strategy.
 - `docs/BANK-CARD-PRICING.md` is authoritative for Bank Payment Price vs Regular/Card Price behavior, tiered card-price increases, $5 card-price rounding, eligible bank-payment methods, checkout treatment, and customer-facing savings. `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` is authoritative for the post-Slice-1 display, recalculation-failure, Group Buy payment-selection, and campaign-options JSON decisions. `docs/CASH-CARD-PRICING.md` is superseded history only.
 - Locked policy documents override conflicting README summaries, assumptions and generic ecommerce conventions.
 - Do not silently change a locked business decision. Flag conflicts for owner approval.
@@ -42,7 +44,6 @@ Build CaratForUs MVP1 as a lean Shopify-centered jewelry commerce business with 
 22. **Buy Now Bank Payment commitment.** Bank Payment Price is guaranteed 24 hours. After 24 hours, an unpaid order stays open only while price is unchanged; any price change cancels it and sends cancellation email. Inventory is not reserved until manual admin verification of received funds. Checkout + confirmation email must state that order/availability is not guaranteed until payment is received and verified.
 23. **Cart Bank/Card pricing is per line/configuration, then summed.** Never re-tier from combined cart subtotal, extended order value, or mixed variants. Quantity multiplication must not change the pricing tier of the underlying unit/configuration. Pin this with money-critical tests.
 24. **Calculation failure and Shopify sync failure are separate states.** A variant whose price cannot be computed because required pricing inputs/configuration are invalid follows the 48-hour calculation-failure rule even though no sync attempt exists. Do not collapse it into sync failure merely for implementation convenience.
-25. **Store-wide SKU transformation (owner-locked 2026-11-02).** Every vendor/manufacturer/source SKU is transformed by the CaratForUs **+3 shift** before it becomes Shopify's normal product/variant `sku` or reaches a customer: letters move forward three with wraparound (X→A, Y→B, Z→C) preserving case; digits add three with wraparound (0→3 … 7→0, 8→1, 9→2); symbols, punctuation, hyphens, underscores, slashes, periods, spaces and separators are unchanged. Canonical: `KJ10249N` → `NM43572Q`. One store, one rule — George's Mountings, Kira, future vendors, SYOS mountings, Buy Now merchandise, with no per-vendor schemes. The untransformed supplier SKU is retained as **internal** structured data in the `carat.vendor_sku` PRODUCT_VARIANT metafield (storefront access NONE) for purchasing, manufacturer lookup, reconciliation and support. **Transform each original vendor SKU exactly once.** The transformation always derives from the retained vendor SKU, never from the current Shopify SKU, so repricing, product updates, re-imports, SYOS sync, inventory sync, theme rendering and bulk catalog updates cannot shift an already-shifted value — a double shift is still well-formed and unique, so nothing downstream would catch it. Implemented in `app/app/domain/sku/caratSku.ts`; raw vendor SKUs, supplier cost and mounting gram weight are never customer-facing.
 
 ## Architect-led development model
 The Tech Lead is the Principal Architect and should reserve the top-tier model for architecture, decomposition, ambiguity, cross-domain integration, high-risk policy/financial review, and final technical approval.
@@ -150,25 +151,34 @@ Group Buy option dimensions are campaign-specific and must not be hard-coded aro
 MVP1 consultation/revisions remain email-driven. Provide lightweight intake, $49 Design Deposit, reusable Shopify approval/purchase template and quote-acquisition flow. Read both quote documents; the amendment controls conflicts. Review remains manual; automate intake/evidence/eligibility calculations/acknowledgments/status but never auto-commit CaratForUs to competitor pricing.
 
 ### Set Your Own Stone
-Use `docs/SET-YOUR-OWN-STONE.md`.
-
-**Two equally prominent paths, owner-locked 2026-11-02.** The customer enters
-their stone ONCE, then immediately chooses between **Find a Ready Setting**
-("Show me settings that may work with my stone") and **Create My Own Setting**
-("I already know what I want or want something custom"). These are parallel
-paths of equal weight, not "browse mountings first" with custom buried as an
-escape link. Custom stays available during ready-setting browsing and on the
-mounting detail view; when nothing qualifies it becomes the primary action under
-**Custom setting recommended**. A customer who likes a mounting but wants it
-changed gets **Customize this setting for my stone**, which carries that
-mounting into Custom Jewelry as inspiration. Every stone detail, the loose/
-mounted state, certificate data, notes and the viewed mounting survive the
-handoff by REFERENCE to the existing `StoneSession` — never re-entered, never
-copied into a second table. There is exactly one custom-design workflow; do not
-build another. Collect the customer-owned stone once, use shape + millimeter dimensions (not carat alone) to discover eligible ready mountings from structured compatibility metadata, and preserve the same project context when the customer moves to Custom Jewelry. Reuse the existing Custom Jewelry flow and upload/deposit/approval behavior; do not create a parallel custom-design system. Do not promise guaranteed fit or advertise unapproved stone-intake/insurance procedures.
+Use `docs/SET-YOUR-OWN-STONE.md` and `docs/VENDOR-MOUNTING-PRICING-AND-CATALOG.md`. Collect the customer-owned stone once, then immediately present two equally clear paths: **Find a Ready Setting** or **Create My Own Setting**. Never force customers to browse ready mountings before going custom. **Create My Own Setting** must remain available throughout ready-setting browsing/details and must carry forward all existing stone data; if the customer viewed a ready mounting first, preserve it as optional inspiration and support a **Customize this setting for my stone** path. Use shape + millimeter dimensions (not carat alone) to discover eligible ready mountings from structured compatibility metadata, and preserve the same project context when the customer moves to Custom Jewelry. Reuse the existing Custom Jewelry flow and upload/deposit/approval behavior; do not create a parallel custom-design system. Both Automatic Match and Review Required ready-mount results remain purchasable through normal checkout; Review Required is preserved as an internal jeweler-review flag and must use the approved customer message. SYOS mounting cards must be visual/jewelry-first and expose a product-detail view while hiding complete supported-size matrices, vendor gram weights, raw vendor SKU, supplier costs and internal pricing components. CaratForUs may remove a customer center stone only from a prong setting, for a separately itemized $50 Stone Removal service; non-prong removals are unsupported. Do not promise guaranteed fit or advertise unapproved stone-intake/insurance procedures.
 
 ### Warranty
 Provide a dedicated Warranty Claim Form and auditable claim workflow per `docs/WARRANTY-CLAIMS.md`. Customer pays tracked, appropriately insured inbound shipping after authorization for inspection. CaratForUs determines repair, replacement, refund or other appropriate remedy after inspection. The possible local-jeweler repair path is internal-only until CaratForUs selects/authorizes it for a specific claim; do not advertise it as a customer entitlement.
+
+
+## Store-wide SKU transformation rule
+
+The authoritative rule is `docs/VENDOR-SKU-TRANSFORMATION.md`.
+
+All vendor/manufacturer/source SKUs imported into CaratForUs must use the same deterministic **+3 character shift** before being written to Shopify's store/customer-facing SKU field or displayed anywhere on the storefront.
+
+Transformation:
+- **Letters:** shift forward 3 alphabet positions, preserving case and wrapping at the end of the alphabet (for example, X→A, Y→B, Z→C).
+- **Digits:** add 3 modulo 10 (for example, 7→0, 8→1, 9→2).
+- **Symbols, punctuation, spaces and separators:** preserve exactly as supplied.
+
+Canonical example:
+
+`KJ10249N → NM43572Q`
+
+Rules:
+- Apply this consistently to vendor-sourced products and variants throughout the store, including George's Mountings, Kira, and future suppliers.
+- Shopify's product/variant SKU used by CaratForUs and any customer-visible SKU must be the transformed SKU, never the raw vendor SKU.
+- Preserve the original vendor SKU only as internal/admin-only sourcing data when needed for purchasing, reconciliation or vendor lookup; never expose the raw vendor SKU on the storefront.
+- Transform each character exactly once. Never transform an already transformed CaratForUs SKU a second time.
+- Do not infer or alter symbols/separators.
+- Add deterministic tests for letters, wraparound, digits, symbols, and the canonical example above.
 
 ## Customer experience
 - Mobile-first and accessible.
