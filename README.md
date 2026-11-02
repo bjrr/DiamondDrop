@@ -531,6 +531,8 @@ The detailed authoritative requirements are in `docs/SET-YOUR-OWN-STONE.md` and 
 Current owner decisions include:
 
 - shape + millimeter dimensions drive ready-mount matching; carat weight alone does not;
+- immediately after stone intake, present two equally clear paths: **Find a Ready Setting** or **Create My Own Setting**; customers must never be forced to browse ready mountings before going custom;
+- **Create My Own Setting** remains available throughout ready-setting browse/details and carries forward all entered stone data plus any viewed ready mounting as optional inspiration;
 - both **Matches your stone size** and **May work — jeweler review required** results may be selected, purchased and paid normally;
 - Review Required is an operations/jeweler-review flag, not a pre-payment approval gate;
 - mounting cards are jewelry-first with a large clear product image and an accessible detail view;
