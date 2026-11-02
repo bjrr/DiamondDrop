@@ -577,7 +577,9 @@
         "regularPrice": "Regular price ",
         "bankPrice": "Bank Payment Price: ",
         "bankSavePrefix": "Save ",
-        "bankSaveSuffix": " with Bank Payment"
+        "bankSaveSuffix": " with Bank Payment",
+        "addToCart": "Add to Cart",
+        "cartError": "We could not add that setting to your cart. Please try again."
       },
       "custom": {
         "heading": "Create a Custom Setting",

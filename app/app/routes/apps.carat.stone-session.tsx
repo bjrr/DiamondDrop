@@ -34,6 +34,7 @@ import {
 } from "~/db/repositories/stoneSessionRepository.server";
 import {
   COMPATIBILITY_QUALIFIER,
+  REVIEW_REQUIRED_EXPLANATION,
   labelFor,
   matchSettings,
   micrometresToMm,
@@ -227,6 +228,13 @@ function matchResponse(
         customRecommended: built.summary.customRecommended,
       },
       qualifier: COMPATIBILITY_QUALIFIER,
+      /**
+       * The approved Review Required explanation, sent from the server so the
+       * storefront cannot improvise it (§8, locked 2026-11-02). Shown only on
+       * review-required cards; it never implies a fit guarantee and never
+       * mentions the thresholds that produced the verdict.
+       */
+      reviewExplanation: REVIEW_REQUIRED_EXPLANATION,
     },
     { headers: { "Cache-Control": "private, no-store" } }
   );
@@ -386,6 +394,10 @@ export async function action({ request }: ActionFunctionArgs) {
       },
       /** Accompanies every automatic match (§6.3). Never "guaranteed fit". */
       qualifier: COMPATIBILITY_QUALIFIER,
+      // The same approved explanation on the create path as on the rehydrate
+      // path, so the wording cannot differ between a first visit and a return
+      // from a mounting detail page.
+      reviewExplanation: REVIEW_REQUIRED_EXPLANATION,
     },
     { headers: { "Cache-Control": "private, no-store" } }
   );

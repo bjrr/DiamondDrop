@@ -579,3 +579,20 @@
   .carat-syos__path-cta { width: auto; min-width: 22rem; }
   .carat-syos__customise-link { min-height: 0; }
 }
+
+/* ------------------------------------- Review Required: purchasable, explained
+
+   Owner-locked 2026-11-02. "May work — jeweler review required" is a
+   post-purchase operations flag, not a checkout blocker, so this note sits
+   beside a normal Add to Cart button rather than in place of one.
+
+   Styled as information, not as a warning: no red, no alert icon, no border
+   that reads as an error. The customer is being told what happens after they
+   order, and the wording already does that work. */
+.carat-syos__review-note {
+  margin: 0;
+  font-size: 1.35rem;
+  line-height: 1.55;
+  color: rgba(var(--color-foreground), 0.78);
+  max-width: 52ch;
+}

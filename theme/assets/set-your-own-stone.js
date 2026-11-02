@@ -70,6 +70,8 @@
      * server rather than from this.
      */
     var lastPayload = null;
+    /** The approved Review Required explanation, as sent by the server. */
+    var reviewExplanation = null;
 
     function show(name) {
       Object.keys(steps).forEach(function (key) {
@@ -270,6 +272,14 @@
         body.appendChild(el('p', 'carat-syos__card-qualifier', qualifier));
       }
 
+      // The approved Review Required explanation, from the server. It says a
+      // jeweler reviews AFTER the order and may need extra time -- true, and
+      // purchasable. It never guarantees fit, never says the mounting will or
+      // will not work, and never mentions the thresholds behind the verdict.
+      if (card.status === 'review_required' && reviewExplanation) {
+        body.appendChild(el('p', 'carat-syos__review-note', reviewExplanation));
+      }
+
       // ---- prices: Regular, Bank Payment, and the exact saving
       var priceBox = el('div', 'carat-syos__prices');
       var regularEl = el('p', 'carat-syos__price-regular', '');
@@ -311,7 +321,7 @@
       });
 
       var actions = el('div', 'carat-syos__mounting-actions');
-      var choose = el('button', 'button carat-syos__choose', s('choose', 'Choose this setting'));
+      var choose = el('button', 'button carat-syos__choose', s('addToCart', 'Add to Cart'));
       choose.type = 'button';
       actions.appendChild(choose);
 
@@ -390,16 +400,84 @@
       choose.addEventListener('click', function () {
         var v = currentVariant();
         if (!v) return;
+        choose.disabled = true;
+
+        /**
+         * RECORD FIRST, THEN BUY.
+         *
+         * The selection is recorded server-side before anything reaches the
+         * cart, because that record -- with the compatibility verdict
+         * RECOMPUTED on the server, never taken from this page -- is the
+         * evidence staff act on. If the cart add then failed, we would still
+         * know what the customer chose and why it was offered; the reverse
+         * order could put a Review Required mounting in a cart with no record
+         * that a jeweler needs to look at it.
+         */
         selectSetting({
           variantGid: v.variantGid,
           productGid: card.productGid,
           selectedOptions: chosen,
+        }, function (recorded) {
+          addToCart(card, v, recorded, function (ok) {
+            choose.disabled = false;
+            if (ok) window.location.href = '/cart';
+          });
         });
       });
 
       refresh();
       root.appendChild(body);
       return root;
+    }
+
+    /**
+     * Add the chosen variant to the normal Shopify cart.
+     *
+     * The REAL variant, the normal cart, the normal checkout. Review Required
+     * does not get a pseudo-product or a parallel purchase path.
+     *
+     * Line item properties carry what operations needs. Each key is prefixed
+     * with an underscore, which is Shopify's own convention for a property
+     * that stays off the cart and checkout display while still arriving on
+     * the order -- so staff can see it and the customer is not shown internal
+     * compatibility metadata.
+     *
+     * DELIBERATELY MINIMAL. The session reference plus the verdict is enough
+     * for staff to find the full record; the matched size is already shown to
+     * the customer on the card, so it is not a secret. Profile ids, tolerance
+     * figures and anything else internal stay server-side where the
+     * StoneSession already holds them.
+     */
+    function addToCart(card, variant, recorded, done) {
+      var id = String(variant.variantGid).split('/').pop();
+      var status = (recorded && recorded.compatibility && recorded.compatibility.status) ||
+        card.status;
+      var body = {
+        id: id,
+        quantity: 1,
+        properties: {
+          _syos_session: sessionReference || '',
+          // AUTOMATIC / REVIEW_REQUIRED, upper-cased for operations.
+          _syos_compatibility: String(status).toUpperCase(),
+          _syos_matched_size: card.matchedCenterSize || '',
+        },
+      };
+
+      fetch('/cart/add.js', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ items: [body] }),
+      })
+        .then(function (r) {
+          if (!r.ok) throw new Error('cart_add_failed');
+          return r.json();
+        })
+        .then(function () { if (done) done(true); })
+        .catch(function () {
+          showError(s('cartError', 'We could not add that setting to your cart. Please try again.'));
+          if (done) done(false);
+        });
     }
 
     /**
@@ -500,6 +578,7 @@
     }
 
     function renderResults(payload) {
+      reviewExplanation = payload.reviewExplanation || null;
       if (!resultsBox) return;
       resultsBox.innerHTML = '';
 
@@ -530,7 +609,7 @@
       });
     }
 
-    function selectSetting(candidate) {
+    function selectSetting(candidate, then) {
       clearError();
       fetch(SELECT_ENDPOINT, {
         method: 'POST',
@@ -548,6 +627,11 @@
           return r.json();
         })
         .then(function (data) {
+          // A caller that is going on to the cart takes over from here: the
+          // selection is recorded, and showing a "done" panel before the
+          // customer has actually bought anything would be a lie.
+          if (then) { then(data); return; }
+
           var text = root.querySelector('[data-carat-syos-done-text]');
           var ref = root.querySelector('[data-carat-syos-done-reference]');
           if (text) text.textContent = data.nextStep || '';
@@ -558,6 +642,7 @@
         })
         .catch(function () {
           showError(s('selectError', 'We could not record that choice. Please try again.'));
+          if (then) then(null);
         });
     }
 

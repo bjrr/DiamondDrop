@@ -41,6 +41,14 @@
 
   <script src="{{ 'product-info.js' | asset_url }}" defer="defer"></script>
   <script src="{{ 'product-form.js' | asset_url }}" defer="defer"></script>
+  {%- comment -%}
+    Supplies the Set Your Own Stone session reference, which Liquid cannot
+    read. Loaded only for an SYOS mounting -- no other product has anything
+    for it to do.
+  {%- endcomment -%}
+  {%- if product.metafields.carat.syos_eligible.value == true -%}
+    <script src="{{ 'carat-syos-pdp.js' | asset_url }}" defer="defer"></script>
+  {%- endif -%}
   {%- if product.quantity_price_breaks_configured? -%}
     <script src="{{ 'show-more.js' | asset_url }}" defer="defer"></script>
     <script src="{{ 'price-per-item.js' | asset_url }}" defer="defer"></script>
@@ -500,31 +508,40 @@
                     mounting but wants it changed must not have to go back and
                     hunt for the custom path, and must never hit a dead end.
 
-                    Rendered only for an SYOS mounting that was opened FROM Set
+                    Shown only for an SYOS mounting that was opened FROM Set
                     Your Own Stone -- the `stone` reference in the URL is what
                     says so. Without it there is no session to carry, so the
                     action would promise continuity it cannot deliver.
+
+                    THE STONE REFERENCE IS NOT AVAILABLE HERE. Shopify does not
+                    expose the query string to Liquid; a gate on `request.url`
+                    reads blank every time and was measured doing exactly that
+                    on the live store. So the markup renders for every SYOS
+                    mounting, starts `hidden`, and carries each destination as a
+                    base URL that `carat-syos-pdp.js` completes with the
+                    reference from the address bar. No session, no reveal.
                   {%- endcomment -%}
                   {%- liquid
-                    assign syos_stone_ref = request.url | split: 'stone=' | last | split: '&' | first
                     assign is_syos_mounting = false
                     if product.metafields.carat.syos_eligible.value == true
                       assign is_syos_mounting = true
                     endif
-                    assign show_syos_custom = false
-                    if is_syos_mounting and request.url contains 'stone=' and syos_stone_ref != blank
-                      assign show_syos_custom = true
-                    endif
                   -%}
-                  {%- if show_syos_custom -%}
-                    <div class="carat-syos-pdp-custom">
+                  {%- if is_syos_mounting -%}
+                    {%- assign syos_mounting_note = product.title | append: ' — ' | append: shop.url | append: '/products/' | append: product.handle -%}
+                    <div class="carat-syos-pdp-custom" data-carat-syos-pdp-custom hidden>
                       <a
                         class="button button--secondary carat-syos-pdp-custom__cta"
-                        href="/pages/custom-jewelry?stone={{ syos_stone_ref | url_encode }}&mounting={{ product.title | append: ' — ' | append: shop.url | append: '/products/' | append: product.handle | url_encode }}"
+                        data-carat-syos-link-base="/pages/custom-jewelry?mounting={{ syos_mounting_note | url_encode }}"
+                        href="/pages/custom-jewelry?mounting={{ syos_mounting_note | url_encode }}"
                       >
                         {{- 'templates.set_your_own_stone.paths.customize_this' | t -}}
                       </a>
-                      <a class="carat-syos-pdp-custom__back" href="/pages/set-your-own-stone?stone={{ syos_stone_ref | url_encode }}">
+                      <a
+                        class="carat-syos-pdp-custom__back"
+                        data-carat-syos-link-base="/pages/set-your-own-stone"
+                        href="/pages/set-your-own-stone"
+                      >
                         {{- 'templates.set_your_own_stone.paths.back' | t -}}
                       </a>
                     </div>

@@ -33,7 +33,7 @@ function pilot(
       matches.push({
         variantGid,
         status,
-        label: status === "automatic" ? "Matches your stone size" : "May work — review required",
+        label: status === "automatic" ? "Matches your stone size" : "May work — jeweler review required",
         centerSizeProfileId: profileId,
         nominalLengthMm: size.l,
         nominalWidthMm: size.w,
@@ -144,7 +144,7 @@ describe("review required", () => {
 
   it("is never presented as approved", () => {
     expect(cards[0]?.status).toBe("review_required");
-    expect(cards[0]?.label).toBe("May work — review required");
+    expect(cards[0]?.label).toBe("May work — jeweler review required");
     expect(cards[0]?.label).not.toMatch(/matches your stone size/i);
   });
 
@@ -156,7 +156,7 @@ describe("review required", () => {
     );
     const out = groupMountings(mixed, display);
     expect(out[0]?.status).toBe("review_required");
-    expect(out[0]?.label).toBe("May work — review required");
+    expect(out[0]?.label).toBe("May work — jeweler review required");
   });
 });
 

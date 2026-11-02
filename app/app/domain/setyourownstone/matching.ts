@@ -215,9 +215,25 @@ export interface MatchResult {
 export const COMPATIBILITY_LABELS = {
   matches: "Matches your stone size",
   recommended: "Recommended size match",
-  review: "May work — review required",
+  review: "May work — jeweler review required",
   custom: "Custom setting recommended",
 } as const;
+
+/**
+ * The approved Review Required explanation (docs/SET-YOUR-OWN-STONE.md §8,
+ * owner-locked 2026-11-02).
+ *
+ * Kept here, beside the label, so the storefront cannot improvise it. The
+ * wording is load-bearing: it says a jeweler will review AFTER the order and
+ * may need extra time, which is both true and purchasable. It must not
+ * guarantee fit, must not say the mounting definitely does or does not work,
+ * and must not mention the ±0.2/1.0 mm thresholds that produced the verdict.
+ */
+export const REVIEW_REQUIRED_EXPLANATION =
+  "Your stone's dimensions are slightly outside the standard measurements for " +
+  "this setting. Our trained jewelers will review your stone details after your " +
+  "order and confirm whether any extra time is needed to securely set your stone " +
+  "due to its non-standard dimensions.";
 
 /** The qualifier that must accompany every automatic match (§6.3). */
 export const COMPATIBILITY_QUALIFIER =

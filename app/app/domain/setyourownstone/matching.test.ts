@@ -396,7 +396,7 @@ describe("customer-facing vocabulary is fixed by the spec (§6.3)", () => {
     expect(Object.values(COMPATIBILITY_LABELS).sort()).toEqual([
       "Custom setting recommended",
       "Matches your stone size",
-      "May work — review required",
+      "May work — jeweler review required",
       "Recommended size match",
     ]);
   });

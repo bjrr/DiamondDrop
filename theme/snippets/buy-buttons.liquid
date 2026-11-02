@@ -56,6 +56,38 @@
           class="product-variant-id"
         >
 
+        {%- comment -%}
+          SYOS: carry the stone session onto the order (owner section 3,
+          2026-11-02).
+
+          A customer can buy a mounting from its detail page as well as from
+          the results card, and staff must be able to tell afterwards that the
+          order belongs to a Set Your Own Stone project -- and, for a Review
+          Required stone, that a jeweler needs to look at it.
+
+          The SESSION REFERENCE is what travels, not the verdict. The verdict
+          is recomputed and stored server-side against that session; a value
+          posted from a page the customer controls is exactly the thing not to
+          trust for a compatibility claim. Operations resolves the status from
+          the session.
+
+          The underscore prefix is Shopify own convention for a line property
+          that stays off the cart and checkout display while still arriving on
+          the order, which is what keeps internal compatibility metadata away
+          from the customer.
+
+          IT SHIPS WITHOUT A `name`. Shopify does not expose the query string
+          to Liquid, so this template cannot see the reference -- a gate on
+          `request.url` reads blank every time, which is what it was measured
+          doing on the live store. `carat-syos-pdp.js` reads the address bar and
+          names this input only once it has a real value, so a browser that
+          never runs it submits no property at all rather than an empty or
+          stale one.
+        {%- endcomment -%}
+        {%- if product.metafields.carat.syos_eligible.value == true -%}
+          <input type="hidden" data-carat-syos-session value="">
+        {%- endif -%}
+
         {%- if gift_card_recipient_feature_active -%}
           {%- render 'gift-card-recipient-form', product: product, form: form, section: section -%}
         {%- endif -%}
