@@ -524,3 +524,28 @@ See `docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md` for the authoritative operat
 ## Guiding Rule
 
 If a feature does not help CaratForUs launch sooner, protect pricing/margins, drive acquisition/conversion, or materially improve customer experience, it belongs in the backlog.
+
+## SKU transformation (owner-locked 2026-11-02)
+
+Vendor SKUs never reach Shopify's `sku` field or a customer untouched. Every
+one is transformed by the CaratForUs **+3 shift**:
+
+| Input | Rule | Example |
+| --- | --- | --- |
+| Letters | forward 3, wrapping, case preserved | `ABC` → `DEF`, `XYZ` → `ABC` |
+| Digits | +3, wrapping | `0123456789` → `3456789012` |
+| Everything else | unchanged | `-` `_` `/` `.` space stay as-is |
+
+Canonical: `KJ10249N` → `NM43572Q`.
+
+One store, one rule: George's Mountings, Kira, future vendors, SYOS mountings
+and Buy Now merchandise all use it. There are no per-vendor SKU schemes.
+
+The untransformed supplier SKU is retained internally in the
+`carat.vendor_sku` product-variant metafield (storefront access NONE) for
+purchasing, manufacturer lookup, reconciliation and support.
+
+**Each vendor SKU is transformed exactly once.** The transformation always
+derives from the retained vendor SKU rather than from the current Shopify SKU,
+because a twice-shifted SKU is still well-formed and unique — nothing
+downstream would notice it was wrong.
