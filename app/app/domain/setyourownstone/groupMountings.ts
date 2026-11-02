@@ -81,6 +81,19 @@ export interface VariantDisplay {
     readonly regularCardPriceMinorUnits: string;
     readonly bankPaymentSavingsMinorUnits: string;
     readonly currency: string;
+    /**
+     * Present only when a required $50 Stone Removal applies to the session
+     * (§17.3 as corrected 2026-11-02).
+     *
+     * SEPARATE FROM THE MOUNTING'S OWN PRICES, WHICH ARE UNCHANGED. §7 is
+     * explicit that removal is not part of the mounting formula and must not
+     * be absorbed into it, so the two prices above stay exactly what the
+     * pricing module produced and these are additional figures beside them.
+     * Added in BigInt on the server; the page only formats them.
+     */
+    readonly removalFeeMinorUnits?: string;
+    readonly totalCardPriceMinorUnits?: string;
+    readonly totalBankPaymentPriceMinorUnits?: string;
   } | null;
 }
 

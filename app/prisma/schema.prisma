@@ -4708,14 +4708,18 @@ model StoneSession {
   /// here.
   mountedState StoneMountedState @map("mounted_state")
 
-  /// Whether the customer asked for the $50 removal service.
+  /// Whether this session REQUIRES the $50 removal service.
   ///
-  /// Only ever true alongside `MOUNTED_PRONG`; the route refuses the
-  /// combination outright rather than silently zeroing it, so this column
-  /// cannot hold a selection the customer could not have been offered.
-  /// Preserved here because §17.3 requires the removal state to survive
-  /// StoneSession → cart/order → operations.
-  stoneRemovalSelected Boolean @default(false) @map("stone_removal_selected")
+  /// NOT A CUSTOMER SELECTION (owner correction 2026-11-02). It is derived
+  /// from `mountedState` and nothing else: prong-set means required, and a
+  /// customer who would rather not pay has their stone removed elsewhere,
+  /// which makes their answer LOOSE. A CHECK constraint enforces the
+  /// biconditional, so `MOUNTED_PRONG` + not-required cannot be stored at all
+  /// rather than merely being rejected upstream.
+  ///
+  /// Stored rather than computed on read because §9 requires operations to see
+  /// "Stone Removal Required = Yes" structurally, on the record itself.
+  stoneRemovalRequired Boolean @default(false) @map("stone_removal_required")
 
   notes String?
 

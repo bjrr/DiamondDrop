@@ -556,7 +556,7 @@
         "removal_offer_label": "Stone Removal — $50",
         "removal_offered": "Our jewelers can carefully remove your center stone from a standard prong setting before setting it into your new mounting.",
         "removal_unavailable": "We currently only offer stone removal for prong-set stones. Please have your stone professionally removed before sending it to CaratForUs. You can still continue designing your new setting.",
-        "removal_add": "Add Stone Removal — $50 to my order"
+        "removal_required": "Included with your order. If you would rather not have CaratForUs do this, have your stone professionally removed first and choose \"No — my stone is loose\"."
       },
       "shape": {
         "round": "Round",
@@ -584,7 +584,10 @@
         "bankSavePrefix": "Save ",
         "bankSaveSuffix": " with Bank Payment",
         "addToCart": "Add to Cart",
-        "cartError": "We could not add that setting to your cart. Please try again."
+        "cartError": "We could not add that setting to your cart. Please try again.",
+        "removalLine": "Stone Removal",
+        "totalCard": "Total with Card ",
+        "totalBank": "Total with Bank Payment "
       },
       "custom": {
         "heading": "Create a Custom Setting",

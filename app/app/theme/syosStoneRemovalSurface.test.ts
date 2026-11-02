@@ -78,10 +78,18 @@ describe("the intake asks all three and defaults to none", () => {
     for (const radio of radios) expect(radio).not.toContain("checked");
   });
 
-  it("does not pre-tick a $50 charge", () => {
-    const box = section.match(/<input type="checkbox" name="stoneRemovalSelected"[^>]*>/);
-    expect(box).not.toBeNull();
-    expect(box?.[0]).not.toContain("checked");
+  it("offers no removal checkbox at all", () => {
+    // The correction: for a prong-set stone the $50 is required, so there is
+    // no opt-in to pre-tick or leave unticked. A checkbox here would advertise
+    // a state the bench cannot fulfil — a prong-mounted stone arriving with no
+    // removal on the order.
+    expect(section).not.toContain("stoneRemovalSelected");
+    expect(section).not.toMatch(/type="checkbox"[^>]*removal/i);
+  });
+
+  it("states the price consequence of the prong answer", () => {
+    expect(section).toContain("removal_offer_label");
+    expect(section).toContain("removal_required");
   });
 
   it("keeps both outcome blocks hidden until the customer answers", () => {
@@ -111,7 +119,7 @@ describe("the storefront never decides or computes the fee", () => {
   /**
    * The cart-payload region specifically.
    *
-   * SCOPED ON PURPOSE. The same `removal.kind === 'offered'` test also appears
+   * SCOPED ON PURPOSE. The same `removal.kind === 'required'` test also appears
    * in `renderRemoval`, which only decides what text to show. Asserting the
    * guard exists somewhere in the file passed even with the guard on the cart
    * line replaced by `true` — found by mutation-testing this fence. What has
@@ -123,21 +131,43 @@ describe("the storefront never decides or computes the fee", () => {
     return fn.slice(0, fn.indexOf("fetch('/cart/add.js'"));
   })();
 
-  it("adds the service line only when the server said it was offered", () => {
-    expect(cartPayload).toContain("removal.kind === 'offered'");
-    expect(cartPayload).toContain("removal.selected");
+  it("adds the service line whenever the server says it is required", () => {
+    expect(cartPayload).toContain("removal.kind === 'required'");
+    expect(cartPayload).toContain("removal.required");
     // And from the last server response, not from the form.
     expect(cartPayload).toContain("lastPayload && lastPayload.removal");
   });
 
-  it("guards the service line on both halves of the verdict", () => {
-    // Either half alone is not enough: `offered` without `selected` charges a
-    // customer who declined, and `selected` without `offered` charges one who
-    // was never eligible.
+  it("guards the service line on the server's verdict, not the page's", () => {
     const guard = cartPayload.slice(cartPayload.indexOf("items.push"));
     expect(guard).toBeTruthy();
     const condition = cartPayload.slice(0, cartPayload.indexOf("items.push"));
-    expect(condition).toMatch(/removal\.kind === 'offered'[\s\S]{0,80}removal\.selected/);
+    expect(condition).toMatch(/removal\.kind === 'required'[\s\S]{0,80}removal\.required/);
+  });
+
+  it("drops every existing service line before adding, so it cannot double", () => {
+    // §20.5 and §20.6: exactly once, and a second Add to Cart or a variant
+    // change must not produce two $50 charges.
+    expect(cartPayload).toContain("reconcileRemovalLinesForAdd");
+  });
+
+  it("removes a service line the current answer no longer justifies", () => {
+    // §13: prong → loose must not leave a stale $50 in the cart.
+    expect(script).toContain("function reconcileRemovalLines");
+    expect(script).toContain("_syos_service !== 'STONE_REMOVAL'");
+    expect(script).toContain("quantity: 0");
+    // Reconciled on every session response, not only at Add to Cart, so the
+    // customer never sees a stale charge on the cart page in between.
+    expect(script).toContain("reconcileRemovalLines(data.removal)");
+  });
+
+  it("adds the fee to a price nowhere in the browser", () => {
+    // §17 wants mounting, Stone Removal and a total. All three figures arrive
+    // already computed; adding them here would be floating-point money
+    // arithmetic on a page.
+    expect(script).toContain("totalCardPriceMinorUnits");
+    expect(script).toContain("totalBankPaymentPriceMinorUnits");
+    expect(script).not.toMatch(/total[A-Za-z]*MinorUnits\s*[*+/-]/);
   });
 
   it("sends no price with the cart line", () => {
@@ -159,9 +189,12 @@ describe("the storefront never decides or computes the fee", () => {
     expect(quantities).toEqual(quantities.map(() => "1"));
   });
 
-  it("clears the tick when the customer moves off the prong answer", () => {
-    // Otherwise a hidden checkbox could still post true.
-    expect(script).toContain("if (box && state !== 'MOUNTED_PRONG') box.checked = false;");
+  it("sends nothing about removal with the intake request", () => {
+    // Derived server-side from the mounted state. The request schema is
+    // strict, so posting a removal field is a 400 rather than something the
+    // server has to validate away.
+    const payload = script.slice(script.indexOf("var payload = {"));
+    expect(payload.slice(0, payload.indexOf("submit.disabled"))).not.toMatch(/removal/i);
   });
 
   it("resolves the service variant from the real product, not a hard-coded id", () => {

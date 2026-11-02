@@ -7,35 +7,71 @@ import {
   STONE_REMOVAL_FEE_MINOR_UNITS,
   isStoneMountedState,
   stoneRemovalChargeFor,
-  stoneRemovalIsPurchasable,
   stoneRemovalOfferFor,
-  stoneRemovalSelectionIsValid,
+  stoneRemovalRequiredFor,
   type StoneMountedState,
 } from "./stoneRemoval";
 
 /**
- * The $50 prong-only Stone Removal rule (§17.3, owner message 2026-11-02).
+ * The $50 prong-only Stone Removal rule (§17.3; mandatory-not-optional
+ * correction 2026-11-02).
  *
- * The owner's three worked examples are the first three tests; the rest are the
- * ways this could go wrong with money or with liability.
+ * The owner's three worked examples are the first three tests. The rest are
+ * the ways this could go wrong with money or with liability — above all, the
+ * contradictory state the correction exists to forbid: a prong-mounted stone
+ * on an order with no removal service.
  */
 describe("the owner's worked examples", () => {
   it("loose stone → removal $0", () => {
     expect(stoneRemovalOfferFor("LOOSE")).toEqual({ kind: "not_needed" });
-    expect(stoneRemovalChargeFor("LOOSE", false)).toBe(0n);
+    expect(stoneRemovalChargeFor("LOOSE")).toBe(0n);
+    expect(stoneRemovalRequiredFor("LOOSE")).toBe(false);
   });
 
-  it("prong-mounted stone → removal $50", () => {
+  it("prong-mounted stone → removal $50, required", () => {
     expect(stoneRemovalOfferFor("MOUNTED_PRONG")).toEqual({
-      kind: "offered",
+      kind: "required",
       feeMinorUnits: 5_000n,
     });
-    expect(stoneRemovalChargeFor("MOUNTED_PRONG", true)).toBe(5_000n);
+    expect(stoneRemovalChargeFor("MOUNTED_PRONG")).toBe(5_000n);
+    expect(stoneRemovalRequiredFor("MOUNTED_PRONG")).toBe(true);
   });
 
   it("unsupported mounted stone → service unavailable, $0", () => {
     expect(stoneRemovalOfferFor("MOUNTED_UNSUPPORTED")).toEqual({ kind: "unavailable" });
-    expect(stoneRemovalChargeFor("MOUNTED_UNSUPPORTED", true)).toBe(0n);
+    expect(stoneRemovalChargeFor("MOUNTED_UNSUPPORTED")).toBe(0n);
+    expect(stoneRemovalRequiredFor("MOUNTED_UNSUPPORTED")).toBe(false);
+  });
+});
+
+describe("the charge is not a choice", () => {
+  it("takes the mounted state and nothing else", () => {
+    // There is no `selected` parameter to pass, so "prong-set but no removal"
+    // is not a state this module can be asked to price. That is the whole
+    // point of the correction: the customer's decision was the answer to the
+    // intake question, and $50 is its disclosed consequence.
+    expect(stoneRemovalChargeFor.length).toBe(1);
+    expect(stoneRemovalRequiredFor.length).toBe(1);
+    expect(stoneRemovalOfferFor.length).toBe(1);
+  });
+
+  it("never reports a prong-set stone as not requiring removal", () => {
+    // The contradictory operational state, asserted directly.
+    expect(stoneRemovalRequiredFor("MOUNTED_PRONG")).toBe(true);
+    expect(stoneRemovalChargeFor("MOUNTED_PRONG")).toBeGreaterThan(0n);
+  });
+
+  it("requires removal for exactly one state", () => {
+    const required = STONE_MOUNTED_STATES.filter((s: StoneMountedState) =>
+      stoneRemovalRequiredFor(s)
+    );
+    expect(required).toEqual(["MOUNTED_PRONG"]);
+  });
+
+  it("keeps required and charged in lockstep", () => {
+    for (const state of STONE_MOUNTED_STATES) {
+      expect(stoneRemovalChargeFor(state) > 0n).toBe(stoneRemovalRequiredFor(state));
+    }
   });
 });
 
@@ -45,78 +81,50 @@ describe("the fee is flat", () => {
     expect(typeof STONE_REMOVAL_FEE_MINOR_UNITS).toBe("bigint");
   });
 
-  it("takes no input but the mounted state", () => {
-    // Nothing about prong count, carat weight, stone size, ring value or
-    // mounting value can reach the amount, because the signature has nowhere
-    // to put it. That is the cheapest possible guarantee against a fee that
-    // quietly starts scaling.
-    expect(stoneRemovalOfferFor.length).toBe(1);
-    expect(stoneRemovalChargeFor.length).toBe(2);
+  it("cannot be scaled by anything, because nothing else is an input", () => {
+    // No prong count, carat weight, stone size, ring value or mounting value
+    // can reach the amount: the signature has nowhere to put them.
+    expect(stoneRemovalChargeFor("MOUNTED_PRONG")).toBe(STONE_REMOVAL_FEE_MINOR_UNITS);
   });
 
   it("charges once, not once per prong", () => {
     const offer = stoneRemovalOfferFor("MOUNTED_PRONG");
-    expect(offer.kind === "offered" && offer.feeMinorUnits).toBe(5_000n);
-    // One centre stone per session, so one charge. Four prongs or six, same $50.
-    expect(stoneRemovalChargeFor("MOUNTED_PRONG", true)).toBe(5_000n);
+    expect(offer.kind === "required" && offer.feeMinorUnits).toBe(5_000n);
   });
 });
 
-describe("only prong settings are purchasable", () => {
-  it("offers removal for a prong setting and nothing else", () => {
-    expect(stoneRemovalIsPurchasable("MOUNTED_PRONG")).toBe(true);
-    expect(stoneRemovalIsPurchasable("LOOSE")).toBe(false);
-    expect(stoneRemovalIsPurchasable("MOUNTED_UNSUPPORTED")).toBe(false);
-  });
-
-  it("has an answer for every state, and only these three states", () => {
+describe("the three states", () => {
+  it("are exactly these, in this spelling", () => {
     expect([...STONE_MOUNTED_STATES]).toEqual([
       "LOOSE",
       "MOUNTED_PRONG",
       "MOUNTED_UNSUPPORTED",
     ]);
+  });
+
+  it("each have an answer and an outcome", () => {
     for (const state of STONE_MOUNTED_STATES) {
-      expect(["not_needed", "offered", "unavailable"]).toContain(
+      expect(["not_needed", "required", "unavailable"]).toContain(
         stoneRemovalOfferFor(state).kind
       );
       expect(STONE_MOUNTED_QUESTION.answers[state]).toBeTruthy();
     }
   });
 
-  it("rejects anything that is not one of the three states", () => {
+  it("reject anything else", () => {
     for (const bad of ["loose", "MOUNTED", "BEZEL", "", null, undefined, 1, true, {}]) {
       expect(isStoneMountedState(bad)).toBe(false);
     }
     for (const state of STONE_MOUNTED_STATES) expect(isStoneMountedState(state)).toBe(true);
   });
-});
 
-describe("a selection the customer could not have been offered", () => {
-  it("is not valid against a loose or unsupported stone", () => {
-    expect(stoneRemovalSelectionIsValid("MOUNTED_PRONG", true)).toBe(true);
-    expect(stoneRemovalSelectionIsValid("LOOSE", true)).toBe(false);
-    expect(stoneRemovalSelectionIsValid("MOUNTED_UNSUPPORTED", true)).toBe(false);
-  });
-
-  it("is always valid when nothing was selected", () => {
-    for (const state of STONE_MOUNTED_STATES) {
-      expect(stoneRemovalSelectionIsValid(state, false)).toBe(true);
-    }
-  });
-
-  it("yields no charge even if it somehow reaches the charge function", () => {
-    // Defence in depth: the route rejects an invalid selection, and the charge
-    // function independently refuses to price it. A tampered request has to get
-    // past both to become money.
-    expect(stoneRemovalChargeFor("LOOSE", true)).toBe(0n);
-    expect(stoneRemovalChargeFor("MOUNTED_UNSUPPORTED", true)).toBe(0n);
-  });
-
-  it("never charges a stone the customer did not say was prong-set", () => {
-    const charged = STONE_MOUNTED_STATES.filter(
-      (s: StoneMountedState) => stoneRemovalChargeFor(s, true) > 0n
+  it("never silently turn an unsupported setting into a loose stone", () => {
+    // §14. They are different facts with different fulfilment consequences:
+    // a loose stone arrives ready to set, an unsupported one must be taken
+    // apart by someone else first.
+    expect(stoneRemovalOfferFor("MOUNTED_UNSUPPORTED")).not.toEqual(
+      stoneRemovalOfferFor("LOOSE")
     );
-    expect(charged).toEqual(["MOUNTED_PRONG"]);
   });
 });
 
@@ -141,7 +149,8 @@ describe("the approved copy", () => {
         "your stone professionally removed before sending it to CaratForUs. You " +
         "can still continue designing your new setting."
     );
-    // The half that stops this being a dead end.
+    // Both halves: do not send us a mounted stone, and carry on designing.
+    expect(STONE_REMOVAL_COPY.unavailable).toMatch(/professionally removed before sending/);
     expect(STONE_REMOVAL_COPY.unavailable).toMatch(/continue designing your new setting/);
   });
 
@@ -155,9 +164,6 @@ describe("the approved copy", () => {
   });
 
   it("does not ask the customer to self-diagnose a setting type", () => {
-    // §2: no exhaustive customer-facing taxonomy. The customer chooses
-    // prong-set or not; bezel/tension/flush/channel are our vocabulary, not a
-    // menu we put in front of them.
     const shown = [
       ...Object.values(STONE_MOUNTED_QUESTION.answers),
       STONE_MOUNTED_QUESTION.label,

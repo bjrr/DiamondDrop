@@ -640,3 +640,28 @@
   color: rgba(var(--color-foreground), 0.78);
   max-width: 60ch;
 }
+
+/* The disclosed consequence of a prong-set answer: required, not optional. */
+.carat-syos__removal-required {
+  margin: 1.2rem 0 0;
+  font-size: 1.3rem;
+  line-height: 1.55;
+  color: rgba(var(--color-foreground), 0.72);
+  max-width: 60ch;
+}
+
+/* Stone Removal and the resulting totals on a mounting card. Separated from
+   the mounting's own prices by a rule, because they are a different thing:
+   one is the ring, the other is work on the customer's own stone. */
+.carat-syos__price-removal {
+  margin: 0.8rem 0 0;
+  padding-top: 0.8rem;
+  border-top: 0.1rem solid rgba(var(--color-foreground), 0.12);
+  font-size: 1.4rem;
+}
+
+.carat-syos__price-total {
+  margin: 0.2rem 0 0;
+  font-size: 1.4rem;
+  font-weight: 600;
+}

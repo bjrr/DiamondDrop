@@ -36,8 +36,8 @@ import type { StoneMountedState } from "~/domain/setyourownstone/stoneRemoval";
 import {
   STONE_MOUNTED_STATES,
   STONE_REMOVAL_COPY,
+  stoneRemovalChargeFor,
   stoneRemovalOfferFor,
-  stoneRemovalSelectionIsValid,
 } from "~/domain/setyourownstone/stoneRemoval";
 import {
   COMPATIBILITY_QUALIFIER,
@@ -102,8 +102,6 @@ const bodySchema = z
      * whether CaratForUs may remove the stone is not something to default.
      */
     mountedState: z.enum(STONE_MOUNTED_STATES),
-    /** Defaults to declined. A $50 service is never assumed. */
-    stoneRemovalSelected: z.boolean().optional(),
     notes: z.string().trim().min(1).max(2000).optional(),
   })
   .strict();
@@ -169,7 +167,18 @@ function toMatchedVariant(result: MatchResult): MatchedVariant {
  */
 async function buildMatchPayload(
   stone: { shape: StoneShape; lengthUm: number; widthUm: number; depthUm: number | null },
-  shop: string | null
+  shop: string | null,
+  /**
+   * The removal charge that applies to this session, in minor units — 0 when
+   * none does.
+   *
+   * Passed in so the per-variant TOTALS are computed here, on the server, in
+   * BigInt. §17 wants the customer shown mounting, Stone Removal and then the
+   * appropriate total; adding those two figures in the browser would be
+   * floating-point money arithmetic on a page, which this codebase forbids
+   * outright.
+   */
+  removalFeeMinorUnits: bigint
 ) {
   const settings = await findEligibleSettingsForShape(stone.shape);
   const summary = matchSettings(
@@ -203,7 +212,8 @@ async function buildMatchPayload(
         // never reconciled from. Supplier cost never leaves that module.
         const prices = await readMountingVariantPrices(admin, gids);
         for (const [gid, d] of display) {
-          display.set(gid, { ...d, prices: prices.get(gid) ?? null });
+          const base = prices.get(gid) ?? null;
+          display.set(gid, { ...d, prices: withRemovalTotals(base, removalFeeMinorUnits) });
         }
         mountings = groupMountings(matched, display);
       } else {
@@ -221,6 +231,34 @@ async function buildMatchPayload(
 }
 
 /**
+ * Mounting prices plus the order totals once a required removal is included.
+ *
+ * Integer BigInt addition, server-side. The mounting's own two prices are
+ * returned unchanged — §7 of the correction is explicit that removal is not
+ * part of the mounting formula and must not be absorbed into it — and the
+ * totals are added alongside as separate figures.
+ *
+ * With no fee, nothing is added at all, so a loose-stone card carries no total
+ * field to render and no way to imply a charge.
+ */
+function withRemovalTotals(
+  base: { bankPaymentPriceMinorUnits: string; regularCardPriceMinorUnits: string; bankPaymentSavingsMinorUnits: string; currency: string } | null,
+  removalFeeMinorUnits: bigint
+) {
+  if (!base || removalFeeMinorUnits <= 0n) return base;
+  return {
+    ...base,
+    removalFeeMinorUnits: removalFeeMinorUnits.toString(),
+    totalCardPriceMinorUnits: (
+      BigInt(base.regularCardPriceMinorUnits) + removalFeeMinorUnits
+    ).toString(),
+    totalBankPaymentPriceMinorUnits: (
+      BigInt(base.bankPaymentPriceMinorUnits) + removalFeeMinorUnits
+    ).toString(),
+  };
+}
+
+/**
  * The $50 Stone Removal offer for this session (§17.3).
  *
  * SERVER-DECIDED, ALWAYS. The storefront renders what this says and never
@@ -232,14 +270,20 @@ async function buildMatchPayload(
  */
 function removalPayload(session: {
   mountedState: StoneMountedState;
-  stoneRemovalSelected: boolean;
+  stoneRemovalRequired: boolean;
 }) {
   const offer = stoneRemovalOfferFor(session.mountedState);
   return {
     mountedState: session.mountedState,
     kind: offer.kind,
-    selected: session.stoneRemovalSelected,
-    feeMinorUnits: offer.kind === "offered" ? offer.feeMinorUnits.toString() : "0",
+    /**
+     * "Stone Removal Required = Yes/No" (§9). Read off the STORED row rather
+     * than recomputed here, so what the storefront is told is the same fact
+     * operations will read — and the two cannot drift, because a CHECK
+     * constraint forbids the row from disagreeing with its mounted state.
+     */
+    required: session.stoneRemovalRequired,
+    feeMinorUnits: offer.kind === "required" ? offer.feeMinorUnits.toString() : "0",
     currency: "USD",
     label: STONE_REMOVAL_COPY.offerLabel,
     /**
@@ -247,7 +291,7 @@ function removalPayload(session: {
      * stone — there is no service to explain and no decision to make.
      */
     message:
-      offer.kind === "offered"
+      offer.kind === "required"
         ? STONE_REMOVAL_COPY.offered
         : offer.kind === "unavailable"
           ? STONE_REMOVAL_COPY.unavailable
@@ -328,7 +372,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
       widthUm: session.widthUm,
       depthUm: session.depthUm ?? null,
     },
-    shop
+    shop,
+    // From the STORED answer, so a returning customer sees the same totals.
+    stoneRemovalChargeFor(session.mountedState as StoneMountedState)
   );
   logger.info("stone_session.rehydrated", {
     sessionReference: session.sessionReference,
@@ -389,19 +435,6 @@ export async function action({ request }: ActionFunctionArgs) {
     return badRequest("length should be the longer measurement — check whether length and width are swapped");
   }
 
-  /**
-   * A removal selection must match the answer it was offered against.
-   *
-   * REJECTED, NOT ZEROED. Quietly recording "declined" would lose a real
-   * disagreement between the page and the stored answer, and recording
-   * "selected" would promise a service we do not offer on that setting. The
-   * database CHECK constraint says the same thing one layer down.
-   */
-  const stoneRemovalSelected = body.stoneRemovalSelected ?? false;
-  if (!stoneRemovalSelectionIsValid(body.mountedState, stoneRemovalSelected)) {
-    return badRequest("stone removal is offered only for a prong-set stone");
-  }
-
   const session = await createStoneSession({
     customerRef,
     stoneType: body.stoneType,
@@ -413,13 +446,13 @@ export async function action({ request }: ActionFunctionArgs) {
     certLab: body.certLab ?? null,
     certNumber: body.certNumber ?? null,
     mountedState: body.mountedState,
-    stoneRemovalSelected,
     notes: body.notes ?? null,
   });
 
   const built = await buildMatchPayload(
     { shape: body.shape as StoneShape, lengthUm, widthUm, depthUm },
-    shop
+    shop,
+    stoneRemovalChargeFor(body.mountedState)
   );
   const { settings, summary, mountings } = built;
 

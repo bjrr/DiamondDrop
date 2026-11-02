@@ -138,7 +138,6 @@
         // customer answers -- nothing here is defaulted, because this decides
         // whether we may cut metal away from their stone.
         mountedState: get('mountedState'),
-        stoneRemovalSelected: get('stoneRemovalSelected') === 'true',
         notes: get('notes'),
       };
     }
@@ -146,20 +145,18 @@
     /**
      * Reveal the block that belongs to the chosen answer.
      *
-     * Presentation only -- whether the service is actually offered is the
-     * server's decision, re-made on every response. If the customer switches
-     * away from the prong answer the checkbox is cleared as well as hidden, so
-     * a hidden tick can never travel with the request.
+     * Presentation only. Whether the service applies is the server's
+     * decision, derived from the stored answer on every response -- there is
+     * nothing here for the customer to tick or untick, because for a prong-set
+     * stone the $50 is required rather than offered.
      */
     function syncRemovalBlocks() {
       var chosen = form.querySelector('[name="mountedState"]:checked');
       var state = chosen ? chosen.value : '';
       var prong = root.querySelector('[data-carat-syos-removal-prong]');
       var unsupported = root.querySelector('[data-carat-syos-removal-unsupported]');
-      var box = form.querySelector('[name="stoneRemovalSelected"]');
       if (prong) prong.hidden = state !== 'MOUNTED_PRONG';
       if (unsupported) unsupported.hidden = state !== 'MOUNTED_UNSUPPORTED';
-      if (box && state !== 'MOUNTED_PRONG') box.checked = false;
       if (state) {
         var mountedField = root.querySelector('[data-carat-syos-mounted]');
         if (mountedField) fieldError(mountedField, null);
@@ -239,12 +236,10 @@
           node.hidden = true;
           continue;
         }
-        if (removal.kind === 'offered') {
-          // The named charge, and only when they asked for it. An offer they
-          // declined is not a line on their order, so it is not reported as one.
-          node.textContent = removal.selected
-            ? s('removalOfferLabel', 'Stone Removal — $50')
-            : removal.message || '';
+        if (removal.kind === 'required') {
+          // The named charge. Required, so it is always what is reported --
+          // there is no declined variant of this state to report instead.
+          node.textContent = s('removalOfferLabel', 'Stone Removal — $50');
         } else {
           node.textContent = removal.message || '';
         }
@@ -356,9 +351,19 @@
       var regularEl = el('p', 'carat-syos__price-regular', '');
       var bankEl = el('p', 'carat-syos__price-bank', '');
       var saveEl = el('p', 'carat-syos__price-save', '');
+      // The $50 service and the resulting totals, shown before Add to Cart so
+      // the charge is never a surprise at checkout (§1, §17). Present only
+      // when the server says a removal is required; the mounting's own prices
+      // above are untouched by it (§7).
+      var removalEl = el('p', 'carat-syos__price-removal', '');
+      var totalCardEl = el('p', 'carat-syos__price-total', '');
+      var totalBankEl = el('p', 'carat-syos__price-total', '');
       priceBox.appendChild(regularEl);
       priceBox.appendChild(bankEl);
       priceBox.appendChild(saveEl);
+      priceBox.appendChild(removalEl);
+      priceBox.appendChild(totalCardEl);
+      priceBox.appendChild(totalBankEl);
       body.appendChild(priceBox);
 
       // ---- selectors, one per option the customer still chooses
@@ -432,6 +437,15 @@
         return null;
       }
 
+      function clearRemovalLines() {
+        removalEl.textContent = '';
+        removalEl.hidden = true;
+        totalCardEl.textContent = '';
+        totalCardEl.hidden = true;
+        totalBankEl.textContent = '';
+        totalBankEl.hidden = true;
+      }
+
       function refresh() {
         var v = currentVariant();
         var p = (v && v.prices) || card.pricesFrom || null;
@@ -446,15 +460,43 @@
             formatMinor(p.bankPaymentSavingsMinorUnits, p.currency) +
             s('bankSaveSuffix', ' with Bank Payment');
           saveEl.hidden = p.bankPaymentSavingsMinorUnits === '0';
+
+          /**
+           * ALL THREE FIGURES COME FROM THE SERVER, ALREADY ADDED.
+           *
+           * The totals are computed in BigInt in the app and sent as decimal
+           * strings; this adds nothing. Adding a fee to a price in the browser
+           * would be floating-point money arithmetic on a page, which is
+           * forbidden outright -- and a total is exactly the figure a customer
+           * would notice being a cent out.
+           */
+          var hasRemoval = !!p.removalFeeMinorUnits && p.removalFeeMinorUnits !== '0';
+          removalEl.textContent = hasRemoval
+            ? s('removalLine', 'Stone Removal') + ' ' +
+              formatMinor(p.removalFeeMinorUnits, p.currency)
+            : '';
+          removalEl.hidden = !hasRemoval;
+          totalCardEl.textContent = hasRemoval && p.totalCardPriceMinorUnits
+            ? s('totalCard', 'Total with Card ') +
+              formatMinor(p.totalCardPriceMinorUnits, p.currency)
+            : '';
+          totalCardEl.hidden = !totalCardEl.textContent;
+          totalBankEl.textContent = hasRemoval && p.totalBankPaymentPriceMinorUnits
+            ? s('totalBank', 'Total with Bank Payment ') +
+              formatMinor(p.totalBankPaymentPriceMinorUnits, p.currency)
+            : '';
+          totalBankEl.hidden = !totalBankEl.textContent;
         } else if (v && v.price) {
           // No computed pair: show Shopify's own price rather than nothing.
           regularEl.textContent = formatMoney(v.price, card.currencyCode);
           bankEl.textContent = '';
           saveEl.textContent = '';
+          clearRemovalLines();
         } else {
           regularEl.textContent = '';
           bankEl.textContent = '';
           saveEl.textContent = '';
+          clearRemovalLines();
         }
 
         // A real combination Shopify says is sold out must not look buyable,
@@ -502,6 +544,57 @@
     }
 
     /**
+     * Drop any Stone Removal line the current answer no longer justifies.
+     *
+     * WHY THIS IS NEEDED. A customer can answer "in a prong setting", add a
+     * mounting with the $50 service, then edit their stone and answer "my
+     * stone is loose" -- because they had it removed in the meantime. Editing
+     * starts a NEW session, so without this the old service line sits in the
+     * cart charging $50 for work no longer required (§13).
+     *
+     * REMOVES BY LINE KEY, AND ONLY OUR OWN LINES. Matching on the
+     * _syos_service property rather than on the variant id means a line a
+     * customer somehow added another way is left alone, and a future second
+     * service gets the same treatment without new code here.
+     *
+     * Keeps a line only when BOTH the current session requires removal and
+     * the line belongs to that same session -- a leftover from an abandoned
+     * session is stale even if the new answer happens to be prong-set too.
+     */
+    function reconcileRemovalLines(removal, done) {
+      fetch('/cart.js', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (cart) {
+          if (!cart || !cart.items) return null;
+          var required = !!removal && removal.kind === 'required' && removal.required;
+          var stale = cart.items.filter(function (item) {
+            var props = item.properties || {};
+            if (props._syos_service !== 'STONE_REMOVAL') return false;
+            return !required || props._syos_session !== sessionReference;
+          });
+          if (stale.length === 0) return null;
+          // Sequentially: each change returns a new cart and re-keys nothing,
+          // but Shopify rejects concurrent cart writes.
+          return stale.reduce(function (chain, item) {
+            return chain.then(function () {
+              return fetch('/cart/change.js', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ id: item.key, quantity: 0 }),
+              });
+            });
+          }, Promise.resolve());
+        })
+        .then(function () { if (done) done(); })
+        .catch(function () {
+          // A failed tidy-up must not block the customer. The cart add below
+          // still removes-then-adds, so the charge itself cannot double.
+          if (done) done();
+        });
+    }
+
+    /**
      * Add the chosen variant to the normal Shopify cart.
      *
      * The REAL variant, the normal cart, the normal checkout. Review Required
@@ -536,6 +629,9 @@
 
       var items = [body];
 
+      // Remove any existing service line for this session before adding, so a
+      // second Add to Cart cannot produce two $50 charges (§5, §20.5).
+
       /**
        * The $50 Stone Removal service, as its own cart line.
        *
@@ -546,14 +642,16 @@
        * $50 comes from Shopify's price field — this page never sends an
        * amount, so there is no amount here to tamper with.
        *
-       * THE SERVER DECIDES WHETHER IT APPLIES. `removal.kind === 'offered'`
-       * and `removal.selected` both come from the last server response, which
-       * re-derives them from the stored mounted state. The page does not get
-       * a vote on whether a prong-only service applies.
+       * THE SERVER DECIDES WHETHER IT APPLIES, AND IT IS NOT OPTIONAL.
+       * `removal.kind === 'required'` and `removal.required` both come from
+       * the last server response, which derives them from the stored mounted
+       * state -- a prong-set stone requires removal, so there is no declined
+       * variant of this state for the page to express. The page does not get a
+       * vote on whether a prong-only service applies, nor on its price.
        */
       var removal = lastPayload && lastPayload.removal;
       var service = window.setYourOwnStoneRemoval;
-      if (removal && removal.kind === 'offered' && removal.selected &&
+      if (removal && removal.kind === 'required' && removal.required &&
           service && service.variantId) {
         items.push({
           id: String(service.variantId),
@@ -569,21 +667,31 @@
         });
       }
 
-      fetch('/cart/add.js', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ items: items }),
-      })
-        .then(function (r) {
-          if (!r.ok) throw new Error('cart_add_failed');
-          return r.json();
+      // Reconcile first: drop every Stone Removal line that exists now,
+      // whether stale or merely a duplicate of the one about to be added. The
+      // add then establishes exactly one.
+      reconcileRemovalLinesForAdd(function () {
+        fetch('/cart/add.js', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ items: items }),
         })
-        .then(function () { if (done) done(true); })
-        .catch(function () {
-          showError(s('cartError', 'We could not add that setting to your cart. Please try again.'));
-          if (done) done(false);
-        });
+          .then(function (r) {
+            if (!r.ok) throw new Error('cart_add_failed');
+            return r.json();
+          })
+          .then(function () { if (done) done(true); })
+          .catch(function () {
+            showError(s('cartError', 'We could not add that setting to your cart. Please try again.'));
+            if (done) done(false);
+          });
+      });
+    }
+
+    /** Every Stone Removal line goes, unconditionally, before an add. */
+    function reconcileRemovalLinesForAdd(next) {
+      reconcileRemovalLines({ kind: 'not_needed', required: false }, next);
     }
 
     /**
@@ -770,12 +878,9 @@
         widthMm: body.widthMm,
         mountedState: body.mountedState,
       };
-      // Sent only when it could have been offered. The server validates this
-      // again and REJECTS a mismatch rather than zeroing it, so a stale page
-      // produces an error the customer can see instead of a silent decline.
-      if (body.mountedState === 'MOUNTED_PRONG' && body.stoneRemovalSelected) {
-        payload.stoneRemovalSelected = true;
-      }
+      // NOTHING ABOUT REMOVAL IS SENT. It is derived server-side from the
+      // mounted state; the request schema is strict, so posting a removal
+      // field at all is a 400 rather than something to be validated away.
       if (body.depthMm) payload.depthMm = body.depthMm;
       if (body.certLab) payload.certLab = body.certLab;
       if (body.certNumber) payload.certNumber = body.certNumber;
@@ -806,6 +911,10 @@
           lastPayload = data;
           renderSummary(data);
           renderRemoval(data);
+          // A new answer may have invalidated a service line already in the
+          // cart. Done here rather than at Add to Cart so the customer never
+          // sees a stale $50 on the cart page in between.
+          reconcileRemovalLines(data.removal);
           renderResults(data);
           // THE FORK, not the results. The customer has entered their stone
           // once; what happens next is their choice, and a customer who
@@ -862,6 +971,10 @@
           lastPayload = data;
           renderSummary(data);
           renderRemoval(data);
+          // A new answer may have invalidated a service line already in the
+          // cart. Done here rather than at Add to Cart so the customer never
+          // sees a stale $50 on the cart page in between.
+          reconcileRemovalLines(data.removal);
           renderResults(data);
           showChoice(data);
         })

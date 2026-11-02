@@ -18,7 +18,10 @@ import { randomBytes } from "node:crypto";
 import { Prisma, type StoneSession } from "@prisma/client";
 
 import { prisma } from "~/db/client.server";
-import type { StoneMountedState } from "~/domain/setyourownstone/stoneRemoval";
+import {
+  stoneRemovalRequiredFor,
+  type StoneMountedState,
+} from "~/domain/setyourownstone/stoneRemoval";
 import type {
   CompatibilityRule,
   CompatibilityStatus,
@@ -70,12 +73,6 @@ export interface CreateStoneSessionInput {
   readonly certLab?: string | null;
   readonly certNumber?: string | null;
   readonly mountedState: StoneMountedState;
-  /**
-   * Only ever true for MOUNTED_PRONG. The caller must have validated this
-   * against the mounted state already (the route does, and a CHECK constraint
-   * refuses it at the database if the route ever stops).
-   */
-  readonly stoneRemovalSelected?: boolean;
   readonly notes?: string | null;
 }
 
@@ -98,7 +95,10 @@ export async function createStoneSession(
           certLab: input.certLab ?? null,
           certNumber: input.certNumber ?? null,
           mountedState: input.mountedState,
-          stoneRemovalSelected: input.stoneRemovalSelected ?? false,
+          // DERIVED, NEVER SUPPLIED. There is no caller-provided removal flag
+          // to get wrong: prong-set means required, and the database CHECK
+          // constraint refuses the row if this ever disagrees.
+          stoneRemovalRequired: stoneRemovalRequiredFor(input.mountedState),
           notes: input.notes ?? null,
         },
       });
@@ -204,7 +204,8 @@ export interface StoneSessionView {
   readonly widthUm: number;
   readonly depthUm: number | null;
   readonly mountedState: StoneMountedState;
-  readonly stoneRemovalSelected: boolean;
+  /** "Stone Removal Required = Yes/No", for operations (§9). */
+  readonly stoneRemovalRequired: boolean;
   readonly certLab: string | null;
   readonly certNumber: string | null;
   readonly notes: string | null;
@@ -221,7 +222,7 @@ export function toStoneSessionView(session: StoneSession): StoneSessionView {
     widthUm: session.widthUm,
     depthUm: session.depthUm,
     mountedState: session.mountedState,
-    stoneRemovalSelected: session.stoneRemovalSelected,
+    stoneRemovalRequired: session.stoneRemovalRequired,
     certLab: session.certLab,
     certNumber: session.certNumber,
     notes: session.notes,

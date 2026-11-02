@@ -265,13 +265,19 @@
           </div>
 
           {%- comment -%}
-            Prong-set: offer the service. Shown as its own named charge, which
-            §17.5 requires — it is the one approved exception to the rule that
-            mounting pricing components are never itemised.
+            Prong-set: the service is REQUIRED, and this states the price
+            consequence of the answer the customer just gave (owner correction
+            2026-11-02). Shown as its own named charge, which §17.5 requires —
+            it is the one approved exception to the rule that mounting pricing
+            components are never itemised.
 
-            THE CHECKBOX IS NOT PRE-TICKED. A $50 service the customer did not
-            ask for must not arrive by default; CaratForUs never pre-checks or
-            infers acceptance of a charge.
+            NO CHECKBOX. The choice was made by answering the question above;
+            $50 is a disclosed consequence of it, the way picking a paid
+            product option changes a price. A customer who would rather not pay
+            us has their stone professionally removed first, which makes their
+            answer "No — my stone is loose". Offering a tick-box here would
+            advertise a state the bench cannot fulfil: a prong-mounted stone
+            arriving with no removal on the order.
 
             The copy says what our jewelers will do, carefully. It does not say
             risk-free, guaranteed safe, or that the stone cannot be damaged.
@@ -279,10 +285,7 @@
           <div class="carat-syos__field carat-syos__removal" data-carat-syos-removal-prong hidden>
             <p class="carat-syos__removal-label">{{ 'templates.set_your_own_stone.stone.removal_offer_label' | t }}</p>
             <p class="carat-syos__removal-note">{{ 'templates.set_your_own_stone.stone.removal_offered' | t }}</p>
-            <label class="carat-syos__choice">
-              <input type="checkbox" name="stoneRemovalSelected" value="true">
-              <span>{{ 'templates.set_your_own_stone.stone.removal_add' | t }}</span>
-            </label>
+            <p class="carat-syos__removal-required">{{ 'templates.set_your_own_stone.stone.removal_required' | t }}</p>
           </div>
 
           {%- comment -%}
