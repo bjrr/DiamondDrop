@@ -145,7 +145,7 @@ const OVAL_BODY = {
   lengthMm: "10.12",
   widthMm: "7.08",
   depthMm: "4.55",
-  isCurrentlyMounted: false,
+  mountedState: "LOOSE" as const,
 };
 
 const STORED_OVAL = {
@@ -161,7 +161,8 @@ const STORED_OVAL = {
   depthUm: 4550,
   certLab: null,
   certNumber: null,
-  isCurrentlyMounted: false,
+  mountedState: "LOOSE",
+  stoneRemovalSelected: false,
   notes: null,
   selectedProductGid: null,
   selectedVariantGid: null,

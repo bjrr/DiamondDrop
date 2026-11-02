@@ -134,10 +134,43 @@
         depthMm: get('depthMm'),
         certLab: get('certLab'),
         certNumber: get('certNumber'),
-        isCurrentlyMounted: get('isCurrentlyMounted') === 'true',
+        // LOOSE / MOUNTED_PRONG / MOUNTED_UNSUPPORTED. Empty until the
+        // customer answers -- nothing here is defaulted, because this decides
+        // whether we may cut metal away from their stone.
+        mountedState: get('mountedState'),
+        stoneRemovalSelected: get('stoneRemovalSelected') === 'true',
         notes: get('notes'),
       };
     }
+
+    /**
+     * Reveal the block that belongs to the chosen answer.
+     *
+     * Presentation only -- whether the service is actually offered is the
+     * server's decision, re-made on every response. If the customer switches
+     * away from the prong answer the checkbox is cleared as well as hidden, so
+     * a hidden tick can never travel with the request.
+     */
+    function syncRemovalBlocks() {
+      var chosen = form.querySelector('[name="mountedState"]:checked');
+      var state = chosen ? chosen.value : '';
+      var prong = root.querySelector('[data-carat-syos-removal-prong]');
+      var unsupported = root.querySelector('[data-carat-syos-removal-unsupported]');
+      var box = form.querySelector('[name="stoneRemovalSelected"]');
+      if (prong) prong.hidden = state !== 'MOUNTED_PRONG';
+      if (unsupported) unsupported.hidden = state !== 'MOUNTED_UNSUPPORTED';
+      if (box && state !== 'MOUNTED_PRONG') box.checked = false;
+      if (state) {
+        var mountedField = root.querySelector('[data-carat-syos-mounted]');
+        if (mountedField) fieldError(mountedField, null);
+      }
+    }
+
+    Array.prototype.forEach.call(
+      form.querySelectorAll('[name="mountedState"]'),
+      function (radio) { radio.addEventListener('change', syncRemovalBlocks); }
+    );
+    syncRemovalBlocks();
 
     function validate(body) {
       var ok = true;
@@ -161,6 +194,14 @@
         fieldError(input, null);
       };
 
+      // Required, and not pre-filled. A missing answer is a question the
+      // customer has not answered, not a loose stone.
+      if (!body.mountedState) {
+        var mountedField = root.querySelector('[data-carat-syos-mounted]');
+        if (mountedField) fieldError(mountedField, s('required', 'This is required.'));
+        ok = false;
+      }
+
       check('caratWeight', body.caratWeight, CARAT, true);
       check('lengthMm', body.lengthMm, MM, true);
       check('widthMm', body.widthMm, MM, true);
@@ -179,6 +220,36 @@
         }
       }
       return ok;
+    }
+
+    /**
+     * What the customer's order will say about removal.
+     *
+     * Reads the SERVER's verdict, never the form. Three outcomes, three
+     * different things worth saying -- and for a loose stone, nothing at all,
+     * because there is no service and no decision.
+     */
+    function renderRemoval(payload) {
+      var removal = payload && payload.removal;
+      var nodes = root.querySelectorAll('[data-carat-syos-removal-summary]');
+      for (var i = 0; i < nodes.length; i += 1) {
+        var node = nodes[i];
+        if (!removal || removal.kind === 'not_needed') {
+          node.textContent = '';
+          node.hidden = true;
+          continue;
+        }
+        if (removal.kind === 'offered') {
+          // The named charge, and only when they asked for it. An offer they
+          // declined is not a line on their order, so it is not reported as one.
+          node.textContent = removal.selected
+            ? s('removalOfferLabel', 'Stone Removal — $50')
+            : removal.message || '';
+        } else {
+          node.textContent = removal.message || '';
+        }
+        node.hidden = !node.textContent;
+      }
     }
 
     function renderSummary(payload) {
@@ -463,11 +534,46 @@
         },
       };
 
+      var items = [body];
+
+      /**
+       * The $50 Stone Removal service, as its own cart line.
+       *
+       * A SEPARATE LINE ON PURPOSE. §17.5 forbids itemising the mounting's
+       * pricing components to the customer and names this service as the one
+       * approved exception, so it has to be visible on its own rather than
+       * folded into the ring's price. A real Shopify product also means the
+       * $50 comes from Shopify's price field — this page never sends an
+       * amount, so there is no amount here to tamper with.
+       *
+       * THE SERVER DECIDES WHETHER IT APPLIES. `removal.kind === 'offered'`
+       * and `removal.selected` both come from the last server response, which
+       * re-derives them from the stored mounted state. The page does not get
+       * a vote on whether a prong-only service applies.
+       */
+      var removal = lastPayload && lastPayload.removal;
+      var service = window.setYourOwnStoneRemoval;
+      if (removal && removal.kind === 'offered' && removal.selected &&
+          service && service.variantId) {
+        items.push({
+          id: String(service.variantId),
+          // One centre stone, one removal. Never scaled by prongs or carats.
+          quantity: 1,
+          properties: {
+            _syos_session: sessionReference || '',
+            _syos_service: 'STONE_REMOVAL',
+            // Why we are allowed to do this job at all, recorded for the
+            // bench alongside the charge.
+            _syos_mounted_state: removal.mountedState || '',
+          },
+        });
+      }
+
       fetch('/cart/add.js', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ items: [body] }),
+        body: JSON.stringify({ items: items }),
       })
         .then(function (r) {
           if (!r.ok) throw new Error('cart_add_failed');
@@ -662,8 +768,14 @@
         caratWeight: body.caratWeight,
         lengthMm: body.lengthMm,
         widthMm: body.widthMm,
-        isCurrentlyMounted: body.isCurrentlyMounted,
+        mountedState: body.mountedState,
       };
+      // Sent only when it could have been offered. The server validates this
+      // again and REJECTS a mismatch rather than zeroing it, so a stale page
+      // produces an error the customer can see instead of a silent decline.
+      if (body.mountedState === 'MOUNTED_PRONG' && body.stoneRemovalSelected) {
+        payload.stoneRemovalSelected = true;
+      }
       if (body.depthMm) payload.depthMm = body.depthMm;
       if (body.certLab) payload.certLab = body.certLab;
       if (body.certNumber) payload.certNumber = body.certNumber;
@@ -693,6 +805,7 @@
 
           lastPayload = data;
           renderSummary(data);
+          renderRemoval(data);
           renderResults(data);
           // THE FORK, not the results. The customer has entered their stone
           // once; what happens next is their choice, and a customer who
@@ -748,6 +861,7 @@
           }
           lastPayload = data;
           renderSummary(data);
+          renderRemoval(data);
           renderResults(data);
           showChoice(data);
         })

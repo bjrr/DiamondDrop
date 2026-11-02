@@ -44,6 +44,8 @@
     choose: {{ 'templates.set_your_own_stone.results.choose' | t | json }},
     addToCart: {{ 'templates.set_your_own_stone.results.addToCart' | t | json }},
     cartError: {{ 'templates.set_your_own_stone.results.cartError' | t | json }},
+    removalOfferLabel: {{ 'templates.set_your_own_stone.stone.removal_offer_label' | t | json }},
+    removalLineTitle: {{ 'templates.set_your_own_stone.stone.removal_offer_label' | t | json }},
     customizeThis: {{ 'templates.set_your_own_stone.paths.customize_this' | t | json }},
     customRecommended: {{ 'templates.set_your_own_stone.paths.custom_recommended' | t | json }},
     matchedSize: {{ 'templates.set_your_own_stone.results.matchedSize' | t | json }},
@@ -67,6 +69,26 @@
     shape_marquise: {{ 'templates.set_your_own_stone.shape.marquise' | t | json }},
     shape_asscher: {{ 'templates.set_your_own_stone.shape.asscher' | t | json }},
     shape_heart: {{ 'templates.set_your_own_stone.shape.heart' | t | json }}
+  };
+
+  {%- comment -%}
+    The Stone Removal service variant, resolved by Liquid at render time.
+
+    NO API CALL AND NO HARD-CODED ID. `all_products` reads the real product, so
+    the id cannot drift from the store and the $50 comes from Shopify's own
+    price field rather than from anything this page could alter. The service is
+    UNLISTED, so it never appears in browsing; it is reachable by variant id,
+    which is exactly how the mountings work.
+
+    If the product is ever missing or unavailable, this is null and the script
+    declines to add the line rather than inventing a charge.
+  {%- endcomment -%}
+  {%- assign syos_removal = all_products['stone-removal'] -%}
+  {%- assign syos_removal_variant = syos_removal.selected_or_first_available_variant -%}
+  window.setYourOwnStoneRemoval = {
+    variantId: {% if syos_removal_variant and syos_removal_variant.available %}{{ syos_removal_variant.id | json }}{% else %}null{% endif %},
+    title: {{ syos_removal.title | default: '' | json }},
+    priceMinorUnits: {% if syos_removal_variant %}{{ syos_removal_variant.price | json }}{% else %}null{% endif %}
   };
 </script>
 <script src="{{ 'set-your-own-stone.js' | asset_url }}" defer="defer"></script>
@@ -210,16 +232,66 @@
             </div>
           {%- endif -%}
 
-          <div class="carat-syos__field">
+          {%- comment -%}
+            "Is your stone currently mounted?" (§17.3, owner-locked
+            2026-11-02). Three answers, because "mounted" on its own does not
+            say whether CaratForUs may remove the stone — and that is the only
+            thing the $50 removal service turns on.
+
+            The customer chooses prong-set or not. Deliberately NOT a technical
+            taxonomy: standard, claw and double-claw prongs are all just "a
+            prong setting" here, and putting bezel/tension/flush/channel on the
+            page would ask a customer to self-diagnose their own jewellery.
+
+            NOTHING IS PRE-SELECTED. The old control defaulted to Loose, which
+            is a safe default for a question about where a stone is but not for
+            one that decides whether we may cut metal away from it.
+          {%- endcomment -%}
+          <div class="carat-syos__field" data-carat-syos-mounted>
             <span class="carat-syos__label">{{ 'templates.set_your_own_stone.stone.mounted_label' | t }} *</span>
             <label class="carat-syos__choice">
-              <input type="radio" name="isCurrentlyMounted" value="false" checked>
+              <input type="radio" name="mountedState" value="LOOSE">
               <span>{{ 'templates.set_your_own_stone.stone.mounted_loose' | t }}</span>
             </label>
             <label class="carat-syos__choice">
-              <input type="radio" name="isCurrentlyMounted" value="true">
-              <span>{{ 'templates.set_your_own_stone.stone.mounted_set' | t }}</span>
+              <input type="radio" name="mountedState" value="MOUNTED_PRONG">
+              <span>{{ 'templates.set_your_own_stone.stone.mounted_prong' | t }}</span>
             </label>
+            <label class="carat-syos__choice">
+              <input type="radio" name="mountedState" value="MOUNTED_UNSUPPORTED">
+              <span>{{ 'templates.set_your_own_stone.stone.mounted_unsupported' | t }}</span>
+            </label>
+            <small class="carat-syos__field-error" data-carat-syos-field-error hidden></small>
+          </div>
+
+          {%- comment -%}
+            Prong-set: offer the service. Shown as its own named charge, which
+            §17.5 requires — it is the one approved exception to the rule that
+            mounting pricing components are never itemised.
+
+            THE CHECKBOX IS NOT PRE-TICKED. A $50 service the customer did not
+            ask for must not arrive by default; CaratForUs never pre-checks or
+            infers acceptance of a charge.
+
+            The copy says what our jewelers will do, carefully. It does not say
+            risk-free, guaranteed safe, or that the stone cannot be damaged.
+          {%- endcomment -%}
+          <div class="carat-syos__field carat-syos__removal" data-carat-syos-removal-prong hidden>
+            <p class="carat-syos__removal-label">{{ 'templates.set_your_own_stone.stone.removal_offer_label' | t }}</p>
+            <p class="carat-syos__removal-note">{{ 'templates.set_your_own_stone.stone.removal_offered' | t }}</p>
+            <label class="carat-syos__choice">
+              <input type="checkbox" name="stoneRemovalSelected" value="true">
+              <span>{{ 'templates.set_your_own_stone.stone.removal_add' | t }}</span>
+            </label>
+          </div>
+
+          {%- comment -%}
+            Another type of setting: we decline, and say why, and the customer
+            carries straight on. No fee, no blocked submit, no dead end — every
+            design path stays open to them (§3).
+          {%- endcomment -%}
+          <div class="carat-syos__field carat-syos__removal carat-syos__removal--unavailable" data-carat-syos-removal-unsupported hidden>
+            <p class="carat-syos__removal-note">{{ 'templates.set_your_own_stone.stone.removal_unavailable' | t }}</p>
           </div>
 
           <div class="carat-syos__field">
@@ -263,6 +335,7 @@
       <div class="carat-syos__summary" data-carat-syos-choose-summary>
         <h2 class="carat-syos__heading" data-carat-syos-choose-heading></h2>
         <p class="carat-syos__stone-line" data-carat-syos-choose-line></p>
+        <p class="carat-syos__removal-summary" data-carat-syos-removal-summary hidden></p>
         <button type="button" class="carat-link carat-syos__edit" data-carat-syos-edit-from-choose>
           {{- 'templates.set_your_own_stone.results.edit' | t -}}
         </button>
@@ -306,6 +379,7 @@
       <div class="carat-syos__summary" data-carat-syos-summary>
         <h2 class="carat-syos__heading" data-carat-syos-summary-heading></h2>
         <p class="carat-syos__stone-line" data-carat-syos-summary-line></p>
+        <p class="carat-syos__removal-summary" data-carat-syos-removal-summary hidden></p>
         <button type="button" class="carat-link carat-syos__edit" data-carat-syos-edit>
           {{- 'templates.set_your_own_stone.results.edit' | t -}}
         </button>

@@ -18,6 +18,7 @@ import { randomBytes } from "node:crypto";
 import { Prisma, type StoneSession } from "@prisma/client";
 
 import { prisma } from "~/db/client.server";
+import type { StoneMountedState } from "~/domain/setyourownstone/stoneRemoval";
 import type {
   CompatibilityRule,
   CompatibilityStatus,
@@ -68,7 +69,13 @@ export interface CreateStoneSessionInput {
   readonly depthUm?: Micrometres | null;
   readonly certLab?: string | null;
   readonly certNumber?: string | null;
-  readonly isCurrentlyMounted: boolean;
+  readonly mountedState: StoneMountedState;
+  /**
+   * Only ever true for MOUNTED_PRONG. The caller must have validated this
+   * against the mounted state already (the route does, and a CHECK constraint
+   * refuses it at the database if the route ever stops).
+   */
+  readonly stoneRemovalSelected?: boolean;
   readonly notes?: string | null;
 }
 
@@ -90,7 +97,8 @@ export async function createStoneSession(
           depthUm: input.depthUm ?? null,
           certLab: input.certLab ?? null,
           certNumber: input.certNumber ?? null,
-          isCurrentlyMounted: input.isCurrentlyMounted,
+          mountedState: input.mountedState,
+          stoneRemovalSelected: input.stoneRemovalSelected ?? false,
           notes: input.notes ?? null,
         },
       });
@@ -195,7 +203,8 @@ export interface StoneSessionView {
   readonly lengthUm: number;
   readonly widthUm: number;
   readonly depthUm: number | null;
-  readonly isCurrentlyMounted: boolean;
+  readonly mountedState: StoneMountedState;
+  readonly stoneRemovalSelected: boolean;
   readonly certLab: string | null;
   readonly certNumber: string | null;
   readonly notes: string | null;
@@ -211,7 +220,8 @@ export function toStoneSessionView(session: StoneSession): StoneSessionView {
     lengthUm: session.lengthUm,
     widthUm: session.widthUm,
     depthUm: session.depthUm,
-    isCurrentlyMounted: session.isCurrentlyMounted,
+    mountedState: session.mountedState,
+    stoneRemovalSelected: session.stoneRemovalSelected,
     certLab: session.certLab,
     certNumber: session.certNumber,
     notes: session.notes,

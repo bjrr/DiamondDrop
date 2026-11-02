@@ -32,6 +32,13 @@ import {
   toStoneSessionView,
   findStoneSessionByReference,
 } from "~/db/repositories/stoneSessionRepository.server";
+import type { StoneMountedState } from "~/domain/setyourownstone/stoneRemoval";
+import {
+  STONE_MOUNTED_STATES,
+  STONE_REMOVAL_COPY,
+  stoneRemovalOfferFor,
+  stoneRemovalSelectionIsValid,
+} from "~/domain/setyourownstone/stoneRemoval";
 import {
   COMPATIBILITY_QUALIFIER,
   REVIEW_REQUIRED_EXPLANATION,
@@ -90,7 +97,13 @@ const bodySchema = z
     depthMm: mmString.optional(),
     certLab: z.string().trim().min(1).max(100).optional(),
     certNumber: z.string().trim().min(1).max(100).optional(),
-    isCurrentlyMounted: z.boolean(),
+    /**
+     * LOOSE / MOUNTED_PRONG / MOUNTED_UNSUPPORTED (§17.3). Required, because
+     * whether CaratForUs may remove the stone is not something to default.
+     */
+    mountedState: z.enum(STONE_MOUNTED_STATES),
+    /** Defaults to declined. A $50 service is never assumed. */
+    stoneRemovalSelected: z.boolean().optional(),
     notes: z.string().trim().min(1).max(2000).optional(),
   })
   .strict();
@@ -207,6 +220,41 @@ async function buildMatchPayload(
   return { settings, summary, mountings };
 }
 
+/**
+ * The $50 Stone Removal offer for this session (§17.3).
+ *
+ * SERVER-DECIDED, ALWAYS. The storefront renders what this says and never
+ * works out for itself whether the service applies — the whole point of the
+ * prong-only rule is that it is not the page's call.
+ *
+ * The amount travels as integer minor units, like every other money value
+ * crossing this boundary; the storefront formats it without arithmetic.
+ */
+function removalPayload(session: {
+  mountedState: StoneMountedState;
+  stoneRemovalSelected: boolean;
+}) {
+  const offer = stoneRemovalOfferFor(session.mountedState);
+  return {
+    mountedState: session.mountedState,
+    kind: offer.kind,
+    selected: session.stoneRemovalSelected,
+    feeMinorUnits: offer.kind === "offered" ? offer.feeMinorUnits.toString() : "0",
+    currency: "USD",
+    label: STONE_REMOVAL_COPY.offerLabel,
+    /**
+     * The approved wording for whichever case applies, and nothing for a loose
+     * stone — there is no service to explain and no decision to make.
+     */
+    message:
+      offer.kind === "offered"
+        ? STONE_REMOVAL_COPY.offered
+        : offer.kind === "unavailable"
+          ? STONE_REMOVAL_COPY.unavailable
+          : null,
+  };
+}
+
 /** The payload shape both entry points return. */
 function matchResponse(
   session: Awaited<ReturnType<typeof createStoneSession>>,
@@ -235,6 +283,7 @@ function matchResponse(
        * mentions the thresholds that produced the verdict.
        */
       reviewExplanation: REVIEW_REQUIRED_EXPLANATION,
+      removal: removalPayload(session),
     },
     { headers: { "Cache-Control": "private, no-store" } }
   );
@@ -340,6 +389,19 @@ export async function action({ request }: ActionFunctionArgs) {
     return badRequest("length should be the longer measurement — check whether length and width are swapped");
   }
 
+  /**
+   * A removal selection must match the answer it was offered against.
+   *
+   * REJECTED, NOT ZEROED. Quietly recording "declined" would lose a real
+   * disagreement between the page and the stored answer, and recording
+   * "selected" would promise a service we do not offer on that setting. The
+   * database CHECK constraint says the same thing one layer down.
+   */
+  const stoneRemovalSelected = body.stoneRemovalSelected ?? false;
+  if (!stoneRemovalSelectionIsValid(body.mountedState, stoneRemovalSelected)) {
+    return badRequest("stone removal is offered only for a prong-set stone");
+  }
+
   const session = await createStoneSession({
     customerRef,
     stoneType: body.stoneType,
@@ -350,7 +412,8 @@ export async function action({ request }: ActionFunctionArgs) {
     depthUm,
     certLab: body.certLab ?? null,
     certNumber: body.certNumber ?? null,
-    isCurrentlyMounted: body.isCurrentlyMounted,
+    mountedState: body.mountedState,
+    stoneRemovalSelected,
     notes: body.notes ?? null,
   });
 
@@ -398,6 +461,8 @@ export async function action({ request }: ActionFunctionArgs) {
       // path, so the wording cannot differ between a first visit and a return
       // from a mounting detail page.
       reviewExplanation: REVIEW_REQUIRED_EXPLANATION,
+      // The same offer, from the same builder, on the create path.
+      removal: removalPayload(session),
     },
     { headers: { "Cache-Control": "private, no-store" } }
   );

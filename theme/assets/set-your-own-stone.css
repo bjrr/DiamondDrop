@@ -596,3 +596,47 @@
   color: rgba(var(--color-foreground), 0.78);
   max-width: 52ch;
 }
+
+/* ------------------------------------------- $50 prong-only Stone Removal
+
+   Owner-locked 2026-11-02 (§17.3). Two blocks share this styling because they
+   are the same kind of thing — the answer to "is your stone mounted?" telling
+   the customer what happens next.
+
+   Information, not alarm. The unavailable case is a decline, and a decline
+   that looks like an error reads as "you have done something wrong" when the
+   customer has simply told us the truth about their ring. No red, no icon, no
+   warning border; the copy does the work and every design path stays open. */
+.carat-syos__removal {
+  padding: 1.6rem 1.8rem;
+  border-radius: 0.6rem;
+  background: rgba(var(--color-foreground), 0.04);
+}
+
+.carat-syos__removal-label {
+  margin: 0 0 0.6rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.carat-syos__removal-note {
+  margin: 0;
+  font-size: 1.35rem;
+  line-height: 1.55;
+  color: rgba(var(--color-foreground), 0.78);
+  max-width: 60ch;
+}
+
+.carat-syos__removal .carat-syos__choice {
+  margin-top: 1.2rem;
+}
+
+/* The running state, carried through the fork and the results so a customer
+   browsing mountings can still see what is on their order. */
+.carat-syos__removal-summary {
+  margin: 0.4rem 0 0;
+  font-size: 1.35rem;
+  line-height: 1.55;
+  color: rgba(var(--color-foreground), 0.78);
+  max-width: 60ch;
+}

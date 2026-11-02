@@ -547,11 +547,16 @@
         "cert_lab_label": "Grading lab (optional)",
         "cert_number_label": "Report number (optional)",
         "cert_upload_label": "Upload your report (optional)",
-        "mounted_label": "Where is the stone now?",
-        "mounted_loose": "Loose",
-        "mounted_set": "Currently set in a piece",
+        "mounted_label": "Is your stone currently mounted?",
+        "mounted_loose": "No — my stone is loose",
         "notes_label": "Anything else we should know (optional)",
-        "submit": "Find settings for my stone"
+        "submit": "Find settings for my stone",
+        "mounted_prong": "Yes — in a prong setting",
+        "mounted_unsupported": "Yes — in another type of setting",
+        "removal_offer_label": "Stone Removal — $50",
+        "removal_offered": "Our jewelers can carefully remove your center stone from a standard prong setting before setting it into your new mounting.",
+        "removal_unavailable": "We currently only offer stone removal for prong-set stones. Please have your stone professionally removed before sending it to CaratForUs. You can still continue designing your new setting.",
+        "removal_add": "Add Stone Removal — $50 to my order"
       },
       "shape": {
         "round": "Round",

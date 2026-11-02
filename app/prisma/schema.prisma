@@ -4477,6 +4477,27 @@ enum StoneShape {
   @@map("stone_shape")
 }
 
+/// How the customer's stone is currently held (§17.3, owner-locked
+/// 2026-11-02).
+///
+/// Three values because two cannot carry the decision: "mounted" alone does
+/// not say whether CaratForUs may remove the stone. Only `MOUNTED_PRONG` makes
+/// the $50 Stone Removal service available; bezel, tension, flush, channel and
+/// anything else collapse into `MOUNTED_UNSUPPORTED`, which declines the
+/// service while leaving the customer free to carry on designing.
+///
+/// SCREAMING CASE, UNLIKE ITS NEIGHBOURS. These three literals are specified
+/// verbatim by the owner and travel out to the storefront, the cart line
+/// property and operations; renaming them to match local style would make the
+/// persisted value differ from the specified one.
+enum StoneMountedState {
+  LOOSE
+  MOUNTED_PRONG
+  MOUNTED_UNSUPPORTED
+
+  @@map("stone_mounted_state")
+}
+
 /// The verdict the matching service reached. `no_match` is persisted only
 /// when a customer explicitly selected something; candidates that simply did
 /// not qualify are never stored.
@@ -4678,9 +4699,23 @@ model StoneSession {
   certLab    String? @map("cert_lab")
   certNumber String? @map("cert_number")
 
-  /// Whether the stone is loose or still set in something. Captured because
-  /// it changes what staff ask next, not because it affects matching.
-  isCurrentlyMounted Boolean @default(false) @map("is_currently_mounted")
+  /// Whether the stone is loose, prong-set, or set in something we will not
+  /// open (§17.3). Never an input to matching — it decides whether the $50
+  /// Stone Removal service may be offered at all.
+  ///
+  /// REPLACED A BOOLEAN. `is_currently_mounted` could say "mounted" but not
+  /// whether we are allowed to touch it, which is the only thing that matters
+  /// here.
+  mountedState StoneMountedState @map("mounted_state")
+
+  /// Whether the customer asked for the $50 removal service.
+  ///
+  /// Only ever true alongside `MOUNTED_PRONG`; the route refuses the
+  /// combination outright rather than silently zeroing it, so this column
+  /// cannot hold a selection the customer could not have been offered.
+  /// Preserved here because §17.3 requires the removal state to survive
+  /// StoneSession → cart/order → operations.
+  stoneRemovalSelected Boolean @default(false) @map("stone_removal_selected")
 
   notes String?
 
