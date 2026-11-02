@@ -380,6 +380,38 @@ describe("product status gates everything", () => {
     expect(row.problems).toEqual([]);
     expect(row.eligibleForSetYourOwnStone).toBe(false);
   });
+
+  // Owner decision 2026-11-02: UNLISTED is the FINAL status for a George's
+  // mounting. It is a real, purchasable Shopify product that Shopify hides
+  // from search, collections, predictive search, recommendations, the sitemap
+  // and Shopify Catalog, while leaving it reachable by direct URL — exactly
+  // what an SYOS-only mounting needs.
+  it.each([["ACTIVE"], ["UNLISTED"]])("makes a %s product eligible", (status) => {
+    const row = only(input({ productStatus: status }));
+    expect(row.problems).toEqual([]);
+    expect(row.eligibleForSetYourOwnStone).toBe(true);
+  });
+
+  it("gates on a named set, so an unknown future status is excluded by default", () => {
+    // Written as "not DRAFT" this would silently admit whatever Shopify adds
+    // next. A product we cannot reason about must not be offered.
+    for (const status of ["", "SCHEDULED", "active", "Unlisted", "PENDING"]) {
+      expect(only(input({ productStatus: status })).eligibleForSetYourOwnStone).toBe(false);
+    }
+  });
+
+  it("does not let UNLISTED rescue a misconfigured product", () => {
+    // The status change must widen nothing else. A row with a real problem
+    // stays ineligible whatever its status.
+    const row = only(input({ productStatus: "UNLISTED", product: { syos_stone_shape: "trillion" } }));
+    expect(row.problems.length).toBeGreaterThan(0);
+    expect(row.eligibleForSetYourOwnStone).toBe(false);
+  });
+
+  it("does not let UNLISTED override the product-level SYOS flag", () => {
+    const row = only(input({ productStatus: "UNLISTED", product: { syos_eligible: "false" } }));
+    expect(row.eligibleForSetYourOwnStone).toBe(false);
+  });
 });
 
 describe("product-level problems reach every variant", () => {

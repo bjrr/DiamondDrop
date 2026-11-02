@@ -218,9 +218,31 @@ export function projectProduct(input: ShopifyProductCompatibilityInput): Project
     );
   }
 
-  // Not ACTIVE is not a misconfiguration — it is a deliberate state — but it
-  // does mean nothing here should be offered.
-  const productActive = input.productStatus === "ACTIVE";
+  /**
+   * ACTIVE **or** UNLISTED (owner decision 2026-11-02).
+   *
+   * UNLISTED is Shopify's own status for a product that is real and
+   * purchasable but hidden from storefront search, collections, predictive
+   * search, recommendations, the sitemap and Shopify Catalog, while remaining
+   * reachable by direct URL. That is precisely what a George's mounting is: it
+   * must never surface under Shop Jewelry, only through Set Your Own Stone.
+   *
+   * So UNLISTED is the FINAL state for these products, and gating on ACTIVE
+   * alone would mark every mounting ineligible the moment it was hidden —
+   * SYOS would find nothing. The earlier rule was written before mountings
+   * became SYOS-only.
+   *
+   * DRAFT AND ARCHIVED REMAIN INELIGIBLE, deliberately. DRAFT is the
+   * build-and-verify state and is not sellable; ARCHIVED is withdrawn. Both
+   * would be unbuyable if matched, so neither may pass. The set is named
+   * positively rather than as "not DRAFT" so a future status Shopify adds is
+   * excluded by default instead of silently admitted.
+   *
+   * Nothing else about eligibility changes: the caller still requires no
+   * problems, the product-level SYOS flag, and a parseable shape.
+   */
+  const SYOS_SELLABLE_STATUSES = new Set(["ACTIVE", "UNLISTED"]);
+  const productSellable = SYOS_SELLABLE_STATUSES.has(input.productStatus);
 
   const rows = input.variants.map((variant) => {
     const problems: string[] = [...productProblems];
@@ -410,10 +432,10 @@ export function projectProduct(input: ShopifyProductCompatibilityInput): Project
       vendorToleranceUm: vendorToleranceUm !== null && vendorToleranceUm > 0 ? vendorToleranceUm : null,
       vendorToleranceSource,
       // THE GATE. Every condition must hold. A problem of any kind, a product
-      // that is not ACTIVE, an unset product-level flag, or an unparseable
-      // shape all mean "do not offer this".
+      // that is neither ACTIVE nor UNLISTED, an unset product-level flag, or
+      // an unparseable shape all mean "do not offer this".
       eligibleForSetYourOwnStone:
-        problems.length === 0 && productEligible && productActive && shape !== null,
+        problems.length === 0 && productEligible && productSellable && shape !== null,
       prongSetToleranceEligible: prongAdjustable && toleranceEligible,
       isActive: compatibilityActive,
       problems,
