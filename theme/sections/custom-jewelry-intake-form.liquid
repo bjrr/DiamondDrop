@@ -440,6 +440,17 @@
             {{- 'templates.custom_jewelry.form.inspiration_links_label' | t -}}
           </label>
         </div>
+        {%- comment -%}
+          When the customer arrived via "Customize this setting for my stone",
+          the mounting they were looking at is prefilled above. Said out loud
+          so they are not surprised by text they did not type, and so they
+          know they may edit or remove it.
+        {%- endcomment -%}
+        <p
+          class="carat-mounting-note"
+          data-carat-mounting-note="{{ 'templates.custom_jewelry.form.mounting_carried_note' | t | escape }}"
+          hidden
+        ></p>
 
         {%- if customer -%}
           {%- comment -%}

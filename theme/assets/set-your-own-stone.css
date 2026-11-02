@@ -485,3 +485,97 @@
   .carat-syos__mounting .carat-syos__choose { width: auto; min-width: 20rem; }
   .carat-syos__details-link { min-height: 0; }
 }
+
+/* ------------------------------------------------ the two paths (locked 2026-11-02)
+
+   TWO GENUINE PARALLEL PATHS. The requirement is explicit that this must not
+   read as "browse mountings first" with custom buried as an escape link, so
+   the two cards are deliberately identical: same grid track, same padding,
+   same border, same heading level, same button class. Nothing here makes one
+   look like the primary and the other like a consolation.
+
+   The ONE asymmetry is earned: when no ready mounting qualified, custom moves
+   first and the ready card is marked unavailable. Offering a browse that
+   returns nothing is a dead end, which the requirement forbids. */
+.carat-syos__paths {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.6rem;
+  margin-block: 2.4rem;
+}
+
+.carat-syos__path {
+  border: 1px solid rgba(var(--color-foreground), 0.25);
+  padding: 2.4rem 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1rem;
+  background: rgb(var(--color-background));
+}
+
+.carat-syos__path-heading {
+  margin: 0;
+  font-size: 2.1rem;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+.carat-syos__path-text {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 1.55;
+  color: rgba(var(--color-foreground), 0.8);
+  flex: 1 1 auto;
+}
+
+.carat-syos__path-cta {
+  width: 100%;
+  min-height: 4.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  margin-block-start: 0.4rem;
+}
+
+/* Nothing matched: custom leads, and the ready card says so plainly rather
+   than vanishing -- a disappearing option reads as a bug. */
+.carat-syos__paths--custom-leads .carat-syos__path:first-child { order: 2; }
+.carat-syos__paths--custom-leads .carat-syos__path:last-child { order: 1; }
+
+.carat-syos__path--unavailable {
+  border-style: dashed;
+  background: var(--carat-stone, #f2eee7);
+}
+
+.carat-syos__path--unavailable .carat-syos__path-cta[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.carat-syos__path-return {
+  margin: 0 0 1.6rem;
+  font-size: 1.4rem;
+}
+
+/* "Customize this setting for my stone" sits beside View Details: the
+   customer who likes this ring but wants it changed should not have to go
+   back to find the custom path. */
+.carat-syos__customise-link {
+  font-size: 1.4rem;
+  color: inherit;
+  border-block-end: 1px solid currentColor;
+  padding-block-end: 0.2rem;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 4.4rem;
+}
+
+@media screen and (min-width: 750px) {
+  /* Equal tracks. Not minmax, not auto -- identical width is the point. */
+  .carat-syos__paths { grid-template-columns: 1fr 1fr; gap: 2rem; }
+  .carat-syos__path-cta { width: auto; min-width: 22rem; }
+  .carat-syos__customise-link { min-height: 0; }
+}

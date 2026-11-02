@@ -42,6 +42,8 @@
     summaryHeading: {{ 'templates.set_your_own_stone.results.summary_heading' | t | json }},
     noMatches: {{ 'templates.set_your_own_stone.results.no_matches' | t | json }},
     choose: {{ 'templates.set_your_own_stone.results.choose' | t | json }},
+    customizeThis: {{ 'templates.set_your_own_stone.paths.customize_this' | t | json }},
+    customRecommended: {{ 'templates.set_your_own_stone.paths.custom_recommended' | t | json }},
     matchedSize: {{ 'templates.set_your_own_stone.results.matchedSize' | t | json }},
     unavailable: {{ 'templates.set_your_own_stone.results.unavailable' | t | json }},
     viewDetails: {{ 'templates.set_your_own_stone.results.viewDetails' | t | json }},
@@ -242,6 +244,57 @@
     </div>
 
     {%- comment -%} ------------------------------------------- step 2 {%- endcomment -%}
+    {%- comment -%} --------------------------------- step 2: two paths
+
+      TWO EQUALLY PROMINENT CHOICES, owner-locked 2026-11-02.
+
+      The stone has been entered once. What follows is a genuine fork, not
+      "browse mountings first" with custom as an escape link for people who
+      fail to find something: the two cards carry the same visual weight,
+      the same heading level and the same button prominence, and neither is
+      described as an alternative to the other.
+
+      Rendered even when ready mountings DID match. A customer who already
+      knows what they want must never be made to browse first.
+    {%- endcomment -%}
+    <div class="carat-syos__step" data-carat-syos-step="choose" hidden>
+      <div class="carat-syos__summary" data-carat-syos-choose-summary>
+        <h2 class="carat-syos__heading" data-carat-syos-choose-heading></h2>
+        <p class="carat-syos__stone-line" data-carat-syos-choose-line></p>
+        <button type="button" class="carat-link carat-syos__edit" data-carat-syos-edit-from-choose>
+          {{- 'templates.set_your_own_stone.results.edit' | t -}}
+        </button>
+      </div>
+
+      <div class="carat-syos__paths">
+        <div class="carat-syos__path">
+          <h3 class="carat-syos__path-heading">
+            {{- 'templates.set_your_own_stone.paths.ready_heading' | t -}}
+          </h3>
+          <p class="carat-syos__path-text">
+            {{- 'templates.set_your_own_stone.paths.ready_text' | t -}}
+          </p>
+          <button type="button" class="button carat-syos__path-cta" data-carat-syos-choose-ready>
+            {{- 'templates.set_your_own_stone.paths.ready_cta' | t -}}
+          </button>
+        </div>
+
+        <div class="carat-syos__path">
+          <h3 class="carat-syos__path-heading">
+            {{- 'templates.set_your_own_stone.paths.custom_heading' | t -}}
+          </h3>
+          <p class="carat-syos__path-text">
+            {{- 'templates.set_your_own_stone.paths.custom_text' | t -}}
+          </p>
+          <a class="button carat-syos__path-cta" data-carat-syos-choose-custom href="#">
+            {{- 'templates.set_your_own_stone.paths.custom_cta' | t -}}
+          </a>
+        </div>
+      </div>
+
+      <p class="carat-syos__notice">{{ 'templates.set_your_own_stone.do_not_send' | t }}</p>
+    </div>
+
     <div class="carat-syos__step" data-carat-syos-step="results" hidden>
       {%- comment -%}
         "Settings for your oval diamond / 2.34 ct · 10.12 x 7.08 mm" (§7).
@@ -255,6 +308,17 @@
           {{- 'templates.set_your_own_stone.results.edit' | t -}}
         </button>
       </div>
+
+      {%- comment -%}
+        Back to the fork, not back to the form. A customer who browsed and
+        did not like anything should not have to re-enter a stone to reach
+        custom, and should not have to hunt for the option either.
+      {%- endcomment -%}
+      <p class="carat-syos__path-return">
+        <button type="button" class="carat-link" data-carat-syos-back-to-choose>
+          {{- 'templates.set_your_own_stone.paths.back' | t -}}
+        </button>
+      </p>
 
       <div class="carat-syos__results" data-carat-syos-results></div>
 

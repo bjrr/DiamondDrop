@@ -479,6 +479,42 @@
     }
   }
 
+  /**
+   * The mounting a customer chose to customise, carried from Set Your Own Stone.
+   *
+   * Prefilled into the EXISTING inspiration field rather than stored anywhere
+   * new: "Customize this setting for my stone" means "here is my starting
+   * point", which is exactly what that field is for. No second custom-design
+   * workflow and no new column.
+   *
+   * The customer can see and edit it, which is the honest arrangement -- it is
+   * their inspiration note, not a system record. Appended rather than
+   * overwritten so a returning customer never loses what they already typed.
+   */
+  function prefillMountingInspiration() {
+    var raw = null;
+    try {
+      raw = new URLSearchParams(window.location.search).get('mounting');
+    } catch (e) {
+      return;
+    }
+    if (!raw) return;
+    var field = document.querySelector('[name="inspiration_links"]');
+    if (!field) return;
+
+    var line = String(raw).slice(0, 500);
+    if (field.value && field.value.indexOf(line) !== -1) return;
+    field.value = field.value ? field.value.replace(/\s+$/, '') + '\n' + line : line;
+
+    // Say where it came from, so the customer is not surprised by text they
+    // did not type.
+    var note = document.querySelector('[data-carat-mounting-note]');
+    if (note) {
+      note.hidden = false;
+      note.textContent = note.getAttribute('data-carat-mounting-note') || note.textContent;
+    }
+  }
+
   function buildPayload() {
     var stoneRef = stoneSessionReference();
     var payload = {
@@ -656,4 +692,8 @@
   initUploads();
   initTiming();
   initStoneHandoff();
+  // The mounting a customer chose to customise, carried from Set Your Own
+  // Stone. Inside the IIFE alongside the stone handoff, since both are the
+  // same job: pick up what the previous page already knows.
+  prefillMountingInspiration();
 })();

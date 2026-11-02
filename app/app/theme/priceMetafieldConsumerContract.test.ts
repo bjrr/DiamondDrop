@@ -540,6 +540,18 @@ describe("R16 step 5 — audit: every Liquid comparison against a JSON metafield
       // suppression off unrelated products, which is why it reads a metafield
       // at all rather than matching on the option name alone.
       join(THEME_ROOT, "snippets", "product-variant-picker.liquid"),
+      // 2026-11-02, owner-locked two-path decision: the mounting detail view
+      // keeps the custom path reachable, so `main-product.liquid` reads
+      // `product.metafields.carat.syos_eligible.value` to decide whether this
+      // product is an SYOS mounting and therefore whether to render
+      // "Customize this setting for my stone". A customer who likes a mounting
+      // but wants it changed must not have to go back and hunt for custom.
+      //
+      // Carries no money. Same boolean eligibility flag as the readers above,
+      // gating MARKUP only -- no price is read, compared, cast or decided, and
+      // the block renders at all only when the URL also carries a stone
+      // reference, so it cannot appear on an unrelated product page.
+      join(THEME_ROOT, "sections", "main-product.liquid"),
     ];
     const allCaratReaders = files.filter((f) =>
       readFileSync(f, "utf8").includes("metafields.carat.")

@@ -1519,3 +1519,41 @@ a.product__text {
   letter-spacing: 0.02em;
   color: rgba(var(--color-foreground), 0.7);
 }
+
+/* ---------------------------- SYOS: custom stays reachable from the detail view
+
+   Owner-locked 2026-11-02. Rendered only when the page was opened from Set
+   Your Own Stone (a stone reference in the URL), so the action never promises
+   continuity it cannot deliver. */
+.carat-syos-pdp-custom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.2rem;
+  margin-block: 1.2rem 1.8rem;
+}
+
+.carat-syos-pdp-custom__cta {
+  flex: 1 1 auto;
+  min-height: 4.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.carat-syos-pdp-custom__back {
+  font-size: 1.4rem;
+  color: inherit;
+  border-block-end: 1px solid currentColor;
+  padding-block-end: 0.2rem;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 4.4rem;
+}
+
+@media screen and (min-width: 750px) {
+  .carat-syos-pdp-custom__cta { flex: 0 0 auto; min-width: 26rem; }
+  .carat-syos-pdp-custom__back { min-height: 0; }
+}

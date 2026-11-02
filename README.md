@@ -549,3 +549,28 @@ purchasing, manufacturer lookup, reconciliation and support.
 derives from the retained vendor SKU rather than from the current Shopify SKU,
 because a twice-shifted SKU is still well-formed and unique — nothing
 downstream would notice it was wrong.
+
+## Set Your Own Stone — two paths (owner-locked 2026-11-02)
+
+The customer enters their stone **once**, then chooses between two paths of
+equal visual weight:
+
+| Path | Supporting copy | What it does |
+| --- | --- | --- |
+| **Find a Ready Setting** | Show me settings that may work with my stone. | Runs the shape + millimetre matcher; shows eligible ready mountings; supports Automatic Match and Review Required. |
+| **Create My Own Setting** | I already know what I want or want something custom. | Skips ready-mount browsing and goes straight into the existing Custom Jewelry workflow, carrying the stone forward. |
+
+Neither is a fallback for the other. This must not read as "browse mountings
+first" with custom as an escape link for people who fail to find something.
+
+Custom stays reachable during browsing and on the mounting detail view. When no
+ready mounting qualifies, custom becomes the primary action under **Custom
+setting recommended** — there is no dead end. A customer who likes a mounting
+but wants it changed gets **Customize this setting for my stone**, carrying that
+mounting into Custom Jewelry as inspiration.
+
+Context travels by REFERENCE to the existing `StoneSession`: stone type,
+natural/lab/gemstone status, shape, carat, dimensions, certificate data,
+loose/mounted state, notes and the viewed mounting all survive the handoff
+without being re-entered or copied into a second table. There is exactly one
+custom-design workflow.

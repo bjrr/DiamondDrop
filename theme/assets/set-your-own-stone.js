@@ -63,6 +63,13 @@
 
     /** The one piece of state the page holds: a pointer, not a copy. */
     var sessionReference = null;
+    /**
+     * The last server response, kept so the fork can be re-shown without a
+     * second round trip. NOT a source of truth: every figure in it came from
+     * the server moments earlier, and reloading the page rehydrates from the
+     * server rather than from this.
+     */
+    var lastPayload = null;
 
     function show(name) {
       Object.keys(steps).forEach(function (key) {
@@ -313,6 +320,16 @@
       details.setAttribute('href', detailHref);
       details.textContent = s('viewDetails', 'View details');
       actions.appendChild(details);
+
+      // "Customize this setting for my stone" — for the customer who likes
+      // this mounting but wants it changed. Carries the mounting into Custom
+      // Jewelry as inspiration, with the stone still attached by reference.
+      var customiseThis = document.createElement('a');
+      customiseThis.className = 'carat-syos__customise-link';
+      customiseThis.setAttribute('href', customUrl({ card: card, variant: null }));
+      customiseThis.textContent = s('customizeThis', 'Customize this setting for my stone');
+      actions.appendChild(customiseThis);
+
       body.appendChild(actions);
 
       var unavailable = el('p', 'carat-syos__field-error', s('unavailable',
@@ -366,6 +383,8 @@
         choose.disabled = !usable;
         unavailable.hidden = usable;
         details.setAttribute('href', detailUrlFor(card, v));
+        // The inspiration line follows the customer's current choices.
+        customiseThis.setAttribute('href', customUrl({ card: card, variant: v }));
       }
 
       choose.addEventListener('click', function () {
@@ -392,6 +411,44 @@
      * can offer a way back and so returning rehydrates from the server -- the
      * reference is a pointer, never a copy of the stone.
      */
+    /**
+     * Into Custom Jewelry, carrying the stone and optionally a mounting.
+     *
+     * The stone travels as a REFERENCE — the server looks it up and links it,
+     * which is why the customer never re-enters anything and why this page
+     * never becomes a second source of truth for stone data.
+     *
+     * A mounting, when the customer is customising one they just looked at,
+     * travels as a human-readable inspiration line. That is what the existing
+     * `inspirationLinks` field is for, so no new workflow and no new column
+     * are needed. The values come from the server payload this page was given;
+     * the page is relaying them, not inventing them.
+     */
+    function customUrl(options) {
+      var base = root.getAttribute('data-custom-jewelry-url') || '/pages/custom-jewelry';
+      var params = [];
+      if (sessionReference) params.push('stone=' + encodeURIComponent(sessionReference));
+
+      if (options && options.card) {
+        var card = options.card;
+        var bits = [card.productTitle];
+        var v = options.variant;
+        if (v && v.selections) {
+          var names = Object.keys(v.selections);
+          for (var i = 0; i < names.length; i += 1) {
+            // The centre size is matcher-controlled, not a customer choice,
+            // so it is not offered back as something they picked.
+            if (names[i].toLowerCase().replace(/[^a-z]/g, '') === 'centerstonesize') continue;
+            bits.push(names[i] + ': ' + v.selections[names[i]]);
+          }
+        }
+        if (card.matchedCenterSize) bits.push('matched ' + card.matchedCenterSize);
+        bits.push(window.location.origin + '/products/' + card.productHandle);
+        params.push('mounting=' + encodeURIComponent(bits.join(' — ')));
+      }
+      return params.length ? base + '?' + params.join('&') : base;
+    }
+
     function detailUrlFor(card, variant) {
       var href = '/products/' + encodeURIComponent(card.productHandle);
       var params = [];
@@ -549,9 +606,13 @@
             customLink.setAttribute('href', base + '?stone=' + encodeURIComponent(sessionReference));
           }
 
+          lastPayload = data;
           renderSummary(data);
           renderResults(data);
-          show('results');
+          // THE FORK, not the results. The customer has entered their stone
+          // once; what happens next is their choice, and a customer who
+          // already knows what they want must not be made to browse first.
+          showChoice(data);
         })
         .catch(function () {
           showError(s('sessionError', 'We could not save your stone details. Please try again.'));
@@ -600,9 +661,10 @@
             var base = root.getAttribute('data-custom-jewelry-url') || '/pages/custom-jewelry';
             customLink.setAttribute('href', base + '?stone=' + encodeURIComponent(sessionReference));
           }
+          lastPayload = data;
           renderSummary(data);
           renderResults(data);
-          show('results');
+          showChoice(data);
         })
         .catch(function () {
           /* Leave the form showing. */
@@ -610,6 +672,70 @@
     }
 
     rehydrateFromUrl();
+
+    /**
+     * Show the two paths, and decide which one LEADS.
+     *
+     * Both are always present and always the same size. When no ready
+     * mounting qualified, custom becomes the primary action and the heading
+     * becomes "Custom setting recommended" — the one case where the two stop
+     * being symmetrical, because offering a browse that returns nothing is a
+     * dead end.
+     */
+    function showChoice(payload) {
+      var nothingMatched = !payload.mountings || payload.mountings.length === 0;
+
+      var heading = root.querySelector('[data-carat-syos-choose-heading]');
+      var line = root.querySelector('[data-carat-syos-choose-line]');
+      var summaryHeading = root.querySelector('[data-carat-syos-summary-heading]');
+      var summaryLine = root.querySelector('[data-carat-syos-summary-line]');
+      if (heading && summaryHeading) heading.textContent = summaryHeading.textContent;
+      if (line && summaryLine) line.textContent = summaryLine.textContent;
+
+      var paths = root.querySelector('.carat-syos__paths');
+      if (paths) {
+        // Reorder rather than hide: custom first and primary when nothing
+        // matched, side by side otherwise.
+        paths.classList.toggle('carat-syos__paths--custom-leads', nothingMatched);
+      }
+      var readyPath = root.querySelector('[data-carat-syos-choose-ready]');
+      if (readyPath) {
+        readyPath.disabled = nothingMatched;
+        var readyCard = readyPath.closest('.carat-syos__path');
+        if (readyCard) readyCard.classList.toggle('carat-syos__path--unavailable', nothingMatched);
+      }
+      var readyHeading = root.querySelector('.carat-syos__paths .carat-syos__path-heading');
+      if (readyHeading && nothingMatched) {
+        readyHeading.textContent = s('customRecommended', 'Custom setting recommended');
+      }
+
+      var customCta = root.querySelector('[data-carat-syos-choose-custom]');
+      if (customCta) customCta.setAttribute('href', customUrl(null));
+
+      show('choose');
+    }
+
+    var chooseReady = root.querySelector('[data-carat-syos-choose-ready]');
+    if (chooseReady) {
+      chooseReady.addEventListener('click', function () {
+        show('results');
+      });
+    }
+
+    var backToChoose = root.querySelector('[data-carat-syos-back-to-choose]');
+    if (backToChoose) {
+      backToChoose.addEventListener('click', function () {
+        if (lastPayload) showChoice(lastPayload);
+      });
+    }
+
+    var editFromChoose = root.querySelector('[data-carat-syos-edit-from-choose]');
+    if (editFromChoose) {
+      editFromChoose.addEventListener('click', function () {
+        // Back to the form with every value still in it.
+        show('stone');
+      });
+    }
 
     var edit = root.querySelector('[data-carat-syos-edit]');
     if (edit) {

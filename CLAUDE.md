@@ -150,7 +150,22 @@ Group Buy option dimensions are campaign-specific and must not be hard-coded aro
 MVP1 consultation/revisions remain email-driven. Provide lightweight intake, $49 Design Deposit, reusable Shopify approval/purchase template and quote-acquisition flow. Read both quote documents; the amendment controls conflicts. Review remains manual; automate intake/evidence/eligibility calculations/acknowledgments/status but never auto-commit CaratForUs to competitor pricing.
 
 ### Set Your Own Stone
-Use `docs/SET-YOUR-OWN-STONE.md`. Collect the customer-owned stone once, use shape + millimeter dimensions (not carat alone) to discover eligible ready mountings from structured compatibility metadata, and preserve the same project context when the customer moves to Custom Jewelry. Reuse the existing Custom Jewelry flow and upload/deposit/approval behavior; do not create a parallel custom-design system. Do not promise guaranteed fit or advertise unapproved stone-intake/insurance procedures.
+Use `docs/SET-YOUR-OWN-STONE.md`.
+
+**Two equally prominent paths, owner-locked 2026-11-02.** The customer enters
+their stone ONCE, then immediately chooses between **Find a Ready Setting**
+("Show me settings that may work with my stone") and **Create My Own Setting**
+("I already know what I want or want something custom"). These are parallel
+paths of equal weight, not "browse mountings first" with custom buried as an
+escape link. Custom stays available during ready-setting browsing and on the
+mounting detail view; when nothing qualifies it becomes the primary action under
+**Custom setting recommended**. A customer who likes a mounting but wants it
+changed gets **Customize this setting for my stone**, which carries that
+mounting into Custom Jewelry as inspiration. Every stone detail, the loose/
+mounted state, certificate data, notes and the viewed mounting survive the
+handoff by REFERENCE to the existing `StoneSession` — never re-entered, never
+copied into a second table. There is exactly one custom-design workflow; do not
+build another. Collect the customer-owned stone once, use shape + millimeter dimensions (not carat alone) to discover eligible ready mountings from structured compatibility metadata, and preserve the same project context when the customer moves to Custom Jewelry. Reuse the existing Custom Jewelry flow and upload/deposit/approval behavior; do not create a parallel custom-design system. Do not promise guaranteed fit or advertise unapproved stone-intake/insurance procedures.
 
 ### Warranty
 Provide a dedicated Warranty Claim Form and auditable claim workflow per `docs/WARRANTY-CLAIMS.md`. Customer pays tracked, appropriately insured inbound shipping after authorization for inspection. CaratForUs determines repair, replacement, refund or other appropriate remedy after inspection. The possible local-jeweler repair path is internal-only until CaratForUs selects/authorizes it for a specific claim; do not advertise it as a customer entitlement.

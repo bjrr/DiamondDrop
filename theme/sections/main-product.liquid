@@ -494,6 +494,41 @@
                     product_form_id: product_form_id
                   %}
                 {%- when 'buy_buttons' -%}
+                  {%- comment -%}
+                    SYOS: custom stays reachable from the mounting detail view
+                    (owner-locked 2026-11-02). A customer who likes this
+                    mounting but wants it changed must not have to go back and
+                    hunt for the custom path, and must never hit a dead end.
+
+                    Rendered only for an SYOS mounting that was opened FROM Set
+                    Your Own Stone -- the `stone` reference in the URL is what
+                    says so. Without it there is no session to carry, so the
+                    action would promise continuity it cannot deliver.
+                  {%- endcomment -%}
+                  {%- liquid
+                    assign syos_stone_ref = request.url | split: 'stone=' | last | split: '&' | first
+                    assign is_syos_mounting = false
+                    if product.metafields.carat.syos_eligible.value == true
+                      assign is_syos_mounting = true
+                    endif
+                    assign show_syos_custom = false
+                    if is_syos_mounting and request.url contains 'stone=' and syos_stone_ref != blank
+                      assign show_syos_custom = true
+                    endif
+                  -%}
+                  {%- if show_syos_custom -%}
+                    <div class="carat-syos-pdp-custom">
+                      <a
+                        class="button button--secondary carat-syos-pdp-custom__cta"
+                        href="/pages/custom-jewelry?stone={{ syos_stone_ref | url_encode }}&mounting={{ product.title | append: ' — ' | append: shop.url | append: '/products/' | append: product.handle | url_encode }}"
+                      >
+                        {{- 'templates.set_your_own_stone.paths.customize_this' | t -}}
+                      </a>
+                      <a class="carat-syos-pdp-custom__back" href="/pages/set-your-own-stone?stone={{ syos_stone_ref | url_encode }}">
+                        {{- 'templates.set_your_own_stone.paths.back' | t -}}
+                      </a>
+                    </div>
+                  {%- endif -%}
                   {%- render 'buy-buttons',
                     block: block,
                     product: product,

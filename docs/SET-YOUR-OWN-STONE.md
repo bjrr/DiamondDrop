@@ -23,18 +23,36 @@ Supporting concept:
 
 **Your stone. Your setting.**
 
-The page should make clear that the customer can browse compatible ready settings first and move into Custom Jewelry if they do not find what they want.
+The page must present ready settings and custom design as TWO EQUALLY PROMINENT
+PATHS immediately after stone intake (owner decision 2026-11-02). It must not read
+as "browse mountings first", with custom as an escape link for people who fail to
+find something.
 
 ## 2. Customer experience — top-level flow
 
 The customer flow is:
 
-1. Customer tells CaratForUs about the stone they already own.
-2. CaratForUs shows eligible ready-made settings based on the stone's shape and dimensions.
-3. Customer may select a ready setting and submit it for compatibility/project review.
-4. If the customer does not find the setting they want, they may choose **Create a Custom Setting**.
-5. When moving to Custom Jewelry, all stone information already supplied must transfer automatically. The customer must not be required to re-enter it.
-6. The existing Custom Jewelry workflow then governs custom design, inspiration uploads, consultation, design deposit, approvals, and downstream ordering.
+1. Customer tells CaratForUs about the stone they already own. **Once.**
+2. CaratForUs immediately presents two equally prominent choices:
+   - **Find a Ready Setting** — "Show me settings that may work with my stone."
+   - **Create My Own Setting** — "I already know what I want or want something custom."
+3. **Find a Ready Setting** runs the shape + millimetre matcher and shows eligible
+   ready mountings, supporting both Automatic Match and Review Required.
+4. **Create My Own Setting** skips ready-mount browsing entirely and goes straight
+   into the existing Custom Jewelry workflow, carrying the stone forward.
+5. Custom remains available throughout. It is offered during ready-setting browsing
+   and on the mounting detail view, so a customer is never forced to browse
+   mountings they do not want, and never reaches a dead end.
+6. When no ready mounting qualifies, **Create My Own Setting** becomes the primary
+   action and the framing becomes **Custom setting recommended**.
+7. A customer who likes a ready mounting but wants it changed may choose
+   **Customize this setting for my stone**, which carries that mounting into Custom
+   Jewelry as inspiration alongside the stone.
+8. When moving to Custom Jewelry, all stone information already supplied transfers
+   automatically. The customer must never be required to re-enter it.
+9. The existing Custom Jewelry workflow then governs custom design, inspiration
+   uploads, consultation, design deposit, approvals, and downstream ordering. There
+   is exactly one custom-design workflow.
 
 The page must not make the customer understand technical mounting/head-size terminology to browse.
 
@@ -50,16 +68,29 @@ Recommended structure:
 - Primary action: begin with the customer's stone.
 - Secondary action may explain the simple process.
 
-### Two paths
-After stone details are known, clearly expose:
+### Two paths (owner-locked 2026-11-02)
+Immediately after stone details are known, expose two choices of EQUAL visual
+weight. Neither is a fallback for the other.
 
-**Choose an Existing Setting**
-- Browse ready-made settings intended for the customer's stone shape/size.
+**Find a Ready Setting**
+- Supporting copy: "Show me settings that may work with my stone."
+- Runs the existing shape + millimetre-dimension matcher.
+- Shows eligible ready mountings; supports Automatic Match and Review Required.
+- Keeps the customer in the normal SYOS mounting-selection flow.
 
-**Create a Custom Setting**
-- Continue into the existing Custom Jewelry workflow using the stone information already supplied.
+**Create My Own Setting**
+- Supporting copy: "I already know what I want or want something custom."
+- Skips ready-mount browsing completely.
+- Goes directly into the existing Custom Jewelry workflow.
+- Carries forward every stone detail already entered; the customer does not
+  re-enter anything.
+- Uses the existing Custom Jewelry upload capability for inspiration photos,
+  sketches and reference images, and lets the customer describe the design they
+  already have in mind.
 
-Do not create a separate duplicate custom-design form on the Set Your Own Stone page.
+Custom must remain reachable from ready-setting browsing and from the mounting
+detail view. Do not create a separate duplicate custom-design form on the Set Your
+Own Stone page, and do not build a second custom-design workflow.
 
 ## 4. Stone information collected once
 

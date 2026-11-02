@@ -437,7 +437,8 @@
         "follow_up_schedule_consultation": "Schedule a consultation",
         "follow_up_contact_me": "Please contact me",
         "submit": "Send request",
-        "stone_carried_over": "Your stone details have carried over from Set Your Own Stone. Reference: "
+        "stone_carried_over": "Your stone details have carried over from Set Your Own Stone. Reference: ",
+        "mounting_carried_note": "We added the setting you were viewing as a starting point. Edit or remove it if you like, and add anything else you want changed."
       }
     },
     "bank_payment_orders": {
@@ -594,6 +595,17 @@
         "width_over_length": "Length should be the longer measurement — are these swapped?",
         "session": "We could not save your stone details. Please try again.",
         "select": "We could not record that choice. Please try again."
+      },
+      "paths": {
+        "ready_heading": "Find a Ready Setting",
+        "ready_text": "Show me settings that may work with my stone.",
+        "ready_cta": "Find a Ready Setting",
+        "custom_heading": "Create My Own Setting",
+        "custom_text": "I already know what I want or want something custom.",
+        "custom_cta": "Create My Own Setting",
+        "back": "Back to both options",
+        "customize_this": "Customize this setting for my stone",
+        "custom_recommended": "Custom setting recommended"
       }
     }
   },
