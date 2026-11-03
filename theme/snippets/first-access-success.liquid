@@ -1,0 +1,48 @@
+{%- comment -%}
+  The post-signup state: confirmation, then an optional share.
+
+  NOT A REFERRAL PROGRAMME. No code, no points, no ladder, no "invite three
+  people". The visitor has already converted; this is a courtesy for anyone
+  who wants to pass it on, and skipping it costs them nothing.
+
+  SHARE TARGETS ARE PLAIN LINKS. `sms:`, `https://wa.me/`, `mailto:` and a
+  copy button — no SDK, no tracking pixel, no third-party script, nothing
+  that would slow the page it appears on. The Web Share API is used when the
+  browser offers it, which on a phone is the native sheet the visitor already
+  knows.
+
+  Parameters: form_id
+{%- endcomment -%}
+
+<div class="carat-fa__success" data-carat-fa-success role="status" tabindex="-1">
+  <p class="carat-fa__success-heading">{{ 'templates.first_access.success.heading' | t }}</p>
+  <p class="carat-fa__success-text">{{ 'templates.first_access.success.text' | t }}</p>
+
+  <p class="carat-fa__share-prompt">{{ 'templates.first_access.share.prompt' | t }}</p>
+
+  <div class="carat-fa__share" data-carat-fa-share>
+    {%- comment -%}
+      Hidden until JS confirms the browser offers a native share sheet. On a
+      phone that is one tap to every app the visitor has; offering it when it
+      does not exist would be a button that does nothing.
+    {%- endcomment -%}
+    <button type="button" class="carat-fa__share-btn carat-fa__share-btn--native" data-carat-fa-share-native hidden>
+      {{- 'templates.first_access.share.native' | t -}}
+    </button>
+
+    <a class="carat-fa__share-btn" data-carat-fa-share-sms href="#" rel="noopener">
+      {{- 'templates.first_access.share.sms' | t -}}
+    </a>
+    <a class="carat-fa__share-btn" data-carat-fa-share-whatsapp href="#" target="_blank" rel="noopener noreferrer">
+      {{- 'templates.first_access.share.whatsapp' | t -}}
+    </a>
+    <a class="carat-fa__share-btn" data-carat-fa-share-email href="#" rel="noopener">
+      {{- 'templates.first_access.share.email' | t -}}
+    </a>
+    <button type="button" class="carat-fa__share-btn" data-carat-fa-share-copy>
+      {{- 'templates.first_access.share.copy' | t -}}
+    </button>
+  </div>
+
+  <p class="carat-fa__share-feedback" data-carat-fa-share-feedback role="status" hidden></p>
+</div>

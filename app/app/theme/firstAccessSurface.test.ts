@@ -1,0 +1,247 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+/**
+ * The First Access landing page — approved copy, and the things it must not
+ * become.
+ *
+ * A LANDING PAGE DRIFTS FASTER THAN ANYTHING ELSE. It is the surface most
+ * likely to be "just tweaked" for a campaign, and several of its lines are
+ * approved claims rather than marketing prose: wholesale pricing, the diamond
+ * promise, the U.S.-based positioning. Those are pinned here verbatim.
+ *
+ * The second half pins the absences. A countdown, a referral ladder or an
+ * invented discount percentage would each be a decision nobody made.
+ */
+const THEME_ROOT = join(process.cwd(), "..", "theme");
+const read = (...parts: string[]) => readFileSync(join(THEME_ROOT, ...parts), "utf8");
+
+const locale = JSON.parse(read("locales", "en.default.json")) as {
+  templates: { first_access: Record<string, Record<string, string>> };
+};
+const fa = locale.templates.first_access;
+const allCopy = JSON.stringify(fa);
+
+function stripLiquidComments(source: string): string {
+  return source.replace(/\{%-?\s*comment\s*-?%\}[\s\S]*?\{%-?\s*endcomment\s*-?%\}/g, "");
+}
+function stripJsComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+}
+
+const section = read("sections", "first-access.liquid");
+const formSnippet = read("snippets", "first-access-form.liquid");
+const successSnippet = read("snippets", "first-access-success.liquid");
+const script = read("assets", "first-access.js");
+const template = read("templates", "page.first-access.json");
+/**
+ * What a visitor can actually encounter, with the authors' comments removed.
+ *
+ * The absence checks below scan THIS rather than the raw files. Several of
+ * those comments say in plain English that the page must have no countdown and
+ * no referral mechanics, and the first version of this fence flagged them as
+ * the very thing they forbid.
+ */
+const surfaces = [
+  allCopy,
+  stripLiquidComments(section),
+  stripLiquidComments(formSnippet),
+  stripLiquidComments(successSnippet),
+  stripJsComments(script),
+].join("\n");
+
+describe("the approved copy, verbatim", () => {
+  it("leads with the launch message", () => {
+    expect(fa.hero?.heading).toBe("Fine Jewelry Is About to Change.");
+    expect(fa.hero?.eyebrow).toBe("Launching Soon");
+  });
+
+  it("states the diamond positioning exactly", () => {
+    expect(fa.diamond?.heading).toBe("Your Diamond. Your Decision. Your Time.");
+    expect(fa.diamond?.no_pressure).toBe("No bidding. No pressure. No games.");
+  });
+
+  it("says wholesale prices on the loose-diamond teaser", () => {
+    expect(fa.teasers?.diamonds_heading).toBe(
+      "Loose Diamonds. Wholesale Prices. No Pressure."
+    );
+    expect(fa.teasers?.diamonds_text).toContain("wholesale prices");
+    expect(fa.diamond?.promise).toContain("wholesale prices");
+  });
+
+  it("positions CaratForUs as a U.S.-based company", () => {
+    expect(fa.hero?.lede).toContain("U.S.-based company");
+    expect(fa.disruption?.us_based).toContain("U.S.-based company");
+  });
+
+  it("asks the overseas question without attacking anyone", () => {
+    expect(fa.disruption?.heading).toBe("Why Go Overseas for a Better Deal?");
+    // The message is about the customer's options, never about a country or
+    // its manufacturers.
+    expect(allCopy).not.toMatch(/china|chinese|overseas manufacturer|foreign factor/i);
+  });
+
+  it("carries all five teasers with their approved concepts", () => {
+    expect(fa.teasers?.steals_heading).toBe(
+      "Exceptional pieces. Limited quantities. Standout pricing."
+    );
+    expect(fa.teasers?.group_heading).toBe("More buyers. Better buying power.");
+    expect(fa.teasers?.syos_heading).toBe(
+      "Already have the stone? Find the setting or create your own."
+    );
+    expect(fa.teasers?.custom_heading).toBe("Your idea. Made for you.");
+  });
+
+  it("calls the conversion First Access, never a newsletter", () => {
+    expect(fa.form?.cta).toBe("GET FIRST ACCESS");
+    // "newsletter" belongs to the footer signup, not to this page.
+    expect(
+      [allCopy, stripLiquidComments(section), stripLiquidComments(formSnippet)].join("\n")
+    ).not.toMatch(/newsletter/i);
+  });
+
+  it("renders the primary CTA at both signups and nowhere competing", () => {
+    const ctas = section.match(/first-access-form/g) ?? [];
+    expect(ctas).toHaveLength(2);
+  });
+});
+
+describe("what this page must not become", () => {
+  it("has no countdown", () => {
+    expect(surfaces).not.toMatch(/countdown|setInterval|days?\s*:\s*hours|time[- ]remaining/i);
+  });
+
+  it("has no referral, points or rewards mechanics", () => {
+    expect(surfaces).not.toMatch(
+      /referral|refer a friend|invite \d|reward|points|leaderboard|waitlist position|move up/i
+    );
+  });
+
+  it("promises no percentage, no date and no shipping or return terms", () => {
+    // Nothing commercial that was not approved: no "20% off", no launch date,
+    // no free shipping, no guarantee.
+    expect(allCopy).not.toMatch(/\d+\s?%/);
+    expect(allCopy).not.toMatch(/free shipping|money[- ]back|guarantee|risk[- ]free/i);
+    expect(allCopy).not.toMatch(
+      /\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i
+    );
+  });
+
+  it("keeps the First Access benefit as a possibility, not a commitment", () => {
+    expect(fa.form?.benefit).toMatch(/First Access members get in first/);
+    expect(fa.form?.benefit).not.toMatch(/you will receive|guaranteed|exclusive discount/i);
+  });
+
+  it("frames loose diamonds as browsing, never as an auction", () => {
+    expect(allCopy).not.toMatch(/auction|bid now|place a bid|highest bidder/i);
+    expect(fa.diamond?.no_pressure).toContain("No bidding");
+  });
+
+  it("requires no account and opens no popup", () => {
+    expect(surfaces).not.toMatch(/create an account|sign up for an account|register/i);
+    expect(surfaces).not.toMatch(/modal|popup|overlay-open|window\.open/i);
+  });
+});
+
+describe("the signup is Shopify-native and low friction", () => {
+  it("posts Shopify's own customer form rather than a bespoke endpoint", () => {
+    expect(formSnippet).toMatch(/form 'customer'/);
+    // No app proxy, no second database, no CRM.
+    expect(formSnippet).not.toMatch(/apps\/carat|fetch\(|\/api\//);
+  });
+
+  it("requires email and nothing else", () => {
+    // Each input isolated by splitting on the tag boundary first. An
+    // unanchored match sweeps from the FIRST input in the file, so the
+    // first-name assertion was reading the email input's `required` and
+    // passing for the wrong reason.
+    const inputs = formSnippet.split("<input").map((chunk) => chunk.split(">")[0] ?? "");
+    const email = inputs.find((i) => i.includes('name="contact[email]"')) ?? "";
+    expect(email).toContain("required");
+    const firstName = inputs.find((i) => i.includes('name="contact[first_name]"')) ?? "";
+    expect(firstName).not.toContain("required");
+  });
+
+  it("offers the six interests as multi-select chips that cannot block signup", () => {
+    const values = [...formSnippet.matchAll(/name="interests\[\]"\s+value="\{\{ handle \}\}"/g)];
+    // Rendered in a loop, so one input in source and six handles in the list.
+    expect(values.length).toBeGreaterThan(0);
+    for (const handle of [
+      "loose-diamonds",
+      "engagement-rings",
+      "luxury-steals",
+      "group-buys",
+      "set-your-own-stone",
+      "custom-jewelry",
+    ]) {
+      expect(formSnippet).toContain(handle);
+    }
+    const chipInput =
+      formSnippet
+        .split("<input")
+        .map((chunk) => chunk.split(">")[0] ?? "")
+        .find((i) => i.includes('name="interests[]"')) ?? "";
+    expect(chipInput).toContain('type="checkbox"');
+    expect(chipInput).not.toContain("required");
+  });
+
+  it("stores interests as Shopify customer tags", () => {
+    expect(formSnippet).toContain('name="contact[tags]"');
+    expect(script).toContain("contact[tags]");
+    expect(script).toContain("data-carat-fa-interest");
+  });
+
+  it("falls back to a native submit if its JavaScript cannot run", () => {
+    expect(script).toContain("form.submit()");
+    expect(script).toMatch(/typeof window\.fetch !== 'function'/);
+  });
+
+  it("renders the success panel from Liquid, not from a JS string", () => {
+    expect(successSnippet).toContain("data-carat-fa-success");
+    expect(script).toContain("data-carat-fa-success");
+    // The panel is parsed out of Shopify's own response, so there is one copy.
+    expect(script).toContain("DOMParser");
+  });
+});
+
+describe("sharing is a courtesy with no machinery behind it", () => {
+  it("offers text, WhatsApp, email and copy", () => {
+    for (const marker of [
+      "data-carat-fa-share-sms",
+      "data-carat-fa-share-whatsapp",
+      "data-carat-fa-share-email",
+      "data-carat-fa-share-copy",
+    ]) {
+      expect(successSnippet).toContain(marker);
+      expect(script).toContain(marker);
+    }
+  });
+
+  it("loads no third-party script or tracking pixel", () => {
+    expect(stripJsComments(script)).not.toMatch(
+      /facebook|fbq|gtag|googletagmanager|pixel|analytics|sdk/i
+    );
+    expect(stripLiquidComments(successSnippet)).not.toMatch(/<script/i);
+  });
+
+  it("uses the approved share wording", () => {
+    expect(fa.share?.text).toContain("CaratForUs is launching soon");
+    expect(fa.share?.text).toContain("First Access");
+    expect(fa.share?.prompt).toContain("Share First Access with a friend");
+  });
+});
+
+describe("the page is wired up", () => {
+  it("has a template that renders only this section", () => {
+    const parsed = JSON.parse(template) as { order: string[]; sections: Record<string, { type: string }> };
+    expect(parsed.order).toEqual(["first_access"]);
+    expect(parsed.sections.first_access?.type).toBe("first-access");
+  });
+
+  it("ships no default image, so nothing invents a product photograph", () => {
+    const schema = section.slice(section.indexOf("{% schema %}"));
+    const hero = schema.slice(schema.indexOf('"id": "hero_image"'));
+    expect(hero.slice(0, 200)).not.toContain('"default"');
+  });
+});

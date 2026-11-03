@@ -1,0 +1,208 @@
+{%- comment -%}
+  CARATFORUS — FIRST ACCESS
+  ===========================================================================
+  A conversion-first landing page for social and paid traffic. One job: say
+  what is changing, and capture an email in a few seconds.
+
+  SHOPIFY-NATIVE CAPTURE, NO BACKEND. The two signup forms are
+  `{% form 'customer' %}` — the same mechanism the theme footer already uses,
+  including its `contact[tags]` field. An email creates a Shopify CUSTOMER;
+  interests become customer TAGS on that same record. There is no second
+  database, no CRM, and no app route behind this page: nothing here needed
+  one, so nothing here has one.
+
+  WORKS WITHOUT JAVASCRIPT. The form posts natively and Shopify returns the
+  page with `form.posted_successfully?` set, which renders the success panel
+  below. `first-access.js` upgrades that to an in-place submit so a visitor
+  arriving from an ad never watches a page reload — but the page is complete
+  and converting before that file loads.
+
+  NO COUNTDOWN, NO REFERRAL MECHANICS. "Launching Soon" is a statement, not a
+  timer, and sharing is a courtesy with no codes, points or rewards attached.
+
+  IMAGERY IS OPTIONAL AND OFF BY DEFAULT. Every image is a theme-editor
+  setting with no default, so real brand photography can be dropped in
+  without a code change — and the page is designed to stand up on typography
+  alone until it is. Nothing here invents a product photograph.
+{%- endcomment -%}
+
+{{ 'first-access.css' | asset_url | stylesheet_tag }}
+
+<script>
+  window.caratFirstAccessStrings = {
+    copied: {{ 'templates.first_access.share.copied' | t | json }},
+    shareText: {{ 'templates.first_access.share.text' | t | json }},
+    submitting: {{ 'templates.first_access.form.submitting' | t | json }},
+    error: {{ 'templates.first_access.form.error' | t | json }}
+  };
+</script>
+<script src="{{ 'first-access.js' | asset_url }}" defer="defer"></script>
+
+{%- liquid
+  assign t = 'templates.first_access'
+  assign posted = false
+  if section.settings.show_success_preview
+    assign posted = true
+  endif
+-%}
+
+<div class="carat-fa" data-carat-first-access>
+  {%- comment -%} ------------------------------------------------ hero {%- endcomment -%}
+  <section class="carat-fa__hero" aria-labelledby="FirstAccessHeading">
+    {%- if section.settings.hero_image != blank -%}
+      <div class="carat-fa__hero-media" aria-hidden="true">
+        {{
+          section.settings.hero_image
+          | image_url: width: 1600
+          | image_tag:
+            loading: 'eager',
+            fetchpriority: 'high',
+            sizes: '100vw',
+            widths: '480, 768, 1100, 1600',
+            class: 'carat-fa__hero-img'
+        }}
+      </div>
+    {%- endif -%}
+
+    <div class="carat-fa__hero-inner">
+      <p class="carat-fa__eyebrow">{{ 'templates.first_access.hero.eyebrow' | t }}</p>
+
+      <h1 class="carat-fa__display" id="FirstAccessHeading">
+        {{- 'templates.first_access.hero.heading' | t -}}
+      </h1>
+
+      <p class="carat-fa__lede">{{ 'templates.first_access.hero.lede' | t }}</p>
+
+      {%- comment -%}
+        The signup is part of the hero, not below it: a visitor from an ad
+        must be able to convert without scrolling at all.
+      {%- endcomment -%}
+      {% render 'first-access-form',
+        form_id: 'FirstAccessHero',
+        section_id: section.id,
+        posted: posted,
+        compact: false
+      %}
+    </div>
+  </section>
+
+  {%- comment -%} -------------------------------------------- the teasers
+
+    Five, and deliberately short. Loose Diamonds is given the wide tile and
+    carries the locked diamond message inside it rather than in a separate
+    text-heavy section of its own.
+  {%- endcomment -%}
+  <section class="carat-fa__teasers" aria-labelledby="FirstAccessTeasers">
+    <h2 class="visually-hidden" id="FirstAccessTeasers">
+      {{- 'templates.first_access.teasers.a11y_heading' | t -}}
+    </h2>
+
+    <article class="carat-fa__tile carat-fa__tile--wide">
+      <p class="carat-fa__tile-eyebrow">{{ 'templates.first_access.teasers.diamonds_label' | t }}</p>
+      <h3 class="carat-fa__tile-heading">{{ 'templates.first_access.teasers.diamonds_heading' | t }}</h3>
+      <p class="carat-fa__tile-text">{{ 'templates.first_access.teasers.diamonds_text' | t }}</p>
+
+      <div class="carat-fa__diamond-message">
+        <p class="carat-fa__diamond-claim">{{ 'templates.first_access.diamond.heading' | t }}</p>
+        <p class="carat-fa__tile-text">{{ 'templates.first_access.diamond.promise' | t }}</p>
+        <p class="carat-fa__diamond-no">{{ 'templates.first_access.diamond.no_pressure' | t }}</p>
+      </div>
+    </article>
+
+    <article class="carat-fa__tile">
+      <p class="carat-fa__tile-eyebrow">{{ 'templates.first_access.teasers.steals_label' | t }}</p>
+      <h3 class="carat-fa__tile-heading">{{ 'templates.first_access.teasers.steals_heading' | t }}</h3>
+    </article>
+
+    <article class="carat-fa__tile">
+      <p class="carat-fa__tile-eyebrow">{{ 'templates.first_access.teasers.group_label' | t }}</p>
+      <h3 class="carat-fa__tile-heading">{{ 'templates.first_access.teasers.group_heading' | t }}</h3>
+    </article>
+
+    <article class="carat-fa__tile">
+      <p class="carat-fa__tile-eyebrow">{{ 'templates.first_access.teasers.syos_label' | t }}</p>
+      <h3 class="carat-fa__tile-heading">{{ 'templates.first_access.teasers.syos_heading' | t }}</h3>
+    </article>
+
+    <article class="carat-fa__tile">
+      <p class="carat-fa__tile-eyebrow">{{ 'templates.first_access.teasers.custom_label' | t }}</p>
+      <h3 class="carat-fa__tile-heading">{{ 'templates.first_access.teasers.custom_heading' | t }}</h3>
+    </article>
+  </section>
+
+  {%- comment -%} --------------------------------------------- disruption
+
+    Short, premium, and about what the customer gets rather than about anyone
+    else. No comparison table, and nothing said about any country's
+    manufacturers.
+  {%- endcomment -%}
+  <section class="carat-fa__disruption" aria-labelledby="FirstAccessWhy">
+    <h2 class="carat-fa__display carat-fa__display--sm" id="FirstAccessWhy">
+      {{- 'templates.first_access.disruption.heading' | t -}}
+    </h2>
+    <p class="carat-fa__lede carat-fa__lede--center">
+      {{- 'templates.first_access.disruption.body' | t -}}
+    </p>
+    <p class="carat-fa__us">{{ 'templates.first_access.disruption.us_based' | t }}</p>
+  </section>
+
+  {%- comment -%} ------------------------------------------- final signup
+
+    The same form again so nobody has to scroll back up, with the launch-deal
+    teaser kept to one line beside it rather than a second card section.
+  {%- endcomment -%}
+  <section class="carat-fa__closing" aria-labelledby="FirstAccessClosing">
+    <h2 class="carat-fa__display carat-fa__display--sm" id="FirstAccessClosing">
+      {{- 'templates.first_access.closing.heading' | t -}}
+    </h2>
+    <p class="carat-fa__lede carat-fa__lede--center">
+      {{- 'templates.first_access.closing.body' | t -}}
+    </p>
+
+    {% render 'first-access-form',
+      form_id: 'FirstAccessClosing',
+      section_id: section.id,
+      posted: posted,
+      compact: true
+    %}
+  </section>
+</div>
+
+{% schema %}
+{
+  "name": "First Access",
+  "tag": "section",
+  "class": "section section--first-access",
+  "settings": [
+    {
+      "type": "header",
+      "content": "Imagery"
+    },
+    {
+      "type": "paragraph",
+      "content": "Optional. The page is designed to work without a photograph; add real brand photography here when it is ready."
+    },
+    {
+      "type": "image_picker",
+      "id": "hero_image",
+      "label": "Hero background image"
+    },
+    {
+      "type": "header",
+      "content": "Preview"
+    },
+    {
+      "type": "checkbox",
+      "id": "show_success_preview",
+      "default": false,
+      "label": "Preview the post-signup state",
+      "info": "Theme editor only — shows the success and share panel so it can be styled. Turn off before publishing."
+    }
+  ],
+  "presets": [
+    {
+      "name": "First Access"
+    }
+  ]
+}
+{% endschema %}

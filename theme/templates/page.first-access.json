@@ -1,0 +1,13 @@
+{
+  "sections": {
+    "first_access": {
+      "type": "first-access",
+      "settings": {
+        "show_success_preview": false
+      }
+    }
+  },
+  "order": [
+    "first_access"
+  ]
+}

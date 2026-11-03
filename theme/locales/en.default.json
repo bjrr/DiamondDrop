@@ -617,6 +617,74 @@
         "customize_this": "Customize this setting for my stone",
         "custom_recommended": "Custom setting recommended"
       }
+    },
+    "first_access": {
+      "hero": {
+        "eyebrow": "Launching Soon",
+        "heading": "Fine Jewelry Is About to Change.",
+        "lede": "A new way to buy fine jewelry is coming — wholesale-priced loose diamonds, exceptional jewelry value, and more ways to buy, backed by a U.S.-based company."
+      },
+      "form": {
+        "email_label": "Email",
+        "email_placeholder": "Email address",
+        "first_name_label": "First name (optional)",
+        "first_name_placeholder": "First name",
+        "interests_label": "What are you interested in? (optional)",
+        "cta": "GET FIRST ACCESS",
+        "benefit": "First Access members get in first — early access before public launch, launch offers, limited Luxury Steals, opening Group Buys and loose-diamond shopping.",
+        "submitting": "Joining…",
+        "error": "Please enter a valid email address."
+      },
+      "interests": {
+        "loose_diamonds": "Loose Diamonds",
+        "engagement_rings": "Engagement Rings",
+        "luxury_steals": "Luxury Steals",
+        "group_buys": "Group Buys",
+        "set_your_own_stone": "Set Your Own Stone",
+        "custom_jewelry": "Custom Jewelry"
+      },
+      "teasers": {
+        "a11y_heading": "What is coming",
+        "diamonds_label": "Buy Loose Diamonds",
+        "diamonds_heading": "Loose Diamonds. Wholesale Prices. No Pressure.",
+        "diamonds_text": "Buy certified loose diamonds at wholesale prices. Browse and compare on your time.",
+        "steals_label": "Luxury Steals",
+        "steals_heading": "Exceptional pieces. Limited quantities. Standout pricing.",
+        "group_label": "Group Buys",
+        "group_heading": "More buyers. Better buying power.",
+        "syos_label": "Set Your Own Stone",
+        "syos_heading": "Already have the stone? Find the setting or create your own.",
+        "custom_label": "Custom Jewelry",
+        "custom_heading": "Your idea. Made for you."
+      },
+      "diamond": {
+        "heading": "Your Diamond. Your Decision. Your Time.",
+        "promise": "Buy loose certified diamonds at wholesale prices. Browse. Compare. Decide on your time.",
+        "no_pressure": "No bidding. No pressure. No games."
+      },
+      "disruption": {
+        "heading": "Why Go Overseas for a Better Deal?",
+        "body": "You shouldn't have to overpay at traditional retail, go overseas just to find better value, or rush into a diamond decision.",
+        "us_based": "CaratForUs gives you another option — exceptional value from a U.S.-based company."
+      },
+      "closing": {
+        "heading": "Get In Before Everyone Else.",
+        "body": "The best launch deals won't wait. First Access members get in first."
+      },
+      "success": {
+        "heading": "You're in.",
+        "text": "We'll email you before we open to the public."
+      },
+      "share": {
+        "prompt": "Know someone who'd love CaratForUs? Share First Access with a friend.",
+        "text": "CaratForUs is launching soon — wholesale-priced loose diamonds, Luxury Steals, Group Buys, custom jewelry and more. I thought you'd want First Access too.",
+        "native": "Share",
+        "sms": "Text",
+        "whatsapp": "WhatsApp",
+        "email": "Email",
+        "copy": "Copy link",
+        "copied": "Link copied"
+      }
     }
   },
   "sections": {

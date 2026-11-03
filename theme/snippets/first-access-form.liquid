@@ -1,0 +1,141 @@
+{%- comment -%}
+  The First Access signup, rendered twice — hero and closing.
+
+  ONE FORM, ONE DATA MODEL. Both instances post the same fields to the same
+  Shopify customer form, so a signup is identical wherever it happens.
+
+  EMAIL IS THE ONLY REQUIRED FIELD. First name and the interest chips are
+  optional and carry no `required`: an interest selection must never be able
+  to stand between a visitor and signing up. The chips are checkboxes rather
+  than a select, because a dropdown costs a tap, a scroll and a decision on a
+  phone.
+
+  INTERESTS BECOME CUSTOMER TAGS. `contact[tags]` is Shopify's own field on
+  this form — the theme footer already uses it — so the interests land on the
+  Shopify customer record itself. No second store, and nothing in this
+  codebase grants anything on the basis of a customer tag, so a tag is
+  descriptive marketing data and nothing more.
+
+  Accepts a `posted` flag so the success panel can be previewed from the
+  theme editor without a real submission.
+
+  Parameters: form_id, section_id, posted, compact
+{%- endcomment -%}
+
+{%- liquid
+  assign interests = 'loose-diamonds,engagement-rings,luxury-steals,group-buys,set-your-own-stone,custom-jewelry' | split: ','
+  assign interest_labels = 'templates.first_access.interests.loose_diamonds,templates.first_access.interests.engagement_rings,templates.first_access.interests.luxury_steals,templates.first_access.interests.group_buys,templates.first_access.interests.set_your_own_stone,templates.first_access.interests.custom_jewelry' | split: ','
+-%}
+
+<div
+  class="carat-fa__signup{% if compact %} carat-fa__signup--compact{% endif %}"
+  data-carat-fa-signup
+>
+  {%- form 'customer', id: form_id, class: 'carat-fa__form', novalidate: 'novalidate' -%}
+    <input type="hidden" name="contact[tags]" value="first-access">
+    {%- comment -%}
+      Shopify's own marketing-consent field on this form. A visitor typing
+      their address into a box headed "Get First Access" is asking to be
+      emailed at launch; recording that as consent is the honest reading, and
+      Shopify owns the record of it.
+    {%- endcomment -%}
+    <input type="hidden" name="contact[accepts_marketing]" value="true">
+
+    {%- if form.posted_successfully? or posted -%}
+      {% render 'first-access-success', form_id: form_id %}
+    {%- else -%}
+      <div class="carat-fa__fields">
+        <div class="carat-fa__field">
+          <label class="carat-fa__label" for="{{ form_id }}-email">
+            {{- 'templates.first_access.form.email_label' | t -}}
+          </label>
+          <input
+            id="{{ form_id }}-email"
+            class="carat-fa__input"
+            type="email"
+            name="contact[email]"
+            value="{{ form.email }}"
+            placeholder="{{ 'templates.first_access.form.email_placeholder' | t }}"
+            autocomplete="email"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+            inputmode="email"
+            required
+            aria-required="true"
+            {% if form.errors %}
+              aria-invalid="true" aria-describedby="{{ form_id }}-error" autofocus
+            {% endif %}
+          >
+        </div>
+
+        <div class="carat-fa__field">
+          <label class="carat-fa__label" for="{{ form_id }}-first-name">
+            {{- 'templates.first_access.form.first_name_label' | t -}}
+          </label>
+          <input
+            id="{{ form_id }}-first-name"
+            class="carat-fa__input"
+            type="text"
+            name="contact[first_name]"
+            value="{{ form.first_name }}"
+            placeholder="{{ 'templates.first_access.form.first_name_placeholder' | t }}"
+            autocomplete="given-name"
+          >
+        </div>
+      </div>
+
+      {%- comment -%}
+        THE BUTTON COMES BEFORE THE OPTIONAL CHIPS, DELIBERATELY.
+
+        Measured on a 390x844 phone, the six interest chips wrap to three rows
+        and take 234px; with them above the button, the button sat 37px below
+        the fold. Most of this page's traffic arrives from a phone ad, and a
+        primary action nobody can see without scrolling is the one thing this
+        layout cannot afford.
+
+        Interests still submit with the form whether they are ticked before or
+        after the button is seen, and signing up without touching them is a
+        supported outcome rather than a mistake. DOM order and visual order
+        stay identical, so the tab order follows the page.
+      {%- endcomment -%}
+      <button type="submit" class="carat-fa__cta" data-carat-fa-submit>
+        {{- 'templates.first_access.form.cta' | t -}}
+      </button>
+
+      {%- comment -%}
+        What signing up is actually worth, in one line rather than a section.
+        "may receive" is deliberate: none of these is a promise of a specific
+        offer, and no percentage is named anywhere on this page.
+      {%- endcomment -%}
+      <p class="carat-fa__benefit">{{ 'templates.first_access.form.benefit' | t }}</p>
+
+      <fieldset class="carat-fa__interests">
+        <legend class="carat-fa__label carat-fa__label--legend">
+          {{- 'templates.first_access.form.interests_label' | t -}}
+        </legend>
+        <div class="carat-fa__chips">
+          {%- for handle in interests -%}
+            {%- assign label_key = interest_labels[forloop.index0] -%}
+            <label class="carat-fa__chip">
+              <input
+                class="carat-fa__chip-input"
+                type="checkbox"
+                name="interests[]"
+                value="{{ handle }}"
+                data-carat-fa-interest
+              >
+              <span class="carat-fa__chip-face">{{ label_key | t }}</span>
+            </label>
+          {%- endfor -%}
+        </div>
+      </fieldset>
+
+      <p class="carat-fa__error" id="{{ form_id }}-error" data-carat-fa-error role="alert" {% unless form.errors %}hidden{% endunless %}>
+        {%- if form.errors -%}
+          {{ form.errors.translated_fields.email | capitalize }} {{ form.errors.messages.email }}
+        {%- endif -%}
+      </p>
+    {%- endif -%}
+  {%- endform -%}
+</div>

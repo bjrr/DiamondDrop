@@ -1,0 +1,570 @@
+/* ===========================================================================
+   CARATFORUS — FIRST ACCESS
+
+   Built on the brand that already exists: Playfair Display and Work Sans from
+   the theme's own font settings, and the charcoal/cream/gold palette from its
+   colour schemes (#171717, #F7F5F1, #C9A96A). Nothing here introduces a
+   second visual identity, because the page has to read as CaratForUs rather
+   than as a microsite someone bolted on.
+
+   DARK ON PURPOSE, AND COMMITTED. A launch page for jewelry wants the dark
+   treatment the brand already uses for its premium surfaces, so this section
+   paints its own ground and does not follow the viewer's theme — the palette
+   below is absolute. That is a deliberate single-look design, not an omission.
+
+   THE RESTRAINT IS THE POINT. Gold is one hairline and one button; the rest
+   is type and air. No sale badges, no gradients behind text, no animation
+   that moves while someone is reading. What should feel expensive here is the
+   spacing.
+   ======================================================================== */
+
+.carat-fa {
+  --fa-ground: #171717;
+  --fa-panel: #1e1c1a;
+  --fa-ink: #f7f5f1;
+  /* Muted ink for supporting copy. Checked for contrast on --fa-ground. */
+  --fa-ink-soft: rgba(247, 245, 241, 0.72);
+  --fa-ink-faint: rgba(247, 245, 241, 0.52);
+  --fa-gold: #c9a96a;
+  --fa-hairline: rgba(201, 169, 106, 0.28);
+  --fa-rule: rgba(247, 245, 241, 0.12);
+
+  --fa-display: var(--font-heading-family, "Playfair Display", Georgia, serif);
+  --fa-body: var(--font-body-family, "Work Sans", -apple-system, sans-serif);
+
+  /* One measure for the whole page, so nothing has a bespoke width. */
+  --fa-measure: 62rem;
+  --fa-gutter: 2.4rem;
+
+  background: var(--fa-ground);
+  color: var(--fa-ink);
+  font-family: var(--fa-body);
+  /* The section sits inside the theme's page shell; this cancels the
+     surrounding padding so the dark ground runs edge to edge. */
+  margin: 0 calc(50% - 50vw);
+  padding: 0;
+  width: 100vw;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+.carat-fa *,
+.carat-fa *::before,
+.carat-fa *::after {
+  box-sizing: border-box;
+}
+
+/* --------------------------------------------------------------- type */
+
+.carat-fa__eyebrow {
+  margin: 0 0 2.4rem;
+  font-size: 1.2rem;
+  font-weight: 500;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--fa-gold);
+}
+
+.carat-fa__display {
+  margin: 0;
+  font-family: var(--fa-display);
+  font-weight: 400;
+  /* Fluid, and capped so the line never outgrows the measure on a large
+     screen. Balanced so the headline does not break to a one-word last line. */
+  font-size: clamp(3.4rem, 8vw, 6.4rem);
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.carat-fa__display--sm {
+  font-size: clamp(2.8rem, 5.4vw, 4.4rem);
+}
+
+.carat-fa__lede {
+  margin: 2rem 0 0;
+  max-width: 54ch;
+  font-size: clamp(1.5rem, 2.1vw, 1.8rem);
+  line-height: 1.62;
+  color: var(--fa-ink-soft);
+}
+
+.carat-fa__lede--center {
+  margin-left: auto;
+  margin-right: auto;
+  text-align: center;
+}
+
+/* --------------------------------------------------------------- hero */
+
+.carat-fa__hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  /* Enough height to feel like a landing page, never so much that the form
+     is pushed off a short phone screen. */
+  min-height: min(86vh, 78rem);
+  padding: 6rem var(--fa-gutter) 5.6rem;
+  isolation: isolate;
+}
+
+.carat-fa__hero-media {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+}
+
+.carat-fa__hero-media::after {
+  /* Keeps the headline legible over any photograph the merchant adds, without
+     needing the image itself to be dark. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    rgba(23, 23, 23, 0.95) 0%,
+    rgba(23, 23, 23, 0.86) 48%,
+    rgba(23, 23, 23, 0.6) 100%
+  );
+}
+
+.carat-fa__hero-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.carat-fa__hero-inner {
+  width: 100%;
+  max-width: var(--fa-measure);
+  margin: 0 auto;
+}
+
+/* ------------------------------------------------------------- signup */
+
+.carat-fa__signup {
+  margin-top: 3.6rem;
+  max-width: 54rem;
+}
+
+.carat-fa__signup--compact {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.carat-fa__form {
+  margin: 0;
+}
+
+.carat-fa__fields {
+  display: grid;
+  gap: 1.2rem;
+  grid-template-columns: 1fr;
+}
+
+@media screen and (min-width: 600px) {
+  .carat-fa__fields {
+    grid-template-columns: 1.4fr 1fr;
+  }
+}
+
+.carat-fa__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.carat-fa__label {
+  font-size: 1.2rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fa-ink-faint);
+}
+
+.carat-fa__label--legend {
+  padding: 0;
+  margin-bottom: 1.2rem;
+}
+
+.carat-fa__input {
+  /* 1.6rem minimum: anything smaller makes iOS Safari zoom the viewport on
+     focus, which on an ad landing page reads as the page breaking. */
+  font-family: var(--fa-body);
+  font-size: 1.6rem;
+  color: var(--fa-ink);
+  background: var(--fa-panel);
+  border: 0.1rem solid var(--fa-rule);
+  border-radius: 0.2rem;
+  padding: 1.4rem 1.6rem;
+  width: 100%;
+  min-height: 5.2rem;
+  transition: border-color 120ms ease;
+}
+
+.carat-fa__input::placeholder {
+  color: rgba(247, 245, 241, 0.38);
+}
+
+.carat-fa__input:focus-visible {
+  outline: 0.2rem solid var(--fa-gold);
+  outline-offset: 0.2rem;
+  border-color: var(--fa-gold);
+}
+
+/* ---------------------------------------------------------- interests */
+
+.carat-fa__interests {
+  border: 0;
+  padding: 0;
+  margin: 2.4rem 0 0;
+}
+
+.carat-fa__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+
+.carat-fa__chip {
+  position: relative;
+  display: inline-flex;
+}
+
+.carat-fa__chip-input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+.carat-fa__chip-face {
+  display: inline-flex;
+  align-items: center;
+  /* 4.4rem tall: a comfortable thumb target, which is most of the traffic. */
+  min-height: 4.4rem;
+  padding: 0 1.8rem;
+  border: 0.1rem solid var(--fa-rule);
+  border-radius: 10rem;
+  font-size: 1.4rem;
+  color: var(--fa-ink-soft);
+  background: transparent;
+  transition: border-color 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+
+.carat-fa__chip-input:checked + .carat-fa__chip-face {
+  border-color: var(--fa-gold);
+  color: var(--fa-ground);
+  background: var(--fa-gold);
+}
+
+.carat-fa__chip-input:focus-visible + .carat-fa__chip-face {
+  outline: 0.2rem solid var(--fa-gold);
+  outline-offset: 0.2rem;
+}
+
+/* --------------------------------------------------------------- cta */
+
+.carat-fa__cta {
+  margin-top: 2.4rem;
+  width: 100%;
+  min-height: 5.6rem;
+  padding: 1.6rem 2.4rem;
+  border: 0;
+  border-radius: 0.2rem;
+  background: var(--fa-gold);
+  color: #171717;
+  font-family: var(--fa-body);
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+
+.carat-fa__cta:hover {
+  filter: brightness(1.08);
+}
+
+.carat-fa__cta:focus-visible {
+  outline: 0.2rem solid var(--fa-ink);
+  outline-offset: 0.3rem;
+}
+
+.carat-fa__cta[disabled] {
+  cursor: progress;
+  filter: saturate(0.6);
+}
+
+@media screen and (min-width: 600px) {
+  .carat-fa__cta {
+    width: auto;
+    min-width: 28rem;
+  }
+}
+
+.carat-fa__benefit {
+  margin: 1.6rem 0 0;
+  max-width: 52ch;
+  font-size: 1.3rem;
+  line-height: 1.6;
+  color: var(--fa-ink-faint);
+}
+
+.carat-fa__error {
+  margin: 1.2rem 0 0;
+  font-size: 1.4rem;
+  color: #e9a0a0;
+}
+
+/* ------------------------------------------------------------ teasers */
+
+.carat-fa__teasers {
+  display: grid;
+  gap: 0.1rem;
+  grid-template-columns: 1fr;
+  padding: 0 var(--fa-gutter);
+  max-width: calc(var(--fa-measure) + var(--fa-gutter) * 2);
+  margin: 0 auto;
+  /* The hairline grid: tiles are separated by light, not by boxes. */
+  background: var(--fa-rule);
+  border-block: 0.1rem solid var(--fa-rule);
+}
+
+@media screen and (min-width: 750px) {
+  .carat-fa__teasers {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .carat-fa__tile--wide {
+    grid-column: 1 / -1;
+  }
+}
+
+.carat-fa__tile {
+  background: var(--fa-ground);
+  padding: 3.6rem 0;
+}
+
+@media screen and (min-width: 750px) {
+  .carat-fa__tile {
+    padding: 4rem 3.2rem 4rem 0;
+  }
+  .carat-fa__tile:nth-of-type(even) {
+    padding-left: 3.2rem;
+  }
+  .carat-fa__tile--wide {
+    padding: 5.6rem 0;
+  }
+}
+
+.carat-fa__tile-eyebrow {
+  margin: 0 0 1.2rem;
+  font-size: 1.1rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--fa-gold);
+}
+
+.carat-fa__tile-heading {
+  margin: 0;
+  font-family: var(--fa-display);
+  font-weight: 400;
+  font-size: clamp(2rem, 3vw, 2.6rem);
+  line-height: 1.22;
+  text-wrap: balance;
+}
+
+.carat-fa__tile--wide .carat-fa__tile-heading {
+  font-size: clamp(2.6rem, 4.6vw, 4rem);
+}
+
+.carat-fa__tile-text {
+  margin: 1.2rem 0 0;
+  max-width: 48ch;
+  font-size: 1.5rem;
+  line-height: 1.6;
+  color: var(--fa-ink-soft);
+}
+
+/* The locked diamond message, inside the loose-diamond tile rather than in a
+   text-heavy section of its own. */
+.carat-fa__diamond-message {
+  margin-top: 2.8rem;
+  padding-top: 2.8rem;
+  border-top: 0.1rem solid var(--fa-hairline);
+}
+
+.carat-fa__diamond-claim {
+  margin: 0;
+  font-family: var(--fa-display);
+  font-size: clamp(1.9rem, 3.2vw, 2.6rem);
+  line-height: 1.25;
+  color: var(--fa-ink);
+}
+
+.carat-fa__diamond-no {
+  margin: 1.6rem 0 0;
+  font-size: 1.5rem;
+  letter-spacing: 0.02em;
+  color: var(--fa-gold);
+}
+
+/* --------------------------------------------------------- disruption */
+
+.carat-fa__disruption {
+  max-width: var(--fa-measure);
+  margin: 0 auto;
+  padding: 7.2rem var(--fa-gutter);
+  text-align: center;
+}
+
+.carat-fa__us {
+  margin: 2.4rem auto 0;
+  max-width: 50ch;
+  font-size: clamp(1.5rem, 2.1vw, 1.8rem);
+  line-height: 1.6;
+  color: var(--fa-ink);
+}
+
+/* ------------------------------------------------------------ closing */
+
+.carat-fa__closing {
+  max-width: var(--fa-measure);
+  margin: 0 auto;
+  padding: 0 var(--fa-gutter) 8rem;
+  text-align: center;
+  border-top: 0.1rem solid var(--fa-rule);
+  padding-top: 7.2rem;
+}
+
+/* ------------------------------------------------------------ success */
+
+.carat-fa__success {
+  background: var(--fa-panel);
+  border: 0.1rem solid var(--fa-hairline);
+  border-radius: 0.3rem;
+  padding: 3.2rem 2.8rem;
+  text-align: left;
+}
+
+.carat-fa__success:focus-visible {
+  outline: 0.2rem solid var(--fa-gold);
+  outline-offset: 0.3rem;
+}
+
+.carat-fa__success-heading {
+  margin: 0;
+  font-family: var(--fa-display);
+  font-size: clamp(2.4rem, 4vw, 3.2rem);
+  line-height: 1.2;
+  color: var(--fa-ink);
+}
+
+.carat-fa__success-text {
+  margin: 0.8rem 0 0;
+  font-size: 1.5rem;
+  color: var(--fa-ink-soft);
+}
+
+.carat-fa__share-prompt {
+  margin: 2.8rem 0 1.6rem;
+  padding-top: 2.4rem;
+  border-top: 0.1rem solid var(--fa-rule);
+  font-size: 1.5rem;
+  line-height: 1.6;
+  color: var(--fa-ink);
+}
+
+.carat-fa__share {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+
+.carat-fa__share-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 4.4rem;
+  padding: 0 1.8rem;
+  border: 0.1rem solid var(--fa-rule);
+  border-radius: 10rem;
+  background: transparent;
+  color: var(--fa-ink);
+  font-family: var(--fa-body);
+  font-size: 1.4rem;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.carat-fa__share-btn:hover {
+  border-color: var(--fa-gold);
+  color: var(--fa-gold);
+}
+
+.carat-fa__share-btn:focus-visible {
+  outline: 0.2rem solid var(--fa-gold);
+  outline-offset: 0.2rem;
+}
+
+.carat-fa__share-btn--native {
+  border-color: var(--fa-gold);
+  color: var(--fa-gold);
+}
+
+.carat-fa__share-feedback {
+  margin: 1.2rem 0 0;
+  font-size: 1.3rem;
+  color: var(--fa-gold);
+}
+
+/* ------------------------------------------------------------- motion */
+
+@media (prefers-reduced-motion: reduce) {
+  .carat-fa *,
+  .carat-fa *::before,
+  .carat-fa *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* ------------------------------------------------- small screens
+
+   Most of this page's traffic is a phone coming from an ad, so the first
+   viewport is budgeted rather than decorated: less padding above the
+   headline, tighter gaps between the headline, the lede and the form. The
+   measured goal is the email field AND the button both visible without a
+   scroll on a 390x844 screen behind a 98px header. */
+@media screen and (max-width: 749px) {
+  .carat-fa__hero {
+    min-height: 0;
+    padding-top: 3.2rem;
+    padding-bottom: 4.8rem;
+  }
+
+  .carat-fa__eyebrow {
+    margin-bottom: 1.6rem;
+  }
+
+  .carat-fa__lede {
+    margin-top: 1.4rem;
+  }
+
+  .carat-fa__signup {
+    margin-top: 2.4rem;
+  }
+
+  .carat-fa__benefit {
+    margin-top: 1.2rem;
+  }
+
+  .carat-fa__interests {
+    margin-top: 2rem;
+  }
+}
