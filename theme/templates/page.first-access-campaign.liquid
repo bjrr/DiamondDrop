@@ -6,13 +6,15 @@
   render the store chrome. `layout/first-access.liquid` is theme.liquid with
   the header, footer and cart drawer removed.
 
-  The section itself stays a section, so its settings (hero image, the
-  success-state preview) remain editable from the theme editor.
+  NAMED -campaign because Shopify refuses two templates with the same name and
+  different extensions, and the earlier page.first-access.json still exists on
+  the theme. The page URL is unchanged — the handle is what a visitor sees.
 
-  NAMED -campaign RATHER THAN page.first-access.liquid because Shopify refuses
-  two templates with the same name and different extensions, and the earlier
-  page.first-access.json still exists on the theme. The page URL is unchanged
-  — the handle is what a visitor sees, not the template suffix.
+  A .liquid template carries no section settings of its own, so the hero
+  images are named here. They are the launch campaign's own pair, not the
+  homepage's: the same ivory-travertine language, but leading with loose
+  unset diamonds, which is what this campaign is about and what the homepage
+  set does not show.
 {%- endcomment -%}
 {% layout 'first-access' %}
 

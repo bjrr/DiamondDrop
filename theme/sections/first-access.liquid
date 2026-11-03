@@ -47,24 +47,124 @@
 -%}
 
 <div class="carat-fa" data-carat-first-access>
-  {%- comment -%} ------------------------------------------------ hero {%- endcomment -%}
+  {%- comment -%} ------------------------------------------------ hero
+
+    LIGHT, NOT DARK. The hero carries a photograph of jewelry on warm ivory
+    travertine, so the copy sits in the brand's own overlay treatment:
+    an ivory veil over the image and charcoal text on top. That is exactly
+    what carat-hero-slider does on the homepage (tone: overlay), reused here
+    rather than reinvented — the same gradient stops, the same ink.
+
+    The previous hero was cream text on near-black, which this image cannot
+    support and which the brand does not use for a bright composition.
+
+    TWO CROPS, ONE PER ORIENTATION, matching the homepage hero's own
+    desktop/mobile pair. The desktop frame is ultrawide with the jewelry to
+    the right and the copy in the empty left; the mobile frame is portrait
+    with the jewelry low and the copy above it. A single image letterboxed
+    into both would either bury the jewelry or crop it away.
+  {%- endcomment -%}
   <section class="carat-fa__hero" aria-labelledby="FirstAccessHeading">
-    {%- if section.settings.hero_image != blank -%}
-      <div class="carat-fa__hero-media" aria-hidden="true">
-        {{
-          section.settings.hero_image
-          | image_url: width: 1600
-          | image_tag:
-            loading: 'eager',
-            fetchpriority: 'high',
-            sizes: '100vw',
-            widths: '480, 768, 1100, 1600',
-            class: 'carat-fa__hero-img'
-        }}
-      </div>
-    {%- endif -%}
+    {%- comment -%}
+      THE IMAGES ARE NAMED, NOT PICKED, because this page uses a .liquid
+      template so it can choose a chrome-free layout — and a .liquid template
+      carries no editable section settings. The picker is still honoured when
+      one is set, so nothing is lost if the page is ever moved back to a JSON
+      template; until then the campaign's own pair is resolved by filename
+      from Shopify Files.
+
+      Shopify's CDN resizes from the `width` parameter, so the browser is
+      served a few tens of kilobytes at its own size rather than the
+      multi-megabyte master.
+    {%- endcomment -%}
+    {%- liquid
+      assign hero_desktop = section.settings.hero_image
+      assign hero_mobile = section.settings.hero_image_mobile
+      assign desktop_src = ''
+      assign mobile_src = ''
+      if hero_desktop == blank
+        assign desktop_src = 'carat-fa-hero-desktop.png' | file_url
+      endif
+      if hero_mobile == blank
+        assign mobile_src = 'carat-fa-hero-mobile.png' | file_url
+      endif
+    -%}
+    <div class="carat-fa__hero-media" aria-hidden="true">
+      <picture>
+        <source
+          media="(max-width: 749px)"
+          sizes="100vw"
+          srcset="
+            {%- if hero_mobile != blank -%}
+              {{ hero_mobile | image_url: width: 540 }} 540w,
+              {{ hero_mobile | image_url: width: 810 }} 810w,
+              {{ hero_mobile | image_url: width: 1080 }} 1080w,
+              {{ hero_mobile | image_url: width: 1440 }} 1440w
+            {%- else -%}
+              {{ mobile_src }}&width=540 540w,
+              {{ mobile_src }}&width=810 810w,
+              {{ mobile_src }}&width=1080 1080w,
+              {{ mobile_src }}&width=1440 1440w
+            {%- endif -%}
+          "
+        >
+        {%- if hero_desktop != blank -%}
+          {{
+            hero_desktop
+            | image_url: width: 2400
+            | image_tag:
+              loading: 'eager',
+              fetchpriority: 'high',
+              sizes: '100vw',
+              widths: '960, 1400, 1900, 2400, 3200',
+              class: 'carat-fa__hero-img',
+              alt: ''
+          }}
+        {%- else -%}
+          <img
+            class="carat-fa__hero-img"
+            src="{{ desktop_src }}&width=1900"
+            srcset="
+              {{ desktop_src }}&width=960 960w,
+              {{ desktop_src }}&width=1400 1400w,
+              {{ desktop_src }}&width=1900 1900w,
+              {{ desktop_src }}&width=2400 2400w,
+              {{ desktop_src }}&width=3200 3200w
+            "
+            sizes="100vw"
+            width="5041"
+            height="2160"
+            loading="eager"
+            fetchpriority="high"
+            alt=""
+          >
+        {%- endif -%}
+      </picture>
+      <span class="carat-fa__hero-veil"></span>
+    </div>
 
     <div class="carat-fa__hero-inner">
+      {%- comment -%}
+        BRANDING, NOT NAVIGATION. The logo is a plain image, not a link: this
+        page has no header precisely so there is nothing to click away to,
+        and a logo that navigates home would quietly put the exit back.
+      {%- endcomment -%}
+      {%- if settings.logo != blank -%}
+        <div class="carat-fa__logo">
+          {{
+            settings.logo
+            | image_url: width: 400
+            | image_tag:
+              loading: 'eager',
+              fetchpriority: 'high',
+              widths: '200, 300, 400',
+              sizes: '(max-width: 749px) 150px, 190px',
+              alt: shop.name,
+              class: 'carat-fa__logo-img'
+          }}
+        </div>
+      {%- endif -%}
+
       <p class="carat-fa__eyebrow">{{ 'templates.first_access.hero.eyebrow' | t }}</p>
 
       <h1 class="carat-fa__display" id="FirstAccessHeading">
@@ -187,7 +287,13 @@
     {
       "type": "image_picker",
       "id": "hero_image",
-      "label": "Hero background image"
+      "label": "Hero image — desktop (ultrawide)"
+    },
+    {
+      "type": "image_picker",
+      "id": "hero_image_mobile",
+      "label": "Hero image — mobile (portrait)",
+      "info": "Falls back to the desktop image if empty."
     },
     {
       "type": "header",

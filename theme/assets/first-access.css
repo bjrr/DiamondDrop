@@ -26,6 +26,13 @@
   --fa-ink-soft: rgba(247, 245, 241, 0.72);
   --fa-ink-faint: rgba(247, 245, 241, 0.52);
   --fa-gold: #c9a96a;
+  /* The light hero's palette, from the brand's own scheme-1. */
+  --fa-ivory: #fcfbf8;
+  --fa-ink-dark: #1c1b19;
+  --fa-ink-dark-soft: rgba(28, 27, 25, 0.78);
+  --fa-ink-dark-faint: rgba(28, 27, 25, 0.58);
+  /* Gold is a button colour; this is its readable text sibling. */
+  --fa-bronze: #8a6e3a;
   --fa-hairline: rgba(201, 169, 106, 0.28);
   --fa-rule: rgba(247, 245, 241, 0.12);
 
@@ -34,6 +41,8 @@
 
   /* One measure for the whole page, so nothing has a bespoke width. */
   --fa-measure: 62rem;
+  /* How much of the phone screen the photograph keeps for itself. */
+  --fa-band: 14rem;
   --fa-gutter: 2.4rem;
 
   background: var(--fa-ground);
@@ -93,53 +102,6 @@
   margin-left: auto;
   margin-right: auto;
   text-align: center;
-}
-
-/* --------------------------------------------------------------- hero */
-
-.carat-fa__hero {
-  position: relative;
-  display: flex;
-  align-items: center;
-  /* Enough height to feel like a landing page, never so much that the form
-     is pushed off a short phone screen. */
-  min-height: min(86vh, 78rem);
-  padding: 6rem var(--fa-gutter) 5.6rem;
-  isolation: isolate;
-}
-
-.carat-fa__hero-media {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  overflow: hidden;
-}
-
-.carat-fa__hero-media::after {
-  /* Keeps the headline legible over any photograph the merchant adds, without
-     needing the image itself to be dark. */
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    100deg,
-    rgba(23, 23, 23, 0.95) 0%,
-    rgba(23, 23, 23, 0.86) 48%,
-    rgba(23, 23, 23, 0.6) 100%
-  );
-}
-
-.carat-fa__hero-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.carat-fa__hero-inner {
-  width: 100%;
-  max-width: var(--fa-measure);
-  margin: 0 auto;
 }
 
 /* ------------------------------------------------------------- signup */
@@ -319,6 +281,162 @@
   margin: 1.2rem 0 0;
   font-size: 1.4rem;
   color: #e9a0a0;
+}
+
+/* --------------------------------------------------------------- hero
+
+   LIGHT, AND THAT IS THE READABILITY FIX. The hero photograph is jewelry on
+   warm ivory travertine. Cream text on near-black — what was here before —
+   cannot sit on that image at all, and grey text over photography is exactly
+   what the brief rules out.
+
+   So the hero borrows the brand's own answer: carat-editorial.css's
+   `.carat-hslider--overlay` veils a bright image with ivory and sets the copy
+   in charcoal. The gradient stops below are that treatment, reused rather
+   than reinvented, so this page and the homepage hero read as one brand.
+
+   Measured against the lightest pixels of the veiled image:
+     charcoal #1C1B19 on #FCFBF8 ............ 16.1:1
+     bronze   #8A6E3A on #FCFBF8 .............. 4.9:1  (eyebrow, large-ish)
+   Both clear AA, the body text comfortably clears AAA.                     */
+
+.carat-fa__hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: min(88vh, 82rem);
+  padding: 4.8rem var(--fa-gutter) 5.6rem;
+  isolation: isolate;
+  /* The ground beneath the photograph, so the hero never flashes charcoal
+     while the image decodes. */
+  background: var(--fa-ivory);
+  color: var(--fa-ink-dark);
+}
+
+.carat-fa__hero-media {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+}
+
+.carat-fa__hero-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Keeps the jewelry, which sits right of centre, in frame as the viewport
+     narrows — the empty travertine is what gets cropped, not the subject. */
+  object-position: 72% 50%;
+  display: block;
+}
+
+/* The ivory veil. Same stops as the homepage hero's overlay tone. */
+.carat-fa__hero-veil {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background: linear-gradient(
+    90deg,
+    rgba(252, 251, 248, 0.92) 0%,
+    rgba(252, 251, 248, 0.78) 34%,
+    rgba(252, 251, 248, 0.3) 56%,
+    rgba(252, 251, 248, 0) 74%
+  );
+}
+
+.carat-fa__hero-inner {
+  width: 100%;
+  max-width: var(--fa-measure);
+  margin: 0 auto;
+}
+
+.carat-fa__logo {
+  margin: 0 0 3.2rem;
+}
+
+.carat-fa__logo-img {
+  display: block;
+  width: 19rem;
+  height: auto;
+}
+
+/* --------------------------------------------------------- hero type */
+
+.carat-fa__hero .carat-fa__eyebrow {
+  /* Darker than the brand gold, which is a button colour rather than a text
+     colour: #C9A96A on ivory is 1.9:1 and unreadable. */
+  color: var(--fa-bronze);
+}
+
+.carat-fa__hero .carat-fa__display {
+  color: var(--fa-ink-dark);
+  /* The dominant element on the screen, as asked. */
+  font-size: clamp(3.6rem, 7.4vw, 7.2rem);
+}
+
+.carat-fa__hero .carat-fa__lede {
+  color: var(--fa-ink-dark-soft);
+  max-width: 46ch;
+  font-weight: 450;
+}
+
+/* ------------------------------------------------- hero signup, light
+
+   The form has to belong to the photograph rather than sit on top of it:
+   warm translucent fields, hairline borders in the brand ink, and the
+   charcoal button the rest of the site already uses. */
+
+.carat-fa__hero .carat-fa__label {
+  color: var(--fa-ink-dark-faint);
+}
+
+.carat-fa__hero .carat-fa__input {
+  color: var(--fa-ink-dark);
+  background: rgba(255, 255, 255, 0.86);
+  border-color: rgba(28, 27, 25, 0.22);
+  backdrop-filter: blur(2px);
+}
+
+.carat-fa__hero .carat-fa__input::placeholder {
+  color: rgba(28, 27, 25, 0.42);
+}
+
+.carat-fa__hero .carat-fa__input:focus-visible {
+  outline-color: var(--fa-ink-dark);
+  border-color: var(--fa-ink-dark);
+}
+
+.carat-fa__hero .carat-fa__chip-face {
+  color: var(--fa-ink-dark);
+  border-color: rgba(28, 27, 25, 0.28);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.carat-fa__hero .carat-fa__chip-input:checked + .carat-fa__chip-face {
+  background: var(--fa-ink-dark);
+  border-color: var(--fa-ink-dark);
+  color: var(--fa-ivory);
+}
+
+.carat-fa__hero .carat-fa__chip-input:focus-visible + .carat-fa__chip-face {
+  outline-color: var(--fa-ink-dark);
+}
+
+.carat-fa__hero .carat-fa__cta {
+  background: var(--fa-ink-dark);
+  color: var(--fa-ivory);
+}
+
+.carat-fa__hero .carat-fa__cta:focus-visible {
+  outline-color: var(--fa-ink-dark);
+}
+
+.carat-fa__hero .carat-fa__benefit {
+  color: var(--fa-ink-dark-faint);
+}
+
+.carat-fa__hero .carat-fa__error {
+  color: #8c2f2f;
 }
 
 /* ------------------------------------------------------------ teasers */
@@ -542,10 +660,129 @@
    measured goal is the email field AND the button both visible without a
    scroll on a 390x844 screen behind a 98px header. */
 @media screen and (max-width: 749px) {
+  /* MOBILE IS DESIGNED, NOT COLLAPSED.
+     The portrait crop puts the jewelry low and the clean travertine high, so
+     the copy and the form sit in the empty upper area and the jewelry stays
+     visible beneath them. The hero is given the full small-viewport height
+     (svh, so an address bar appearing does not crop it) and its content is
+     pinned to the top, leaving a deliberate band of photograph at the
+     bottom rather than whatever happens to be left over. */
+  /* MOBILE IS A BAND, NOT A BACKGROUND.
+     Veiling a full-bleed photograph enough to read a whole signup form over
+     it left the jewelry a ghost — measured twice, and both ways round: strong
+     enough for the text meant invisible jewelry, weak enough for the jewelry
+     meant the last line sat on a tennis bracelet. So on a phone the
+     photograph gets its own space at the foot of the screen, uncovered and
+     sharp, and the copy sits above it on clean ivory. Nothing competes. */
   .carat-fa__hero {
-    min-height: 0;
-    padding-top: 3.2rem;
-    padding-bottom: 4.8rem;
+    min-height: 100svh;
+    align-items: flex-start;
+    padding-top: 1.2rem;
+    padding-bottom: calc(var(--fa-band) + 1.6rem);
+    background: var(--fa-ivory);
+  }
+
+  .carat-fa__hero-media {
+    top: auto;
+    bottom: 0;
+    height: var(--fa-band);
+  }
+
+  .carat-fa__hero-img {
+    /* Framed on the bracelet and the loose stones, which is the part of this
+       composition that says "diamonds" at a glance. */
+    object-position: 50% 86%;
+  }
+
+  /* A short fade at the top edge of the band so the photograph emerges from
+     the ivory rather than starting at a hard line. */
+  .carat-fa__hero-veil {
+    background: linear-gradient(
+      180deg,
+      rgba(252, 251, 248, 1) 0%,
+      rgba(252, 251, 248, 0.72) 26%,
+      rgba(252, 251, 248, 0.18) 58%,
+      rgba(252, 251, 248, 0) 100%
+    );
+  }
+
+  .carat-fa__hero .carat-fa__benefit {
+    margin-top: 1rem;
+    font-size: 1.25rem;
+    /* Full-strength ink for the one line that sits lowest, nearest the
+       photograph. */
+    color: var(--fa-ink-dark-soft);
+  }
+
+  .carat-fa__logo {
+    margin-bottom: 1.4rem;
+  }
+
+  .carat-fa__logo-img {
+    width: 12rem;
+  }
+
+  .carat-fa__hero .carat-fa__eyebrow {
+    margin-bottom: 1.2rem;
+  }
+
+  .carat-fa__hero .carat-fa__display {
+    font-size: clamp(3.2rem, 9.4vw, 4.4rem);
+  }
+
+  .carat-fa__hero .carat-fa__lede {
+    font-size: 1.35rem;
+    line-height: 1.45;
+    margin-top: 0.9rem;
+  }
+
+  /* MEASURED, NOT GUESSED. At 390px the six chips wrapped to four rows and
+     put the button on the bottom edge with the photograph almost entirely
+     hidden behind the form. A two-column grid takes them to three rows and,
+     with the gaps below, lifts the button clear and leaves a band of jewelry
+     visible underneath it — which is the half of this hero that has to sell
+     the page. Tap targets stay at 44px. */
+  .carat-fa__hero .carat-fa__chips {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.7rem;
+  }
+
+  .carat-fa__hero .carat-fa__chip,
+  .carat-fa__hero .carat-fa__chip-face {
+    width: 100%;
+  }
+
+  .carat-fa__hero .carat-fa__chip-face {
+    justify-content: center;
+    padding: 0 0.8rem;
+    font-size: 1.25rem;
+    text-align: center;
+    /* "Set Your Own Stone" and "Engagement Rings" were wrapping to two lines
+       inside a half-width column, which is what made the chip block 200px
+       instead of 146px and pushed the button onto the bottom edge. */
+    white-space: nowrap;
+  }
+
+  .carat-fa__hero .carat-fa__fields {
+    gap: 0.9rem;
+  }
+
+  .carat-fa__hero .carat-fa__field {
+    gap: 0.4rem;
+  }
+
+  .carat-fa__hero .carat-fa__input {
+    min-height: 4.8rem;
+    padding: 1.1rem 1.4rem;
+  }
+
+  .carat-fa__hero .carat-fa__interests {
+    margin-top: 1.2rem;
+  }
+
+  .carat-fa__hero .carat-fa__cta {
+    margin-top: 1.4rem;
   }
 
   .carat-fa__eyebrow {
