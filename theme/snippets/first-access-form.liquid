@@ -86,30 +86,11 @@
       </div>
 
       {%- comment -%}
-        THE BUTTON COMES BEFORE THE OPTIONAL CHIPS, DELIBERATELY.
-
-        Measured on a 390x844 phone, the six interest chips wrap to three rows
-        and take 234px; with them above the button, the button sat 37px below
-        the fold. Most of this page's traffic arrives from a phone ad, and a
-        primary action nobody can see without scrolling is the one thing this
-        layout cannot afford.
-
-        Interests still submit with the form whether they are ticked before or
-        after the button is seen, and signing up without touching them is a
-        supported outcome rather than a mistake. DOM order and visual order
-        stay identical, so the tab order follows the page.
+        Interests sit above the button: they are part of describing yourself,
+        not an afterthought once you have committed. Optional throughout, and
+        the compact instance omits them entirely — see below.
       {%- endcomment -%}
-      <button type="submit" class="carat-fa__cta" data-carat-fa-submit>
-        {{- 'templates.first_access.form.cta' | t -}}
-      </button>
-
-      {%- comment -%}
-        What signing up is actually worth, in one line rather than a section.
-        "may receive" is deliberate: none of these is a promise of a specific
-        offer, and no percentage is named anywhere on this page.
-      {%- endcomment -%}
-      <p class="carat-fa__benefit">{{ 'templates.first_access.form.benefit' | t }}</p>
-
+      {%- unless compact -%}
       <fieldset class="carat-fa__interests">
         <legend class="carat-fa__label carat-fa__label--legend">
           {{- 'templates.first_access.form.interests_label' | t -}}
@@ -130,6 +111,20 @@
           {%- endfor -%}
         </div>
       </fieldset>
+
+      {%- endunless -%}
+
+      <button type="submit" class="carat-fa__cta" data-carat-fa-submit>
+        {{- 'templates.first_access.form.cta' | t -}}
+      </button>
+
+      {%- comment -%}
+        One line on what signing up is worth, and only where the visitor has
+        not already read it. No percentage is named anywhere on this page.
+      {%- endcomment -%}
+      {%- unless compact -%}
+        <p class="carat-fa__benefit">{{ 'templates.first_access.form.benefit' | t }}</p>
+      {%- endunless -%}
 
       <p class="carat-fa__error" id="{{ form_id }}-error" data-carat-fa-error role="alert" {% unless form.errors %}hidden{% endunless %}>
         {%- if form.errors -%}

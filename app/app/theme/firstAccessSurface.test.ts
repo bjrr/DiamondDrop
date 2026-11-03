@@ -34,7 +34,11 @@ const section = read("sections", "first-access.liquid");
 const formSnippet = read("snippets", "first-access-form.liquid");
 const successSnippet = read("snippets", "first-access-success.liquid");
 const script = read("assets", "first-access.js");
-const template = read("templates", "page.first-access.json");
+// Named -campaign because Shopify refuses two templates sharing a name with
+// different extensions, and the original page.first-access.json is still on the
+// theme. The page URL is unaffected: the handle is what a visitor sees.
+const template = read("templates", "page.first-access-campaign.liquid");
+const layout = read("layout", "first-access.liquid");
 /**
  * What a visitor can actually encounter, with the authors' comments removed.
  *
@@ -66,8 +70,20 @@ describe("the approved copy, verbatim", () => {
     expect(fa.teasers?.diamonds_heading).toBe(
       "Loose Diamonds. Wholesale Prices. No Pressure."
     );
-    expect(fa.teasers?.diamonds_text).toContain("wholesale prices");
     expect(fa.diamond?.promise).toContain("wholesale prices");
+  });
+
+  it("states the loose-diamond message once, not twice", () => {
+    // The tile used to carry a supporting sentence AND the core promise, both
+    // saying wholesale prices, browse and compare. Consolidated to the locked
+    // promise alone; the restatement must not come back.
+    expect(fa.teasers?.diamonds_text).toBeUndefined();
+    const tile = stripLiquidComments(section).slice(
+      stripLiquidComments(section).indexOf("carat-fa__tile--wide")
+    );
+    const upToNextTile = tile.slice(0, tile.indexOf("</article>"));
+    const wholesale = upToNextTile.match(/diamonds_text|diamond.promise/g) ?? [];
+    expect(wholesale).toHaveLength(1);
   });
 
   it("positions CaratForUs as a U.S.-based company", () => {
@@ -129,7 +145,7 @@ describe("what this page must not become", () => {
   });
 
   it("keeps the First Access benefit as a possibility, not a commitment", () => {
-    expect(fa.form?.benefit).toMatch(/First Access members get in first/);
+    expect(fa.form?.benefit).toBe("First Access members get in first.");
     expect(fa.form?.benefit).not.toMatch(/you will receive|guaranteed|exclusive discount/i);
   });
 
@@ -232,11 +248,62 @@ describe("sharing is a courtesy with no machinery behind it", () => {
   });
 });
 
+describe("no store chrome competes with the one action", () => {
+  it("the campaign layout renders no header, footer or cart drawer", () => {
+    const live = stripLiquidComments(layout);
+    expect(live).not.toContain("sections 'header-group'");
+    expect(live).not.toContain("sections 'footer-group'");
+    expect(live).not.toContain("cart-drawer");
+  });
+
+  it("but keeps the head, so the page still looks like the brand", () => {
+    // Same fonts and CSS variables as every other page: this is theme.liquid
+    // with chrome removed, not a bare document.
+    expect(layout).toContain("{{ content_for_header }}");
+    expect(layout).toContain("--font-heading-family");
+    expect(layout).toContain("base.css");
+  });
+
+  it("keeps the skip link — removing navigation is not a reason to drop a11y", () => {
+    expect(layout).toContain("skip-to-content-link");
+  });
+
+  it("is used by nothing except the First Access template", () => {
+    expect(template).toContain("{% layout 'first-access' %}");
+  });
+});
+
+describe("the final signup is the simple one", () => {
+  it("omits the interest chips and the benefit line when compact", () => {
+    // Asked once, in the hero. The closing form is email and a button.
+    const compactGuards = formSnippet.match(/{%- unless compact -%}/g) ?? [];
+    expect(compactGuards.length).toBeGreaterThanOrEqual(2);
+    expect(formSnippet).toContain("carat-fa__interests");
+    expect(formSnippet).toContain("carat-fa__benefit");
+  });
+
+  it("still carries the email field and the primary CTA", () => {
+    const cta = formSnippet.indexOf("carat-fa__cta");
+    const email = formSnippet.indexOf('name="contact[email]"');
+    expect(email).toBeGreaterThan(-1);
+    expect(cta).toBeGreaterThan(email);
+  });
+});
+
+describe("interests come before the button", () => {
+  it("the chips are above the CTA in the markup", () => {
+    expect(formSnippet.indexOf("carat-fa__interests")).toBeLessThan(
+      formSnippet.indexOf("carat-fa__cta")
+    );
+  });
+});
+
 describe("the page is wired up", () => {
-  it("has a template that renders only this section", () => {
-    const parsed = JSON.parse(template) as { order: string[]; sections: Record<string, { type: string }> };
-    expect(parsed.order).toEqual(["first_access"]);
-    expect(parsed.sections.first_access?.type).toBe("first-access");
+  it("renders only this section, on the campaign layout", () => {
+    expect(template).toContain("{% layout 'first-access' %}");
+    expect(template).toContain("{% section 'first-access' %}");
+    // Nothing else on the page.
+    expect(template.match(/{% section /g) ?? []).toHaveLength(1);
   });
 
   it("ships no default image, so nothing invents a product photograph", () => {

@@ -100,13 +100,15 @@
     <article class="carat-fa__tile carat-fa__tile--wide">
       <p class="carat-fa__tile-eyebrow">{{ 'templates.first_access.teasers.diamonds_label' | t }}</p>
       <h3 class="carat-fa__tile-heading">{{ 'templates.first_access.teasers.diamonds_heading' | t }}</h3>
-      <p class="carat-fa__tile-text">{{ 'templates.first_access.teasers.diamonds_text' | t }}</p>
-
-      <div class="carat-fa__diamond-message">
-        <p class="carat-fa__diamond-claim">{{ 'templates.first_access.diamond.heading' | t }}</p>
-        <p class="carat-fa__tile-text">{{ 'templates.first_access.diamond.promise' | t }}</p>
-        <p class="carat-fa__diamond-no">{{ 'templates.first_access.diamond.no_pressure' | t }}</p>
-      </div>
+      {%- comment -%}
+        CONSOLIDATED. This tile used to carry a supporting sentence and then
+        the diamond promise directly beneath it, both saying wholesale prices,
+        browse and compare. One statement of a thing is more convincing than
+        two; the locked core promise is the one that stayed.
+      {%- endcomment -%}
+      <p class="carat-fa__diamond-claim">{{ 'templates.first_access.diamond.heading' | t }}</p>
+      <p class="carat-fa__tile-text">{{ 'templates.first_access.diamond.promise' | t }}</p>
+      <p class="carat-fa__diamond-no">{{ 'templates.first_access.diamond.no_pressure' | t }}</p>
     </article>
 
     <article class="carat-fa__tile">

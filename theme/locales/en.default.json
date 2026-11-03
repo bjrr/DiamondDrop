@@ -622,7 +622,7 @@
       "hero": {
         "eyebrow": "Launching Soon",
         "heading": "Fine Jewelry Is About to Change.",
-        "lede": "A new way to buy fine jewelry is coming — wholesale-priced loose diamonds, exceptional jewelry value, and more ways to buy, backed by a U.S.-based company."
+        "lede": "Wholesale-priced loose diamonds, exceptional jewelry value, and more ways to buy — from a U.S.-based company."
       },
       "form": {
         "email_label": "Email",
@@ -631,7 +631,7 @@
         "first_name_placeholder": "First name",
         "interests_label": "What are you interested in? (optional)",
         "cta": "GET FIRST ACCESS",
-        "benefit": "First Access members get in first — early access before public launch, launch offers, limited Luxury Steals, opening Group Buys and loose-diamond shopping.",
+        "benefit": "First Access members get in first.",
         "submitting": "Joining…",
         "error": "Please enter a valid email address."
       },
@@ -647,7 +647,6 @@
         "a11y_heading": "What is coming",
         "diamonds_label": "Buy Loose Diamonds",
         "diamonds_heading": "Loose Diamonds. Wholesale Prices. No Pressure.",
-        "diamonds_text": "Buy certified loose diamonds at wholesale prices. Browse and compare on your time.",
         "steals_label": "Luxury Steals",
         "steals_heading": "Exceptional pieces. Limited quantities. Standout pricing.",
         "group_label": "Group Buys",
@@ -669,11 +668,11 @@
       },
       "closing": {
         "heading": "Get In Before Everyone Else.",
-        "body": "The best launch deals won't wait. First Access members get in first."
+        "body": "The best launch deals won't wait."
       },
       "success": {
         "heading": "You're in.",
-        "text": "We'll email you before we open to the public."
+        "text": "We'll email you before we open."
       },
       "share": {
         "prompt": "Know someone who'd love CaratForUs? Share First Access with a friend.",

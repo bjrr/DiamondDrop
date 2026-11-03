@@ -1,0 +1,19 @@
+{%- comment -%}
+  First Access — the campaign landing page.
+
+  A .liquid template rather than .json because only a .liquid template can
+  choose its layout, and this page's defining property is that it does NOT
+  render the store chrome. `layout/first-access.liquid` is theme.liquid with
+  the header, footer and cart drawer removed.
+
+  The section itself stays a section, so its settings (hero image, the
+  success-state preview) remain editable from the theme editor.
+
+  NAMED -campaign RATHER THAN page.first-access.liquid because Shopify refuses
+  two templates with the same name and different extensions, and the earlier
+  page.first-access.json still exists on the theme. The page URL is unchanged
+  — the handle is what a visitor sees, not the template suffix.
+{%- endcomment -%}
+{% layout 'first-access' %}
+
+{% section 'first-access' %}
