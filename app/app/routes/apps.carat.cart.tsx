@@ -7,7 +7,10 @@ import type { CartLineMerchandiseInput } from "~/domain/cart/types";
 import { priceCart } from "~/domain/cart/pricing";
 import { CartCurrencyMismatchError, InvalidCartLineQuantityError } from "~/domain/cart/pricing";
 import { buildCartProxyResponseDto, type UnpurchasableCartLine } from "~/domain/cart/proxyResponseDto";
+import { summarisePricedCart, toMerchandiseLine } from "~/domain/cart/pricingSource";
 import { normalizeShopifyVariantGid } from "~/domain/cart/shopifyVariantId";
+import { adminClientForShop } from "~/shopify/admin/offlineClient.server";
+import { readCartLinePublishedPrices } from "~/shopify/admin/cartLinePublishedPrice.server";
 import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
 import { verifyAppProxySignature } from "~/shopify/proxy";
@@ -107,7 +110,10 @@ export async function action({ request }: ActionFunctionArgs) {
       buildCartProxyResponseDto(
         priceCart({ mode, currency: FALLBACK_CURRENCY, lines: [] }),
         new Map(),
-        []
+        [],
+        // An empty cart IS fully priced, so its zero is a fact rather than a
+        // failed lookup — the one case where zero is the honest answer.
+        { totalsArePublishable: true, bankPaymentAvailable: true, unpurchasableLineCount: 0 }
       ),
       { headers: { "Cache-Control": "private, no-store" } }
     );
@@ -126,6 +132,8 @@ export async function action({ request }: ActionFunctionArgs) {
   const variantByGid = new Map(variants.map((v) => [v.shopifyVariantGid as string, v]));
 
   const merchandiseLines: CartLineMerchandiseInput[] = [];
+  /** Lines with no pricing-engine record, resolved from Shopify after the loop. */
+  const needShopifyLookup: { requestLine: (typeof requestLines)[number]; gid: string }[] = [];
   const unpurchasable: UnpurchasableCartLine[] = [];
   const shopifyVariantIdByLineId = new Map<string, string>();
   let currency: string | null = null;
@@ -135,12 +143,11 @@ export async function action({ request }: ActionFunctionArgs) {
     const variant = variantByGid.get(gid);
 
     if (!variant) {
-      unpurchasable.push({
-        lineId: requestLine.lineId,
-        shopifyVariantId: requestLine.shopifyVariantId,
-        quantity: BigInt(requestLine.quantity),
-        reason: "unknown_variant",
-      });
+      // No pricing-engine record. The line may still be priceable from what
+      // Shopify already publishes -- a vendor mounting or an approved service.
+      // Deferred to a single batched read after this loop rather than one
+      // Shopify round trip per line.
+      needShopifyLookup.push({ requestLine, gid });
       continue;
     }
 
@@ -174,9 +181,62 @@ export async function action({ request }: ActionFunctionArgs) {
     shopifyVariantIdByLineId.set(requestLine.lineId, requestLine.shopifyVariantId);
   }
 
+  /**
+   * The Shopify-published sources (§3).
+   *
+   * ORDER MATTERS AND IS DELIBERATE. The pricing-engine path above ran first
+   * and its verdict is final, including `unsynced`: a registered variant whose
+   * price has never reached Shopify keeps following the locked sync-failure
+   * rules and is NOT quietly rescued by reading a metafield. This path only
+   * ever sees variants the pricing engine has no record of at all, so it
+   * cannot become a bypass that falsifies sync state (§12).
+   */
+  if (needShopifyLookup.length > 0) {
+    const resolvedCurrency = currency ?? FALLBACK_CURRENCY;
+    const admin = shop ? await adminClientForShop(shop) : null;
+    const lookup = admin
+      ? await readCartLinePublishedPrices(
+          admin,
+          needShopifyLookup.map((entry) => entry.gid),
+          resolvedCurrency
+        )
+      : { byVariantGid: new Map() };
+
+    for (const { requestLine, gid } of needShopifyLookup) {
+      const resolution = lookup.byVariantGid.get(gid);
+      if (!resolution || resolution.kind === "unresolved") {
+        unpurchasable.push({
+          lineId: requestLine.lineId,
+          shopifyVariantId: requestLine.shopifyVariantId,
+          quantity: BigInt(requestLine.quantity),
+          reason: resolution?.reason ?? "unknown_variant",
+        });
+        continue;
+      }
+      currency = currency ?? resolution.currency;
+      merchandiseLines.push(
+        toMerchandiseLine(
+          requestLine.lineId,
+          BigInt(requestLine.quantity),
+          resolution,
+          // These sources have no pricing-engine record; the id is only a key
+          // for the domain layer and never reaches a customer-facing field.
+          `shopify:${gid}`
+        )
+      );
+      shopifyVariantIdByLineId.set(requestLine.lineId, requestLine.shopifyVariantId);
+    }
+  }
+
   try {
     const priced = priceCart({ mode, currency: currency ?? FALLBACK_CURRENCY, lines: merchandiseLines });
-    const dto = buildCartProxyResponseDto(priced, shopifyVariantIdByLineId, unpurchasable);
+    const summary = summarisePricedCart(requestLines.length, unpurchasable.length);
+    const dto = buildCartProxyResponseDto(
+      priced,
+      shopifyVariantIdByLineId,
+      unpurchasable,
+      summary
+    );
 
     return Response.json(dto, {
       headers: {

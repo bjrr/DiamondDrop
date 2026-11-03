@@ -586,7 +586,7 @@
               merchandise total — same treatment as sections/main-cart-footer.liquid (A2).
             {%- endcomment -%}
             <p class="totals__total-value">
-              <span data-carat-money="cart-total" data-carat-mode-pending>
+              <span data-carat-money="cart-total" data-carat-shopify-minor-units="{{ cart.total_price }}" data-carat-mode-pending>
                 <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
                 <span aria-hidden="true">&nbsp;</span>
               </span>
@@ -600,7 +600,7 @@
             <div class="cart__bank-card-pricing-row">
               <dt>{{ 'sections.cart.pricing.card_total' | t }}:</dt>
               <dd>
-                <span data-carat-money="cart-card-total" data-carat-mode-pending>
+                <span data-carat-money="cart-card-total" data-carat-shopify-minor-units="{{ cart.total_price }}" data-carat-mode-pending>
                   <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
                   <span aria-hidden="true">&nbsp;</span>
                 </span>

@@ -1,3 +1,4 @@
+import type { PricedCartSummary } from "./pricingSource";
 import type { CartPaymentMode, PricedCart, PricedCartLine } from "./types";
 
 /**
@@ -55,7 +56,7 @@ export interface CartProxyUnpurchasableLineDto {
   readonly quantity: string;
   readonly purchasable: false;
   /** Human-safe reason only — never a rule id, cost or internal code. */
-  readonly reason: "unknown_variant" | "unsynced";
+  readonly reason: "unknown_variant" | "unsynced" | "unverified_price";
 }
 
 export type CartProxyLineDto = CartProxyPricedLineDto | CartProxyUnpurchasableLineDto;
@@ -64,10 +65,35 @@ export interface CartProxyResponseDto {
   readonly mode: CartPaymentMode;
   readonly currency: string;
   readonly lines: readonly CartProxyLineDto[];
-  readonly cardMerchandiseTotalMinorUnits: string;
-  readonly bankMerchandiseTotalMinorUnits: string;
-  readonly bankPaymentSavingsMinorUnits: string;
-  readonly activeMerchandiseTotalMinorUnits: string;
+  /**
+   * NULL, NEVER ZERO, WHEN THE CART IS NOT FULLY PRICED.
+   *
+   * A cart containing a line we could not price has an UNKNOWN total, and the
+   * difference between unknown and zero is the whole reason these fields are
+   * nullable. The previous shape emitted the sum of the lines it understood —
+   * so a cart holding a $520 mounting and a $50 service, neither of them
+   * recognised, published "0" four times and the storefront dutifully showed
+   * $0.00 on a $570 cart.
+   *
+   * Emitting null means a client cannot render a false zero even by ignoring
+   * `totalsArePublishable`: there is no zero in the payload to render. A
+   * genuinely empty cart is still zero, because an empty cart is fully priced.
+   */
+  readonly cardMerchandiseTotalMinorUnits: string | null;
+  readonly bankMerchandiseTotalMinorUnits: string | null;
+  readonly bankPaymentSavingsMinorUnits: string | null;
+  readonly activeMerchandiseTotalMinorUnits: string | null;
+  /** False when any requested line could not be priced. */
+  readonly totalsArePublishable: boolean;
+  /**
+   * Whether Bank Payment may be offered for this cart.
+   *
+   * Bank Payment is settled by hand against a figure we quoted, so it is
+   * never offered on a cart whose total could not be established. The
+   * storefront must disable the action and say so rather than leaving a
+   * button that does nothing.
+   */
+  readonly bankPaymentAvailable: boolean;
 }
 
 /** Builds exactly one priced line's DTO. Every field is copied by name — no spread. */
@@ -92,7 +118,7 @@ export interface UnpurchasableCartLine {
   readonly lineId: string;
   readonly shopifyVariantId: string;
   readonly quantity: bigint;
-  readonly reason: "unknown_variant" | "unsynced";
+  readonly reason: "unknown_variant" | "unsynced" | "unverified_price";
 }
 
 export function buildUnpurchasableLineDto(line: UnpurchasableCartLine): CartProxyUnpurchasableLineDto {
@@ -118,7 +144,14 @@ export function buildUnpurchasableLineDto(line: UnpurchasableCartLine): CartProx
 export function buildCartProxyResponseDto(
   priced: PricedCart,
   shopifyVariantIdByLineId: ReadonlyMap<string, string>,
-  unpurchasable: readonly UnpurchasableCartLine[]
+  unpurchasable: readonly UnpurchasableCartLine[],
+  /**
+   * Whether every requested line was priced. Supplied by the caller, which is
+   * the only place that knows how many lines were asked about — this function
+   * sees the priced ones and the failed ones but not a count it can trust if
+   * the caller dropped one.
+   */
+  summary: PricedCartSummary
 ): CartProxyResponseDto {
   const pricedLineDtos: CartProxyLineDto[] = priced.lines.map((line) => {
     const shopifyVariantId = shopifyVariantIdByLineId.get(line.lineId);
@@ -133,13 +166,21 @@ export function buildCartProxyResponseDto(
   });
   const unpurchasableDtos = unpurchasable.map(buildUnpurchasableLineDto);
 
+  // One decision, applied to all four figures together: either every
+  // cart-level total is publishable or none is. A partially stated total is
+  // the same lie in a smaller font.
+  const total = (value: bigint) =>
+    summary.totalsArePublishable ? value.toString() : null;
+
   return {
     mode: priced.mode,
     currency: priced.currency,
     lines: [...pricedLineDtos, ...unpurchasableDtos],
-    cardMerchandiseTotalMinorUnits: priced.cardMerchandiseTotalMinorUnits.toString(),
-    bankMerchandiseTotalMinorUnits: priced.bankMerchandiseTotalMinorUnits.toString(),
-    bankPaymentSavingsMinorUnits: priced.bankPaymentSavingsMinorUnits.toString(),
-    activeMerchandiseTotalMinorUnits: priced.activeMerchandiseTotalMinorUnits.toString(),
+    cardMerchandiseTotalMinorUnits: total(priced.cardMerchandiseTotalMinorUnits),
+    bankMerchandiseTotalMinorUnits: total(priced.bankMerchandiseTotalMinorUnits),
+    bankPaymentSavingsMinorUnits: total(priced.bankPaymentSavingsMinorUnits),
+    activeMerchandiseTotalMinorUnits: total(priced.activeMerchandiseTotalMinorUnits),
+    totalsArePublishable: summary.totalsArePublishable,
+    bankPaymentAvailable: summary.bankPaymentAvailable,
   };
 }

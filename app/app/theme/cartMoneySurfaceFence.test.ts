@@ -114,8 +114,39 @@ function allThemeLiquidFiles(): string[] {
   return LIQUID_ROOT_DIRS.flatMap((dir) => walkLiquidFiles(join(THEME_ROOT, dir)));
 }
 
+/**
+ * The fail-safe exception: a Shopify amount handed over as DATA, never shown.
+ *
+ * WHY THIS IS NOT A HOLE IN THE RULE. L1 exists because a Shopify cart money
+ * object is a Card-basis figure, so DISPLAYING one would show a Bank-mode
+ * customer the Card price "with nothing to indicate the mismatch". An amount
+ * in `data-carat-shopify-minor-units` displays nothing: the node keeps its
+ * `data-carat-mode-pending` placeholder, and `cart.js` substitutes the value
+ * only when the mode-aware pricing layer reports that it could not price the
+ * cart at all — the state in which there is no Bank figure to mismatch, Bank
+ * Payment has been withdrawn with a visible explanation, and Shopify's own
+ * amount is the only true number available.
+ *
+ * That state used to render $0.00 on a $570 cart, which is the failure this
+ * attribute exists to prevent. Showing the real Card amount while saying Bank
+ * pricing is unavailable is strictly better than inventing a zero.
+ *
+ * NARROW ON PURPOSE. Only this one attribute name, only with a Liquid output
+ * tag as its whole value. Any other use — in text, in a different attribute,
+ * concatenated into a string — still fails the fence.
+ */
+const FAIL_SAFE_ATTRIBUTE =
+  /\sdata-carat-shopify-minor-units="\{\{\s*[a-z_.]+\s*\}\}"/g;
+
+function withoutFailSafeAttributes(source: string): string {
+  return source.replace(FAIL_SAFE_ATTRIBUTE, " ");
+}
+
 function matchedObjectNames(source: string): string[] {
-  return CART_MONEY_OBJECT_PATTERNS.filter(({ pattern }) => pattern.test(source)).map(({ name }) => name);
+  const display = withoutFailSafeAttributes(source);
+  return CART_MONEY_OBJECT_PATTERNS.filter(({ pattern }) => pattern.test(display)).map(
+    ({ name }) => name
+  );
 }
 
 describe("L1 fence — no cart money surface renders a Shopify cart money object directly", () => {

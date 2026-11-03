@@ -339,6 +339,22 @@ window.CaratCartPricing = (function () {
     }
   }
 
+
+  /**
+   * The cart-level kinds, and which of them Shopify can stand in for.
+   *
+   * Shopify's own cart total is a CARD-basis figure, so it is a truthful
+   * substitute for the card-basis kinds when our pricing layer cannot answer.
+   * It is not a substitute for a Bank Payment total or a saving: those have no
+   * Shopify equivalent, and inventing one would fabricate a discount.
+   */
+  var CART_LEVEL_KINDS = ['cart-subtotal', 'cart-total', 'cart-card-total', 'cart-bank-total', 'cart-saving'];
+  var SHOPIFY_SUBSTITUTABLE_KINDS = ['cart-subtotal', 'cart-total', 'cart-card-total'];
+
+  function isCartLevelKind(kind) {
+    return CART_LEVEL_KINDS.indexOf(kind) !== -1;
+  }
+
   function applyDtoToDocument(dto) {
     // L3 applies to every "hidden while the cart is in Bank mode" control
     // exactly as it does to money: a full drawer/notification innerHTML
@@ -361,6 +377,12 @@ window.CaratCartPricing = (function () {
     if (dto && (dto.mode === 'bank' || dto.mode === 'card')) {
       syncModeRedundantControls(dto.mode);
     }
+
+    // Bank Payment is settled by hand against a figure we quoted, so the
+    // action is withdrawn — visibly, with a reason — on any cart whose total
+    // we could not establish. A button that stays enabled and silently does
+    // nothing is the behaviour this replaces.
+    syncBankPaymentAvailability(dto);
 
     // The Card Checkout confirm panel does NOT get the same treatment: its
     // correct resting state is not a pure function of mode (a card-mode
@@ -397,6 +419,40 @@ window.CaratCartPricing = (function () {
       // corrects it. selectDisplayMinorUnits returns this literal `null`
       // ONLY from its "line not found" branches.
       if (minorUnits === null) {
+        /**
+         * THE $0.00 GUARD, CLIENT SIDE.
+         *
+         * A cart-level total is null when the proxy could not price every
+         * line. It used to arrive as "0" and get rendered as $0.00 on a cart
+         * Shopify valued at $570 — a false price, which is worse than no
+         * price. The server now withholds the figure; this decides what the
+         * customer sees instead.
+         *
+         * For the card-basis kinds that is Shopify's own cart total, carried
+         * in the markup by Liquid: a true amount from the authority that will
+         * actually charge it. For the Bank Payment total and the saving there
+         * is no truthful substitute, so they read as unavailable. Neither path
+         * can produce a zero.
+         */
+        if (isCartLevelKind(kind)) {
+          var fallback = node.getAttribute('data-carat-shopify-minor-units');
+          if (SHOPIFY_SUBSTITUTABLE_KINDS.indexOf(kind) !== -1 && fallback != null) {
+            var shopifyFormatted = formatMoneyFromMinorUnits(fallback, dto.currency);
+            if (shopifyFormatted != null) {
+              var fallbackLabel = node.getAttribute('data-carat-live-region-label');
+              node.textContent = fallbackLabel
+                ? fallbackLabel + ': ' + shopifyFormatted
+                : shopifyFormatted;
+              node.removeAttribute('data-carat-mode-pending');
+              node.removeAttribute('data-carat-mode-error');
+              return;
+            }
+          }
+          // No truthful figure available for this kind. Say so; never zero.
+          setNodeUnpurchasableState(node, kind);
+          return;
+        }
+
         // Terminal vs transient. A line that IS present in the DTO and is
         // explicitly unpurchasable will never resolve; anything else (a
         // stale or removed line id) genuinely may on the next apply().
@@ -435,6 +491,34 @@ window.CaratCartPricing = (function () {
       node.removeAttribute('data-carat-mode-pending');
       node.removeAttribute('data-carat-mode-error');
     });
+  }
+
+  /**
+   * Withdraw or restore the Bank Payment action.
+   *
+   * Disabled AND explained. The previous behaviour left the control enabled
+   * on an unpriceable cart, where clicking it produced no dialog, no error
+   * and no navigation — the customer had no way to tell whether they had
+   * mis-clicked. Card checkout is untouched: Shopify can still charge the
+   * real amount even when our Bank figure is unavailable.
+   */
+  function syncBankPaymentAvailability(dto) {
+    var available = !dto || dto.bankPaymentAvailable !== false;
+    var buttons = document.querySelectorAll('#bank-payment-checkout, [data-carat-checkout-action="bank-payment"]');
+    for (var i = 0; i < buttons.length; i += 1) {
+      var button = buttons[i];
+      button.disabled = !available;
+      if (available) {
+        button.removeAttribute('aria-describedby');
+        button.removeAttribute('data-carat-bank-unavailable');
+      } else {
+        button.setAttribute('data-carat-bank-unavailable', 'true');
+      }
+    }
+    var notes = document.querySelectorAll('[data-carat-bank-unavailable-note]');
+    for (var j = 0; j < notes.length; j += 1) {
+      notes[j].hidden = available;
+    }
   }
 
   // Failure path (R12: "never show a Card figure ... even for 200ms"). Only

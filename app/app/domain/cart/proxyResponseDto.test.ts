@@ -1,10 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import { priceCart } from "./pricing";
+import { summarisePricedCart } from "./pricingSource";
 import { buildCartProxyResponseDto, buildUnpurchasableLineDto } from "./proxyResponseDto";
 import type { CartProxyPricedLineDto } from "./proxyResponseDto";
 import type { PricedCart } from "./types";
 import type { CartLineMerchandiseInput } from "./types";
+
+/**
+ * The summary for a fully priced cart.
+ *
+ * Every pre-existing case in this file describes a cart whose lines all
+ * priced, so they all pass this. The cases that do NOT -- where a line failed
+ * to resolve -- assert the null-totals guard explicitly further down, because
+ * that is the behaviour worth stating rather than inheriting.
+ */
+const COMPLETE = summarisePricedCart(1, 0);
 
 /**
  * THE RESPONSE FENCE — ruling R10
@@ -79,7 +90,8 @@ describe("R10 fence — the App Proxy response DTO never leaks internal pricing 
         ["A", "gid://shopify/ProductVariant/1"],
         ["B", "gid://shopify/ProductVariant/2"],
       ]),
-      []
+      [],
+      COMPLETE
     );
 
     assertNoForbiddenFields(dto);
@@ -100,7 +112,8 @@ describe("R10 fence — the App Proxy response DTO never leaks internal pricing 
         ["A", "gid://shopify/ProductVariant/1"],
         ["B", "gid://shopify/ProductVariant/2"],
       ]),
-      []
+      [],
+      COMPLETE
     );
 
     const [lineA, lineB] = dto.lines as [CartProxyPricedLineDto, CartProxyPricedLineDto];
@@ -131,7 +144,8 @@ describe("R10 fence — the App Proxy response DTO never leaks internal pricing 
         ["A", "gid://shopify/ProductVariant/1"],
         ["B", "gid://shopify/ProductVariant/2"],
       ]),
-      []
+      [],
+      COMPLETE
     );
     const [lineA, lineB] = dto.lines as [CartProxyPricedLineDto, CartProxyPricedLineDto];
 
@@ -157,8 +171,12 @@ describe("R10 fence — the App Proxy response DTO never leaks internal pricing 
       (sum, l) => sum + BigInt((l as CartProxyPricedLineDto).lineBankBasisTotalMinorUnits),
       0n
     );
-    expect(cardSum).toBe(BigInt(dto.cardMerchandiseTotalMinorUnits));
-    expect(bankSum).toBe(BigInt(dto.bankMerchandiseTotalMinorUnits));
+    // Non-null because this cart is fully priced. The totals are nullable
+    // precisely so that an INCOMPLETE cart cannot state one; a complete cart
+    // always does.
+    expect(dto.totalsArePublishable).toBe(true);
+    expect(cardSum).toBe(BigInt(dto.cardMerchandiseTotalMinorUnits as string));
+    expect(bankSum).toBe(BigInt(dto.bankMerchandiseTotalMinorUnits as string));
   });
 
   it("an unpurchasable line's DTO never carries a price field", () => {
@@ -180,11 +198,81 @@ describe("R10 fence — the App Proxy response DTO never leaks internal pricing 
     const dto = buildCartProxyResponseDto(
       priced,
       new Map([["A", "gid://shopify/ProductVariant/1"]]),
-      [{ lineId: "B", shopifyVariantId: "gid://shopify/ProductVariant/2", quantity: 1n, reason: "unknown_variant" }]
+      [{ lineId: "B", shopifyVariantId: "gid://shopify/ProductVariant/2", quantity: 1n, reason: "unknown_variant" }],
+      // Two lines requested, one of them unpriced. Describing this cart as
+      // complete would be the exact falsehood the guard exists to stop.
+      summarisePricedCart(2, 1)
     );
 
     assertNoForbiddenFields(dto);
     expect(dto.lines).toHaveLength(2);
+  });
+
+  describe("the $0.00 guard", () => {
+    /**
+     * THE DEFECT THIS CLOSES, STATED AS A TEST.
+     *
+     * A live cart held a $520 mounting and a $50 service. Neither resolved, so
+     * the totals summed to zero and the storefront showed $0.00 on a $570
+     * cart, with a Bank Payment button that silently did nothing. A zero
+     * total is only ever correct for a cart that is genuinely empty.
+     */
+    it("never states a total for a cart with an unpriced line", () => {
+      const priced = priceCart({ mode: "card", currency: USD, lines: [line({ lineId: "A" })] });
+      const dto = buildCartProxyResponseDto(
+        priced,
+        new Map([["A", "gid://shopify/ProductVariant/1"]]),
+        [{ lineId: "B", shopifyVariantId: "gid://shopify/ProductVariant/2", quantity: 1n, reason: "unknown_variant" }],
+        summarisePricedCart(2, 1)
+      );
+
+      expect(dto.cardMerchandiseTotalMinorUnits).toBeNull();
+      expect(dto.bankMerchandiseTotalMinorUnits).toBeNull();
+      expect(dto.bankPaymentSavingsMinorUnits).toBeNull();
+      expect(dto.activeMerchandiseTotalMinorUnits).toBeNull();
+      expect(dto.totalsArePublishable).toBe(false);
+    });
+
+    it("emits no zero anywhere in the body for an incomplete cart", () => {
+      // Not just the typed fields: the SERIALISED body must contain no
+      // cart-level "0" for a client to pick up by ignoring the flag.
+      const priced = priceCart({ mode: "bank", currency: USD, lines: [] });
+      const dto = buildCartProxyResponseDto(
+        priced,
+        new Map(),
+        [{ lineId: "B", shopifyVariantId: "gid://shopify/ProductVariant/2", quantity: 1n, reason: "unsynced" }],
+        summarisePricedCart(1, 1)
+      );
+      const json = JSON.stringify(dto);
+      expect(json).toContain('"cardMerchandiseTotalMinorUnits":null');
+      expect(json).toContain('"bankMerchandiseTotalMinorUnits":null');
+      expect(json).not.toContain('"cardMerchandiseTotalMinorUnits":"0"');
+      expect(json).not.toContain('"activeMerchandiseTotalMinorUnits":"0"');
+    });
+
+    it("refuses Bank Payment for a cart it could not fully price", () => {
+      const priced = priceCart({ mode: "bank", currency: USD, lines: [line({ lineId: "A" })] });
+      const dto = buildCartProxyResponseDto(
+        priced,
+        new Map([["A", "gid://shopify/ProductVariant/1"]]),
+        [{ lineId: "B", shopifyVariantId: "gid://shopify/ProductVariant/2", quantity: 1n, reason: "unverified_price" }],
+        summarisePricedCart(2, 1)
+      );
+      expect(dto.bankPaymentAvailable).toBe(false);
+    });
+
+    it("still states zero for a genuinely empty cart", () => {
+      // An empty cart IS fully priced, so its zero is a fact. Withholding it
+      // here would make an ordinary empty cart look broken.
+      const priced = priceCart({ mode: "card", currency: USD, lines: [] });
+      const dto = buildCartProxyResponseDto(priced, new Map(), [], {
+        totalsArePublishable: true,
+        bankPaymentAvailable: true,
+        unpurchasableLineCount: 0,
+      });
+      expect(dto.cardMerchandiseTotalMinorUnits).toBe("0");
+      expect(dto.totalsArePublishable).toBe(true);
+    });
   });
 
   it("both payment modes and boundary-tier prices produce a clean response", () => {
@@ -203,7 +291,8 @@ describe("R10 fence — the App Proxy response DTO never leaks internal pricing 
           ["A", "gid://shopify/ProductVariant/1"],
           ["B", "gid://shopify/ProductVariant/2"],
         ]),
-        []
+        [],
+        COMPLETE
       );
       assertNoForbiddenFields(dto);
     }
@@ -251,7 +340,7 @@ describe("R10 fence — the App Proxy response DTO never leaks internal pricing 
       activeMerchandiseTotalMinorUnits: 40_000n,
     } as unknown as PricedCart;
 
-    const dto = buildCartProxyResponseDto(contaminatedCart, new Map([["A", "gid://shopify/ProductVariant/1"]]), []);
+    const dto = buildCartProxyResponseDto(contaminatedCart, new Map([["A", "gid://shopify/ProductVariant/1"]]), [], COMPLETE);
 
     assertNoForbiddenFields(dto);
     // And structurally: the built line has exactly the allowlisted keys, no more.
@@ -275,6 +364,6 @@ describe("R10 fence — the App Proxy response DTO never leaks internal pricing 
 
   it("throws rather than silently omitting a line when no shopifyVariantId was supplied for a priced line", () => {
     const priced = priceCart({ mode: "card", currency: USD, lines: [line({ lineId: "A" })] });
-    expect(() => buildCartProxyResponseDto(priced, new Map(), [])).toThrow();
+    expect(() => buildCartProxyResponseDto(priced, new Map(), [], COMPLETE)).toThrow();
   });
 });

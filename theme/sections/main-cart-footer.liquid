@@ -67,7 +67,7 @@
                     in either mode. See the 2B-3 handoff for the "always pending" rationale.
                   {%- endcomment -%}
                   <p class="totals__total-value">
-                    <span data-carat-money="cart-total" data-carat-mode-pending>
+                    <span data-carat-money="cart-total" data-carat-shopify-minor-units="{{ cart.total_price }}" data-carat-mode-pending>
                       <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
                       <span aria-hidden="true">&nbsp;</span>
                     </span>
@@ -84,7 +84,7 @@
                   <div class="cart__bank-card-pricing-row">
                     <dt>{{ 'sections.cart.pricing.card_total' | t }}:</dt>
                     <dd>
-                      <span data-carat-money="cart-card-total" data-carat-mode-pending>
+                      <span data-carat-money="cart-card-total" data-carat-shopify-minor-units="{{ cart.total_price }}" data-carat-mode-pending>
                         <span class="visually-hidden">{{ 'sections.cart.pricing.calculating' | t }}</span>
                         <span aria-hidden="true">&nbsp;</span>
                       </span>
@@ -292,6 +292,22 @@
                 <p id="bank-payment-checkout-note" class="caption-large rte">
                   {{ 'sections.cart.bank_payment_checkout_note' | t }}
                 </p>
+                {%- comment -%}
+                  Shown only when the Bank/Card pricing layer could not price
+                  this cart. Hidden by default and revealed by cart.js from the
+                  proxy's own `bankPaymentAvailable`, so a disabled button is
+                  never left unexplained — the customer is told why, and that
+                  Card Checkout still works.
+                {%- endcomment -%}
+                <p
+                  class="caption-large rte cart__bank-unavailable"
+                  data-carat-bank-unavailable-note
+                  role="status"
+                  hidden
+                >
+                  {{ 'sections.cart.bank_payment_unavailable' | t }}
+                </p>
+
               </div>
 
               {%- comment -%}

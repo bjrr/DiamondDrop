@@ -714,7 +714,8 @@
         "item_unavailable_heading": "Price unavailable",
         "item_unavailable_supporting_text": "This item is not currently available for purchase. Please check back later or contact us for assistance.",
         "checkout_reprice_failed": "We could not switch your cart to Card pricing. Please try again.",
-        "switch_to_bank_failed": "We could not switch your cart to Bank Payment pricing. Please try again."
+        "switch_to_bank_failed": "We could not switch your cart to Bank Payment pricing. Please try again.",
+        "total_unavailable": "Total unavailable"
       },
       "empty": "Your cart is empty",
       "product_disclosure": "Product disclosure",
@@ -740,7 +741,8 @@
       "login": {
         "title": "Have an account?",
         "paragraph_html": "<a href=\"{{ link }}\" class=\"link underlined-link\">Log in</a> to check out faster."
-      }
+      },
+      "bank_payment_unavailable": "Bank Payment pricing is temporarily unavailable for this cart. Card Checkout is unaffected, or please try again shortly."
     },
     "footer": {
       "payment": "Payment methods"
