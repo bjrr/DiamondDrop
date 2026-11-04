@@ -119,12 +119,37 @@ embedded = true
 #                    `order_lookup_failed` — fail-closed, so nothing wrong is
 #                    ever written, but the features simply do not work.
 #
-#                    READ ONLY, AND ONLY BECAUSE OWNERSHIP DEMANDS IT. The app
-#                    never creates, edits or deletes a customer;
-#                    `write_customers` was explicitly REFUSED by the owner
-#                    when it was wanted merely to automate test fixtures, and
-#                    that refusal stands. Live gates use customers created by
-#                    hand instead.
+#                    ONLY BECAUSE OWNERSHIP DEMANDS IT. `write_customers` was
+#                    explicitly REFUSED by the owner on 2026-09-29 when it was
+#                    wanted merely to automate test fixtures. THAT REFUSAL
+#                    STILL STANDS FOR THAT PURPOSE: live gates use customers
+#                    created by hand, and no test fixture may be automated
+#                    through this scope. See the separate entry below for the
+#                    one narrow purpose it was later granted for.
+#   write_customers  Owner-directed 2026-11-04, and NARROWER than the 2026-09-29
+#                    refusal above rather than a reversal of it.
+#
+#                    A real signup proved that Shopify's native
+#                    `{% form 'customer' %}` DISCARDS `contact[phone]`. The
+#                    owner's instruction was to store the optional First Access
+#                    mobile number "into Shopify's real customer `phone` field",
+#                    with "Shopify as the only source of truth" and explicitly
+#                    no second customer database or CRM. There is no way to
+#                    satisfy that without a customer write; the scope is the
+#                    feature, not a convenience.
+#
+#                    THE ONLY EXERCISED SURFACE is
+#                    `firstAccessCustomer.server.ts`: `customerUpdate` for
+#                    first name, last name and phone, plus `tagsAdd`. It
+#                    cannot create a customer, cannot delete one, cannot clear
+#                    a field, cannot remove a tag, and refuses any customer not
+#                    already carrying `first-access`. Those limits are pinned
+#                    by `firstAccessPhoneFence.test.ts`, which fails if a
+#                    create/delete mutation or `CustomerInput.tags` appears.
+#
+#                    NOT a licence to automate test fixtures — see above. Not a
+#                    licence to set SMS marketing consent, which the same fence
+#                    forbids outright.
 #
 #                    Do NOT "solve" a future scope problem by trusting a
 #                    browser-supplied customer id, email, or order number:
@@ -162,7 +187,7 @@ embedded = true
 #                     write_metaobjects is deliberately NOT requested. The
 #                     app writes its own app-owned entries without it, and
 #                     it never writes merchant-owned metaobjects.
-scopes = "read_products,write_products,read_inventory,read_customers,write_draft_orders,read_orders,write_payment_terms,write_orders,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_metaobjects"
+scopes = "read_products,write_products,read_inventory,read_customers,write_customers,write_draft_orders,read_orders,write_payment_terms,write_orders,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_metaobjects"
 optional_scopes = [ ]
 
 # Token exchange rather than the legacy OAuth redirect dance.

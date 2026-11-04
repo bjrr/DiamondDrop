@@ -29,6 +29,20 @@
   /** Applied to every signup from this page, alongside any interests. */
   var BASE_TAG = 'first-access';
 
+  /**
+   * App-proxy route that stores the one field Shopify's customer form throws
+   * away. See `app/routes/apps.carat.first-access-phone.tsx`.
+   */
+  var PHONE_ENDPOINT = '/apps/carat/first-access-phone';
+  /**
+   * Survives the page reload on the no-JS-fetch fallback path, and ONLY that.
+   * Written immediately before submit, read and deleted once. sessionStorage
+   * rather than localStorage so it cannot outlive the tab, and the key is
+   * cleared before the request is even sent so a failure cannot leave a
+   * mobile number sitting in storage.
+   */
+  var HANDOFF_KEY = 'caratFirstAccessPending';
+
   function strings() {
     return window.caratFirstAccessStrings || {};
   }
@@ -52,6 +66,96 @@
       if (value && tags.indexOf(value) === -1) tags.push(value);
     }
     return tags.join(',');
+  }
+
+  /**
+   * Everything the proxy needs, read off the form.
+   *
+   * Returns null when there is no phone to store — the entire reason this
+   * request exists — so a signup without one makes no extra call at all.
+   */
+  function phoneSubmission(form) {
+    function value(name) {
+      var field = form.querySelector('input[name="' + name + '"]');
+      return field ? String(field.value || '').trim() : '';
+    }
+    var phone = value('contact[phone]');
+    if (phone === '') return null;
+
+    var interests = [];
+    var chosen = form.querySelectorAll('[data-carat-fa-interest]:checked');
+    for (var i = 0; i < chosen.length; i += 1) {
+      var tag = String(chosen[i].value || '').trim();
+      if (tag) interests.push(tag);
+    }
+    return {
+      email: value('contact[email]'),
+      firstName: value('contact[first_name]'),
+      lastName: value('contact[last_name]'),
+      phone: phone,
+      interests: interests,
+    };
+  }
+
+  /**
+   * Hand the number to the app, after Shopify has created the customer.
+   *
+   * ORDER MATTERS AND IS NOT NEGOTIABLE. The app can only update a customer
+   * that already exists; it deliberately cannot create one, because this
+   * endpoint has no captcha in front of it. So this runs only once the native
+   * post has come back successful.
+   *
+   * FIRE AND FORGET. The signup has already succeeded by this point. If the
+   * request fails the visitor is not told and nothing is retried — a failed
+   * phone write must never make a successful signup look broken.
+   */
+  function sendPhone(submission) {
+    if (!submission || typeof window.fetch !== 'function') return;
+    fetch(PHONE_ENDPOINT, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(submission),
+      keepalive: true,
+    }).catch(function () {
+      /* Nothing to say and nothing to do. See above. */
+    });
+  }
+
+  /** Stash for the reload path, where the form is gone by the time we can send. */
+  function rememberForReload(submission) {
+    if (!submission) return;
+    try {
+      window.sessionStorage.setItem(HANDOFF_KEY, JSON.stringify(submission));
+    } catch (e) {
+      /* Private mode, or storage full. The phone is simply not captured. */
+    }
+  }
+
+  /**
+   * Send anything left behind by a reload.
+   *
+   * Only ever runs on the success panel: a stash present while the form is
+   * still on screen means the post failed, and sending the number for a
+   * signup that did not happen would be writing to a customer who does not
+   * exist.
+   */
+  function flushReloadHandoff(signup) {
+    if (!signup.querySelector('[data-carat-fa-success]')) return;
+    var raw;
+    try {
+      raw = window.sessionStorage.getItem(HANDOFF_KEY);
+      // Cleared BEFORE the send, so a failure cannot leave it in storage.
+      window.sessionStorage.removeItem(HANDOFF_KEY);
+    } catch (e) {
+      return;
+    }
+    if (!raw) return;
+    try {
+      sendPhone(JSON.parse(raw));
+    } catch (e) {
+      /* Corrupt stash. Already removed. */
+    }
   }
 
   function showError(form, message) {
@@ -137,7 +241,13 @@
       }
       clearError(form);
 
+      // Captured BEFORE anything else can touch the form, because both paths
+      // below destroy it — one by replacing the markup, the other by
+      // navigating away.
+      var submission = phoneSubmission(form);
+
       if (typeof window.fetch !== 'function' || typeof FormData !== 'function') {
+        rememberForReload(submission);
         return; // Native submit. The page still works.
       }
 
@@ -161,10 +271,15 @@
         })
         .then(function (html) {
           if (!renderSuccess(signup, html)) throw new Error('no_success_panel');
+          // The customer now exists. Only now may the phone be sent.
+          sendPhone(submission);
         })
         .catch(function () {
           // Hand the submission back to the browser rather than leaving the
           // visitor with a dead button: a conversion is worth a page reload.
+          // The number rides along in sessionStorage, since this page is
+          // about to be replaced.
+          rememberForReload(submission);
           if (button) {
             button.disabled = false;
             if (original !== null) button.textContent = original;
@@ -267,6 +382,8 @@
         wireForm(signups[j]);
         // Present already when Shopify rendered the success state server-side.
         wireShare(signups[j]);
+        // ...which is also the one case where a number is waiting to be sent.
+        flushReloadHandoff(signups[j]);
       }
     }
   }
