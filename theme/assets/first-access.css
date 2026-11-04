@@ -42,7 +42,7 @@
   /* One measure for the whole page, so nothing has a bespoke width. */
   --fa-measure: 62rem;
   /* How much of the phone screen the photograph keeps for itself. */
-  --fa-band: 14rem;
+  --fa-band: 11rem;
   --fa-gutter: 2.4rem;
 
   background: var(--fa-ground);
@@ -66,7 +66,7 @@
 /* --------------------------------------------------------------- type */
 
 .carat-fa__eyebrow {
-  margin: 0 0 2.4rem;
+  margin: 0 0 1.8rem;
   font-size: 1.2rem;
   font-weight: 500;
   letter-spacing: 0.26em;
@@ -91,7 +91,7 @@
 }
 
 .carat-fa__lede {
-  margin: 2rem 0 0;
+  margin: 1.6rem 0 0;
   max-width: 54ch;
   font-size: clamp(1.5rem, 2.1vw, 1.8rem);
   line-height: 1.62;
@@ -107,7 +107,7 @@
 /* ------------------------------------------------------------- signup */
 
 .carat-fa__signup {
-  margin-top: 3.6rem;
+  margin-top: 2rem;
   max-width: 54rem;
 }
 
@@ -126,10 +126,29 @@
   grid-template-columns: 1fr;
 }
 
+/* First name and last name share a row once there is width for two readable
+   fields, and stack below that. Email and phone always span the full width:
+   an email address is the longest thing anyone types here, and a phone
+   number next to a name reads as an afterthought. */
 @media screen and (min-width: 600px) {
-  .carat-fa__fields {
-    grid-template-columns: 1.4fr 1fr;
+  .carat-fa__fields--pair {
+    grid-template-columns: 1fr 1fr;
   }
+}
+
+.carat-fa__field + .carat-fa__field,
+.carat-fa__field + .carat-fa__fields,
+.carat-fa__fields + .carat-fa__field,
+.carat-fa__fields + .carat-fa__fields {
+  margin-top: 1.2rem;
+}
+
+/* The rule above spaces the stacked blocks, and it was also landing on the
+   second field INSIDE the name pair — which pushed "Last name" half a field
+   lower than "First name". The pair is a grid and already has its own gap,
+   so inside it the margin is cancelled. */
+.carat-fa__fields--pair > .carat-fa__field + .carat-fa__field {
+  margin-top: 0;
 }
 
 .carat-fa__field {
@@ -147,7 +166,7 @@
 
 .carat-fa__label--legend {
   padding: 0;
-  margin-bottom: 1.2rem;
+  margin-bottom: 0.8rem;
 }
 
 .carat-fa__input {
@@ -180,13 +199,13 @@
 .carat-fa__interests {
   border: 0;
   padding: 0;
-  margin: 2.4rem 0 0;
+  margin: 1.8rem 0 0;
 }
 
 .carat-fa__chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.8rem;
+  gap: 0.6rem;
 }
 
 .carat-fa__chip {
@@ -231,7 +250,7 @@
 /* --------------------------------------------------------------- cta */
 
 .carat-fa__cta {
-  margin-top: 2.4rem;
+  margin-top: 1.6rem;
   width: 100%;
   min-height: 5.6rem;
   padding: 1.6rem 2.4rem;
@@ -270,7 +289,7 @@
 }
 
 .carat-fa__benefit {
-  margin: 1.6rem 0 0;
+  margin: 1.2rem 0 0;
   max-width: 52ch;
   font-size: 1.3rem;
   line-height: 1.6;
@@ -305,7 +324,7 @@
   display: flex;
   align-items: center;
   min-height: min(88vh, 82rem);
-  padding: 4.8rem var(--fa-gutter) 5.6rem;
+  padding: 2.4rem var(--fa-gutter) 3.6rem;
   isolation: isolate;
   /* The ground beneath the photograph, so the hero never flashes charcoal
      while the image decodes. */
@@ -351,7 +370,7 @@
 }
 
 .carat-fa__logo {
-  margin: 0 0 3.2rem;
+  margin: 0 0 2.2rem;
 }
 
 .carat-fa__logo-img {
@@ -370,8 +389,9 @@
 
 .carat-fa__hero .carat-fa__display {
   color: var(--fa-ink-dark);
-  /* The dominant element on the screen, as asked. */
-  font-size: clamp(3.6rem, 7.4vw, 7.2rem);
+  /* Still the dominant element, with the ceiling brought down so two
+     lines of it plus a five-field form clear a 900px laptop screen. */
+  font-size: clamp(3.4rem, 6.1vw, 5.8rem);
 }
 
 .carat-fa__hero .carat-fa__lede {
@@ -437,6 +457,49 @@
 
 .carat-fa__hero .carat-fa__error {
   color: #8c2f2f;
+}
+
+/* ------------------------------------------- short laptop screens
+
+   A 1280x800 MacBook Air is a desktop with a mobile amount of height. With
+   five fields and two rows of chips the button landed at 883 — fine on a
+   1440x900 screen, 83px below the fold on this one. Measured, not assumed,
+   and corrected by height rather than by width: a wide window is not
+   necessarily a tall one. */
+@media screen and (min-width: 750px) and (max-height: 860px) {
+  .carat-fa__hero {
+    padding-top: 1.4rem;
+    padding-bottom: 2.4rem;
+  }
+
+  .carat-fa__logo {
+    margin-bottom: 1.6rem;
+  }
+
+  .carat-fa__logo-img {
+    width: 16rem;
+  }
+
+  .carat-fa__eyebrow {
+    margin-bottom: 1.2rem;
+  }
+
+  .carat-fa__hero .carat-fa__display {
+    font-size: clamp(3rem, 4.2vw, 4.4rem);
+  }
+
+  .carat-fa__hero .carat-fa__lede {
+    margin-top: 1.2rem;
+    font-size: 1.5rem;
+  }
+
+  .carat-fa__signup {
+    margin-top: 1.6rem;
+  }
+
+  .carat-fa__interests {
+    margin-top: 1.2rem;
+  }
 }
 
 /* ------------------------------------------------------------ teasers */
@@ -696,13 +759,15 @@
 
   /* A short fade at the top edge of the band so the photograph emerges from
      the ivory rather than starting at a hard line. */
+  /* The band is 110px now rather than 140px, so the fade has to finish
+     sooner or it eats the whole photograph and leaves a pale smudge. */
   .carat-fa__hero-veil {
     background: linear-gradient(
       180deg,
       rgba(252, 251, 248, 1) 0%,
-      rgba(252, 251, 248, 0.72) 26%,
-      rgba(252, 251, 248, 0.18) 58%,
-      rgba(252, 251, 248, 0) 100%
+      rgba(252, 251, 248, 0.6) 18%,
+      rgba(252, 251, 248, 0.1) 38%,
+      rgba(252, 251, 248, 0) 60%
     );
   }
 
@@ -715,7 +780,7 @@
   }
 
   .carat-fa__logo {
-    margin-bottom: 1.4rem;
+    margin-bottom: 1.1rem;
   }
 
   .carat-fa__logo-img {
@@ -764,17 +829,42 @@
     white-space: nowrap;
   }
 
+  /* Two required fields were added, which cost a phone screen about 150px.
+     Rather than push the button under the fold, the name pair shares a row
+     here too — at 390px each field is still ~165px, wide enough to read a
+     name in — and the label metrics tighten. Nothing is hidden and nothing
+     shrinks below a comfortable tap size. */
   .carat-fa__hero .carat-fa__fields {
-    gap: 0.9rem;
+    gap: 0.8rem;
+  }
+
+  .carat-fa__hero .carat-fa__fields--pair {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .carat-fa__hero .carat-fa__label {
+    font-size: 1.1rem;
+    letter-spacing: 0.1em;
+  }
+
+  .carat-fa__hero .carat-fa__field + .carat-fa__field,
+  .carat-fa__hero .carat-fa__field + .carat-fa__fields,
+  .carat-fa__hero .carat-fa__fields + .carat-fa__field,
+  .carat-fa__hero .carat-fa__fields + .carat-fa__fields {
+    margin-top: 0.8rem;
+  }
+
+  .carat-fa__hero .carat-fa__fields--pair > .carat-fa__field + .carat-fa__field {
+    margin-top: 0;
   }
 
   .carat-fa__hero .carat-fa__field {
-    gap: 0.4rem;
+    gap: 0.3rem;
   }
 
   .carat-fa__hero .carat-fa__input {
-    min-height: 4.8rem;
-    padding: 1.1rem 1.4rem;
+    min-height: 4.6rem;
+    padding: 1rem 1.2rem;
   }
 
   .carat-fa__hero .carat-fa__interests {

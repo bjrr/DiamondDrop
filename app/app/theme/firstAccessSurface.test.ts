@@ -167,16 +167,67 @@ describe("the signup is Shopify-native and low friction", () => {
     expect(formSnippet).not.toMatch(/apps\/carat|fetch\(|\/api\//);
   });
 
-  it("requires email and nothing else", () => {
-    // Each input isolated by splitting on the tag boundary first. An
-    // unanchored match sweeps from the FIRST input in the file, so the
-    // first-name assertion was reading the email input's `required` and
-    // passing for the wrong reason.
-    const inputs = formSnippet.split("<input").map((chunk) => chunk.split(">")[0] ?? "");
-    const email = inputs.find((i) => i.includes('name="contact[email]"')) ?? "";
-    expect(email).toContain("required");
-    const firstName = inputs.find((i) => i.includes('name="contact[first_name]"')) ?? "";
-    expect(firstName).not.toContain("required");
+  /**
+   * Each input isolated by splitting on the tag boundary first. An unanchored
+   * match sweeps from the FIRST input in the file, which once had the
+   * first-name assertion reading the email input's `required` and passing
+   * for the wrong reason.
+   */
+  const inputs = () =>
+    formSnippet.split("<input").map((chunk) => chunk.split(">")[0] ?? "");
+  const inputNamed = (name: string) =>
+    inputs().find((i) => i.includes('name="' + name + '"')) ?? "";
+
+  it("requires email, first name and last name", () => {
+    for (const name of ["contact[email]", "contact[first_name]", "contact[last_name]"]) {
+      expect(inputNamed(name), name).toContain("required");
+    }
+  });
+
+  it("keeps the phone and the interests optional", () => {
+    expect(inputNamed("contact[phone]")).not.toContain("required");
+    expect(inputNamed("interests[]")).not.toContain("required");
+  });
+
+  it("asks for first and last name separately, never one Full Name box", () => {
+    // Separate fields are what map cleanly onto a Shopify customer record and
+    // what makes later personalisation possible.
+    expect(formSnippet).toContain('name="contact[first_name]"');
+    expect(formSnippet).toContain('name="contact[last_name]"');
+    expect(formSnippet).not.toMatch(/name="contact[(full_)?name]"/);
+  });
+
+  it("brings up a telephone keypad for the phone", () => {
+    const phone = inputNamed("contact[phone]");
+    expect(phone).toContain('type="tel"');
+    expect(phone).toContain('inputmode="tel"');
+    expect(phone).toContain('autocomplete="tel"');
+  });
+
+  it("says which fields are optional, in the label, with no asterisks", () => {
+    expect(fa.form?.phone_label).toBe("Mobile number for text updates (optional)");
+    expect(fa.form?.interests_label).toContain("(optional)");
+    // Required labels carry no marker at all — a luxury signup should not
+    // look like an admin screen.
+    expect(fa.form?.email_label).toBe("Email");
+    expect(fa.form?.first_name_label).toBe("First name");
+    expect(fa.form?.last_name_label).toBe("Last name");
+    expect(stripLiquidComments(formSnippet)).not.toContain("*");
+  });
+
+  it("never treats a phone number as consent to text", () => {
+    // A number given for launch updates is not an SMS marketing opt-in. If
+    // CaratForUs ever sends marketing texts that needs its own unchecked
+    // control and its own disclosure, recorded separately — not inferred
+    // from a field someone filled in on a different promise.
+    const live = [
+      stripLiquidComments(formSnippet),
+      stripJsComments(script),
+      allCopy,
+    ].join("\n");
+    expect(live).not.toMatch(/accepts_sms|sms_consent|smsMarketing|accepts_text|text_consent/i);
+    expect(live).not.toMatch(/by (providing|entering) your (mobile|phone)/i);
+    expect(live).not.toMatch(/consent to (receive )?(marketing )?(texts|sms)/i);
   });
 
   it("offers the six interests as multi-select chips that cannot block signup", () => {

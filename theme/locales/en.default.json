@@ -627,13 +627,19 @@
       "form": {
         "email_label": "Email",
         "email_placeholder": "Email address",
-        "first_name_label": "First name (optional)",
+        "first_name_label": "First name",
         "first_name_placeholder": "First name",
         "interests_label": "What are you interested in? (optional)",
         "cta": "GET FIRST ACCESS",
         "benefit": "First Access members get in first.",
         "submitting": "Joining…",
-        "error": "Please enter a valid email address."
+        "last_name_label": "Last name",
+        "last_name_placeholder": "Last name",
+        "phone_label": "Mobile number for text updates (optional)",
+        "phone_placeholder": "Mobile number",
+        "error_email": "Please enter a valid email address.",
+        "error_first_name": "Please enter your first name.",
+        "error_last_name": "Please enter your last name."
       },
       "interests": {
         "loose_diamonds": "Loose Diamonds",

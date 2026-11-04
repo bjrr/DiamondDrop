@@ -44,31 +44,39 @@
     {%- if form.posted_successfully? or posted -%}
       {% render 'first-access-success', form_id: form_id %}
     {%- else -%}
-      <div class="carat-fa__fields">
-        <div class="carat-fa__field">
-          <label class="carat-fa__label" for="{{ form_id }}-email">
-            {{- 'templates.first_access.form.email_label' | t -}}
-          </label>
-          <input
-            id="{{ form_id }}-email"
-            class="carat-fa__input"
-            type="email"
-            name="contact[email]"
-            value="{{ form.email }}"
-            placeholder="{{ 'templates.first_access.form.email_placeholder' | t }}"
-            autocomplete="email"
-            autocorrect="off"
-            autocapitalize="off"
-            spellcheck="false"
-            inputmode="email"
-            required
-            aria-required="true"
-            {% if form.errors %}
-              aria-invalid="true" aria-describedby="{{ form_id }}-error" autofocus
-            {% endif %}
-          >
-        </div>
+      {%- comment -%}
+        REQUIRED AND OPTIONAL ARE SAID, NOT DECORATED. Email, first name and
+        last name carry a plain label and the `required` attribute; the two
+        optional fields say "(optional)" in the label itself. No asterisks, no
+        red, no legend explaining what an asterisk means — a luxury signup
+        should not look like an admin screen, and a visitor should still never
+        have to guess which boxes they can skip.
+      {%- endcomment -%}
+      <div class="carat-fa__field">
+        <label class="carat-fa__label" for="{{ form_id }}-email">
+          {{- 'templates.first_access.form.email_label' | t -}}
+        </label>
+        <input
+          id="{{ form_id }}-email"
+          class="carat-fa__input"
+          type="email"
+          name="contact[email]"
+          value="{{ form.email }}"
+          placeholder="{{ 'templates.first_access.form.email_placeholder' | t }}"
+          autocomplete="email"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          inputmode="email"
+          required
+          aria-required="true"
+          {% if form.errors %}
+            aria-invalid="true" aria-describedby="{{ form_id }}-error" autofocus
+          {% endif %}
+        >
+      </div>
 
+      <div class="carat-fa__fields carat-fa__fields--pair">
         <div class="carat-fa__field">
           <label class="carat-fa__label" for="{{ form_id }}-first-name">
             {{- 'templates.first_access.form.first_name_label' | t -}}
@@ -81,8 +89,54 @@
             value="{{ form.first_name }}"
             placeholder="{{ 'templates.first_access.form.first_name_placeholder' | t }}"
             autocomplete="given-name"
+            required
+            aria-required="true"
           >
         </div>
+
+        <div class="carat-fa__field">
+          <label class="carat-fa__label" for="{{ form_id }}-last-name">
+            {{- 'templates.first_access.form.last_name_label' | t -}}
+          </label>
+          <input
+            id="{{ form_id }}-last-name"
+            class="carat-fa__input"
+            type="text"
+            name="contact[last_name]"
+            value="{{ form.last_name }}"
+            placeholder="{{ 'templates.first_access.form.last_name_placeholder' | t }}"
+            autocomplete="family-name"
+            required
+            aria-required="true"
+          >
+        </div>
+      </div>
+
+      {%- comment -%}
+        A PHONE NUMBER IS NOT CONSENT TO TEXT. Giving us a number here says
+        the customer is willing to be reached about the launch; it is not an
+        opt-in to marketing SMS, and nothing on this page treats it as one.
+        If CaratForUs decides to send marketing texts, that needs its own
+        unchecked control and its own disclosure, recorded separately — not
+        inferred from a field someone filled in on a different promise.
+
+        type=tel plus inputmode=tel is what brings up the phone keypad
+        rather than a full keyboard, which on a phone is the difference
+        between a two-second field and an annoying one.
+      {%- endcomment -%}
+      <div class="carat-fa__field">
+        <label class="carat-fa__label" for="{{ form_id }}-phone">
+          {{- 'templates.first_access.form.phone_label' | t -}}
+        </label>
+        <input
+          id="{{ form_id }}-phone"
+          class="carat-fa__input"
+          type="tel"
+          name="contact[phone]"
+          placeholder="{{ 'templates.first_access.form.phone_placeholder' | t }}"
+          autocomplete="tel"
+          inputmode="tel"
+        >
       </div>
 
       {%- comment -%}

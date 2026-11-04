@@ -33,7 +33,9 @@
     copied: {{ 'templates.first_access.share.copied' | t | json }},
     shareText: {{ 'templates.first_access.share.text' | t | json }},
     submitting: {{ 'templates.first_access.form.submitting' | t | json }},
-    error: {{ 'templates.first_access.form.error' | t | json }}
+    errorEmail: {{ 'templates.first_access.form.error_email' | t | json }},
+    errorFirstName: {{ 'templates.first_access.form.error_first_name' | t | json }},
+    errorLastName: {{ 'templates.first_access.form.error_last_name' | t | json }}
   };
 </script>
 <script src="{{ 'first-access.js' | asset_url }}" defer="defer"></script>

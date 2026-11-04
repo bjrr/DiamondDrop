@@ -101,14 +101,38 @@
       var tagsField = form.querySelector('input[name="contact[tags]"]');
       if (tagsField) tagsField.value = tagsFor(form);
 
-      var email = form.querySelector('input[name="contact[email]"]');
-      // Email is the only required field, checked here purely so the visitor
-      // is told immediately rather than after a round trip. Shopify validates
-      // it again regardless.
-      if (email && !email.checkValidity()) {
+      /**
+       * Three required fields now: email, first name, last name.
+       *
+       * Checked here only so the visitor is told immediately rather than
+       * after a round trip; Shopify validates again regardless. The first
+       * empty field is the one that gets focus, so a keyboard or screen
+       * reader user lands on the thing to fix rather than the top of the
+       * form.
+       *
+       * The phone is deliberately absent from this list. It is optional, and
+       * an optional field that blocks submission is just a required field
+       * with bad manners.
+       */
+      var required = [
+        { name: 'contact[email]', message: s('errorEmail', 'Please enter a valid email address.') },
+        { name: 'contact[first_name]', message: s('errorFirstName', 'Please enter your first name.') },
+        { name: 'contact[last_name]', message: s('errorLastName', 'Please enter your last name.') },
+      ];
+      var firstProblem = null;
+      for (var r = 0; r < required.length; r += 1) {
+        var field = form.querySelector('input[name="' + required[r].name + '"]');
+        if (!field) continue;
+        var empty = String(field.value || '').trim() === '';
+        if (empty || !field.checkValidity()) {
+          firstProblem = { field: field, message: required[r].message };
+          break;
+        }
+      }
+      if (firstProblem) {
         event.preventDefault();
-        showError(form, s('error', 'Please enter a valid email address.'));
-        email.focus();
+        showError(form, firstProblem.message);
+        firstProblem.field.focus();
         return;
       }
       clearError(form);
