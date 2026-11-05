@@ -1,18 +1,24 @@
 /**
- * First Access — what a public signup is allowed to write to a Shopify
- * customer, and in what shape.
+ * First Access — validating the one optional field the native signup form
+ * cannot carry.
  *
  * ===========================================================================
- * WHY THIS EXISTS AT ALL
+ * WHAT THIS IS FOR
  * ===========================================================================
- * Shopify's native `{% form 'customer' %}` stores email, first name, last name
- * and tags. It DISCARDS `contact[phone]` — confirmed by a real signup on
- * 2026-11-04, not inferred from the docs. The mobile number is the one field
- * the native form cannot carry, so one narrow authenticated write puts it on
- * the customer Shopify already created.
+ * Shopify's native `{% form 'customer' %}` stores email, first name, last
+ * name and tags, and DISCARDS `contact[phone]` — confirmed by a real signup on
+ * 2026-11-04, not inferred from the docs. Everything except the mobile number
+ * therefore persists natively and is none of this module's business.
  *
- * Everything here is pure. No Shopify client, no database, no clock. The
- * decisions are the risky part and they are testable without a network.
+ * The number is captured as PLAIN DATA in a customer metafield
+ * (`custom.first_access_mobile`), not in Shopify's native `Customer.phone`.
+ * Owner decision 2026-11-05: populating the native field is not needed at this
+ * stage, and mapping into an official SMS phone field is deferred until the
+ * SMS/marketing platform is chosen. An earlier implementation wrote
+ * `Customer.phone`, names and tags; all of that is deleted rather than kept
+ * switched off.
+ *
+ * Everything here is pure. No Shopify client, no database, no clock.
  *
  * ===========================================================================
  * THIS IS NOT SMS CONSENT
@@ -22,51 +28,26 @@
  * makes no SMS promise. When CaratForUs picks an SMS platform, consent will be
  * its own unchecked control with its own disclosure and its own evidence row —
  * which is exactly the thing that cannot be retrofitted onto a number that was
- * collected without asking.
+ * collected without asking. Pinned by `firstAccessPhoneFence.test.ts`.
  */
-
-/** Applied by the landing page to every signup. Also the write gate — see below. */
-export const FIRST_ACCESS_TAG = "first-access";
 
 /**
- * The interest chips, mirroring the `interests` list in
- * `theme/snippets/first-access-form.liquid`.
+ * Applied by the landing page to every signup, via the native form.
  *
- * An ALLOWLIST, not a suggestion. Tags arrive from a public page, and a tag is
- * a merchandising primitive — segments, automations and discounts key off
- * them. Anything not on this list is dropped rather than stored, so the page
- * can never mint a tag nobody chose to create.
+ * Read-only here: this module never asks for it to be written. It is the WRITE
+ * GATE — see `mayWriteToCustomer`.
  */
-export const FIRST_ACCESS_INTEREST_TAGS = [
-  "loose-diamonds",
-  "engagement-rings",
-  "luxury-steals",
-  "group-buys",
-  "set-your-own-stone",
-  "custom-jewelry",
-] as const;
+export const FIRST_ACCESS_TAG = "first-access";
 
-export type FirstAccessInterestTag = (typeof FIRST_ACCESS_INTEREST_TAGS)[number];
+/** The customer metafield the number is stored in, and nothing else. */
+export const FIRST_ACCESS_MOBILE_METAFIELD = {
+  namespace: "custom",
+  key: "first_access_mobile",
+  type: "single_line_text_field",
+} as const;
 
 /** Longest address RFC 5321 permits. Anything longer is not a typo. */
 const MAX_EMAIL_LENGTH = 254;
-/** Shopify accepts more; a First Access signup needing more is not a name. */
-const MAX_NAME_LENGTH = 80;
-/**
- * Control characters become spaces.
- *
- * Written as a code-point test rather than a character class because the
- * literal bytes are invisible in an editor and in a diff — which is exactly
- * how a stray one survives review.
- */
-function withoutControlCharacters(value: string): string {
-  let out = "";
-  for (const character of value) {
-    const code = character.codePointAt(0) ?? 0;
-    out += code < 32 || code === 127 ? " " : character;
-  }
-  return out;
-}
 
 export type PhoneRejection =
   | "empty"
@@ -85,12 +66,14 @@ export type PhoneNormalisation =
  * E.164 BECAUSE THE ALTERNATIVE IS FIVE SPELLINGS OF ONE NUMBER.
  * `(555) 012-3456`, `555-012-3456` and `+15550123456` are the same person, and
  * storing whichever one they typed makes the field useless for matching later.
+ * The metafield is a free text field, so nothing downstream will normalise it
+ * on our behalf — this is the only place it happens.
  *
  * NORTH AMERICA IS THE ONLY ASSUMED COUNTRY, and only for a bare 10-digit
  * number, because that is the one format a US customer types without thinking.
  * Anything else without a `+` is REFUSED rather than guessed: silently
- * prefixing `+1` onto an 9- or 12-digit string invents a number that belongs
- * to someone else.
+ * prefixing `+1` onto a 9- or 12-digit string invents a number that belongs to
+ * someone else.
  */
 export function normalisePhone(raw: string): PhoneNormalisation {
   const trimmed = raw.trim();
@@ -101,8 +84,7 @@ export function normalisePhone(raw: string): PhoneNormalisation {
   if (/(^|[^a-z])(x|ext\.?|extension)\s*\d/i.test(trimmed)) {
     return { ok: false, reason: "not_a_number" };
   }
-  // Letters anywhere else mean this is not a phone number at all (and keeps
-  // vanity numbers out, which Shopify would reject regardless).
+  // Letters anywhere else mean this is not a phone number at all.
   if (/[a-z]/i.test(trimmed)) return { ok: false, reason: "not_a_number" };
 
   const international = trimmed.startsWith("+");
@@ -143,122 +125,19 @@ export function normaliseEmail(raw: string): string | null {
 }
 
 /**
- * A name fit to store, or null when there is nothing to store.
- *
- * Control characters are removed rather than rejected — a name pasted out of a
- * PDF carries them and the person did nothing wrong — and runs of whitespace
- * collapse so `Mary   Anne` does not persist its own formatting.
- */
-export function normaliseName(raw: string): string | null {
-  const cleaned = withoutControlCharacters(raw).replace(/\s+/g, " ").trim();
-  if (cleaned === "") return null;
-  return cleaned.slice(0, MAX_NAME_LENGTH);
-}
-
-/** The submitted interests that are real interests, deduplicated, in list order. */
-export function selectedInterestTags(raw: readonly string[]): FirstAccessInterestTag[] {
-  const asked = new Set(raw.map((value) => value.trim().toLowerCase()));
-  return FIRST_ACCESS_INTEREST_TAGS.filter((tag) => asked.has(tag));
-}
-
-export interface ExistingCustomerFacts {
-  readonly firstName: string | null;
-  readonly lastName: string | null;
-  readonly phone: string | null;
-  readonly tags: readonly string[];
-}
-
-export interface SubmittedSignup {
-  readonly firstName: string | null;
-  readonly lastName: string | null;
-  /** Already normalised to E.164, or null when the optional field was left blank. */
-  readonly phoneE164: string | null;
-  readonly interests: readonly FirstAccessInterestTag[];
-}
-
-export interface CustomerWritePlan {
-  /** Fields for `customerUpdate`. Absent keys are NOT sent, so they cannot be cleared. */
-  readonly fields: {
-    readonly firstName?: string;
-    readonly lastName?: string;
-    readonly phone?: string;
-  };
-  /** Tags for `tagsAdd`. Purely additive; never a replacement list. */
-  readonly tagsToAdd: readonly string[];
-  /** True when both are empty — the caller then performs no mutation at all. */
-  readonly isNoop: boolean;
-}
-
-/**
- * What to write, given what is already on the customer.
- *
- * ===========================================================================
- * THREE RULES, ALL OF THEM ABOUT NOT DESTROYING DATA
- * ===========================================================================
- *
- * 1. A FIELD THE SUBMISSION DOES NOT CARRY IS OMITTED, NOT BLANKED. Shopify's
- *    `CustomerInput` treats an explicit `""` as "clear this", so a signup that
- *    skips the optional phone must leave the key off entirely. This is the
- *    difference between "no phone given" and "delete their phone".
- *
- * 2. A VALUE EQUAL TO WHAT IS ALREADY STORED IS OMITTED TOO. Resubmitting the
- *    same form is then genuinely idempotent — identical input produces an
- *    empty plan and no API call, rather than a write that happens to land on
- *    the same bytes.
- *
- * 3. TAGS ONLY EVER GROW. The returned list is for `tagsAdd`, never for
- *    `CustomerInput.tags`, which REPLACES the whole set — using it here would
- *    silently strip `vip`, `wholesale` or anything else operations added, from
- *    a public endpoint. Tags already present are filtered out so a repeat
- *    submission sends nothing.
- *
- * `first-access` is included in the growth set because it is the mark of where
- * the signup came from; on the normal path the native form has already applied
- * it and rule 3 makes this a no-op.
- */
-export function planCustomerWrite(
-  existing: ExistingCustomerFacts,
-  submitted: SubmittedSignup
-): CustomerWritePlan {
-  const fields: { firstName?: string; lastName?: string; phone?: string } = {};
-
-  if (submitted.firstName !== null && submitted.firstName !== existing.firstName) {
-    fields.firstName = submitted.firstName;
-  }
-  if (submitted.lastName !== null && submitted.lastName !== existing.lastName) {
-    fields.lastName = submitted.lastName;
-  }
-  if (submitted.phoneE164 !== null && submitted.phoneE164 !== existing.phone) {
-    fields.phone = submitted.phoneE164;
-  }
-
-  const held = new Set(existing.tags.map((tag) => tag.trim().toLowerCase()));
-  const tagsToAdd = [FIRST_ACCESS_TAG, ...submitted.interests].filter(
-    (tag) => !held.has(tag)
-  );
-
-  return {
-    fields,
-    tagsToAdd,
-    isNoop: Object.keys(fields).length === 0 && tagsToAdd.length === 0,
-  };
-}
-
-/**
  * Whether this customer may be written to by the public endpoint.
  *
  * ===========================================================================
  * THE BLAST-RADIUS GATE
  * ===========================================================================
  * Anyone on the internet can POST an email address here. Without this check,
- * knowing a customer's address would be enough to rewrite the name and phone
- * on a real order-placing account.
+ * knowing a customer's address would be enough to attach a mobile number to a
+ * real order-placing account.
  *
  * So the endpoint can only touch a customer who ALREADY carries
  * `first-access` — a record the landing page itself created. A paying customer
- * who never signed up for First Access is untouchable through this route, and
- * one who did has a name and a mobile number at stake, not an order or a card.
+ * who never signed up for First Access is untouchable through this route.
  */
-export function mayWriteToCustomer(existing: ExistingCustomerFacts): boolean {
-  return existing.tags.some((tag) => tag.trim().toLowerCase() === FIRST_ACCESS_TAG);
+export function mayWriteToCustomer(tags: readonly string[]): boolean {
+  return tags.some((tag) => tag.trim().toLowerCase() === FIRST_ACCESS_TAG);
 }

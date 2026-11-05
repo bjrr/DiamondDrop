@@ -30,7 +30,8 @@
   var BASE_TAG = 'first-access';
 
   /**
-   * App-proxy route that stores the one field Shopify's customer form throws
+   * App-proxy route that stores, as a customer metafield, the one field
+   * Shopify's customer form throws
    * away. See `app/routes/apps.carat.first-access-phone.tsx`.
    */
   var PHONE_ENDPOINT = '/apps/carat/first-access-phone';
@@ -69,10 +70,17 @@
   }
 
   /**
-   * Everything the proxy needs, read off the form.
+   * Everything the proxy needs, read off the form — which is two fields.
    *
-   * Returns null when there is no phone to store — the entire reason this
-   * request exists — so a signup without one makes no extra call at all.
+   * THE ADDRESS AND THE NUMBER, AND NOTHING ELSE. The name and the interests
+   * are deliberately absent: they already persist through the native customer
+   * post, and sending them here would mean a public endpoint could change
+   * them. The address is present only because it is how the customer is
+   * found.
+   *
+   * Returns null when there is no number to store — the entire reason this
+   * request exists — so a signup without one makes no extra call at all, and
+   * an omitted number can never reach a write path.
    */
   function phoneSubmission(form) {
     function value(name) {
@@ -82,19 +90,7 @@
     var phone = value('contact[phone]');
     if (phone === '') return null;
 
-    var interests = [];
-    var chosen = form.querySelectorAll('[data-carat-fa-interest]:checked');
-    for (var i = 0; i < chosen.length; i += 1) {
-      var tag = String(chosen[i].value || '').trim();
-      if (tag) interests.push(tag);
-    }
-    return {
-      email: value('contact[email]'),
-      firstName: value('contact[first_name]'),
-      lastName: value('contact[last_name]'),
-      phone: phone,
-      interests: interests,
-    };
+    return { email: value('contact[email]'), phone: phone };
   }
 
   /**

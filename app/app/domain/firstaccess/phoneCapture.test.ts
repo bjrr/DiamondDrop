@@ -1,44 +1,25 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  FIRST_ACCESS_INTEREST_TAGS,
+  FIRST_ACCESS_MOBILE_METAFIELD,
   FIRST_ACCESS_TAG,
   mayWriteToCustomer,
   normaliseEmail,
-  normaliseName,
   normalisePhone,
-  planCustomerWrite,
-  selectedInterestTags,
-  type ExistingCustomerFacts,
-  type SubmittedSignup,
 } from "./phoneCapture";
 
 /**
- * The pure half of First Access phone capture.
+ * The pure half of First Access mobile capture.
  *
- * The interesting cases here are the destructive ones. A bug in
- * `planCustomerWrite` does not produce a wrong answer on screen — it quietly
- * erases a customer's phone number or strips the tags operations rely on, and
- * nobody finds out until someone goes looking for a segment that is suddenly
- * empty. Those paths get the most tests.
+ * Small on purpose. The earlier `Customer.phone` implementation needed a
+ * field-merge planner to avoid blanking names and replacing tag sets; storing
+ * one text metafield needs none of that, so those tests are deleted rather
+ * than kept passing against code nobody calls.
+ *
+ * What remains is the stuff that is still genuinely risky: turning whatever a
+ * visitor types into a number that belongs to THEM, and the gate that decides
+ * whose record a public endpoint may touch.
  */
-
-const NOBODY: ExistingCustomerFacts = {
-  firstName: null,
-  lastName: null,
-  phone: null,
-  tags: [FIRST_ACCESS_TAG],
-};
-
-function signup(overrides: Partial<SubmittedSignup> = {}): SubmittedSignup {
-  return {
-    firstName: "Ada",
-    lastName: "Lovelace",
-    phoneE164: "+12125550147",
-    interests: [],
-    ...overrides,
-  };
-}
 
 describe("normalisePhone", () => {
   it("accepts a bare 10-digit US number and gives it a country code", () => {
@@ -60,8 +41,8 @@ describe("normalisePhone", () => {
   });
 
   it("reports an empty field as empty, not as invalid", () => {
-    // The caller treats these differently: empty is the optional field being
-    // skipped, invalid is worth a log line.
+    // The route treats these differently: empty is the optional field being
+    // skipped and is not even logged; invalid is worth a log line.
     expect(normalisePhone("")).toEqual({ ok: false, reason: "empty" });
     expect(normalisePhone("   ")).toEqual({ ok: false, reason: "empty" });
   });
@@ -82,7 +63,8 @@ describe("normalisePhone", () => {
 
   it("refuses an extension rather than welding it onto the number", () => {
     // THE DANGEROUS ONE. Stripping separators would turn this into
-    // +121255501474 — a different, real, dialable number.
+    // +121255501474 — a different, real, dialable number. The metafield is
+    // free text, so nothing downstream would ever catch it.
     expect(normalisePhone("212-555-0147 x4")).toEqual({ ok: false, reason: "not_a_number" });
     expect(normalisePhone("212-555-0147 ext. 4")).toEqual({ ok: false, reason: "not_a_number" });
   });
@@ -90,6 +72,17 @@ describe("normalisePhone", () => {
   it("refuses letters anywhere", () => {
     expect(normalisePhone("call me")).toEqual({ ok: false, reason: "not_a_number" });
     expect(normalisePhone("1-800-FLOWERS")).toEqual({ ok: false, reason: "not_a_number" });
+  });
+
+  it("never returns a value that is not E.164", () => {
+    const inputs = [
+      "2125550147", "(212) 555-0147", "+44 20 7946 0958", "1 212 555 0147",
+      "", "  ", "abc", "212-555-0147 x4", "12345", "442079460958",
+    ];
+    for (const input of inputs) {
+      const result = normalisePhone(input);
+      if (result.ok) expect(result.e164).toMatch(/^\+[1-9]\d{7,14}$/);
+    }
   });
 });
 
@@ -109,141 +102,39 @@ describe("normaliseEmail", () => {
   });
 });
 
-describe("normaliseName", () => {
-  it("collapses whitespace and trims", () => {
-    expect(normaliseName("  Mary   Anne  ")).toBe("Mary Anne");
-  });
-
-  it("removes control characters rather than rejecting the name", () => {
-    const pasted = "Ada" + String.fromCharCode(9) + String.fromCharCode(0) + "Lovelace";
-    expect(normaliseName(pasted)).toBe("Ada Lovelace");
-  });
-
-  it("returns null for nothing, so the caller omits the field", () => {
-    expect(normaliseName("")).toBeNull();
-    expect(normaliseName("   ")).toBeNull();
-    expect(normaliseName(String.fromCharCode(0))).toBeNull();
-  });
-
-  it("truncates rather than refusing an absurd length", () => {
-    expect(normaliseName("x".repeat(500))).toHaveLength(80);
-  });
-});
-
-describe("selectedInterestTags", () => {
-  it("keeps only tags from the allowlist", () => {
-    expect(selectedInterestTags(["loose-diamonds", "vip", "wholesale", "group-buys"])).toEqual([
-      "loose-diamonds",
-      "group-buys",
-    ]);
-  });
-
-  it("cannot be used to mint a tag that does not exist", () => {
-    expect(selectedInterestTags(["free-shipping", "staff-discount"])).toEqual([]);
-  });
-
-  it("deduplicates and returns a stable order regardless of input order", () => {
-    expect(
-      selectedInterestTags(["custom-jewelry", "loose-diamonds", "loose-diamonds"])
-    ).toEqual(["loose-diamonds", "custom-jewelry"]);
-  });
-
-  it("covers every chip the form renders", () => {
-    expect(selectedInterestTags([...FIRST_ACCESS_INTEREST_TAGS])).toEqual([
-      ...FIRST_ACCESS_INTEREST_TAGS,
-    ]);
-  });
-});
-
-describe("planCustomerWrite — the destructive cases", () => {
-  it("OMITS phone entirely when none was submitted, so it cannot be cleared", () => {
-    const plan = planCustomerWrite(
-      { ...NOBODY, phone: "+12125550147" },
-      signup({ phoneE164: null })
-    );
-    expect("phone" in plan.fields).toBe(false);
-  });
-
-  it("OMITS a name when none was submitted", () => {
-    const plan = planCustomerWrite(
-      { ...NOBODY, firstName: "Ada", lastName: "Lovelace" },
-      signup({ firstName: null, lastName: null })
-    );
-    expect("firstName" in plan.fields).toBe(false);
-    expect("lastName" in plan.fields).toBe(false);
-  });
-
-  it("never returns a tag list that could replace the existing one", () => {
-    // `tagsToAdd` holds ONLY new tags. If it ever contained the full set, a
-    // caller passing it to CustomerInput.tags would be lossless by accident
-    // and lossy the moment a tag it does not know about appears.
-    const plan = planCustomerWrite(
-      { ...NOBODY, tags: [FIRST_ACCESS_TAG, "vip", "wholesale"] },
-      signup({ interests: ["luxury-steals"] })
-    );
-    expect(plan.tagsToAdd).toEqual(["luxury-steals"]);
-    expect(plan.tagsToAdd).not.toContain("vip");
-    expect(plan.tagsToAdd).not.toContain("wholesale");
-  });
-});
-
-describe("planCustomerWrite — idempotence", () => {
-  it("is a no-op when everything already matches", () => {
-    const existing: ExistingCustomerFacts = {
-      firstName: "Ada",
-      lastName: "Lovelace",
-      phone: "+12125550147",
-      tags: [FIRST_ACCESS_TAG, "loose-diamonds"],
-    };
-    const plan = planCustomerWrite(existing, signup({ interests: ["loose-diamonds"] }));
-    expect(plan.isNoop).toBe(true);
-    expect(plan.fields).toEqual({});
-    expect(plan.tagsToAdd).toEqual([]);
-  });
-
-  it("matches tags case-insensitively, as Shopify does", () => {
-    const plan = planCustomerWrite(
-      { ...NOBODY, tags: ["First-Access", "Loose-Diamonds"] },
-      signup({ firstName: null, lastName: null, phoneE164: null, interests: ["loose-diamonds"] })
-    );
-    expect(plan.tagsToAdd).toEqual([]);
-  });
-
-  it("writes a changed phone and leaves the rest alone", () => {
-    const existing: ExistingCustomerFacts = {
-      firstName: "Ada",
-      lastName: "Lovelace",
-      phone: null,
-      tags: [FIRST_ACCESS_TAG],
-    };
-    const plan = planCustomerWrite(existing, signup());
-    expect(plan.fields).toEqual({ phone: "+12125550147" });
-    expect(plan.isNoop).toBe(false);
-  });
-
-  it("adds the base tag when the record somehow lacks it", () => {
-    const plan = planCustomerWrite(
-      { ...NOBODY, tags: ["vip", FIRST_ACCESS_TAG] },
-      signup({ interests: ["group-buys"] })
-    );
-    expect(plan.tagsToAdd).toEqual(["group-buys"]);
-  });
-});
-
 describe("mayWriteToCustomer — the blast-radius gate", () => {
   it("refuses a customer who never signed up for First Access", () => {
     // The whole point: knowing a paying customer's email must not be enough
-    // to rewrite their name and phone through a public endpoint.
-    expect(mayWriteToCustomer({ ...NOBODY, tags: ["vip", "wholesale"] })).toBe(false);
-    expect(mayWriteToCustomer({ ...NOBODY, tags: [] })).toBe(false);
+    // to attach a mobile number to their record through a public endpoint.
+    expect(mayWriteToCustomer(["vip", "wholesale"])).toBe(false);
+    expect(mayWriteToCustomer([])).toBe(false);
   });
 
-  it("allows a First Access signup, whatever the tag's casing", () => {
-    expect(mayWriteToCustomer({ ...NOBODY, tags: ["First-Access"] })).toBe(true);
-    expect(mayWriteToCustomer({ ...NOBODY, tags: ["vip", " first-access "] })).toBe(true);
+  it("allows a First Access signup, whatever the tag's casing or padding", () => {
+    expect(mayWriteToCustomer(["First-Access"])).toBe(true);
+    expect(mayWriteToCustomer(["vip", " first-access "])).toBe(true);
   });
 
   it("is not satisfied by a tag that merely contains the word", () => {
-    expect(mayWriteToCustomer({ ...NOBODY, tags: ["first-access-declined"] })).toBe(false);
+    expect(mayWriteToCustomer(["first-access-declined"])).toBe(false);
+    expect(mayWriteToCustomer(["pre-first-access"])).toBe(false);
+  });
+});
+
+describe("the metafield address is the one the definition was created at", () => {
+  it("is custom.first_access_mobile, single_line_text_field", () => {
+    // Pinned against the definition created in Shopify admin
+    // (gid://shopify/MetafieldDefinition/564165083354). A drift here writes
+    // values into an undefined metafield, which still "works" but is
+    // invisible in the admin UI — a silent failure.
+    expect(FIRST_ACCESS_MOBILE_METAFIELD).toEqual({
+      namespace: "custom",
+      key: "first_access_mobile",
+      type: "single_line_text_field",
+    });
+  });
+
+  it("keeps the tag the native form applies", () => {
+    expect(FIRST_ACCESS_TAG).toBe("first-access");
   });
 });

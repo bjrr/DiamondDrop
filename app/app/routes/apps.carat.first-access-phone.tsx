@@ -1,8 +1,8 @@
 /**
  * POST /apps/carat/first-access-phone
  *
- * Stores the optional mobile number from the First Access signup on the
- * Shopify customer the native form just created.
+ * Stores the optional mobile number from the First Access signup as a text
+ * metafield on the Shopify customer the native form just created.
  *
  * A RESOURCE ROUTE — no default export, same as every other `apps.carat.*`.
  *
@@ -12,8 +12,15 @@
  * Shopify's `{% form 'customer' %}` persists email, first name, last name and
  * tags, and DISCARDS `contact[phone]` — measured with a real signup on
  * 2026-11-04. Rather than replace a working, captcha-protected form, the theme
- * posts to it as before and then calls this route to add the one thing it
- * dropped. The form stays native; the gap is the only custom part.
+ * posts to it as before and then calls this route with the one thing it
+ * dropped. Email, names, the `first-access` tag and the interest tags never
+ * pass through here at all: they already persist natively, and re-sending them
+ * would mean a public endpoint could change them.
+ *
+ * THE NUMBER IS DATA, NOT A PHONE FIELD. It is written to
+ * `custom.first_access_mobile`, never to `Customer.phone` (owner decision
+ * 2026-11-05). Mapping into an official SMS phone field is deferred until the
+ * SMS/marketing platform is chosen.
  *
  * ===========================================================================
  * THE SECURITY POSTURE, BECAUSE THIS IS REACHABLE BY ANYONE
@@ -28,33 +35,27 @@
  *      Note the proxy means `x-forwarded-for` is SHOPIFY's edge, not the
  *      visitor's, so a per-IP limit would be theatre. Email is the only
  *      meaningful key available.
- *   4. Nothing can be cleared and no tag can be removed — see
- *      `planCustomerWrite` and `firstAccessCustomer.server`.
+ *   4. One metafield is the whole write surface. Nothing else about the
+ *      customer can be read or changed — see `firstAccessCustomer.server`.
  *   5. One response body for every outcome. "Customer not found", "not a
- *      First Access signup" and "nothing to change" are indistinguishable
- *      from outside, so the endpoint cannot be used to ask whether an address
- *      is on file.
+ *      First Access signup" and "stored" are indistinguishable from outside,
+ *      so the endpoint cannot be used to ask whether an address is on file.
  *
  * ===========================================================================
  * NO SMS CONSENT IS SET OR IMPLIED
  * ===========================================================================
  * `smsMarketingConsent` is never written, here or anywhere this calls. The
- * number is stored; permission to text it is a separate, unchecked control
- * with its own disclosure, to be built when the SMS platform is chosen. Pinned
- * by `app/domain/firstaccess/firstAccessPhoneFence.test.ts`.
+ * number is stored as text; permission to text it is a separate, unchecked
+ * control with its own disclosure, to be built when the SMS platform is
+ * chosen. Pinned by `app/domain/firstaccess/firstAccessPhoneFence.test.ts`.
  */
 import type { ActionFunctionArgs } from "react-router";
 
-import {
-  normaliseEmail,
-  normaliseName,
-  normalisePhone,
-  selectedInterestTags,
-} from "~/domain/firstaccess/phoneCapture";
+import { normaliseEmail, normalisePhone } from "~/domain/firstaccess/phoneCapture";
 import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
 import { createRateLimiter } from "~/lib/rateLimit.server";
-import { applyFirstAccessSignup } from "~/shopify/admin/firstAccessCustomer.server";
+import { storeFirstAccessMobile } from "~/shopify/admin/firstAccessCustomer.server";
 import { adminClientForShop } from "~/shopify/admin/offlineClient.server";
 import { verifyAppProxySignature } from "~/shopify/proxy";
 
@@ -74,11 +75,10 @@ const overall = createRateLimiter({ limit: 120, windowMs: 60_000, maxKeys: 1 });
 /**
  * The ONLY body this route ever returns on an authenticated request.
  *
- * It does not report whether a customer was found, matched, changed or
- * skipped. The theme does not act on the answer — the signup already
- * succeeded by the time this runs — so there is nothing to gain from saying
- * more, and an endpoint that distinguishes outcomes by email is a membership
- * oracle.
+ * It does not report whether a customer was found, matched or written. The
+ * theme does not act on the answer — the signup already succeeded by the time
+ * this runs — so there is nothing to gain from saying more, and an endpoint
+ * that distinguishes outcomes by email is a membership oracle.
  */
 const ACCEPTED = { ok: true } as const;
 
@@ -126,29 +126,35 @@ export async function action({ request }: ActionFunctionArgs) {
   const email = normaliseEmail(String(body.email ?? ""));
   if (!email) return Response.json({ error: "invalid_submission" }, { status: 400 });
 
+  /**
+   * NO NUMBER MEANS NO WRITE — the guarantee that an omitted phone can never
+   * clear a stored one. There is no "clear" branch anywhere in this feature:
+   * the only call the adapter exposes takes a non-empty E.164 string, so
+   * erasure is unreachable by construction rather than by a guard someone
+   * could later invert.
+   *
+   * The theme already declines to call this endpoint when the field is blank;
+   * this is the server-side half of the same rule, because the theme is not
+   * the authority on anything.
+   */
+  const phoneResult = normalisePhone(String(body.phone ?? ""));
+  if (!phoneResult.ok) {
+    // The REASON, never the number. `empty` is not logged at all: a blank
+    // optional field is the normal case, not an event.
+    if (phoneResult.reason !== "empty") {
+      logger.info("firstaccess.phone_discarded", { reason: phoneResult.reason });
+    }
+    return Response.json(ACCEPTED, { status: 200 });
+  }
+
   // Keyed AFTER the address is normalised, so differences in letter case and
   // surrounding whitespace share one budget rather than each spelling of the
-  // same address getting its own.
+  // same address getting its own. Checked after validation so a malformed
+  // submission cannot burn a real visitor's retries.
   if (!perEmail.hit(email).allowed) {
     logger.warn("firstaccess.rate_limited", { scope: "email" });
     return Response.json({ error: "rate_limited" }, { status: 429 });
   }
-
-  // THE OPTIONAL FIELD STAYS OPTIONAL. A number that fails normalisation is
-  // dropped, not escalated to an error: the signup has already succeeded and
-  // the visitor has moved on, so failing the request would only produce a
-  // console error on a page that is working.
-  const rawPhone = String(body.phone ?? "");
-  const phoneResult = normalisePhone(rawPhone);
-  const phoneE164 = phoneResult.ok ? phoneResult.e164 : null;
-  if (!phoneResult.ok && phoneResult.reason !== "empty") {
-    // The REASON, never the number.
-    logger.info("firstaccess.phone_discarded", { reason: phoneResult.reason });
-  }
-
-  const interests = Array.isArray(body.interests)
-    ? selectedInterestTags(body.interests.map((value) => String(value)))
-    : [];
 
   /**
    * THE SHOP COMES FROM THE SIGNED REQUEST, not from configuration.
@@ -168,26 +174,12 @@ export async function action({ request }: ActionFunctionArgs) {
     return Response.json(ACCEPTED, { status: 200 });
   }
 
-  const outcome = await applyFirstAccessSignup(admin, email, {
-    firstName: normaliseName(String(body.firstName ?? "")),
-    lastName: normaliseName(String(body.lastName ?? "")),
-    phoneE164,
-    interests,
-  });
+  const outcome = await storeFirstAccessMobile(admin, email, phoneResult.e164);
 
-  // NO EMAIL, NO NAME, NO NUMBER in the log line. The outcome and whether a
-  // number was present are enough to tell whether the feature is working;
-  // CLAUDE.md "Log important business events without ... unnecessary
-  // sensitive payment data", and a lead's mobile number qualifies.
-  // Derived BEFORE the call so no PII-bearing identifier appears inside a
-  // `logger.*(...)` expression at all. That lets the fence forbid the names
-  // outright instead of judging what each use does with them.
-  const hadPhone = phoneE164 !== null;
-  logger.info("firstaccess.signup_applied", {
-    outcome,
-    hadPhone,
-    interestCount: interests.length,
-  });
+  // NO EMAIL AND NO NUMBER in the log line. The outcome alone is enough to
+  // tell whether the feature is working; CLAUDE.md "Minimize PII", and a
+  // lead's mobile number qualifies.
+  logger.info("firstaccess.mobile_stored", { outcome });
 
   return Response.json(ACCEPTED, { status: 200 });
 }
