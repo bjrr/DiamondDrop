@@ -48,10 +48,21 @@ Do not expand this into a long manifesto.
 
 ### Required
 - Email address
+- First name
+- Last name
+
+First name and last name must be captured as separate required fields.
 
 ### Optional
-- First name
+- Mobile number
 - Interests
+
+The optional mobile number is stored on the Shopify customer as:
+
+- namespace/key: `custom.first_access_mobile`
+- type: `single_line_text_field`
+
+Supplying a mobile number does **not** constitute SMS marketing consent. SMS marketing consent is a separate future capability and must not be inferred, created, or modified by this form.
 
 Interest choices must support multi-select and remain optional:
 
@@ -365,28 +376,32 @@ Before reporting complete, verify live on both desktop and mobile:
 1. Hero and signup are visible immediately.
 2. Email signup works.
 3. Email is required.
-4. First name is optional.
-5. Interests are optional and multi-select.
-6. Selected interests persist correctly.
-7. Successful signup produces a clear success state.
-8. Share-with-a-friend options work.
-9. All five teaser experiences are present.
-10. Loose Diamonds explicitly says wholesale prices.
-11. **Your Diamond. Your Decision. Your Time.** appears.
-12. **No bidding. No pressure. No games.** appears.
-13. U.S.-based company positioning appears.
-14. **Launching Soon** appears.
-15. No countdown exists.
-16. No referral/rewards logic exists.
-17. The page is clean, fast, and usable on mobile.
-18. Existing CaratForUs functionality has no regressions.
+4. First name is required.
+5. Last name is required.
+6. Mobile number is optional and, when supplied, persists to `custom.first_access_mobile` on the Shopify customer.
+7. Supplying a mobile number does not create or modify SMS marketing consent.
+8. Interests are optional and multi-select.
+9. Selected interests persist correctly.
+10. Successful signup produces a clear success state.
+11. Share-with-a-friend options work.
+12. All five teaser experiences are present.
+13. Loose Diamonds explicitly says wholesale prices.
+14. **Your Diamond. Your Decision. Your Time.** appears.
+15. **No bidding. No pressure. No games.** appears.
+16. U.S.-based company positioning appears.
+17. **Launching Soon** appears.
+18. No countdown exists.
+19. No referral/rewards logic exists.
+20. The page is clean, fast, and usable on mobile.
+21. Existing CaratForUs functionality has no regressions.
 
 Before final design/copy decisions, inspect the current CaratForUs theme so this page feels like part of the existing brand rather than a separate microsite.
 
 On completion, report:
 
 - exact page/template/sections/files changed;
-- how email signup is stored;
+- how email/name signup is stored;
+- how the optional mobile number is stored;
 - how optional interests are stored;
 - how sharing is implemented;
 - desktop/mobile verification results; and
