@@ -62,6 +62,10 @@ The optional mobile number is stored on the Shopify customer as:
 - namespace/key: `custom.first_access_mobile`
 - type: `single_line_text_field`
 
+It is stored as plain data and is deliberately **not** written to Shopify's native `Customer.phone` field. Mapping a number into an official SMS phone field belongs with the SMS/marketing platform decision, not with this form. The native Shopify customer form discards `contact[phone]` entirely, which is why a metafield is used rather than the native field.
+
+An omitted mobile number must cause no write at all and must never clear a value already stored.
+
 Supplying a mobile number does **not** constitute SMS marketing consent. SMS marketing consent is a separate future capability and must not be inferred, created, or modified by this form.
 
 Interest choices must support multi-select and remain optional:
@@ -394,6 +398,8 @@ Before reporting complete, verify live on both desktop and mobile:
 19. No referral/rewards logic exists.
 20. The page is clean, fast, and usable on mobile.
 21. Existing CaratForUs functionality has no regressions.
+22. Resubmitting the form without a mobile number does not erase a mobile number already stored.
+23. `Customer.phone` is not written.
 
 Before final design/copy decisions, inspect the current CaratForUs theme so this page feels like part of the existing brand rather than a separate microsite.
 
