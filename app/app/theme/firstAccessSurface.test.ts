@@ -78,11 +78,22 @@ describe("the approved copy, verbatim", () => {
     // saying wholesale prices, browse and compare. Consolidated to the locked
     // promise alone; the restatement must not come back.
     expect(fa.teasers?.diamonds_text).toBeUndefined();
-    const tile = stripLiquidComments(section).slice(
-      stripLiquidComments(section).indexOf("carat-fa__tile--wide")
-    );
-    const upToNextTile = tile.slice(0, tile.indexOf("</article>"));
-    const wholesale = upToNextTile.match(/diamonds_text|diamond.promise/g) ?? [];
+    const clean = stripLiquidComments(section);
+    /**
+     * Anchored on the feature row, which is what the prominent loose-diamond
+     * tile became in the below-hero redesign (it was `carat-fa__tile--wide`).
+     *
+     * THE ANCHOR IS ASSERTED, not assumed. When the class was renamed this
+     * `indexOf` returned -1, `slice(-1)` yielded one character, and the match
+     * came back empty — so the test failed for the wrong reason and would
+     * equally have PASSED for the wrong reason had it been written
+     * `toHaveLength(0)`. A missing anchor must be its own failure.
+     */
+    const start = clean.indexOf("carat-fa__feature-row");
+    expect(start, "feature row anchor missing from the section").toBeGreaterThan(-1);
+    const feature = clean.slice(start);
+    const upToNextBlock = feature.slice(0, feature.indexOf("</article>"));
+    const wholesale = upToNextBlock.match(/diamonds_text|diamond\.promise/g) ?? [];
     expect(wholesale).toHaveLength(1);
   });
 

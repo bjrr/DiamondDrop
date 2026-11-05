@@ -7,10 +7,16 @@
    second visual identity, because the page has to read as CaratForUs rather
    than as a microsite someone bolted on.
 
-   DARK ON PURPOSE, AND COMMITTED. A launch page for jewelry wants the dark
-   treatment the brand already uses for its premium surfaces, so this section
-   paints its own ground and does not follow the viewer's theme — the palette
-   below is absolute. That is a deliberate single-look design, not an omission.
+   LIGHT ON PURPOSE, AND COMMITTED. This page is ivory and travertine with
+   charcoal type, start to finish. It paints its own ground and does not
+   follow the viewer's theme — the palette below is absolute. That is a
+   deliberate single-look design, not an omission.
+
+   It used to be dark below the hero, which is how it ended up reading as two
+   pages stapled together once the hero went light. The bands now alternate
+   ivory against warm stone rather than light against dark, and the dark
+   tokens that remain (--fa-ground, --fa-panel, --fa-ink, --fa-rule) are kept
+   only because the hero's photographic veil still composites against them.
 
    THE RESTRAINT IS THE POINT. Gold is one hairline and one button; the rest
    is type and air. No sale badges, no gradients behind text, no animation
@@ -33,20 +39,40 @@
   --fa-ink-dark-faint: rgba(28, 27, 25, 0.58);
   /* Gold is a button colour; this is its readable text sibling. */
   --fa-bronze: #8a6e3a;
+  /* The same bronze, deep enough to be small text on TRAVERTINE. Measured,
+     not guessed: #8a6e3a is 4.64:1 on ivory but only 4.12:1 on the warmer
+     band, which fails AA. This is 4.86:1 there and 5.48:1 on ivory.
+     A separate token rather than darkening --fa-bronze, because that one is
+     the approved hero eyebrow and the hero is not being changed. */
+  --fa-bronze-deep: #7d6334;
   --fa-hairline: rgba(201, 169, 106, 0.28);
   --fa-rule: rgba(247, 245, 241, 0.12);
+  /* Warm stone, one step down from ivory. The alternation below the hero is
+     ivory against travertine rather than light against dark, which is what
+     makes the page read as one surface instead of two. */
+  --fa-travertine: #f2ede4;
+  /* The hairline that works on a light ground. --fa-hairline and --fa-rule
+     are both tuned for the dark one and vanish on ivory. */
+  --fa-hairline-dark: rgba(28, 27, 25, 0.12);
 
   --fa-display: var(--font-heading-family, "Playfair Display", Georgia, serif);
   --fa-body: var(--font-body-family, "Work Sans", -apple-system, sans-serif);
 
   /* One measure for the whole page, so nothing has a bespoke width. */
   --fa-measure: 62rem;
+  /* The TEXT measure is 62rem and stays there — it is what keeps a line near
+     65 characters. The image rows need more room than their own text does:
+     at 62rem a two-column feature leaves the headline about 290px and breaks
+     "Loose Diamonds. Wholesale Prices. No Pressure." across four lines. */
+  --fa-measure-wide: 96rem;
   /* How much of the phone screen the photograph keeps for itself. */
   --fa-band: 11rem;
   --fa-gutter: 2.4rem;
 
-  background: var(--fa-ground);
-  color: var(--fa-ink);
+  /* Ivory, so any sliver between bands is the page's own colour rather than
+     a stripe of the old dark ground. */
+  background: var(--fa-ivory);
+  color: var(--fa-ink-dark);
   font-family: var(--fa-body);
   /* The section sits inside the theme's page shell; this cancels the
      surrounding padding so the dark ground runs edge to edge. */
@@ -422,39 +448,46 @@
    warm translucent fields, hairline borders in the brand ink, and the
    charcoal button the rest of the site already uses. */
 
-.carat-fa__hero .carat-fa__label {
+.carat-fa__hero .carat-fa__label,
+.carat-fa__closing .carat-fa__label {
   color: var(--fa-ink-dark-faint);
 }
 
-.carat-fa__hero .carat-fa__input {
+.carat-fa__hero .carat-fa__input,
+.carat-fa__closing .carat-fa__input {
   color: var(--fa-ink-dark);
   background: rgba(255, 255, 255, 0.86);
   border-color: rgba(28, 27, 25, 0.22);
   backdrop-filter: blur(2px);
 }
 
-.carat-fa__hero .carat-fa__input::placeholder {
+.carat-fa__hero .carat-fa__input::placeholder,
+.carat-fa__closing .carat-fa__input::placeholder {
   color: rgba(28, 27, 25, 0.42);
 }
 
-.carat-fa__hero .carat-fa__input:focus-visible {
+.carat-fa__hero .carat-fa__input:focus-visible,
+.carat-fa__closing .carat-fa__input:focus-visible {
   outline-color: var(--fa-ink-dark);
   border-color: var(--fa-ink-dark);
 }
 
-.carat-fa__hero .carat-fa__chip-face {
+.carat-fa__hero .carat-fa__chip-face,
+.carat-fa__closing .carat-fa__chip-face {
   color: var(--fa-ink-dark);
   border-color: rgba(28, 27, 25, 0.28);
   background: rgba(255, 255, 255, 0.7);
 }
 
-.carat-fa__hero .carat-fa__chip-input:checked + .carat-fa__chip-face {
+.carat-fa__hero .carat-fa__chip-input:checked + .carat-fa__chip-face,
+.carat-fa__closing .carat-fa__chip-input:checked + .carat-fa__chip-face {
   background: var(--fa-ink-dark);
   border-color: var(--fa-ink-dark);
   color: var(--fa-ivory);
 }
 
-.carat-fa__hero .carat-fa__chip-input:focus-visible + .carat-fa__chip-face {
+.carat-fa__hero .carat-fa__chip-input:focus-visible + .carat-fa__chip-face,
+.carat-fa__closing .carat-fa__chip-input:focus-visible + .carat-fa__chip-face {
   outline-color: var(--fa-ink-dark);
 }
 
@@ -467,11 +500,13 @@
   outline-color: var(--fa-ink-dark);
 }
 
-.carat-fa__hero .carat-fa__benefit {
+.carat-fa__hero .carat-fa__benefit,
+.carat-fa__closing .carat-fa__benefit {
   color: var(--fa-ink-dark-faint);
 }
 
-.carat-fa__hero .carat-fa__error {
+.carat-fa__hero .carat-fa__error,
+.carat-fa__closing .carat-fa__error {
   color: #8c2f2f;
 }
 
@@ -518,145 +553,247 @@
   }
 }
 
-/* ------------------------------------------------------------ teasers */
+/* ======================================================================
+   BELOW THE HERO — ivory, travertine, charcoal.
 
-.carat-fa__teasers {
-  display: grid;
-  gap: 0.1rem;
-  grid-template-columns: 1fr;
-  padding: 0 var(--fa-gutter);
-  max-width: calc(var(--fa-measure) + var(--fa-gutter) * 2);
+   The hero was already light; everything under it was near-black, so the
+   page read as two pages stapled together. These sections now continue the
+   hero's own palette instead of reversing it, and the alternation is
+   ivory-against-warm-stone rather than light-against-dark.
+
+   WHITESPACE IS THE LUXURY DEVICE. There is no new ornament here — the
+   premium feeling is bought with band padding, a held measure and a single
+   bronze rule, not with borders, shadows or gradients.
+
+   GOLD IS NOT A SURFACE COLOUR. Bronze carries eyebrows, rules and
+   hairlines because it is the readable sibling: gold on ivory measures
+   about 2:1 and cannot be text. --fa-gold stays reserved for the CTA, so
+   the one thing to press is the one gold thing on screen.
+   ====================================================================== */
+
+.carat-fa__feature {
+  background: var(--fa-ivory);
+  color: var(--fa-ink-dark);
+  padding: clamp(5.6rem, 9vw, 10rem) var(--fa-gutter);
+}
+
+.carat-fa__feature-row,
+.carat-fa__cards {
+  max-width: var(--fa-measure-wide);
   margin: 0 auto;
-  /* The hairline grid: tiles are separated by light, not by boxes. */
-  background: var(--fa-rule);
-  border-block: 0.1rem solid var(--fa-rule);
+}
+
+/* --------------------------------------------------- the prominent one */
+
+.carat-fa__feature-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: clamp(2.4rem, 4vw, 4.8rem);
+  align-items: center;
 }
 
 @media screen and (min-width: 750px) {
-  .carat-fa__teasers {
+  .carat-fa__feature-row {
+    /* Image column slightly narrower than the copy: the photograph is
+       portrait and would otherwise tower over the text. */
+    grid-template-columns: 0.95fr 1fr;
+  }
+}
+
+.carat-fa__feature-media {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.2rem;
+  /* A warm ground behind the image so a slow network shows stone, not a
+     white hole punched in the band. */
+  background: var(--fa-travertine);
+}
+
+.carat-fa__feature-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  /* Framed low: the stones sit in the lower half of this composition and
+     the upper half is empty travertine. */
+  object-position: 50% 62%;
+}
+
+.carat-fa__feature-copy {
+  min-width: 0;
+}
+
+/* ------------------------------------------------------ the four cards */
+
+.carat-fa__cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: clamp(2.8rem, 4vw, 3.6rem);
+  margin-top: clamp(4rem, 8vw, 7.2rem);
+  padding-top: clamp(4rem, 8vw, 7.2rem);
+  /* One hairline separates the feature from its supporting cast. */
+  border-top: 0.1rem solid var(--fa-hairline-dark);
+}
+
+@media screen and (min-width: 750px) {
+  .carat-fa__cards {
     grid-template-columns: repeat(2, 1fr);
   }
-  .carat-fa__tile--wide {
-    grid-column: 1 / -1;
-  }
 }
 
-.carat-fa__tile {
-  background: var(--fa-ground);
-  padding: 3.6rem 0;
+.carat-fa__card {
+  display: flex;
+  flex-direction: column;
+  gap: 1.6rem;
+  min-width: 0;
 }
 
-@media screen and (min-width: 750px) {
-  .carat-fa__tile {
-    padding: 4rem 3.2rem 4rem 0;
-  }
-  .carat-fa__tile:nth-of-type(even) {
-    padding-left: 3.2rem;
-  }
-  .carat-fa__tile--wide {
-    padding: 5.6rem 0;
-  }
+.carat-fa__card-media {
+  overflow: hidden;
+  border-radius: 0.2rem;
+  background: var(--fa-travertine);
 }
+
+.carat-fa__card-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+}
+
+.carat-fa__card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+/* -------------------------------------------------------- type on ivory */
 
 .carat-fa__tile-eyebrow {
-  margin: 0 0 1.2rem;
-  font-size: 1.1rem;
+  margin: 0;
+  font-size: 1.2rem;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--fa-gold);
+  color: var(--fa-bronze);
 }
 
 .carat-fa__tile-heading {
   margin: 0;
   font-family: var(--fa-display);
   font-weight: 400;
-  font-size: clamp(2rem, 3vw, 2.6rem);
-  line-height: 1.22;
+  font-size: clamp(1.9rem, 2.4vw, 2.3rem);
+  line-height: 1.24;
   text-wrap: balance;
   /* Stated, never inherited. See the note above `.carat-fa__display`. */
-  color: var(--fa-ink);
-}
-
-/* ===================================================================
-   THE EXPLICIT HEADING COLOURS, one per surface.
-   =================================================================== */
-
-/* The hero is ivory, so its headline is charcoal. It LOOKED correct before
-   only because Dawn's charcoal happened to suit an ivory ground — luck, not
-   intent. Stated now so a theme scheme change cannot silently undo it. */
-.carat-fa__hero .carat-fa__display {
   color: var(--fa-ink-dark);
 }
 
-/* The sections below the hero are still on the dark ground, so their
-   headings are ivory. Superseded by the ivory redesign of these sections;
-   until then this is the difference between readable and invisible. */
-.carat-fa__disruption .carat-fa__display,
-.carat-fa__closing .carat-fa__display {
-  color: var(--fa-ink);
+.carat-fa__tile-heading--feature {
+  font-size: clamp(2.8rem, 4.4vw, 4rem);
+  line-height: 1.12;
 }
 
-.carat-fa__tile--wide .carat-fa__tile-heading {
-  font-size: clamp(2.6rem, 4.6vw, 4rem);
+/* One bronze rule per headline, and that is the whole decoration budget. */
+.carat-fa__rule {
+  display: block;
+  width: 3.2rem;
+  height: 0.1rem;
+  margin: 2rem 0 0;
+  background: var(--fa-bronze);
 }
 
 .carat-fa__tile-text {
   margin: 1.2rem 0 0;
   max-width: 48ch;
   font-size: 1.5rem;
-  line-height: 1.6;
-  color: var(--fa-ink-soft);
-}
-
-/* The locked diamond message, inside the loose-diamond tile rather than in a
-   text-heavy section of its own. */
-.carat-fa__diamond-message {
-  margin-top: 2.8rem;
-  padding-top: 2.8rem;
-  border-top: 0.1rem solid var(--fa-hairline);
+  line-height: 1.65;
+  color: var(--fa-ink-dark-soft);
 }
 
 .carat-fa__diamond-claim {
-  margin: 0;
+  margin: 2rem 0 0;
   font-family: var(--fa-display);
-  font-size: clamp(1.9rem, 3.2vw, 2.6rem);
-  line-height: 1.25;
-  color: var(--fa-ink);
+  font-size: clamp(1.8rem, 2.6vw, 2.2rem);
+  line-height: 1.3;
+  color: var(--fa-ink-dark);
 }
 
 .carat-fa__diamond-no {
   margin: 1.6rem 0 0;
   font-size: 1.5rem;
   letter-spacing: 0.02em;
-  color: var(--fa-gold);
+  font-weight: 600;
+  color: var(--fa-bronze);
+}
+
+/* Still rendered by the success panel. */
+.carat-fa__diamond-message {
+  margin-top: 2.8rem;
+  padding-top: 2.8rem;
+  border-top: 0.1rem solid var(--fa-hairline-dark);
 }
 
 /* --------------------------------------------------------- disruption */
 
+/* TRAVERTINE, the one band that is not ivory. The alternation is what
+   stops four stacked light sections reading as one undifferentiated page,
+   and a warm stone step does it without reaching for a dark block. */
 .carat-fa__disruption {
-  max-width: var(--fa-measure);
-  margin: 0 auto;
-  padding: 7.2rem var(--fa-gutter);
+  background: var(--fa-travertine);
+  color: var(--fa-ink-dark);
+  padding: clamp(5.6rem, 9vw, 9.6rem) var(--fa-gutter);
   text-align: center;
 }
 
+.carat-fa__disruption > * {
+  max-width: var(--fa-measure);
+  margin-inline: auto;
+}
+
+.carat-fa__disruption .carat-fa__display {
+  color: var(--fa-ink-dark);
+}
+
+.carat-fa__disruption .carat-fa__lede {
+  color: var(--fa-ink-dark-soft);
+}
+
+/* The trust line. Sentence case on purpose: this is a full sentence, and
+   setting a sentence in letterspaced uppercase across three lines is
+   shouting, not refinement. Bronze carries the accent instead. */
 .carat-fa__us {
-  margin: 2.4rem auto 0;
-  max-width: 50ch;
-  font-size: clamp(1.5rem, 2.1vw, 1.8rem);
-  line-height: 1.6;
-  color: var(--fa-ink);
+  margin: 2.8rem auto 0;
+  max-width: 46ch;
+  font-size: 1.5rem;
+  line-height: 1.65;
+  font-weight: 500;
+  color: var(--fa-bronze-deep);
 }
 
 /* ------------------------------------------------------------ closing */
 
+/* Back to ivory for the conversion moment: the brightest, calmest surface
+   on the page is the one holding the thing we want pressed. */
 .carat-fa__closing {
-  max-width: var(--fa-measure);
-  margin: 0 auto;
-  padding: 0 var(--fa-gutter) 8rem;
+  background: var(--fa-ivory);
+  color: var(--fa-ink-dark);
+  padding: clamp(5.6rem, 9vw, 9.6rem) var(--fa-gutter);
   text-align: center;
-  border-top: 0.1rem solid var(--fa-rule);
-  padding-top: 7.2rem;
+}
+
+.carat-fa__closing > * {
+  max-width: var(--fa-measure);
+  margin-inline: auto;
+}
+
+.carat-fa__closing .carat-fa__display {
+  color: var(--fa-ink-dark);
+}
+
+.carat-fa__closing .carat-fa__lede {
+  color: var(--fa-ink-dark-soft);
 }
 
 /* ------------------------------------------------------------ success */
@@ -931,4 +1068,44 @@
   .carat-fa__interests {
     margin-top: 2rem;
   }
+}
+
+
+/* THE WHOLE PAGE IS LIGHT NOW, INCLUDING THE MOMENT AFTER SIGNUP.
+   The success panel was a dark card, which on the old near-black ground
+   was invisible as a card and on ivory would be exactly the "dark
+   disconnected block" this redesign exists to remove. Travertine gives it
+   presence against ivory without changing theme. */
+.carat-fa__success {
+  background: var(--fa-travertine);
+  border-color: var(--fa-hairline-dark);
+}
+
+.carat-fa__success-heading {
+  color: var(--fa-ink-dark);
+}
+
+.carat-fa__success-text {
+  color: var(--fa-ink-dark-soft);
+}
+
+.carat-fa__share-prompt {
+  border-top-color: var(--fa-hairline-dark);
+  color: var(--fa-ink-dark);
+}
+
+.carat-fa__share-btn {
+  border-color: var(--fa-hairline-dark);
+  color: var(--fa-ink-dark);
+}
+
+/* Bronze on hover, not gold: gold on travertine is about 2:1. */
+.carat-fa__share-btn:hover,
+.carat-fa__share-btn--native {
+  border-color: var(--fa-bronze);
+  color: var(--fa-bronze);
+}
+
+.carat-fa__share-feedback {
+  color: var(--fa-ink-dark-faint);
 }

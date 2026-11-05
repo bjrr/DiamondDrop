@@ -194,44 +194,105 @@
     carries the locked diamond message inside it rather than in a separate
     text-heavy section of its own.
   {%- endcomment -%}
-  <section class="carat-fa__teasers" aria-labelledby="FirstAccessTeasers">
+  {%- comment -%}
+    ONE PROMINENT FEATURE, THEN FOUR QUIET CARDS.
+
+    The locked requirements say the Loose Diamonds card "should be visually
+    prominent". Five equal cards cannot express that — equality is the one
+    thing a grid of identical tiles is guaranteed to say. So Loose Diamonds
+    is an image-and-text feature at full measure, and the other four drop to
+    a 2x2 beneath it. The hierarchy is in the LAYOUT, not in a bigger font.
+
+    EVERY IMAGE IS DECORATIVE, `alt=""`. Each one sits beside a heading that
+    already says what it shows — "Exceptional pieces. Limited quantities."
+    next to a photograph of an exceptional piece. Describing it again would
+    make a screen reader say everything twice.
+
+    Images are lazy and carry explicit width/height so nothing reflows as
+    they arrive. They are `file_url` references to Shopify Files, so the CDN
+    does the resizing and serves WebP; there is no checked-in binary.
+  {%- endcomment -%}
+  <section class="carat-fa__feature" aria-labelledby="FirstAccessTeasers">
     <h2 class="visually-hidden" id="FirstAccessTeasers">
       {{- 'templates.first_access.teasers.a11y_heading' | t -}}
     </h2>
 
-    <article class="carat-fa__tile carat-fa__tile--wide">
-      <p class="carat-fa__tile-eyebrow">{{ 'templates.first_access.teasers.diamonds_label' | t }}</p>
-      <h3 class="carat-fa__tile-heading">{{ 'templates.first_access.teasers.diamonds_heading' | t }}</h3>
-      {%- comment -%}
-        CONSOLIDATED. This tile used to carry a supporting sentence and then
-        the diamond promise directly beneath it, both saying wholesale prices,
-        browse and compare. One statement of a thing is more convincing than
-        two; the locked core promise is the one that stayed.
-      {%- endcomment -%}
-      <p class="carat-fa__diamond-claim">{{ 'templates.first_access.diamond.heading' | t }}</p>
-      <p class="carat-fa__tile-text">{{ 'templates.first_access.diamond.promise' | t }}</p>
-      <p class="carat-fa__diamond-no">{{ 'templates.first_access.diamond.no_pressure' | t }}</p>
+    {%- assign diamonds_src = 'carat-fa-loose-diamonds.png' | file_url -%}
+    <article class="carat-fa__feature-row">
+      <div class="carat-fa__feature-media">
+        <img
+          class="carat-fa__feature-img"
+          src="{{ diamonds_src }}&width=900"
+          srcset="
+            {{ diamonds_src }}&width=600 600w,
+            {{ diamonds_src }}&width=900 900w,
+            {{ diamonds_src }}&width=1200 1200w,
+            {{ diamonds_src }}&width=1600 1600w
+          "
+          sizes="(min-width: 750px) 46vw, 100vw"
+          width="1744"
+          height="2336"
+          loading="lazy"
+          decoding="async"
+          alt=""
+        >
+      </div>
+
+      <div class="carat-fa__feature-copy">
+        <p class="carat-fa__tile-eyebrow">{{ 'templates.first_access.teasers.diamonds_label' | t }}</p>
+        <h3 class="carat-fa__tile-heading carat-fa__tile-heading--feature">
+          {{- 'templates.first_access.teasers.diamonds_heading' | t -}}
+        </h3>
+        <span class="carat-fa__rule" aria-hidden="true"></span>
+        {%- comment -%}
+          CONSOLIDATED. This tile used to carry a supporting sentence and then
+          the diamond promise directly beneath it, both saying wholesale prices,
+          browse and compare. One statement of a thing is more convincing than
+          two; the locked core promise is the one that stayed.
+        {%- endcomment -%}
+        <p class="carat-fa__diamond-claim">{{ 'templates.first_access.diamond.heading' | t }}</p>
+        <p class="carat-fa__tile-text">{{ 'templates.first_access.diamond.promise' | t }}</p>
+        <p class="carat-fa__diamond-no">{{ 'templates.first_access.diamond.no_pressure' | t }}</p>
+      </div>
     </article>
 
-    <article class="carat-fa__tile">
-      <p class="carat-fa__tile-eyebrow">{{ 'templates.first_access.teasers.steals_label' | t }}</p>
-      <h3 class="carat-fa__tile-heading">{{ 'templates.first_access.teasers.steals_heading' | t }}</h3>
-    </article>
+    <div class="carat-fa__cards">
+      {%- assign card_labels = 'steals_label,group_label,syos_label,custom_label' | split: ',' -%}
+      {%- assign card_headings = 'steals_heading,group_heading,syos_heading,custom_heading' | split: ',' -%}
+      {%- assign card_images = 'carat-fa-luxury-steals.png,carat-fa-group-buys.png,carat-fa-set-your-own-stone.png,carat-fa-custom-jewelry.png' | split: ',' -%}
 
-    <article class="carat-fa__tile">
-      <p class="carat-fa__tile-eyebrow">{{ 'templates.first_access.teasers.group_label' | t }}</p>
-      <h3 class="carat-fa__tile-heading">{{ 'templates.first_access.teasers.group_heading' | t }}</h3>
-    </article>
-
-    <article class="carat-fa__tile">
-      <p class="carat-fa__tile-eyebrow">{{ 'templates.first_access.teasers.syos_label' | t }}</p>
-      <h3 class="carat-fa__tile-heading">{{ 'templates.first_access.teasers.syos_heading' | t }}</h3>
-    </article>
-
-    <article class="carat-fa__tile">
-      <p class="carat-fa__tile-eyebrow">{{ 'templates.first_access.teasers.custom_label' | t }}</p>
-      <h3 class="carat-fa__tile-heading">{{ 'templates.first_access.teasers.custom_heading' | t }}</h3>
-    </article>
+      {%- for label_key in card_labels -%}
+        {%- assign heading_key = card_headings[forloop.index0] -%}
+        {%- assign card_src = card_images[forloop.index0] | file_url -%}
+        <article class="carat-fa__card">
+          <div class="carat-fa__card-media">
+            <img
+              class="carat-fa__card-img"
+              src="{{ card_src }}&width=700"
+              srcset="
+                {{ card_src }}&width=500 500w,
+                {{ card_src }}&width=700 700w,
+                {{ card_src }}&width=1000 1000w
+              "
+              sizes="(min-width: 750px) 30vw, 100vw"
+              width="2048"
+              height="1360"
+              loading="lazy"
+              decoding="async"
+              alt=""
+            >
+          </div>
+          <div class="carat-fa__card-body">
+            <p class="carat-fa__tile-eyebrow">
+              {{- 'templates.first_access.teasers.' | append: label_key | t -}}
+            </p>
+            <h3 class="carat-fa__tile-heading">
+              {{- 'templates.first_access.teasers.' | append: heading_key | t -}}
+            </h3>
+          </div>
+        </article>
+      {%- endfor -%}
+    </div>
   </section>
 
   {%- comment -%} --------------------------------------------- disruption
