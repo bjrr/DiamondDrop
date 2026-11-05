@@ -74,6 +74,22 @@
   color: var(--fa-gold);
 }
 
+/**
+ * EVERY HEADING IN THIS SECTION MUST SET ITS OWN COLOUR.
+ *
+ * Dawn's `base.css` colours all of `h1`-`h6` with
+ * `color: rgb(var(--color-foreground))`. A type selector beats inheritance,
+ * so `.carat-fa { color: var(--fa-ink) }` on the wrapper does NOT reach a
+ * heading inside it — the theme's charcoal does.
+ *
+ * That is how seven headings below the hero shipped at 1.04:1 contrast,
+ * charcoal `#1c1b19` on the `#171717` ground, from the very first commit:
+ * invisible on screen, present in the DOM, and therefore still passing every
+ * fence that asserts the locked copy is on the page.
+ *
+ * The lesson is the rule above, not the one-off fix: state the colour, never
+ * inherit it, for any heading in this file.
+ */
 .carat-fa__display {
   margin: 0;
   font-family: var(--fa-display);
@@ -557,6 +573,27 @@
   font-size: clamp(2rem, 3vw, 2.6rem);
   line-height: 1.22;
   text-wrap: balance;
+  /* Stated, never inherited. See the note above `.carat-fa__display`. */
+  color: var(--fa-ink);
+}
+
+/* ===================================================================
+   THE EXPLICIT HEADING COLOURS, one per surface.
+   =================================================================== */
+
+/* The hero is ivory, so its headline is charcoal. It LOOKED correct before
+   only because Dawn's charcoal happened to suit an ivory ground — luck, not
+   intent. Stated now so a theme scheme change cannot silently undo it. */
+.carat-fa__hero .carat-fa__display {
+  color: var(--fa-ink-dark);
+}
+
+/* The sections below the hero are still on the dark ground, so their
+   headings are ivory. Superseded by the ivory redesign of these sections;
+   until then this is the difference between readable and invisible. */
+.carat-fa__disruption .carat-fa__display,
+.carat-fa__closing .carat-fa__display {
+  color: var(--fa-ink);
 }
 
 .carat-fa__tile--wide .carat-fa__tile-heading {

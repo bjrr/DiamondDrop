@@ -205,7 +205,7 @@ describe("the signup is Shopify-native and low friction", () => {
   });
 
   it("says which fields are optional, in the label, with no asterisks", () => {
-    expect(fa.form?.phone_label).toBe("Mobile number for text updates (optional)");
+    expect(fa.form?.phone_label).toBe("Mobile number (optional)");
     expect(fa.form?.interests_label).toContain("(optional)");
     // Required labels carry no marker at all — a luxury signup should not
     // look like an admin screen.
@@ -228,6 +228,19 @@ describe("the signup is Shopify-native and low friction", () => {
     expect(live).not.toMatch(/accepts_sms|sms_consent|smsMarketing|accepts_text|text_consent/i);
     expect(live).not.toMatch(/by (providing|entering) your (mobile|phone)/i);
     expect(live).not.toMatch(/consent to (receive )?(marketing )?(texts|sms)/i);
+
+    /**
+     * THE LABEL ITSELF MUST NOT PROMISE TEXTS.
+     *
+     * The field shipped as "Mobile number for text updates (optional)" and
+     * survived every check above, because none of them read the words a
+     * visitor actually sees — the label promised texts while the code
+     * correctly set no consent. Layout and copy are part of consent, not
+     * just the mutation. Owner decision 2026-11-05: "Mobile number
+     * (optional)", nothing more.
+     */
+    expect(fa.form?.phone_label).not.toMatch(/text|sms|message|update|alert|notif/i);
+    expect(fa.form?.phone_placeholder ?? "").not.toMatch(/text|sms|message/i);
   });
 
   it("offers the six interests as multi-select chips that cannot block signup", () => {

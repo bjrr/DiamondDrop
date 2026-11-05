@@ -635,7 +635,7 @@
         "submitting": "Joining…",
         "last_name_label": "Last name",
         "last_name_placeholder": "Last name",
-        "phone_label": "Mobile number for text updates (optional)",
+        "phone_label": "Mobile number (optional)",
         "phone_placeholder": "Mobile number",
         "error_email": "Please enter a valid email address.",
         "error_first_name": "Please enter your first name.",
