@@ -155,6 +155,13 @@
 
       <p class="fa2-lede">{{ 'templates.first_access_v2.hero.lede' | t }}</p>
 
+      {%- comment -%}
+        The payoff. Heavier than body copy and never bigger than the
+        headline: it is the conclusion the list above earns, not a second
+        headline competing with the first.
+      {%- endcomment -%}
+      <p class="fa2-payoff">{{ 'templates.first_access_v2.hero.payoff' | t }}</p>
+
       <button class="fa2-btn fa2-btn--hero" type="button" data-fa2-open>
         {{- 'templates.first_access_v2.cta' | t -}}
       </button>
@@ -183,8 +190,18 @@
     </div>
 
     {%- liquid
-      assign keys = 'diamonds,steals,group,syos,custom' | split: ','
-      assign images = 'carat-fa-loose-diamonds.png,carat-fa-luxury-steals.png,carat-fa-group-buys.png,carat-fa-set-your-own-stone.png,carat-fa-custom-jewelry.png' | split: ','
+      # LAUNCH PRIORITY ORDER, with wholesale diamonds last. The order is the
+      # only thing that differs between these five: size, image ratio and type
+      # scale are identical, so being fifth carries no less weight than being
+      # first.
+      #
+      # Comments inside a liquid tag must start with a hash and must not
+      # contain Liquid tag delimiters: a comment block written the ordinary
+      # way is a syntax error here, and even quoting one inside a hash
+      # comment makes the parser swallow the rest of the tag. Both mistakes
+      # were made and both were caught by pushing and looking.
+      assign keys = 'steals,group,syos,custom,diamonds' | split: ','
+      assign images = 'carat-fa-luxury-steals.png,carat-fa-group-buys.png,carat-fa-set-your-own-stone.png,carat-fa-custom-jewelry.png,carat-fa-loose-diamonds.png' | split: ','
     -%}
 
     <ul class="fa2-cards" role="list">
@@ -211,43 +228,46 @@
           </div>
           <h3 class="fa2-card__title">{{ title }}</h3>
           <p class="fa2-card__text">{{ text_key | t }}</p>
+          {%- comment -%}
+            THE WHOLE CARD IS THE TARGET. A visible "Learn more" line cost a
+            row of height on every card and said nothing the card did not
+            already say, so the control is now a transparent button stretched
+            over the card.
+
+            IT IS A REAL BUTTON, not a click handler on a div: one tab stop
+            per card, Enter and Space work, and the accessible name is
+            "Learn more about Luxury Steals" rather than the empty string a
+            bare overlay would have. The focus ring traces the card because
+            the button covers it exactly.
+
+            The card is still understandable without opening anything: the
+            one sentence above stays visible.
+          {%- endcomment -%}
           <button
-            class="fa2-card__more"
+            class="fa2-card__hit"
             type="button"
             data-fa2-detail="{{ key }}"
             aria-label="{{ 'templates.first_access_v2.features.learn_more_about' | t }} {{ title }}"
-          >
-            {{- 'templates.first_access_v2.features.learn_more' | t -}}
-          </button>
+          ></button>
         </li>
       {%- endfor -%}
     </ul>
   </section>
 
-  {%- comment -%} --------------------------------------------- value band
+  {%- comment -%} ------------------------------------------ closing band
 
-    One compact band on travertine. A heading, two lines, a trust rubric with
-    centered dots as separators. No table, nothing about any country's
-    manufacturers, no long paragraph.
+    ONE CLOSING SECTION, not two. The value message and the final call to
+    action used to be separate full width bands with their own headings,
+    which on a teaser page is two screens spent saying one thing. Merged:
+    the overseas question, one supporting sentence, the trust rubric, and
+    the button. The page ends here, with no second heading after it.
   {%- endcomment -%}
-  <section class="fa2-value" aria-labelledby="Fa2ValueHeading">
-    <h2 class="fa2-h2 fa2-h2--sm" id="Fa2ValueHeading">
+  <section class="fa2-close" aria-labelledby="Fa2CloseHeading">
+    <h2 class="fa2-h2 fa2-h2--sm" id="Fa2CloseHeading">
       {{- 'templates.first_access_v2.value.heading' | t -}}
     </h2>
     <p class="fa2-sub fa2-sub--wide">{{ 'templates.first_access_v2.value.body' | t }}</p>
     <p class="fa2-trust">{{ 'templates.first_access_v2.value.trust' | t }}</p>
-  </section>
-
-  {%- comment -%} ----------------------------------------------- final cta
-
-    No second copy of the form. One heading, one line, the same button that
-    opens the same modal.
-  {%- endcomment -%}
-  <section class="fa2-final" aria-labelledby="Fa2FinalHeading">
-    <h2 class="fa2-h2 fa2-h2--sm" id="Fa2FinalHeading">
-      {{- 'templates.first_access_v2.final.heading' | t -}}
-    </h2>
-    <p class="fa2-sub">{{ 'templates.first_access_v2.final.body' | t }}</p>
     <button class="fa2-btn" type="button" data-fa2-open>
       {{- 'templates.first_access_v2.cta' | t -}}
     </button>
