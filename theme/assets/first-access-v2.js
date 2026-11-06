@@ -260,10 +260,21 @@
       var tagsField = form.querySelector('input[name="contact[tags]"]');
       if (tagsField) tagsField.value = tagsFor(form);
 
+      /**
+       * THE SAME THREE REQUIRED FIELDS, IN THE ORDER THEY NOW APPEAR.
+       *
+       * This list is not the validation rules, it is the order the first
+       * empty field is looked for in, and that has to track the layout. The
+       * fields were reordered to First, Last, Email, Mobile; leaving Email
+       * first here would have sent a visitor who submitted an empty form
+       * down to the third field instead of the first.
+       *
+       * Which fields are required is unchanged, and so are the messages.
+       */
       var required = [
-        { name: 'contact[email]', message: s('errorEmail', 'Please enter a valid email address.') },
         { name: 'contact[first_name]', message: s('errorFirstName', 'Please enter your first name.') },
         { name: 'contact[last_name]', message: s('errorLastName', 'Please enter your last name.') },
+        { name: 'contact[email]', message: s('errorEmail', 'Please enter a valid email address.') },
       ];
       var problem = null;
       for (var i = 0; i < required.length; i += 1) {

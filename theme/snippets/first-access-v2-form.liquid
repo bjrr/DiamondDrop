@@ -17,8 +17,13 @@
 
 {%- liquid
   assign t = 'templates.first_access_v2'
-  assign interests = 'loose-diamonds,luxury-steals,group-buys,set-your-own-stone,custom-jewelry,engagement-rings' | split: ','
-  assign interest_labels = 'templates.first_access.interests.loose_diamonds,templates.first_access.interests.luxury_steals,templates.first_access.interests.group_buys,templates.first_access.interests.set_your_own_stone,templates.first_access.interests.custom_jewelry,templates.first_access.interests.engagement_rings' | split: ','
+  # DISPLAY ORDER ONLY. These are launch priority, matching the feature
+  # cards, with Loose Diamonds last. The stored tag values are the same six
+  # handles they have always been, so nothing downstream changes: a customer
+  # tagged `loose-diamonds` before this reorder and one tagged after it are
+  # indistinguishable.
+  assign interests = 'luxury-steals,group-buys,set-your-own-stone,custom-jewelry,engagement-rings,loose-diamonds' | split: ','
+  assign interest_labels = 'templates.first_access.interests.luxury_steals,templates.first_access.interests.group_buys,templates.first_access.interests.set_your_own_stone,templates.first_access.interests.custom_jewelry,templates.first_access.interests.engagement_rings,templates.first_access.interests.loose_diamonds' | split: ','
 -%}
 
 <div class="fa2-form" data-fa2-signup>
@@ -29,28 +34,6 @@
     {%- if form.posted_successfully? or posted -%}
       {% render 'first-access-v2-success' %}
     {%- else -%}
-      <div class="fa2-field">
-        <label class="fa2-label" for="{{ form_id }}-email">
-          {{- 'templates.first_access.form.email_label' | t -}}
-        </label>
-        <input
-          id="{{ form_id }}-email"
-          class="fa2-input"
-          type="email"
-          name="contact[email]"
-          value="{{ form.email }}"
-          placeholder="{{ 'templates.first_access.form.email_placeholder' | t }}"
-          autocomplete="email"
-          autocorrect="off"
-          autocapitalize="off"
-          spellcheck="false"
-          inputmode="email"
-          required
-          aria-required="true"
-          {% if form.errors %}aria-invalid="true" aria-describedby="{{ form_id }}-error"{% endif %}
-        >
-      </div>
-
       <div class="fa2-fields fa2-fields--pair">
         <div class="fa2-field">
           <label class="fa2-label" for="{{ form_id }}-first-name">
@@ -85,6 +68,28 @@
             aria-required="true"
           >
         </div>
+      </div>
+
+      <div class="fa2-field">
+        <label class="fa2-label" for="{{ form_id }}-email">
+          {{- 'templates.first_access.form.email_label' | t -}}
+        </label>
+        <input
+          id="{{ form_id }}-email"
+          class="fa2-input"
+          type="email"
+          name="contact[email]"
+          value="{{ form.email }}"
+          placeholder="{{ 'templates.first_access.form.email_placeholder' | t }}"
+          autocomplete="email"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          inputmode="email"
+          required
+          aria-required="true"
+          {% if form.errors %}aria-invalid="true" aria-describedby="{{ form_id }}-error"{% endif %}
+        >
       </div>
 
       <div class="fa2-field">
