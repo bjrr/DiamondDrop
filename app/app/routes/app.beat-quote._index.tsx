@@ -17,6 +17,7 @@ import {
 // whole repository, and Prisma with it, into the client bundle. That is not a
 // style point: the build refuses it outright, which is how this comment came
 // to be written.
+import { AdminNavigation } from "~/components/AdminNavigation";
 import { getEnv } from "~/lib/env.server";
 import { authenticate } from "~/shopify.server";
 
@@ -231,6 +232,7 @@ export default function BeatQuoteIndexPage() {
 
   return (
     <AppProvider apiKey={apiKey}>
+      <AdminNavigation />
       <main style={{ padding: "1.5rem", maxWidth: "80rem" }}>
         <h1 style={{ marginTop: 0 }}>Let Us Beat Your Quote — review queue</h1>
 

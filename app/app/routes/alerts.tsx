@@ -3,6 +3,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import type { LoaderFunctionArgs, HeadersFunction } from "react-router";
 import { useLoaderData, useRouteError } from "react-router";
 
+import { AdminNavigation } from "~/components/AdminNavigation";
 import type { AdminAlertView } from "~/db/repositories/adminAlertRepository.server";
 import { listOpenAdminAlerts } from "~/db/repositories/adminAlertRepository.server";
 import { getEnv } from "~/lib/env.server";
@@ -235,6 +236,7 @@ export default function AdminAlertsPage() {
 
   return (
     <AppProvider apiKey={apiKey}>
+      <AdminNavigation />
       <main style={{ fontFamily: "system-ui, sans-serif", padding: "1.5rem", lineHeight: 1.5 }}>
         <h1 style={{ fontSize: "1.25rem", margin: "0 0 0.5rem" }}>Pricing alerts</h1>
         <p style={{ margin: "0 0 1rem", color: "#555" }}>

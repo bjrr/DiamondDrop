@@ -9,6 +9,7 @@ import {
   setLuxuryStealAssignment,
   type LuxuryStealAdminVariantRow,
 } from "~/db/repositories/luxuryStealRepository.server";
+import { AdminNavigation } from "~/components/AdminNavigation";
 import { listOpenLuxuryStealSyncFailures } from "~/db/repositories/luxuryStealSyncFailureRepository.server";
 import { EmptyLuxuryStealBulkAssignmentError } from "~/domain/luxurysteals/assignment";
 import {
@@ -346,6 +347,7 @@ export default function LuxuryStealsAssignmentPage() {
 
   return (
     <AppProvider apiKey={apiKey}>
+      <AdminNavigation />
       <main style={{ fontFamily: "system-ui, sans-serif", padding: "1.5rem", lineHeight: 1.5 }}>
         <p style={{ margin: "0 0 0.5rem" }}>
           <Link to="/app/luxury-steals/held-orders">View held orders (unmatched Luxury Steal checks) &rarr;</Link>

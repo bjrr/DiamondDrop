@@ -3,6 +3,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { useLoaderData, useRouteError } from "react-router";
 
+import { AdminNavigation } from "~/components/AdminNavigation";
 import { prisma } from "~/db/client.server";
 import { getEnv } from "~/lib/env.server";
 import { authenticate } from "~/shopify.server";
@@ -189,6 +190,7 @@ export default function ReadyMountingsDashboard() {
 
   return (
     <AppProvider apiKey={apiKey}>
+      <AdminNavigation />
       <main style={page}>
         <h1 style={{ fontSize: "1.25rem", margin: "0 0 0.35rem" }}>Ready mountings — compatibility audit</h1>
         <p style={muted}>

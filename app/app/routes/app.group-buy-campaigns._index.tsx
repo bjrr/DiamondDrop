@@ -9,6 +9,7 @@ import {
   type GroupBuyCampaignListRow,
   type GroupBuyCampaignTierPublishStatus,
 } from "~/db/repositories/groupBuyRepository.server";
+import { AdminNavigation } from "~/components/AdminNavigation";
 import { getEnv } from "~/lib/env.server";
 import { authenticate } from "~/shopify.server";
 
@@ -150,6 +151,7 @@ export default function GroupBuyCampaignsListPage() {
 
   return (
     <AppProvider apiKey={apiKey}>
+      <AdminNavigation />
       <main style={{ fontFamily: "system-ui, sans-serif", padding: "1.5rem", lineHeight: 1.5 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: "0.5rem" }}>
           <h1 style={{ fontSize: "1.25rem", margin: 0 }}>Group Buy campaigns</h1>

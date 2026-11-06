@@ -7,9 +7,16 @@
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { Form, useActionData, useLoaderData, useNavigation, useRouteError } from "react-router";
+import { Form, Link, useActionData, useLoaderData, useNavigation, useRouteError } from "react-router";
 
+import { AdminNavigation } from "~/components/AdminNavigation";
+import { getAdminDashboardCounts, type AdminDashboardCounts } from "~/db/repositories/adminDashboardRepository.server";
 import { getEnv } from "~/lib/env.server";
+import {
+  FIRST_ACCESS_CUSTOMER_TAG,
+  shopifyAdminCustomersUrl,
+  shopifyAdminProductsUrl,
+} from "~/lib/shopifyAdminLinks";
 import {
   AdminApiError,
   createProduct,
@@ -51,6 +58,11 @@ interface LoaderData {
   devProbe: boolean;
   products: ShopifyProduct[];
   readError: string | null;
+  /** Operational queue depths. Counts only: no money, no cost, no margin. */
+  counts: AdminDashboardCounts;
+  /** Null when the shop domain is not a recognised myshopify host. */
+  customersUrl: string | null;
+  productsUrl: string | null;
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -59,6 +71,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
   // which is why this loader has no "unauthenticated" branch.
   const { session, admin } = await authenticate.admin(request);
   const devProbe = isDevProbeEnabled();
+
+  // The operational counts, always. Cheap indexed counts; see the repository.
+  const counts = await getAdminDashboardCounts();
 
   let products: ShopifyProduct[] = [];
   let readError: string | null = null;
@@ -82,6 +97,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
     devProbe,
     products,
     readError,
+    counts,
+    // Built from the authenticated shop domain, never guessed. Null rather
+    // than a broken link when the host shape is not recognised.
+    customersUrl: shopifyAdminCustomersUrl(session.shop),
+    productsUrl: shopifyAdminProductsUrl(session.shop),
   } satisfies LoaderData;
 }
 
@@ -179,7 +199,8 @@ export async function action({ request }: ActionFunctionArgs) {
 }
 
 export default function AppHome() {
-  const { apiKey, shop, devProbe, products, readError } = useLoaderData<typeof loader>();
+  const { apiKey, shop, devProbe, products, readError, counts, customersUrl, productsUrl } =
+    useLoaderData<typeof loader>();
   const actionData = useActionData<ActionData>();
   const navigation = useNavigation();
   const busy = navigation.state !== "idle";
@@ -194,19 +215,105 @@ export default function AppHome() {
         untyped, and adding ambient JSX declarations for a developer-only page
         would be more code than the page itself.
       */}
-      <main style={{ fontFamily: "system-ui, sans-serif", padding: "1.5rem", lineHeight: 1.5 }}>
-        <h1 style={{ fontSize: "1.25rem", margin: "0 0 0.5rem" }}>CaratForUs</h1>
-        <p style={{ margin: "0 0 0.75rem" }}>
+      <AdminNavigation />
+      <main style={{ fontFamily: "system-ui, sans-serif", padding: "0 1.5rem 2rem", lineHeight: 1.5 }}>
+        <h1 style={{ fontSize: "1.25rem", margin: "0 0 0.25rem" }}>CaratForUs Admin</h1>
+        <p style={{ margin: "0 0 1.5rem", color: "#5c5f62", fontSize: "0.875rem" }}>
           Connected to <strong>{shop}</strong>.
         </p>
-        <p style={{ margin: "0 0 1.5rem", color: "#555" }}>
-          Buy Now pricing runs on a daily schedule. Price changes beyond the configured
-          tolerance wait for approval here; nothing publishes to Shopify automatically yet.
-        </p>
+
+        <NeedsAttention counts={counts} />
+
+        <Group title="Sales and special programs">
+          <Card
+            title="Group Buys"
+            to="/app/group-buy-campaigns"
+            note={counts.groupBuyDraft + " draft, " + counts.groupBuyOpen + " open"}
+          />
+          <Card
+            title="Group Buy demand"
+            to="/app/group-buy-demand"
+            note={pluralise(counts.groupBuyDemandOutstanding, "request", "awaiting notification")}
+          />
+          <Card
+            title="Luxury Steals"
+            to="/app/luxury-steals"
+            note={pluralise(
+              counts.luxuryStealSyncFailures + counts.luxuryStealUnmatchedOrderChecks,
+              "item",
+              "needing attention"
+            )}
+          />
+          <Card
+            title="Let Us Beat Your Quote"
+            to="/app/beat-quote"
+            note={pluralise(counts.beatQuotePendingReview, "submission", "awaiting review")}
+          />
+        </Group>
+
+        <Group title="Customer and order operations">
+          <Card
+            title="Bank Payments"
+            to="/app/bank-payments"
+            note={pluralise(counts.bankPaymentsOpen, "order", "open")}
+          />
+          <Card
+            title="Custom Jewelry"
+            to="/app/custom-jewelry"
+            note={pluralise(counts.customJewelryActionable, "project", "needing action")}
+          />
+          <Card
+            title="Returns and RMAs"
+            to="/app/rma"
+            note={pluralise(counts.rmaOpen, "request", "open")}
+          />
+          <Card
+            title="Warranty Claims"
+            to="/app/warranty-claims"
+            note={pluralise(counts.warrantyOpen, "claim", "open")}
+          />
+          {/* Shipment has no status column, so there is no honest open count. */}
+          <Card title="Shipments" to="/app/shipments" note={null} />
+        </Group>
+
+        <Group title="First Access">
+          <ExternalCard
+            title="First Access signups"
+            href={customersUrl}
+            body="View and manage First Access signups in Shopify Customers."
+            hint={"Filter by tag: " + FIRST_ACCESS_CUSTOMER_TAG}
+          />
+        </Group>
+
+        <Group title="Catalog and configuration">
+          <ExternalCard
+            title="Products"
+            href={productsUrl}
+            body="Products, variants, media, pricing and inventory are managed in Shopify Product Admin."
+            hint={null}
+          />
+          <Card
+            title="Ready Mountings"
+            to="/app/ready-settings"
+            note="Validation and audit only. Fix products in Shopify."
+          />
+          <Card
+            title="Pricing Settings"
+            to="/app/pricing-settings"
+            note="Profiles, metals, labor, stones"
+          />
+          <Card
+            title="Price Approvals"
+            to="/app/price-approvals"
+            note="A price was calculated and needs a decision"
+          />
+          <Card title="Pricing Alerts" to="/alerts" note="A calculation or Shopify sync failed" />
+        </Group>
 
         {devProbe ? (
-          <section style={{ borderTop: "1px solid #ddd", paddingTop: "1rem" }}>
-            <h2 style={{ fontSize: "1rem", margin: "0 0 0.25rem" }}>Admin API probe</h2>
+          <section style={{ borderTop: "1px solid #ddd", paddingTop: "1rem", marginTop: "2rem" }}>
+            <h2 style={{ fontSize: "1rem", margin: "0 0 0.25rem" }}>Development Tools</h2>
+            <h3 style={{ fontSize: "0.9rem", margin: "0.5rem 0 0.25rem" }}>Admin API probe</h3>
             <p style={{ margin: "0 0 1rem", color: "#777", fontSize: "0.875rem" }}>
               Development only. Proves read and write access against this store.
             </p>
@@ -286,6 +393,164 @@ export const headers: HeadersFunction = (args) => boundary.headers(args);
  * session refresh into a dead end; boundary.error re-throws them and renders
  * only genuine errors.
  */
+
+/* ---------------------------------------------------------------------------
+   Dashboard presentation.
+
+   Deliberately tiny and local. These are four helpers and a stylesheet-free
+   layout, not a component library: the admin home is a worklist and a set of
+   links, and the moment it grows a design system it starts competing with
+   Shopify Admin instead of pointing at it.
+   ------------------------------------------------------------------------ */
+
+/** "3 orders open", or null when there is nothing to say. Zero is not news. */
+function pluralise(n: number, noun: string, suffix: string): string | null {
+  if (n <= 0) return null;
+  return n + " " + noun + (n === 1 ? "" : "s") + " " + suffix;
+}
+
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section style={{ margin: "0 0 1.75rem" }}>
+      <h2
+        style={{
+          fontSize: "0.75rem",
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color: "#6d7175",
+          margin: "0 0 0.6rem",
+        }}
+      >
+        {title}
+      </h2>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem" }}>{children}</div>
+    </section>
+  );
+}
+
+const cardStyle: React.CSSProperties = {
+  display: "block",
+  minWidth: "15rem",
+  flex: "1 1 15rem",
+  maxWidth: "22rem",
+  padding: "0.85rem 1rem",
+  border: "1px solid #e1e3e5",
+  borderRadius: "0.5rem",
+  textDecoration: "none",
+  color: "inherit",
+  background: "#fff",
+};
+
+function Card({ title, to, note }: { title: string; to: string; note: string | null }) {
+  return (
+    <Link to={to} style={cardStyle}>
+      <strong style={{ display: "block", fontSize: "0.9375rem" }}>{title}</strong>
+      {note ? (
+        <span style={{ fontSize: "0.8125rem", color: "#5c5f62" }}>{note}</span>
+      ) : null}
+    </Link>
+  );
+}
+
+/**
+ * A link out to Shopify Admin.
+ *
+ * Renders as plain text when the URL could not be derived, rather than as a
+ * dead link: the instruction is still useful, and a link that goes nowhere is
+ * worse than none.
+ */
+function ExternalCard({
+  title,
+  href,
+  body,
+  hint,
+}: {
+  title: string;
+  href: string | null;
+  body: string;
+  hint: string | null;
+}) {
+  const inner = (
+    <>
+      <strong style={{ display: "block", fontSize: "0.9375rem" }}>{title}</strong>
+      <span style={{ display: "block", fontSize: "0.8125rem", color: "#5c5f62" }}>{body}</span>
+      {hint ? (
+        <span style={{ display: "block", fontSize: "0.8125rem", color: "#6d7175", marginTop: "0.25rem" }}>
+          <strong>{hint}</strong>
+        </span>
+      ) : null}
+    </>
+  );
+  if (!href) return <div style={cardStyle}>{inner}</div>;
+  return (
+    <a href={href} target="_blank" rel="noreferrer" style={cardStyle}>
+      {inner}
+    </a>
+  );
+}
+
+/**
+ * The only section that is allowed to be empty, and says so when it is.
+ *
+ * Everything listed here is work somebody owes. Nothing is listed to fill
+ * space: a queue at zero is omitted entirely, and if every queue is at zero
+ * the section says so in one sentence rather than showing a wall of noughts.
+ */
+function NeedsAttention({ counts }: { counts: AdminDashboardCounts }) {
+  const items: { label: string; to: string }[] = [];
+  const add = (n: number, label: string, to: string) => {
+    if (n > 0) items.push({ label: n + " " + label, to });
+  };
+
+  add(counts.openAlerts, "open pricing alert(s)", "/alerts");
+  add(counts.beatQuotePendingReview, "quote review(s) waiting", "/app/beat-quote");
+  add(counts.bankPaymentsOpen, "bank payment order(s) open", "/app/bank-payments");
+  add(counts.groupBuyBankPaymentsOpen, "Group Buy bank payment(s) active", "/app/group-buy-campaigns");
+  add(counts.customJewelryActionable, "custom jewelry project(s) needing action", "/app/custom-jewelry");
+  add(counts.rmaOpen, "open RMA(s)", "/app/rma");
+  add(counts.warrantyOpen, "open warranty claim(s)", "/app/warranty-claims");
+  add(counts.luxuryStealSyncFailures, "Luxury Steal sync failure(s)", "/app/luxury-steals");
+  add(counts.luxuryStealUnmatchedOrderChecks, "unmatched Luxury Steal order check(s)", "/app/luxury-steals");
+  add(counts.groupBuyDemandOutstanding, "demand signal(s) awaiting notification", "/app/group-buy-demand");
+
+  return (
+    <section
+      style={{
+        margin: "0 0 1.75rem",
+        padding: "0.85rem 1rem",
+        border: "1px solid #e1e3e5",
+        borderRadius: "0.5rem",
+        background: "#fafbfb",
+      }}
+    >
+      <h2
+        style={{
+          fontSize: "0.75rem",
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color: "#6d7175",
+          margin: "0 0 0.6rem",
+        }}
+      >
+        Needs attention
+      </h2>
+      {items.length === 0 ? (
+        <p style={{ margin: 0, fontSize: "0.875rem" }}>
+          Everything requiring staff attention is clear.
+        </p>
+      ) : (
+        <ul style={{ margin: 0, paddingLeft: "1.1rem", fontSize: "0.875rem", lineHeight: 1.8 }}>
+          {items.map((item) => (
+            <li key={item.label}>
+              <Link to={item.to}>{item.label}</Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export function ErrorBoundary() {
   return boundary.error(useRouteError());
 }

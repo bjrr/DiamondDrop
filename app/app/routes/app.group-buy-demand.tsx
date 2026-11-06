@@ -7,6 +7,7 @@ import {
   listGroupBuyDemandSignals,
   markGroupBuyDemandSignalsNotified,
 } from "~/db/repositories/groupBuyDemandSignalRepository.server";
+import { AdminNavigation } from "~/components/AdminNavigation";
 import type { DemandSignalKind } from "~/domain/groupbuy/demandSignal";
 import { getEnv } from "~/lib/env.server";
 import { logger } from "~/lib/logger.server";
@@ -176,6 +177,7 @@ export default function GroupBuyDemandPage() {
 
   return (
     <AppProvider apiKey={apiKey}>
+      <AdminNavigation />
       <main style={{ padding: "1rem", fontFamily: "system-ui, sans-serif" }}>
         <h1 style={{ fontSize: "1.25rem", margin: "0 0 0.5rem" }}>Group Buy demand</h1>
         <p style={{ margin: "0 0 1rem", color: "#555" }}>

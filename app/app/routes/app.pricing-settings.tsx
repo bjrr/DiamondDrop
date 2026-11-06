@@ -13,6 +13,7 @@ import {
   StoneType,
 } from "@prisma/client";
 
+import { AdminNavigation } from "~/components/AdminNavigation";
 import { prisma } from "~/db/client.server";
 import {
   createCostComponent,
@@ -548,6 +549,7 @@ export default function PricingSettingsPage() {
 
   return (
     <AppProvider apiKey={data.apiKey}>
+      <AdminNavigation />
       <main style={{ padding: "1rem", fontFamily: "system-ui, sans-serif", maxWidth: "60rem" }}>
         <h1 style={{ fontSize: "1.25rem", margin: "0 0 0.5rem" }}>Pricing settings</h1>
 

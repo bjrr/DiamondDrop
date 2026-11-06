@@ -7,6 +7,7 @@ import {
   searchCustomJewelryProjectsForStaff,
   type CustomJewelryStaffListRow,
 } from "~/db/repositories/customJewelryProjectRepository.server";
+import { AdminNavigation } from "~/components/AdminNavigation";
 import { getEnv } from "~/lib/env.server";
 import { authenticate } from "~/shopify.server";
 
@@ -134,6 +135,7 @@ export default function CustomJewelryIndexPage() {
 
   return (
     <AppProvider apiKey={apiKey}>
+      <AdminNavigation />
       <main style={{ padding: "1.5rem", maxWidth: "70rem" }}>
         <h1 style={{ marginTop: 0 }}>Custom Jewelry enquiries</h1>
 

@@ -7,6 +7,7 @@ import {
   searchWarrantyClaimsForStaff,
   type WarrantyClaimStaffListRow,
 } from "~/db/repositories/warrantyClaimRepository.server";
+import { AdminNavigation } from "~/components/AdminNavigation";
 import { WARRANTY_CLAIM_STATUSES, type WarrantyClaimStatus } from "~/domain/warranty/claimStatus";
 import { getEnv } from "~/lib/env.server";
 import { authenticate } from "~/shopify.server";
@@ -112,6 +113,7 @@ export default function WarrantyClaimsListPage() {
 
   return (
     <AppProvider apiKey={apiKey}>
+      <AdminNavigation />
       <main style={{ fontFamily: "system-ui, sans-serif", padding: "1.5rem", lineHeight: 1.5 }}>
         <h1 style={{ fontSize: "1.25rem", margin: "0 0 0.5rem" }}>Warranty claims</h1>
         <p style={{ margin: "0 0 1rem", color: "#555" }}>

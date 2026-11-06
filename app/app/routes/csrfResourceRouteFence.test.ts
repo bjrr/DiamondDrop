@@ -84,6 +84,25 @@ const EXEMPT_UI_ACTION_ROUTES: Readonly<Record<string, string>> = {
     "route reaches no Shopify API and publishes no price — a configuration " +
     "change still has to pass recalculation and the existing approval/sync " +
     "gate before it can affect a storefront.",
+  "app.price-approvals.tsx":
+    "the price approval queue, superseding scripts/price-review.ts. Stands on " +
+    "the SAME single leg as app.bank-payments.$id.tsx and for the same reason: " +
+    "Shopify Admin frames it at this app's own host, so a form submitted from " +
+    "inside it carries this app's own Origin and throwIfPotentialCSRFAttack " +
+    "rejects anything else. It does NOT get _index.tsx's second leg: this is a " +
+    "real production mutation, and a consequential one, because approval " +
+    "publishes a price to a live storefront. " +
+    "Three things bound the blast radius if the exemption were ever wrong, " +
+    "none of which is a CSRF defence: the action requires an ONLINE session " +
+    "with an associated Shopify user and refuses outright without one, so a " +
+    "forged request carries no staff identity and cannot decide anything; the " +
+    "actor is read from that session and never from the form, so a posted " +
+    "identity cannot enter the append-only pricing audit trail; and the route " +
+    "performs no transition of its own, delegating to decideIntent and " +
+    "decideAndSyncIntent, which carry the allowed-transition check, the D14 " +
+    "placeholder guard and the supersession check regardless of caller. " +
+    "If this route ever accepts a POST from anywhere but its own rendered " +
+    "form, this exemption stops being true and must be re-argued.",
   "app.bank-payments.$id.tsx":
     "the manual Bank Payment verification admin surface (Slice 2C phase 2C-c). " +
     "NOT the same argument as _index.tsx, which rests on two legs — same-origin " +

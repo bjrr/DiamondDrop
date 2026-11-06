@@ -3,6 +3,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { Form, Link, useLoaderData, useRouteError } from "react-router";
 
+import { AdminNavigation } from "~/components/AdminNavigation";
 import { searchShipmentsForStaff, type ShipmentStaffListRow } from "~/db/repositories/shipmentRepository.server";
 import { getEnv } from "~/lib/env.server";
 import { authenticate } from "~/shopify.server";
@@ -115,6 +116,7 @@ export default function ShipmentsListPage() {
 
   return (
     <AppProvider apiKey={apiKey}>
+      <AdminNavigation />
       <main style={{ fontFamily: "system-ui, sans-serif", padding: "1.5rem", lineHeight: 1.5 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "0.75rem" }}>
           <h1 style={{ fontSize: "1.25rem", margin: "0 0 0.5rem" }}>Shipments</h1>
