@@ -298,8 +298,13 @@
   padding: 1.6rem 2.4rem;
   border: 0;
   border-radius: 0.2rem;
+  /* ONE CTA TREATMENT FOR THE WHOLE PAGE: gold ground, charcoal label.
+     The hero used to invert this to a charcoal button, which meant the two
+     signups on one page asked for the same thing in two different voices.
+     Gold is reserved for exactly this, so the thing to press is the only
+     gold object in its section. */
   background: var(--fa-gold);
-  color: #171717;
+  color: var(--fa-ink-dark);
   font-family: var(--fa-body);
   font-size: 1.5rem;
   font-weight: 600;
@@ -313,8 +318,13 @@
   filter: brightness(1.08);
 }
 
+/* CHARCOAL, NOT IVORY. The ring was `--fa-ink` from when this page was dark;
+   on the ivory ground it now sits on, an ivory outline around a gold button
+   is invisible — a keyboard user would tab onto the primary action and see
+   nothing happen. Charcoal reads against both the gold button and the ivory
+   around it. */
 .carat-fa__cta:focus-visible {
-  outline: 0.2rem solid var(--fa-ink);
+  outline: 0.2rem solid var(--fa-ink-dark);
   outline-offset: 0.3rem;
 }
 
@@ -491,15 +501,11 @@
   outline-color: var(--fa-ink-dark);
 }
 
-.carat-fa__hero .carat-fa__cta {
-  background: var(--fa-ink-dark);
-  color: var(--fa-ivory);
-}
-
-.carat-fa__hero .carat-fa__cta:focus-visible {
-  outline-color: var(--fa-ink-dark);
-}
-
+/* The hero CTA deliberately has NO colour override: it uses the one shared
+   treatment above. It used to be charcoal-on-ivory here, which made the
+   page ask for the same signup twice in two different voices. Only the
+   mobile margin tweak further down remains hero-specific, and that is
+   layout rather than colour. */
 .carat-fa__hero .carat-fa__benefit,
 .carat-fa__closing .carat-fa__benefit {
   color: var(--fa-ink-dark-faint);
