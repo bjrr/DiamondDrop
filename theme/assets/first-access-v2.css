@@ -103,10 +103,6 @@
   color: var(--fa2-ink-soft);
 }
 
-.fa2-sub--wide {
-  max-width: 56ch;
-}
-
 /* The payoff: heavier than the lede, smaller than the headline. It is the
    conclusion, not a competing title. */
 .fa2-payoff {
@@ -391,16 +387,27 @@
   font-size: 1.3rem;
   line-height: 1.45;
   color: var(--fa2-ink-soft);
+  /* FOUR LINES RESERVED, which is the longest of the five descriptions.
+
+     Desktop equalises on its own because all five share one flex row and
+     stretch to match. A phone puts them in rows of two, and rows do not
+     equalise across each other: the two shortest descriptions made their
+     row 186px against the others' 204px, so the cards stopped being equal
+     the moment the copy got tighter. Reserving the tallest case keeps all
+     five identical at every width. */
+  min-height: calc(1.45em * 4);
 }
 
 /* ------------------------------------------------------- closing band
 
-   One section where there used to be two. Travertine, so the page still
-   changes tone at the end, with the call to action inside it rather than in
-   a further band of its own. */
+   Travertine, so the page still changes tone at the end. It carries the
+   trust rubric and the button and nothing else: the overseas message it
+   used to repeat is already the hero's closing line. */
 
 .fa2-close {
-  padding: clamp(3.6rem, 5.5vw, 5.6rem) var(--fa2-gutter);
+  /* Slim. It holds one line and one button now, so the padding that suited
+     a heading plus a paragraph would just be empty travertine. */
+  padding: clamp(2.8rem, 4vw, 3.6rem) var(--fa2-gutter);
   background: var(--fa2-travertine);
   text-align: center;
 }
@@ -410,7 +417,7 @@
 }
 
 .fa2-trust {
-  margin: 1.6rem auto 0;
+  margin: 0 auto;
   /* Wide enough that the three part rubric does not orphan its last word. */
   max-width: 62ch;
   font-size: 1.3rem;
@@ -421,7 +428,7 @@
 }
 
 .fa2-close .fa2-btn {
-  margin-top: 2rem;
+  margin-top: 1.6rem;
 }
 
 /* ----------------------------------------------------------- sticky mobile

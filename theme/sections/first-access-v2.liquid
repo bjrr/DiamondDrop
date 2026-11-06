@@ -256,17 +256,19 @@
 
   {%- comment -%} ------------------------------------------ closing band
 
-    ONE CLOSING SECTION, not two. The value message and the final call to
-    action used to be separate full width bands with their own headings,
-    which on a teaser page is two screens spent saying one thing. Merged:
-    the overseas question, one supporting sentence, the trust rubric, and
-    the button. The page ends here, with no second heading after it.
+    A TRUST LINE AND A BUTTON. Nothing else.
+
+    This band used to carry "Why Go Overseas for a Better Deal?" and a
+    supporting paragraph. The hero already ends on "You no longer have to go
+    overseas to get a better deal", so the lower section was the same
+    argument made twice, and the second time is the one a visitor scrolls
+    past. Removed rather than reworded.
+
+    LABELLED, NOT HEADED. There is no heading left to point `aria-labelledby`
+    at, so the section names itself with `aria-label`. A screen reader still
+    gets a landmark; the page does not get a heading it does not need.
   {%- endcomment -%}
-  <section class="fa2-close" aria-labelledby="Fa2CloseHeading">
-    <h2 class="fa2-h2 fa2-h2--sm" id="Fa2CloseHeading">
-      {{- 'templates.first_access_v2.value.heading' | t -}}
-    </h2>
-    <p class="fa2-sub fa2-sub--wide">{{ 'templates.first_access_v2.value.body' | t }}</p>
+  <section class="fa2-close" aria-label="{{ 'templates.first_access_v2.a11y.final' | t }}">
     <p class="fa2-trust">{{ 'templates.first_access_v2.value.trust' | t }}</p>
     <button class="fa2-btn" type="button" data-fa2-open>
       {{- 'templates.first_access_v2.cta' | t -}}
