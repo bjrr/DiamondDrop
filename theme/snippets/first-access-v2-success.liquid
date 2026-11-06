@@ -1,0 +1,76 @@
+{%- comment -%}
+  FIRST ACCESS V2: the state after a successful signup, inside the modal.
+
+  SIGNUP FIRST, SHARING SECOND, AND SHARING IS OPTIONAL. The visitor is
+  already in before any of these controls appear. There are no points, no
+  codes, no rankings, no rewards, and nothing here changes their status.
+
+  WHAT IS CLAIMED IS WHAT WORKS. WhatsApp, Facebook, Email, Text and Copy
+  Link are real links that function on their own. Instagram and TikTok have
+  no public web share endpoint, so they are not offered as buttons that would
+  quietly fail; they are reachable through the device share sheet, which is
+  why the "More apps" control is shown only where `navigator.share` actually
+  exists. JavaScript reveals it. Markup never promises it.
+
+  NO EM DASH CHARACTERS, in markup or in comments. Owner rule for V2.
+{%- endcomment -%}
+
+<div class="fa2-success" data-fa2-success tabindex="-1">
+  <p class="fa2-success__eyebrow">{{ 'templates.first_access_v2.success.heading' | t }}</p>
+  <p class="fa2-success__text">{{ 'templates.first_access_v2.success.text' | t }}</p>
+
+  <div class="fa2-share" data-fa2-share>
+    <p class="fa2-share__prompt">{{ 'templates.first_access_v2.success.share_prompt' | t }}</p>
+
+    <div class="fa2-share__row">
+      <a class="fa2-share__btn" data-fa2-share-whatsapp href="#" target="_blank" rel="noopener">
+        <svg class="fa2-share__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.4-.7-1.7-.8s-.4-.1-.5.1l-.7.9c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.1-.2 0-.4.1-.5l.4-.5.2-.4v-.4l-.7-1.7c-.2-.4-.4-.4-.5-.4h-.5a1 1 0 0 0-.7.3 2.9 2.9 0 0 0-.9 2.2 5.1 5.1 0 0 0 1 2.7 11.5 11.5 0 0 0 4.5 4 7.6 7.6 0 0 0 3 .6 2.6 2.6 0 0 0 1.7-1.2 2.1 2.1 0 0 0 .2-1.2c-.1-.1-.3-.2-.5-.3Z"/>
+        </svg>
+        <span>{{ 'templates.first_access_v2.success.share_whatsapp' | t }}</span>
+      </a>
+
+      <a class="fa2-share__btn" data-fa2-share-facebook href="#" target="_blank" rel="noopener">
+        <svg class="fa2-share__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.5h-1.3c-1.2 0-1.6.8-1.6 1.6V12h2.8l-.4 2.9h-2.4v7A10 10 0 0 0 22 12Z"/>
+        </svg>
+        <span>{{ 'templates.first_access_v2.success.share_facebook' | t }}</span>
+      </a>
+
+      <a class="fa2-share__btn" data-fa2-share-email href="#">
+        <svg class="fa2-share__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2Zm0 4.2-8 5-8-5V6l8 5 8-5Z"/>
+        </svg>
+        <span>{{ 'templates.first_access_v2.success.share_email' | t }}</span>
+      </a>
+
+      <a class="fa2-share__btn" data-fa2-share-sms href="#">
+        <svg class="fa2-share__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2ZM7 9h10v2H7Zm0 4h7v2H7Z"/>
+        </svg>
+        <span>{{ 'templates.first_access_v2.success.share_sms' | t }}</span>
+      </a>
+
+      <button class="fa2-share__btn" type="button" data-fa2-share-copy>
+        <svg class="fa2-share__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12Zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Zm0 16H8V7h11Z"/>
+        </svg>
+        <span>{{ 'templates.first_access_v2.success.share_copy' | t }}</span>
+      </button>
+
+      {%- comment -%}
+        Hidden until JavaScript confirms `navigator.share`. This is the route
+        to Instagram, TikTok, Messages and anything else the device has
+        installed, so it must never be visible where it cannot work.
+      {%- endcomment -%}
+      <button class="fa2-share__btn" type="button" data-fa2-share-native hidden>
+        <svg class="fa2-share__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M18 16a3 3 0 0 0-2 .8L9 13a3 3 0 0 0 0-2l7-3.8A3 3 0 1 0 15 5v.4L8 9.2a3 3 0 1 0 0 5.6l7 3.8v.4a3 3 0 1 0 3-3Z"/>
+        </svg>
+        <span>{{ 'templates.first_access_v2.success.share_native' | t }}</span>
+      </button>
+    </div>
+
+    <p class="fa2-share__feedback" data-fa2-share-feedback role="status" hidden></p>
+  </div>
+</div>

@@ -1,0 +1,351 @@
+{%- comment -%}
+  CARATFORUS FIRST ACCESS V2
+  ===========================================================================
+  A coming soon page, not a small website. Centered logo, a short hero, five
+  equal feature previews, one compact value band, one closing call to action.
+  Everything deeper lives in a modal so the page itself stays short.
+
+  V1 IS UNTOUCHED. This is a parallel implementation: its own template,
+  section, snippets, stylesheet and script, all named `first-access-v2` or
+  `fa2-`. Nothing here edits, renames or imports a V1 file, so V1 remains
+  fully intact as the reference until V2 is approved.
+
+  THE SIGNUP IS V1's SIGNUP. Same Shopify customer form, same field names,
+  same tags, same app proxy for the mobile number. Only the presentation is
+  new. See `first-access-v2-form.liquid`.
+
+  WORKS WITHOUT JAVASCRIPT. The modals are `<dialog>` elements that the
+  script opens; where `<dialog>` or the script is unavailable, the signup
+  form is still in the document and still posts natively, and the feature
+  copy is still readable because the full sentence is on the card rather
+  than hidden behind "Learn more".
+
+  NO EM DASH CHARACTERS, in markup or in comments. Owner rule for V2.
+{%- endcomment -%}
+
+{{ 'first-access-v2.css' | asset_url | stylesheet_tag }}
+
+{%- liquid
+  assign t = 'templates.first_access_v2'
+  assign posted = false
+  if section.settings.show_success_preview
+    assign posted = true
+  endif
+
+  assign share_url = section.settings.share_url
+  if share_url == blank
+    assign share_url = '/pages/first-access'
+  endif
+-%}
+
+<script>
+  window.caratFaV2 = {
+    shareText: {{ 'templates.first_access_v2.share.text' | t | json }},
+    shareSubject: {{ 'templates.first_access_v2.share.subject' | t | json }},
+    shareUrl: {{ shop.url | append: share_url | json }},
+    copied: {{ 'templates.first_access_v2.success.copied' | t | json }},
+    errorEmail: {{ 'templates.first_access.form.error_email' | t | json }},
+    errorFirstName: {{ 'templates.first_access.form.error_first_name' | t | json }},
+    errorLastName: {{ 'templates.first_access.form.error_last_name' | t | json }},
+    submitting: {{ 'templates.first_access.form.submitting' | t | json }}
+  };
+</script>
+<script src="{{ 'first-access-v2.js' | asset_url }}" defer="defer"></script>
+
+{%- liquid
+  assign hero_desktop = section.settings.hero_image
+  assign hero_mobile = section.settings.hero_image_mobile
+  assign desktop_src = 'carat-fa-hero-desktop.png' | file_url
+  assign mobile_src = 'carat-fa-hero-mobile.png' | file_url
+-%}
+
+<div class="fa2" data-fa2>
+  {%- comment -%} ---------------------------------------------------- hero
+
+    Short by design. The logo is centered, "Launching Soon" sits directly
+    beneath it as a bronze pill, then one headline, one supporting line and
+    one button. The form is NOT here: it is in the modal, which is what buys
+    back the vertical space and leaves the photograph visible.
+  {%- endcomment -%}
+  <section class="fa2-hero" aria-labelledby="Fa2HeroHeading">
+    <div class="fa2-hero__media" aria-hidden="true">
+      <picture>
+        <source
+          media="(max-width: 749px)"
+          sizes="100vw"
+          srcset="
+            {%- if hero_mobile != blank -%}
+              {{ hero_mobile | image_url: width: 540 }} 540w,
+              {{ hero_mobile | image_url: width: 810 }} 810w,
+              {{ hero_mobile | image_url: width: 1080 }} 1080w
+            {%- else -%}
+              {{ mobile_src }}&width=540 540w,
+              {{ mobile_src }}&width=810 810w,
+              {{ mobile_src }}&width=1080 1080w
+            {%- endif -%}
+          "
+        >
+        {%- if hero_desktop != blank -%}
+          {{
+            hero_desktop
+            | image_url: width: 2400
+            | image_tag:
+              loading: 'eager',
+              fetchpriority: 'high',
+              sizes: '100vw',
+              widths: '960, 1400, 1900, 2400',
+              class: 'fa2-hero__img',
+              alt: ''
+          }}
+        {%- else -%}
+          <img
+            class="fa2-hero__img"
+            src="{{ desktop_src }}&width=1900"
+            srcset="
+              {{ desktop_src }}&width=960 960w,
+              {{ desktop_src }}&width=1400 1400w,
+              {{ desktop_src }}&width=1900 1900w,
+              {{ desktop_src }}&width=2400 2400w
+            "
+            sizes="100vw"
+            width="5041"
+            height="2160"
+            loading="eager"
+            fetchpriority="high"
+            alt=""
+          >
+        {%- endif -%}
+      </picture>
+      <span class="fa2-hero__veil"></span>
+    </div>
+
+    <div class="fa2-hero__inner">
+      {%- comment -%}
+        THE THEME's OWN LOGO, `settings.logo`, which is the same source V1
+        uses. A section rendered with `{% section %}` gets no section
+        settings, so an image_picker in this file's schema would always be
+        blank and the page would fall back to type. The global setting is
+        populated and works.
+
+        BRANDING, NOT NAVIGATION. A plain image, never a link: this page
+        deliberately has no way out, and a logo that navigates home would
+        quietly put the exit back.
+      {%- endcomment -%}
+      {%- if settings.logo != blank -%}
+        <img
+          class="fa2-logo"
+          src="{{ settings.logo | image_url: width: 520 }}"
+          srcset="{{ settings.logo | image_url: width: 260 }} 260w, {{ settings.logo | image_url: width: 520 }} 520w"
+          sizes="(min-width: 750px) 22rem, 17rem"
+          width="{{ settings.logo.width }}"
+          height="{{ settings.logo.height }}"
+          loading="eager"
+          fetchpriority="high"
+          alt="{{ shop.name }}"
+        >
+      {%- else -%}
+        <p class="fa2-logo fa2-logo--text">{{ shop.name }}</p>
+      {%- endif -%}
+
+      <p class="fa2-badge">{{ 'templates.first_access_v2.launching' | t }}</p>
+
+      <h1 class="fa2-display" id="Fa2HeroHeading">
+        {{- 'templates.first_access_v2.hero.heading' | t -}}
+      </h1>
+
+      <p class="fa2-lede">{{ 'templates.first_access_v2.hero.lede' | t }}</p>
+
+      <button class="fa2-btn fa2-btn--hero" type="button" data-fa2-open>
+        {{- 'templates.first_access_v2.cta' | t -}}
+      </button>
+
+      <p class="fa2-reassure">{{ 'templates.first_access_v2.hero.reassurance' | t }}</p>
+    </div>
+  </section>
+
+  {%- comment -%} ------------------------------------------------ features
+
+    FIVE EQUAL CARDS. Identical markup, identical image ratio, identical type
+    scale, no modifier that makes one bigger. On desktop they sit in one row
+    of five; on a phone they are a two column grid, which keeps all five
+    within about one and a half screens instead of five.
+
+    THE SHORT SENTENCE IS ON THE CARD. "Learn more" opens a modal with a
+    longer explanation, but nobody needs to open anything to understand what
+    the five things are.
+  {%- endcomment -%}
+  <section class="fa2-features" aria-labelledby="Fa2FeaturesHeading">
+    <div class="fa2-features__head">
+      <h2 class="fa2-h2" id="Fa2FeaturesHeading">
+        {{- 'templates.first_access_v2.features.heading' | t -}}
+      </h2>
+      <p class="fa2-sub">{{ 'templates.first_access_v2.features.lede' | t }}</p>
+    </div>
+
+    {%- liquid
+      assign keys = 'diamonds,steals,group,syos,custom' | split: ','
+      assign images = 'carat-fa-loose-diamonds.png,carat-fa-luxury-steals.png,carat-fa-group-buys.png,carat-fa-set-your-own-stone.png,carat-fa-custom-jewelry.png' | split: ','
+    -%}
+
+    <ul class="fa2-cards" role="list">
+      {%- for key in keys -%}
+        {%- liquid
+          assign title_key = 'templates.first_access_v2.features.' | append: key | append: '_title'
+          assign text_key = 'templates.first_access_v2.features.' | append: key | append: '_text'
+          assign card_src = images[forloop.index0] | file_url
+          assign title = title_key | t
+        -%}
+        <li class="fa2-card">
+          <div class="fa2-card__media">
+            <img
+              class="fa2-card__img"
+              src="{{ card_src }}&width=520"
+              srcset="{{ card_src }}&width=320 320w, {{ card_src }}&width=520 520w, {{ card_src }}&width=760 760w"
+              sizes="(min-width: 990px) 18vw, (min-width: 750px) 30vw, 44vw"
+              width="2048"
+              height="1360"
+              loading="lazy"
+              decoding="async"
+              alt=""
+            >
+          </div>
+          <h3 class="fa2-card__title">{{ title }}</h3>
+          <p class="fa2-card__text">{{ text_key | t }}</p>
+          <button
+            class="fa2-card__more"
+            type="button"
+            data-fa2-detail="{{ key }}"
+            aria-label="{{ 'templates.first_access_v2.features.learn_more_about' | t }} {{ title }}"
+          >
+            {{- 'templates.first_access_v2.features.learn_more' | t -}}
+          </button>
+        </li>
+      {%- endfor -%}
+    </ul>
+  </section>
+
+  {%- comment -%} --------------------------------------------- value band
+
+    One compact band on travertine. A heading, two lines, a trust rubric with
+    centered dots as separators. No table, nothing about any country's
+    manufacturers, no long paragraph.
+  {%- endcomment -%}
+  <section class="fa2-value" aria-labelledby="Fa2ValueHeading">
+    <h2 class="fa2-h2 fa2-h2--sm" id="Fa2ValueHeading">
+      {{- 'templates.first_access_v2.value.heading' | t -}}
+    </h2>
+    <p class="fa2-sub fa2-sub--wide">{{ 'templates.first_access_v2.value.body' | t }}</p>
+    <p class="fa2-trust">{{ 'templates.first_access_v2.value.trust' | t }}</p>
+  </section>
+
+  {%- comment -%} ----------------------------------------------- final cta
+
+    No second copy of the form. One heading, one line, the same button that
+    opens the same modal.
+  {%- endcomment -%}
+  <section class="fa2-final" aria-labelledby="Fa2FinalHeading">
+    <h2 class="fa2-h2 fa2-h2--sm" id="Fa2FinalHeading">
+      {{- 'templates.first_access_v2.final.heading' | t -}}
+    </h2>
+    <p class="fa2-sub">{{ 'templates.first_access_v2.final.body' | t }}</p>
+    <button class="fa2-btn" type="button" data-fa2-open>
+      {{- 'templates.first_access_v2.cta' | t -}}
+    </button>
+  </section>
+
+  {%- comment -%} ------------------------------------------- sticky mobile
+
+    Revealed by script only once the hero button has scrolled out of view,
+    and hidden again whenever a modal is open. Phones only.
+  {%- endcomment -%}
+  <div class="fa2-sticky" data-fa2-sticky hidden>
+    <button class="fa2-btn fa2-btn--full" type="button" data-fa2-open>
+      {{- 'templates.first_access_v2.sticky.label' | t -}}
+    </button>
+  </div>
+
+  {%- comment -%} -------------------------------------------- signup modal
+
+    ONE MODAL, SHARED BY EVERY BUTTON. The form inside it is the real Shopify
+    customer form, present in the document from first paint, so a visitor
+    without JavaScript can still reach and post it.
+  {%- endcomment -%}
+  <dialog class="fa2-modal" data-fa2-modal aria-labelledby="Fa2ModalHeading">
+    <div class="fa2-modal__panel">
+      <button class="fa2-modal__close" type="button" data-fa2-close aria-label="{{ 'templates.first_access_v2.modal.close' | t }}">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" width="20" height="20">
+          <path fill="currentColor" d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3Z"/>
+        </svg>
+      </button>
+
+      <p class="fa2-badge fa2-badge--modal">{{ 'templates.first_access_v2.launching' | t }}</p>
+      <h2 class="fa2-h2 fa2-h2--sm" id="Fa2ModalHeading">
+        {{- 'templates.first_access_v2.modal.heading' | t -}}
+      </h2>
+      <p class="fa2-sub">{{ 'templates.first_access_v2.modal.lede' | t }}</p>
+
+      {% render 'first-access-v2-form', form_id: 'Fa2Signup', posted: posted %}
+    </div>
+  </dialog>
+
+  {%- comment -%} -------------------------------------------- detail modals
+
+    One per feature, rendered from the same loop as the cards so a card and
+    its explanation can never drift apart. Short by rule: a heading, the card
+    sentence, and one paragraph.
+  {%- endcomment -%}
+  {%- for key in keys -%}
+    {%- liquid
+      assign title_key = 'templates.first_access_v2.features.' | append: key | append: '_title'
+      assign text_key = 'templates.first_access_v2.features.' | append: key | append: '_text'
+      assign detail_key = 'templates.first_access_v2.features.' | append: key | append: '_detail'
+    -%}
+    <dialog class="fa2-modal fa2-modal--detail" data-fa2-detail-modal="{{ key }}" aria-labelledby="Fa2Detail-{{ key }}">
+      <div class="fa2-modal__panel">
+        <button class="fa2-modal__close" type="button" data-fa2-close aria-label="{{ 'templates.first_access_v2.modal.close' | t }}">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" width="20" height="20">
+            <path fill="currentColor" d="M18.3 5.7 12 12l6.3 6.3-1.4 1.4L10.6 13.4 4.3 19.7 2.9 18.3 9.2 12 2.9 5.7 4.3 4.3l6.3 6.3 6.3-6.3Z"/>
+          </svg>
+        </button>
+        <h2 class="fa2-h2 fa2-h2--sm" id="Fa2Detail-{{ key }}">{{ title_key | t }}</h2>
+        <p class="fa2-sub">{{ text_key | t }}</p>
+        <p class="fa2-detail__body">{{ detail_key | t }}</p>
+        <button class="fa2-btn fa2-btn--full" type="button" data-fa2-open>
+          {{- 'templates.first_access_v2.cta' | t -}}
+        </button>
+      </div>
+    </dialog>
+  {%- endfor -%}
+</div>
+
+{% schema %}
+{
+  "name": "First Access V2",
+  "settings": [
+    {
+      "type": "image_picker",
+      "id": "hero_image",
+      "label": "Hero image (desktop)"
+    },
+    {
+      "type": "image_picker",
+      "id": "hero_image_mobile",
+      "label": "Hero image (mobile)"
+    },
+    {
+      "type": "text",
+      "id": "share_url",
+      "label": "Share link path",
+      "default": "/pages/first-access",
+      "info": "Where the share buttons send people. Keep this pointing at the public First Access page, not at this preview."
+    },
+    {
+      "type": "checkbox",
+      "id": "show_success_preview",
+      "label": "Preview the post signup state",
+      "default": false
+    }
+  ],
+  "presets": [{ "name": "First Access V2" }]
+}
+{% endschema %}

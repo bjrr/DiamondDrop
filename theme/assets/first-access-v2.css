@@ -1,0 +1,741 @@
+/* ===========================================================================
+   CARATFORUS FIRST ACCESS V2
+
+   The approved visual language, continued: ivory, travertine, charcoal,
+   bronze, and gold reserved for the button. Light throughout, committed, and
+   independent of the viewer's theme.
+
+   SEPARATE FROM V1 ON PURPOSE. Every selector is `fa2-`, every token is
+   `--fa2-`. Nothing here is shared with `first-access.css`, so V1 cannot be
+   affected by anything in this file and can stay exactly as it is while V2
+   is reviewed.
+
+   THE WHOLE POINT IS LENGTH. The signup form and every longer explanation
+   live in modals, which is what lets the page be a hero, one row of five
+   cards, one slim band and one closing call to action.
+
+   NO EM DASH CHARACTERS, in rules or in comments. Owner rule for V2.
+   ======================================================================== */
+
+.fa2 {
+  --fa2-ivory: #fcfbf8;
+  --fa2-travertine: #f2ede4;
+  --fa2-ink: #1c1b19;
+  --fa2-ink-soft: rgba(28, 27, 25, 0.78);
+  --fa2-ink-faint: rgba(28, 27, 25, 0.56);
+  --fa2-bronze: #8a6e3a;
+  /* Deep enough to be small text on travertine, where #8a6e3a is only
+     4.12:1. Measured, same as V1. */
+  --fa2-bronze-deep: #7d6334;
+  --fa2-gold: #c9a96a;
+  --fa2-hairline: rgba(28, 27, 25, 0.12);
+
+  --fa2-display: var(--font-heading-family, "Playfair Display", Georgia, serif);
+  --fa2-body: var(--font-body-family, "Work Sans", -apple-system, sans-serif);
+
+  --fa2-measure: 92rem;
+  --fa2-gutter: 2rem;
+
+  background: var(--fa2-ivory);
+  color: var(--fa2-ink);
+  font-family: var(--fa2-body);
+  /* Cancels the theme page shell so each band runs edge to edge. */
+  margin: 0 calc(50% - 50vw);
+  width: 100vw;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+.fa2 *,
+.fa2 *::before,
+.fa2 *::after {
+  box-sizing: border-box;
+}
+
+/* Dawn colours every h1 to h6 from its own scheme, and a type selector beats
+   inheritance. Every heading in this file therefore states its own colour.
+   This is the V1 lesson, applied from the first line rather than found later
+   at 1.04:1. */
+.fa2 h1,
+.fa2 h2,
+.fa2 h3 {
+  color: var(--fa2-ink);
+}
+
+/* ------------------------------------------------------------------ type */
+
+.fa2-display {
+  margin: 1.6rem 0 0;
+  font-family: var(--fa2-display);
+  font-weight: 400;
+  font-size: clamp(3.2rem, 6.4vw, 5.4rem);
+  line-height: 1.06;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.fa2-h2 {
+  margin: 0;
+  font-family: var(--fa2-display);
+  font-weight: 400;
+  font-size: clamp(2.4rem, 3.6vw, 3.4rem);
+  line-height: 1.16;
+  text-wrap: balance;
+}
+
+.fa2-h2--sm {
+  font-size: clamp(2.1rem, 2.8vw, 2.7rem);
+}
+
+.fa2-lede {
+  margin: 1.4rem auto 0;
+  max-width: 52ch;
+  font-size: clamp(1.5rem, 1.9vw, 1.7rem);
+  line-height: 1.6;
+  color: var(--fa2-ink-soft);
+}
+
+.fa2-sub {
+  margin: 1rem auto 0;
+  max-width: 46ch;
+  font-size: 1.5rem;
+  line-height: 1.6;
+  color: var(--fa2-ink-soft);
+}
+
+.fa2-sub--wide {
+  max-width: 56ch;
+}
+
+.fa2-reassure {
+  margin: 1.4rem 0 0;
+  font-size: 1.3rem;
+  color: var(--fa2-ink-faint);
+}
+
+/* --------------------------------------------------------------- the pill
+
+   LAUNCHING SOON has to be seen immediately without reading as a sale badge.
+   An outlined bronze pill on a warm fill does that: it is quiet in colour and
+   loud in placement, sitting directly under the logo where the eye lands
+   first. No red, no fill in gold, no animation. */
+
+.fa2-badge {
+  display: inline-block;
+  margin: 2rem 0 0;
+  padding: 0.8rem 1.8rem;
+  border: 0.1rem solid var(--fa2-bronze);
+  border-radius: 10rem;
+  background: rgba(201, 169, 106, 0.1);
+  color: var(--fa2-bronze-deep);
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  /* The tracking adds a trailing gap that makes a pill look off centre. */
+  text-indent: 0.3em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.fa2-badge--modal {
+  margin: 0 0 1.4rem;
+}
+
+/* ---------------------------------------------------------------- buttons
+
+   ONE BUTTON TREATMENT: gold ground, charcoal label, 7.68:1. Gold appears
+   nowhere else as a fill, so whatever is gold is the thing to press. */
+
+.fa2-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 5.6rem;
+  padding: 1.6rem 3.2rem;
+  border: 0;
+  border-radius: 0.2rem;
+  background: var(--fa2-gold);
+  color: var(--fa2-ink);
+  font-family: var(--fa2-body);
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+
+.fa2-btn:hover {
+  filter: brightness(1.08);
+}
+
+/* Charcoal, which reads against both the gold fill and the ivory around it.
+   An ivory ring here would be invisible, which is the V1 bug. */
+.fa2-btn:focus-visible {
+  outline: 0.2rem solid var(--fa2-ink);
+  outline-offset: 0.3rem;
+}
+
+.fa2-btn--hero {
+  margin-top: 2.4rem;
+}
+
+.fa2-btn--full {
+  width: 100%;
+}
+
+.fa2-btn[disabled] {
+  cursor: progress;
+  filter: saturate(0.6);
+}
+
+/* ------------------------------------------------------------------- hero
+
+   Short. No form, so the photograph keeps most of the frame and the copy
+   sits in a centred column over a veil rather than a solid panel. */
+
+.fa2-hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: min(82svh, 74rem);
+  padding: 4.8rem var(--fa2-gutter);
+  text-align: center;
+  isolation: isolate;
+  background: var(--fa2-ivory);
+}
+
+.fa2-hero__media {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+}
+
+.fa2-hero__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 42%;
+}
+
+/* Strong enough to read charcoal type over, weak enough that the jewelry is
+   still jewelry. The gradient keeps the veil densest behind the copy column
+   and lets the edges of the photograph stay clear. */
+.fa2-hero__veil {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+      120% 90% at 50% 45%,
+      rgba(252, 251, 248, 0.93) 0%,
+      rgba(252, 251, 248, 0.8) 42%,
+      rgba(252, 251, 248, 0.48) 72%,
+      rgba(252, 251, 248, 0.34) 100%
+    );
+}
+
+.fa2-hero__inner {
+  position: relative;
+  max-width: 62rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.fa2-logo {
+  display: block;
+  width: auto;
+  max-width: 17rem;
+  height: auto;
+}
+
+.fa2-logo--text {
+  margin: 0;
+  font-family: var(--fa2-display);
+  font-size: 2.8rem;
+  letter-spacing: 0.04em;
+  color: var(--fa2-ink);
+}
+
+@media screen and (min-width: 750px) {
+  .fa2-logo {
+    max-width: 22rem;
+  }
+}
+
+/* --------------------------------------------------------------- features
+
+   FIVE EQUAL CARDS. One rule sets every card; there is no modifier that can
+   make one of them bigger. Flex rather than grid so the final row centres
+   itself when five items do not divide evenly into the column count. */
+
+.fa2-features {
+  padding: clamp(4.8rem, 7vw, 7.2rem) var(--fa2-gutter);
+  background: var(--fa2-ivory);
+}
+
+.fa2-features__head {
+  max-width: var(--fa2-measure);
+  margin: 0 auto clamp(3.2rem, 5vw, 4.8rem);
+  text-align: center;
+}
+
+.fa2-cards {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2rem 1.6rem;
+  max-width: var(--fa2-measure);
+  margin: 0 auto;
+  padding: 0;
+  list-style: none;
+}
+
+.fa2-card {
+  /* Two across on a phone. flex-grow stays 0 so a lone final card keeps the
+     same width as the rest and simply centres. */
+  flex: 0 1 calc(50% - 0.8rem);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+@media screen and (min-width: 750px) {
+  .fa2-card {
+    flex-basis: calc(33.3333% - 1.07rem);
+  }
+}
+
+@media screen and (min-width: 990px) {
+  /* All five in one row, which is the compact arrangement the brief asks
+     for whenever there is room. */
+  .fa2-card {
+    flex-basis: calc(20% - 1.28rem);
+  }
+}
+
+.fa2-card__media {
+  overflow: hidden;
+  border-radius: 0.2rem;
+  background: var(--fa2-travertine);
+}
+
+.fa2-card__img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+}
+
+.fa2-card__title {
+  margin: 0.4rem 0 0;
+  font-family: var(--fa2-display);
+  font-weight: 400;
+  font-size: 1.8rem;
+  line-height: 1.2;
+}
+
+.fa2-card__text {
+  margin: 0;
+  font-size: 1.35rem;
+  line-height: 1.5;
+  color: var(--fa2-ink-soft);
+}
+
+.fa2-card__more {
+  align-self: flex-start;
+  margin-top: 0.2rem;
+  padding: 0.6rem 0;
+  border: 0;
+  background: none;
+  color: var(--fa2-bronze-deep);
+  font-family: var(--fa2-body);
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-underline-offset: 0.4rem;
+  cursor: pointer;
+}
+
+.fa2-card__more:focus-visible {
+  outline: 0.2rem solid var(--fa2-ink);
+  outline-offset: 0.3rem;
+}
+
+/* ------------------------------------------------------------- value band */
+
+.fa2-value {
+  padding: clamp(4rem, 6vw, 6rem) var(--fa2-gutter);
+  background: var(--fa2-travertine);
+  text-align: center;
+}
+
+.fa2-value > * {
+  margin-inline: auto;
+}
+
+.fa2-trust {
+  margin: 2rem auto 0;
+  /* Wide enough that the three part rubric does not orphan its last word. */
+  max-width: 62ch;
+  font-size: 1.3rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  line-height: 1.7;
+  color: var(--fa2-bronze-deep);
+}
+
+/* -------------------------------------------------------------- final cta */
+
+.fa2-final {
+  padding: clamp(4.8rem, 7vw, 7.2rem) var(--fa2-gutter) clamp(5.6rem, 8vw, 8rem);
+  background: var(--fa2-ivory);
+  text-align: center;
+}
+
+.fa2-final .fa2-btn {
+  margin-top: 2.4rem;
+}
+
+/* ----------------------------------------------------------- sticky mobile
+
+   Phones only, and only after the hero button has gone. Hidden whenever a
+   modal is open so it can never sit on top of the form it opened. */
+
+.fa2-sticky {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  padding: 1rem 1.6rem calc(1rem + env(safe-area-inset-bottom));
+  background: rgba(252, 251, 248, 0.94);
+  backdrop-filter: blur(6px);
+  border-top: 0.1rem solid var(--fa2-hairline);
+}
+
+@media screen and (min-width: 750px) {
+  .fa2-sticky {
+    display: none;
+  }
+}
+
+.fa2-sticky[hidden] {
+  display: none;
+}
+
+/* ----------------------------------------------------------------- modals */
+
+.fa2-modal {
+  width: min(52rem, calc(100vw - 2.4rem));
+  max-height: calc(100svh - 3.2rem);
+  padding: 0;
+  border: 0;
+  border-radius: 0.3rem;
+  background: var(--fa2-ivory);
+  color: var(--fa2-ink);
+  overflow: auto;
+  /* Centred by the dialog element itself; margin:auto keeps it so when the
+     content is shorter than the viewport. */
+  margin: auto;
+}
+
+.fa2-modal::backdrop {
+  background: rgba(28, 27, 25, 0.55);
+}
+
+.fa2-modal__panel {
+  position: relative;
+  padding: clamp(2.4rem, 4vw, 3.6rem);
+  text-align: center;
+}
+
+.fa2-modal__close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 4.4rem;
+  height: 4.4rem;
+  padding: 0;
+  border: 0;
+  border-radius: 10rem;
+  background: none;
+  color: var(--fa2-ink-faint);
+  cursor: pointer;
+}
+
+.fa2-modal__close:hover {
+  color: var(--fa2-ink);
+}
+
+.fa2-modal__close:focus-visible {
+  outline: 0.2rem solid var(--fa2-ink);
+  outline-offset: 0.2rem;
+}
+
+.fa2-detail__body {
+  margin: 1.6rem auto 2.4rem;
+  max-width: 48ch;
+  font-size: 1.45rem;
+  line-height: 1.68;
+  color: var(--fa2-ink-soft);
+  text-align: left;
+}
+
+/* ------------------------------------------------------------------- form */
+
+.fa2-form {
+  margin-top: 2.4rem;
+  text-align: left;
+}
+
+.fa2-fields {
+  display: grid;
+  gap: 1.2rem;
+  grid-template-columns: 1fr;
+}
+
+@media screen and (min-width: 480px) {
+  .fa2-fields--pair {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.fa2-field + .fa2-field,
+.fa2-field + .fa2-fields,
+.fa2-fields + .fa2-field {
+  margin-top: 1.2rem;
+}
+
+.fa2-fields--pair > .fa2-field + .fa2-field {
+  margin-top: 0;
+}
+
+.fa2-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.fa2-label {
+  font-size: 1.2rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fa2-ink-faint);
+}
+
+.fa2-label--legend {
+  padding: 0;
+  margin-bottom: 0.8rem;
+}
+
+.fa2-input {
+  /* 1.6rem minimum, or iOS Safari zooms the viewport on focus. */
+  font-family: var(--fa2-body);
+  font-size: 1.6rem;
+  color: var(--fa2-ink);
+  background: #fff;
+  border: 0.1rem solid rgba(28, 27, 25, 0.2);
+  border-radius: 0.2rem;
+  padding: 1.3rem 1.4rem;
+  width: 100%;
+  min-height: 5rem;
+  transition: border-color 120ms ease;
+}
+
+.fa2-input::placeholder {
+  color: rgba(28, 27, 25, 0.4);
+}
+
+.fa2-input:focus-visible {
+  outline: 0.2rem solid var(--fa2-bronze);
+  outline-offset: 0.2rem;
+  border-color: var(--fa2-bronze);
+}
+
+.fa2-interests {
+  border: 0;
+  padding: 0;
+  margin: 1.8rem 0 0;
+}
+
+.fa2-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.fa2-chip {
+  position: relative;
+  display: inline-flex;
+}
+
+.fa2-chip__input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+.fa2-chip__face {
+  display: inline-flex;
+  align-items: center;
+  min-height: 4.4rem;
+  padding: 0 1.6rem;
+  border: 0.1rem solid var(--fa2-hairline);
+  border-radius: 10rem;
+  font-size: 1.4rem;
+  color: var(--fa2-ink-soft);
+  transition: border-color 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+
+.fa2-chip__input:checked + .fa2-chip__face {
+  border-color: var(--fa2-bronze);
+  background: rgba(201, 169, 106, 0.14);
+  color: var(--fa2-ink);
+}
+
+.fa2-chip__input:focus-visible + .fa2-chip__face {
+  outline: 0.2rem solid var(--fa2-ink);
+  outline-offset: 0.2rem;
+}
+
+.fa2-form .fa2-btn {
+  margin-top: 2rem;
+}
+
+.fa2-error {
+  margin: 1.2rem 0 0;
+  font-size: 1.4rem;
+  color: #9d2f2f;
+}
+
+/* ---------------------------------------------------------------- success */
+
+.fa2-success {
+  text-align: center;
+}
+
+.fa2-success:focus-visible {
+  outline: 0.2rem solid var(--fa2-bronze);
+  outline-offset: 0.4rem;
+}
+
+.fa2-success__eyebrow {
+  margin: 0;
+  font-family: var(--fa2-display);
+  font-size: clamp(2.2rem, 3vw, 2.8rem);
+  line-height: 1.2;
+  color: var(--fa2-ink);
+}
+
+.fa2-success__text {
+  margin: 0.8rem auto 0;
+  max-width: 42ch;
+  font-size: 1.45rem;
+  line-height: 1.6;
+  color: var(--fa2-ink-soft);
+}
+
+.fa2-share {
+  margin-top: 2.8rem;
+  padding-top: 2.4rem;
+  border-top: 0.1rem solid var(--fa2-hairline);
+}
+
+.fa2-share__prompt {
+  margin: 0 auto 1.6rem;
+  max-width: 40ch;
+  font-size: 1.4rem;
+  line-height: 1.6;
+  color: var(--fa2-ink);
+}
+
+.fa2-share__row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.8rem;
+}
+
+.fa2-share__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-height: 4.4rem;
+  padding: 0 1.4rem;
+  border: 0.1rem solid var(--fa2-hairline);
+  border-radius: 10rem;
+  background: none;
+  color: var(--fa2-ink);
+  font-family: var(--fa2-body);
+  font-size: 1.35rem;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.fa2-share__btn:hover {
+  border-color: var(--fa2-bronze);
+  color: var(--fa2-bronze-deep);
+}
+
+.fa2-share__btn:focus-visible {
+  outline: 0.2rem solid var(--fa2-ink);
+  outline-offset: 0.2rem;
+}
+
+.fa2-share__btn[hidden] {
+  display: none;
+}
+
+.fa2-share__icon {
+  width: 1.8rem;
+  height: 1.8rem;
+  flex: none;
+}
+
+.fa2-share__feedback {
+  margin: 1.2rem 0 0;
+  font-size: 1.3rem;
+  color: var(--fa2-bronze-deep);
+}
+
+.fa2-share__feedback[hidden] {
+  display: none;
+}
+
+/* ------------------------------------------------------------- small print */
+
+@media screen and (max-width: 749px) {
+  .fa2-hero {
+    min-height: 88svh;
+    padding: 3.2rem 1.8rem;
+  }
+
+  .fa2-display {
+    font-size: clamp(2.9rem, 9vw, 3.8rem);
+  }
+
+  /* Room for the sticky bar so it never sits on the final button. */
+  .fa2-final {
+    padding-bottom: 11rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fa2 * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

@@ -1,0 +1,143 @@
+{%- comment -%}
+  FIRST ACCESS V2: the signup form, which lives in a modal.
+
+  THE FIELD CONTRACT IS V1's, EXACTLY. Same `{% form 'customer' %}`, same
+  input names, same hidden `contact[tags]` and `contact[accepts_marketing]`.
+  That is deliberate: the backend behind this (customer creation, tags,
+  interests, the `custom.first_access_mobile` metafield, proxy signature
+  checks, rate limiting) is proven and is not being touched. Only the
+  presentation is new, so only the classes are new.
+
+  A PHONE NUMBER IS NOT CONSENT TO TEXT. The label says "Mobile number
+  (optional)" and nothing more. No SMS consent is set here, implied here, or
+  recorded anywhere by this form.
+
+  NO EM DASH CHARACTERS, in markup or in comments. Owner rule for V2.
+{%- endcomment -%}
+
+{%- liquid
+  assign t = 'templates.first_access_v2'
+  assign interests = 'loose-diamonds,luxury-steals,group-buys,set-your-own-stone,custom-jewelry,engagement-rings' | split: ','
+  assign interest_labels = 'templates.first_access.interests.loose_diamonds,templates.first_access.interests.luxury_steals,templates.first_access.interests.group_buys,templates.first_access.interests.set_your_own_stone,templates.first_access.interests.custom_jewelry,templates.first_access.interests.engagement_rings' | split: ','
+-%}
+
+<div class="fa2-form" data-fa2-signup>
+  {%- form 'customer', id: form_id, class: 'fa2-form__el', novalidate: 'novalidate' -%}
+    <input type="hidden" name="contact[tags]" value="first-access">
+    <input type="hidden" name="contact[accepts_marketing]" value="true">
+
+    {%- if form.posted_successfully? or posted -%}
+      {% render 'first-access-v2-success' %}
+    {%- else -%}
+      <div class="fa2-field">
+        <label class="fa2-label" for="{{ form_id }}-email">
+          {{- 'templates.first_access.form.email_label' | t -}}
+        </label>
+        <input
+          id="{{ form_id }}-email"
+          class="fa2-input"
+          type="email"
+          name="contact[email]"
+          value="{{ form.email }}"
+          placeholder="{{ 'templates.first_access.form.email_placeholder' | t }}"
+          autocomplete="email"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          inputmode="email"
+          required
+          aria-required="true"
+          {% if form.errors %}aria-invalid="true" aria-describedby="{{ form_id }}-error"{% endif %}
+        >
+      </div>
+
+      <div class="fa2-fields fa2-fields--pair">
+        <div class="fa2-field">
+          <label class="fa2-label" for="{{ form_id }}-first-name">
+            {{- 'templates.first_access.form.first_name_label' | t -}}
+          </label>
+          <input
+            id="{{ form_id }}-first-name"
+            class="fa2-input"
+            type="text"
+            name="contact[first_name]"
+            value="{{ form.first_name }}"
+            placeholder="{{ 'templates.first_access.form.first_name_placeholder' | t }}"
+            autocomplete="given-name"
+            required
+            aria-required="true"
+          >
+        </div>
+
+        <div class="fa2-field">
+          <label class="fa2-label" for="{{ form_id }}-last-name">
+            {{- 'templates.first_access.form.last_name_label' | t -}}
+          </label>
+          <input
+            id="{{ form_id }}-last-name"
+            class="fa2-input"
+            type="text"
+            name="contact[last_name]"
+            value="{{ form.last_name }}"
+            placeholder="{{ 'templates.first_access.form.last_name_placeholder' | t }}"
+            autocomplete="family-name"
+            required
+            aria-required="true"
+          >
+        </div>
+      </div>
+
+      <div class="fa2-field">
+        <label class="fa2-label" for="{{ form_id }}-phone">
+          {{- 'templates.first_access.form.phone_label' | t -}}
+        </label>
+        <input
+          id="{{ form_id }}-phone"
+          class="fa2-input"
+          type="tel"
+          name="contact[phone]"
+          placeholder="{{ 'templates.first_access.form.phone_placeholder' | t }}"
+          autocomplete="tel"
+          inputmode="tel"
+        >
+      </div>
+
+      <fieldset class="fa2-interests">
+        <legend class="fa2-label fa2-label--legend">
+          {{- 'templates.first_access.form.interests_label' | t -}}
+        </legend>
+        <div class="fa2-chips">
+          {%- for handle in interests -%}
+            {%- assign label_key = interest_labels[forloop.index0] -%}
+            <label class="fa2-chip">
+              <input
+                class="fa2-chip__input"
+                type="checkbox"
+                name="interests[]"
+                value="{{ handle }}"
+                data-fa2-interest
+              >
+              <span class="fa2-chip__face">{{ label_key | t }}</span>
+            </label>
+          {%- endfor -%}
+        </div>
+      </fieldset>
+
+      <button type="submit" class="fa2-btn fa2-btn--full" data-fa2-submit>
+        {{- t | append: '.cta' | t -}}
+      </button>
+
+      <p
+        class="fa2-error"
+        id="{{ form_id }}-error"
+        data-fa2-error
+        role="alert"
+        {% unless form.errors %}hidden{% endunless %}
+      >
+        {%- if form.errors -%}
+          {{ form.errors.translated_fields.email | capitalize }} {{ form.errors.messages.email }}
+        {%- endif -%}
+      </p>
+    {%- endif -%}
+  {%- endform -%}
+</div>

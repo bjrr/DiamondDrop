@@ -1,0 +1,24 @@
+{%- comment -%}
+  First Access V2: the coming soon page, second direction.
+
+  SEPARATE FROM V1 IN EVERY FILE IT OWNS. Its own template, section,
+  snippets, stylesheet and script. The one thing it shares is
+  `layout/first-access.liquid`, which it only reads: that layout is
+  theme.liquid with the header, footer and cart drawer removed, and V2 wants
+  exactly the same absence of store chrome. Reusing it changes nothing about
+  V1.
+
+  A .liquid template rather than .json, for the same reason as V1: only a
+  .liquid template can choose its layout, and having no navigation is the
+  defining property of both pages.
+
+  HIDDEN BY DEFAULT. This template renders only for the page it is assigned
+  to. Nothing links here, it is not in any menu, and the share buttons on it
+  deliberately point at the public First Access URL rather than at this
+  preview. See the `share_url` setting in the section.
+
+  NO EM DASH CHARACTERS. Owner rule for V2.
+{%- endcomment -%}
+{% layout 'first-access' %}
+
+{% section 'first-access-v2' %}
