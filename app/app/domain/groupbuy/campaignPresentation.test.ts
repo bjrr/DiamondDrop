@@ -17,6 +17,8 @@ import {
   type BuilderCampaignPresentation,
   type BuilderImageRef,
 } from "./campaignBuilder";
+import { PRESENTATION_EDITABLE_STATUSES } from "~/db/repositories/groupBuyRepository.server";
+import { PUBLIC_PAST_GROUP_BUY_CAMPAIGNS } from "./campaignVisibility";
 
 /**
  * THE LINE BETWEEN A PROMISE AND A PICTURE.
@@ -347,5 +349,45 @@ describe("compatibility with pre-picker snapshots", () => {
 
   it("accepts a picked reference without needing any grandfathering", () => {
     expect(unverifiableImagePaths(presentation({ heroImage: SHOPIFY_IMAGE }), null)).toEqual([]);
+  });
+});
+
+describe("which campaign statuses accept a presentation correction", () => {
+  // The set is exported from the repository and used by BOTH the write gate
+  // and the loader's UI gate, so this asserts one list rather than two that
+  // can disagree. It is imported here rather than restated for the same
+  // reason the route test stub now imports it: a restated copy is how a
+  // stale rule survives a policy change unnoticed.
+
+  it("accepts draft, open and closed", () => {
+    // Owner decisions 2026-11-06 (open) and 2026-11-07 (closed). A closed
+    // campaign is still READ, in the public Past Group Buys archive, so a
+    // typo in its headline remains customer-facing.
+    expect([...PRESENTATION_EDITABLE_STATUSES].sort()).toEqual(["closed", "draft", "open"]);
+  });
+
+  it("is not gated on archiving, which is orthogonal to status", () => {
+    // `campaignVisibility.ts`'s owner-locked header (2026-10-05) is explicit
+    // that staff archiving is a dashboard-tidying decision saying nothing
+    // about public visibility — which is why PUBLIC_PAST_GROUP_BUY_CAMPAIGNS
+    // filters on `status` and pointedly NOT on `archivedAt`. An archived
+    // closed campaign is therefore still public history, and the same
+    // correction must reach it.
+    expect(PUBLIC_PAST_GROUP_BUY_CAMPAIGNS).not.toHaveProperty("archivedAt");
+    expect(PUBLIC_PAST_GROUP_BUY_CAMPAIGNS.status).toBe("closed");
+    // The gate is a set of statuses, so there is nothing archive-shaped in
+    // it to accidentally exclude an archived campaign.
+    for (const entry of PRESENTATION_EDITABLE_STATUSES) {
+      expect(entry).toMatch(/^(draft|open|closed)$/);
+    }
+  });
+
+  it("names no status that the campaign lifecycle does not have", () => {
+    // A typo like "cancelled" would silently never match, leaving that
+    // lifecycle state permanently uncorrectable with no error to notice.
+    const LIFECYCLE_STATUSES = ["draft", "open", "closed"];
+    for (const status of PRESENTATION_EDITABLE_STATUSES) {
+      expect(LIFECYCLE_STATUSES).toContain(status);
+    }
   });
 });

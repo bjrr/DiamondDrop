@@ -6,7 +6,10 @@ import { RouterProvider, createMemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 
 import GroupBuyCampaignDetailPage from "./app.group-buy-campaigns.$id";
-import { GroupBuyCampaignNotDraftForConfigurationError } from "~/db/repositories/groupBuyRepository.server";
+import {
+  GroupBuyCampaignNotDraftForConfigurationError,
+  PRESENTATION_EDITABLE_STATUSES,
+} from "~/db/repositories/groupBuyRepository.server";
 import { validateGroupBuyCampaignOptions } from "~/domain/groupbuy/campaignOptions";
 import {
   emptyCampaignBuilderState,
@@ -215,11 +218,14 @@ function renderPage(
     pricePreview: options?.pricePreview ?? null,
     generatedOptionsJson: options?.generatedOptionsJson ?? null,
     shopifyFilesUrl: "https://admin.shopify.com/store/caratforus-dev/content/files",
-    // Presentation stays correctable while draft OR open; the default
-    // mirrors the loader's own rule rather than hardcoding true, so a
-    // closed-campaign fixture behaves like the real page.
+    // Mirrors the loader by USING THE SAME SET the loader and the write
+    // gate use, rather than restating the rule. A restated copy is how the
+    // "withdrawn once closed" test below went on passing for a moment after
+    // the policy changed to allow closed campaigns: the stub still said
+    // draft-or-open, so it was asserting the fixture, not the page.
     presentationEditable:
-      options?.presentationEditable ?? (campaign?.status === "draft" || campaign?.status === "open"),
+      options?.presentationEditable ??
+      (campaign !== null && PRESENTATION_EDITABLE_STATUSES.has(campaign.status)),
     presentationVersions: options?.presentationVersions ?? [],
   };
   const router = createMemoryRouter(
@@ -1025,12 +1031,107 @@ describe("an open campaign's correctable presentation", () => {
     expect(html).not.toMatch(/name="intent" value="save_presentation"/);
   });
 
-  it("is withdrawn once the campaign closes", () => {
+  /**
+   * SUPERSEDES an earlier case asserting presentation editing was withdrawn
+   * once a campaign closed. The owner changed that on 2026-11-07, and the
+   * reason is sound: a closed campaign is still READ, in the public Past
+   * Group Buys archive, so a typo in its headline stays customer-facing. The
+   * old assertion was removed rather than loosened, because it asserted the
+   * opposite of the current policy and keeping both would be incoherent.
+   */
+  it("is STILL offered once the campaign closes, because closed campaigns are still read", () => {
     const html = renderPage(CLOSED_CAMPAIGN, { builderState: configuredState() });
-    expect(html).not.toMatch(/name="intent" value="save_presentation"/);
+    expect(html).toMatch(/name="intent" value="save_presentation"/);
+    expect(textOf(html)).toMatch(/Choose Hero Image/);
+    expect(html).toMatch(/id="presentationReason"[^>]*required/);
+    // But the commerce configuration is as frozen as it was when open.
     expect(html).not.toMatch(/name="intent" value="save_builder"/);
-    expect(html).not.toMatch(/Choose Hero Image/);
+    expect(html).not.toMatch(/Add an option/);
   });
+
+  it("explains a closed campaign's situation in its own words, not an open campaign's", () => {
+    const closed = textOf(renderPage(CLOSED_CAMPAIGN, { builderState: configuredState() }));
+    expect(closed).toMatch(/has closed but is still shown in Past Group Buys/);
+    expect(closed).not.toMatch(/This campaign is live/);
+
+    const open = textOf(renderPage(OPEN_CAMPAIGN, { builderState: configuredState() }));
+    expect(open).toMatch(/This campaign is live/);
+    expect(open).not.toMatch(/has closed but is still shown/);
+  });
+});
+
+describe("a closed campaign's frozen commerce data stays frozen", () => {
+  it("still refuses every commerce control", () => {
+    const html = renderPage(CLOSED_CAMPAIGN, { builderState: configuredState(), mappableVariants: MAPPABLE });
+    for (const control of [
+      /Add an option/,
+      /Remove this option/,
+      /Add a choice/,
+      /Switch all off/,
+      /name="intent" value="save_builder"/,
+      /name="intent" value="replace_tiers"/,
+      /name="intent" value="add_variant"/,
+      /name="intent" value="upload_options"/,
+    ]) {
+      expect(html, String(control)).not.toMatch(control);
+    }
+  });
+
+  it("still refuses the frozen CLAIM fields", () => {
+    // The historical campaign must truthfully represent what was sold, so a
+    // certification or quality claim cannot be edited after the fact.
+    const html = renderPage(CLOSED_CAMPAIGN, { builderState: withClaims() });
+    expect(html).toMatch(/disabled=""[^>]*aria-label="Highlight 1"/);
+    expect(html).toMatch(/disabled=""[^>]*aria-label="Display detail 1 label"/);
+    expect(html).toMatch(/disabled=""[^>]*aria-label="Display detail 1 value"/);
+    expect(html).not.toMatch(/Add a highlight/);
+    expect(html).not.toMatch(/Add a display detail/);
+  });
+
+  it("still disables the option and mapping inputs", () => {
+    const html = renderPage(CLOSED_CAMPAIGN, { builderState: configuredState(), mappableVariants: MAPPABLE });
+    expect(html).toMatch(/id="builder-product-type"[^>]*disabled/);
+    expect(html).toMatch(/id="option-role-0"[^>]*disabled/);
+  });
+
+  it("leaks no cost or margin data on a closed campaign either", () => {
+    expect(
+      renderPage(CLOSED_CAMPAIGN, { builderState: withClaims(), mappableVariants: MAPPABLE })
+    ).not.toMatch(NO_COST_MARGIN_LEAK);
+  });
+});
+
+describe("the three lifecycle states, side by side", () => {
+  // One table, so the whole policy is readable in one place and a future
+  // change has to come here and state its intent.
+  const CASES = [
+    { name: "draft", campaign: DRAFT_CAMPAIGN, commerceEditable: true, presentationEditable: true },
+    { name: "open", campaign: OPEN_CAMPAIGN, commerceEditable: false, presentationEditable: true },
+    { name: "closed", campaign: CLOSED_CAMPAIGN, commerceEditable: false, presentationEditable: true },
+  ] as const;
+
+  it.each(CASES)(
+    "$name: commerce editable = $commerceEditable, presentation editable = $presentationEditable",
+    ({ campaign, commerceEditable, presentationEditable }) => {
+      const html = renderPage(campaign, { builderState: configuredState() });
+
+      // Commerce: the draft-only save intent is the single tell.
+      if (commerceEditable) {
+        expect(html).toMatch(/name="intent" value="save_builder"/);
+      } else {
+        expect(html).not.toMatch(/name="intent" value="save_builder"/);
+      }
+
+      // Presentation: on a draft it rides the builder save; otherwise it has
+      // its own reasoned, versioned intent.
+      if (presentationEditable && !commerceEditable) {
+        expect(html).toMatch(/name="intent" value="save_presentation"/);
+      }
+      if (presentationEditable) {
+        expect(textOf(html)).toMatch(/Choose Hero Image/);
+      }
+    }
+  );
 });
 
 describe("the presentation change history", () => {

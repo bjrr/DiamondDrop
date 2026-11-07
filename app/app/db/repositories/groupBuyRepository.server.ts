@@ -802,8 +802,34 @@ export async function getLatestGroupBuyCampaignBuilderState(
 
 export const GROUP_BUY_CAMPAIGN_PRESENTATION_SNAPSHOT_KIND = "groupbuy.campaign_presentation.v1";
 
-/** Statuses in which presentation may be corrected. */
-const PRESENTATION_EDITABLE_STATUSES = new Set(["draft", "open"]);
+/**
+ * Statuses in which presentation may be corrected.
+ *
+ * `closed` was added by owner decision on 2026-11-07, and the reasoning is
+ * the same one that allowed it on an open campaign: a closed campaign is
+ * still READ. It appears in the public Past Group Buys archive
+ * (`PUBLIC_PAST_GROUP_BUY_CAMPAIGNS`), so a typo in its headline or a
+ * placeholder hero is customer-facing for as long as that archive exists.
+ * Correcting it changes nothing about what was sold.
+ *
+ * ARCHIVING DOES NOT BLOCK IT, and that is deliberate rather than an
+ * oversight. `archivedAt` is a separate column from `status`, and
+ * `campaignVisibility.ts`'s owner-locked header (2026-10-05) is explicit
+ * that staff archiving "is a dashboard-tidying decision; it says nothing
+ * about whether customers should still be able to see that the campaign
+ * happened" — which is why `PUBLIC_PAST_GROUP_BUY_CAMPAIGNS` filters on
+ * `status` and pointedly NOT on `archivedAt`. An archived closed campaign is
+ * therefore still public history, so the same correction must be possible on
+ * it. A DELETED campaign needs no rule: the row is gone and the lookup below
+ * raises `GroupBuyCampaignNotFoundError`.
+ *
+ * What stays impossible on a closed campaign is everything that describes
+ * what was sold — options, bands, combinations, mappings, variants, tiers,
+ * pricing configuration, the generated contract, highlights and the factual
+ * display details. Those are not reachable from this function at all; see
+ * `BuilderCampaignPresentation` for the six fields that are.
+ */
+export const PRESENTATION_EDITABLE_STATUSES: ReadonlySet<string> = new Set(["draft", "open", "closed"]);
 
 export class GroupBuyCampaignPresentationNotEditableError extends Error {
   constructor(

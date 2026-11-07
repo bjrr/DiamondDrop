@@ -23,6 +23,7 @@ import {
   getLatestGroupBuyCampaignPresentation,
   GroupBuyCampaignPresentationNotEditableError,
   listGroupBuyCampaignPresentationVersions,
+  PRESENTATION_EDITABLE_STATUSES,
   saveGroupBuyCampaignPresentation,
   listMasterVariantsForGroupBuySelection,
   saveGroupBuyCampaignBuilderState,
@@ -338,7 +339,7 @@ interface LoaderData {
   /** The generated contract, read-only (§12). Null while the configuration is incomplete. */
   generatedOptionsJson: string | null;
   shopifyFilesUrl: string;
-  /** Presentation stays correctable while draft OR open (owner decision, 2026-11-06). */
+  /** Presentation stays correctable while draft, open or closed (owner decisions 2026-11-06, 2026-11-07). */
   presentationEditable: boolean;
   /** Newest first. Never pruned — the audit trail for live-campaign changes. */
   presentationVersions: readonly PresentationVersionView[];
@@ -721,11 +722,14 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     pricePreview,
     generatedOptionsJson: generated.ok ? JSON.stringify(generated.value, null, 2) : null,
     shopifyFilesUrl: shopifyAdminFilesUrl(session.shop),
-    // Presentation stays correctable while a campaign is draft OR open; the
-    // repository is the authority on that (PRESENTATION_EDITABLE_STATUSES)
-    // and would refuse a write outside it, so the control is offered on
-    // exactly the statuses the write accepts.
-    presentationEditable: campaign.status === "draft" || campaign.status === "open",
+    // Presentation stays correctable while a campaign is draft, open OR
+    // closed (owner decisions 2026-11-06 and 2026-11-07). The repository is
+    // the authority on that (PRESENTATION_EDITABLE_STATUSES) and would
+    // refuse a write outside it, so the control is offered on exactly the
+    // statuses the write accepts — including an archived campaign, whose
+    // `archivedAt` is orthogonal to `status` and does not remove it from
+    // public history.
+    presentationEditable: PRESENTATION_EDITABLE_STATUSES.has(campaign.status),
     presentationVersions: presentationVersions.map((version) => ({
       version: version.version,
       priorVersion: version.priorVersion,
@@ -2163,10 +2167,12 @@ export default function GroupBuyCampaignDetailPage() {
                         Record a presentation change
                       </h2>
                       <p style={{ margin: "0 0 0.75rem", fontSize: "0.8rem", color: "#555" }}>
-                        This campaign is live, so only its images, headline and short description can change. Every
-                        change is kept as a new version with your name, the time, and the reason below. Nothing is
-                        overwritten, and the campaign&rsquo;s options, variants, tiers and product claims stay exactly
-                        as they were when it opened.
+                        {campaign.status === "closed"
+                          ? "This campaign has closed but is still shown in Past Group Buys, so only its images, headline and short description can change."
+                          : "This campaign is live, so only its images, headline and short description can change."}{" "}
+                        Every change is kept as a new version with your name, the time, and the reason below. Nothing
+                        is overwritten, and the campaign&rsquo;s options, variants, tiers and product claims stay
+                        exactly as they were when it opened.
                       </p>
                       <label htmlFor="presentationReason" style={labelStyle}>
                         Reason for this change
