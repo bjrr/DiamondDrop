@@ -31,6 +31,8 @@
  *    is a real no rather than a maybe.
  */
 
+import { micrometresToMm as formatMicrometresToMm } from "./micrometres";
+
 /** Integer micrometres. 10.12 mm === 10_120. */
 export type Micrometres = number;
 
@@ -429,8 +431,13 @@ export function mmToMicrometres(mm: string): Micrometres {
   return Number(whole) * 1000 + Number(frac.padEnd(3, "0"));
 }
 
-/** Micrometres back to a display string, e.g. 10120 -> "10.12". */
+/**
+ * Micrometres back to a display string, e.g. 10120 -> "10.12".
+ *
+ * Delegates to the one implementation in ./micrometres. This was a local
+ * copy using float division; see that module for why it is integer
+ * arithmetic now.
+ */
 export function micrometresToMm(um: Micrometres): string {
-  const s = (um / 1000).toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
-  return s;
+  return formatMicrometresToMm(um);
 }

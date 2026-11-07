@@ -97,6 +97,11 @@ module.exports = {
       files: [
         "scripts/**/*.mjs",
         "scripts/**/*.ts",
+        // `.cjs` was missing from this list rather than deliberately excluded:
+        // the two scripts it covers are the same kind of thing as their .mjs
+        // and .ts siblings, `#!/usr/bin/env node` one-off maintenance commands
+        // whose console output IS the deliverable.
+        "scripts/**/*.cjs",
         "prisma/seed.ts",
         "app/entry.server.tsx",
         "tests/integration/globalSetup.ts",
@@ -125,9 +130,13 @@ module.exports = {
       // (Dockerfile CMD). They are CommonJS by necessity — `--require` loads
       // CJS — so `require()` is the correct import form here, not a style
       // lapse. See server/redactRequestLog.cjs.
-      files: ["server/**/*.cjs"],
+      files: ["server/**/*.cjs", "scripts/**/*.cjs"],
       parserOptions: { sourceType: "script" },
       rules: {
+        // Same reasoning extended to scripts/: a `.cjs` file is CommonJS by
+        // definition, so `require()` is the correct import form there, not a
+        // style lapse. The rule is a TypeScript-module rule and does not
+        // apply to a CommonJS entry point.
         "@typescript-eslint/no-var-requires": "off",
       },
     },

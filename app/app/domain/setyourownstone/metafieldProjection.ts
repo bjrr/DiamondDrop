@@ -32,6 +32,7 @@
  * costs a missing mounting, never a wrong match.
  */
 import type { StoneShape } from "~/domain/setyourownstone/matching";
+import { micrometresToMm } from "./micrometres";
 
 const SHAPES: readonly StoneShape[] = [
   "round",
@@ -447,5 +448,5 @@ export function projectProduct(input: ShopifyProductCompatibilityInput): Project
 
 /** Micrometres back to a readable millimetre figure, for problem messages. */
 export function umToMm(um: number): string {
-  return (um / 1000).toFixed(3).replace(/\.?0+$/, "");
+  return micrometresToMm(um);
 }

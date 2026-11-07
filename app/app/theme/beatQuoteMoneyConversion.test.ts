@@ -10,11 +10,18 @@ import { describe, expect, it } from "vitest";
  * the submission route demands (`/^\d{1,15}$/`). CLAUDE.md rule 6 forbids
  * floating point for money, and this is exactly why:
  *
- *     parseFloat("1234.56") * 100  ===  123455.99999999999
+ *     parsing "1234.56" as a float and multiplying by 100
+ *     gives 123455.99999999999, not 123456
  *
  * Rounding that away would work most of the time and be wrong occasionally,
  * which is the worst property a money function can have. The implementation
  * is pure string manipulation instead.
+ *
+ * (The example above names no float-parsing function on purpose. The
+ * money-safety gate is lexical and reads comments as well as code, so
+ * spelling the call out here would flag the very documentation explaining
+ * why it is banned. The gate's own header asks for the comment to be
+ * reworded rather than allow-listed.)
  *
  * THE OTHER HALF OF THE REQUIREMENT. Normal two-decimal USD must be
  * ACCEPTED, not rejected. A converter that refuses `1234.56` because floats
@@ -31,7 +38,11 @@ function loadToMinorUnits(): (raw: unknown) => string | null {
   const source = readFileSync(join(THEME, "assets", "beat-quote-form.js"), "utf8");
   const match = source.match(/function toMinorUnits\(raw\) \{[\s\S]*?\n {2}\}/);
   if (!match) throw new Error("toMinorUnits not found in beat-quote-form.js");
-  // eslint-disable-next-line no-new-func
+  // `new Function` is deliberate: the point of this test is to run the EXACT
+  // source the browser runs, not a copy of it. There was an
+  // `eslint-disable-next-line no-new-func` here, but that rule is not enabled
+  // in this repository, so the directive was dead and
+  // --report-unused-disable-directives flagged it.
   return new Function(`${match[0]}; return toMinorUnits;`)() as (raw: unknown) => string | null;
 }
 

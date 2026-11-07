@@ -30,6 +30,7 @@
  * have to divide by a thousand to understand it. Both, not one.
  */
 import type { CompatibilityRule, CompatibilityStatus, MatchResult } from "./matching";
+import { micrometresToMm } from "./micrometres";
 
 /** The version of this record's shape. Present from the first row so a later
  *  field addition can be told apart from an old row that never had it —
@@ -88,7 +89,7 @@ export interface MatchedSnapshot {
 /** Micrometres to a readable millimetre figure. Trailing zeros trimmed, so a
  *  nominal 10 reads as "10" rather than "10.000". */
 function mm(um: number): string {
-  return (um / 1000).toFixed(3).replace(/\.?0+$/, "");
+  return micrometresToMm(um);
 }
 
 export interface BuildSnapshotInput {

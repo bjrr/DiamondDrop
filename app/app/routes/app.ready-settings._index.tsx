@@ -7,6 +7,7 @@ import { AdminNavigation } from "~/components/AdminNavigation";
 import { prisma } from "~/db/client.server";
 import { getEnv } from "~/lib/env.server";
 import { authenticate } from "~/shopify.server";
+import { micrometresToMm } from "~/domain/setyourownstone/micrometres";
 
 /**
  * GET /app/ready-settings — the Ready Mountings audit dashboard.
@@ -167,7 +168,7 @@ const SEVERITY_COLOR: Record<Severity, string> = {
 
 /** Micrometres to the millimetre figure staff recognise. */
 function mm(um: number): string {
-  return (um / 1000).toFixed(3).replace(/\.?0+$/, "");
+  return micrometresToMm(um);
 }
 
 function numericId(gid: string): string {
