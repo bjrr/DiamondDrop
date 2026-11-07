@@ -18,8 +18,10 @@ import {
   getGroupBuyCampaignForStaff,
   getGroupBuyCampaignTierPublishStatus,
   getGroupBuyVariantIdentities,
+  getLatestGroupBuyCampaignBuilderState,
   getLatestGroupBuyCampaignOptionsUpload,
   listMasterVariantsForGroupBuySelection,
+  saveGroupBuyCampaignBuilderState,
   removeGroupBuyCampaignEligibleVariant,
   replaceGroupBuyCampaignTiers,
   saveGroupBuyCampaignOptionsUpload,
@@ -32,6 +34,24 @@ import {
   type GroupBuyVariantIdentity,
 } from "~/db/repositories/groupBuyRepository.server";
 import { validateGroupBuyCampaignOptions } from "~/domain/groupbuy/campaignOptions";
+import {
+  assessCampaignBuilderCompleteness,
+  buildCampaignOptionsJson,
+  builderStateFromCampaignOptions,
+  emptyCampaignBuilderState,
+  isReadyToOpen,
+  mappedVariantIds,
+  parseCampaignBuilderState,
+  type CampaignBuilderState,
+} from "~/domain/groupbuy/campaignBuilder";
+import {
+  listMappableVariantsForCampaign,
+  previewGroupBuyCampaignPrices,
+  type CampaignPricePreview,
+  type MappableVariantOption,
+} from "~/jobs/groupbuy/campaignPricePreview.server";
+import CampaignBuilderPanel from "~/components/groupbuy/CampaignBuilderPanel";
+import { shopifyAdminFilesUrl } from "~/lib/shopifyAdminLinks";
 import { InvalidRefundTransitionError } from "~/domain/groupbuy/refunds";
 import { InvalidTierSetError, MAX_TIERS, type TierDefinition } from "~/domain/groupbuy/tiers";
 import type { FloorId } from "~/domain/pricing/types";
@@ -294,6 +314,16 @@ interface LoaderData {
   refunds: readonly RefundView[];
   /** Lines with no computed refund yet, closed campaigns only — see UnresolvedRefundLineView's own comment. */
   unresolvedRefundLines: readonly UnresolvedRefundLineView[];
+  /** The visual builder's state, reconciled from the contract and the builder record. */
+  builderState: CampaignBuilderState;
+  builderSavedAt: string | null;
+  /** Eligible variants, id and label only — no cost, no raw vendor SKU (§6). */
+  mappableVariants: readonly MappableVariantOption[];
+  /** Null once the campaign is no longer draft: its real prices are frozen. */
+  pricePreview: CampaignPricePreview | null;
+  /** The generated contract, read-only (§12). Null while the configuration is incomplete. */
+  generatedOptionsJson: string | null;
+  shopifyFilesUrl: string;
 }
 
 function buildRefundView(refund: {
@@ -555,6 +585,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       optionsUpload: null,
       refunds: [],
       unresolvedRefundLines: [],
+      builderState: emptyCampaignBuilderState(),
+      builderSavedAt: null,
+      mappableVariants: [],
+      pricePreview: null,
+      generatedOptionsJson: null,
+      shopifyFilesUrl: shopifyAdminFilesUrl(session.shop),
     } satisfies LoaderData;
   }
 
@@ -599,6 +635,35 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   // availability is guessed from `status` and then refused by the database.
   const history = await describeGroupBuyCampaignHistory(id);
 
+  // ---- The visual campaign builder (§1 to §14).
+  //
+  // THREE SOURCES, RECONCILED IN ONE PLACE. A campaign can have a builder
+  // record (configured visually), an options contract (uploaded as raw JSON
+  // before this editor existed), or both. `builderStateFromCampaignOptions`
+  // is the reconciliation: the CONTRACT is authoritative for what may be
+  // sold, and the builder record supplies only what the contract cannot hold
+  // — which options affect price, their size bands, the variant mapping and
+  // the content. §16 is satisfied because an existing contract is read, never
+  // reinterpreted; §13's two-way sync is this call.
+  const [builderRecord, mappableVariants] = await Promise.all([
+    getLatestGroupBuyCampaignBuilderState(id),
+    listMappableVariantsForCampaign(id),
+  ]);
+
+  const builderState: CampaignBuilderState = optionsUpload
+    ? builderStateFromCampaignOptions(optionsUpload.options, builderRecord?.state)
+    : (builderRecord?.state ?? emptyCampaignBuilderState());
+
+  // Generated for the read-only Advanced section (§12). `null` when the
+  // configuration is not yet complete enough to produce a valid contract,
+  // which the panel explains rather than showing a broken file.
+  const generated = buildCampaignOptionsJson(builderState);
+
+  // A preview costs one pricing resolution per mapped variant, so it is only
+  // worth running while the campaign can still be changed. An open campaign's
+  // real prices are already frozen and shown elsewhere on this page.
+  const pricePreview = isDraft ? await previewGroupBuyCampaignPrices(id, builderState) : null;
+
   return {
     apiKey: getEnv().SHOPIFY_API_KEY ?? "",
     shop: session.shop,
@@ -607,6 +672,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     optionsUpload: serializeOptionsUpload(optionsUpload, !isDraft),
     refunds,
     unresolvedRefundLines,
+    builderState,
+    builderSavedAt: builderRecord?.savedAt.toISOString() ?? null,
+    mappableVariants,
+    pricePreview,
+    generatedOptionsJson: generated.ok ? JSON.stringify(generated.value, null, 2) : null,
+    shopifyFilesUrl: shopifyAdminFilesUrl(session.shop),
   } satisfies LoaderData;
 }
 
@@ -658,6 +729,21 @@ interface ActionData {
   openBlocked?: OpenBlockedUnsafe | OpenBlockedLadder;
   tierResyncResult?: TierResyncResult;
   settlementComputeResult?: SettlementComputeResult;
+  builderSaveResult?: BuilderSaveResult;
+}
+
+/**
+ * What a builder save actually did. `contractPublished: false` is a SUCCESS
+ * with a caveat, not a failure: the merchant's work is stored, but the
+ * campaign-options contract was not written because the configuration cannot
+ * yet produce a valid one. Saying so plainly is the point — a save that
+ * reported success while silently skipping the contract would leave a
+ * merchant believing the campaign was configured.
+ */
+interface BuilderSaveResult {
+  contractPublished: boolean;
+  readyToOpen: boolean;
+  outstanding: readonly string[];
 }
 
 function ok(): ActionData {
@@ -732,6 +818,99 @@ export async function action({ request, params }: ActionFunctionArgs) {
         }
         await saveGroupBuyCampaignOptionsUpload(id, result.value, staffActorRef);
         return Response.json(ok());
+      }
+
+      /**
+       * THE VISUAL BUILDER'S SAVE (§1 to §14).
+       *
+       * The browser posts the whole builder state as one JSON field. Nothing
+       * about it is trusted:
+       *
+       *   1. `parseCampaignBuilderState` bounds and narrows the payload.
+       *   2. Every mapped variant is confirmed to be an ELIGIBLE VARIANT OF
+       *      THIS CAMPAIGN. This is the check the parser cannot make, and the
+       *      one that matters most: a tampered post could otherwise map a
+       *      configuration to any variant in the catalogue and sell the wrong
+       *      item at the wrong price.
+       *   3. The generated contract goes through
+       *      `validateGroupBuyCampaignOptions` by way of
+       *      `buildCampaignOptionsJson` — the real validator, including the
+       *      forbidden-pricing-key backstop. There is no second validator and
+       *      none of this bypasses the raw-JSON path's checks.
+       *
+       * AN INCOMPLETE CONFIGURATION STILL SAVES. Configuring a campaign takes
+       * more than one sitting, and losing a half-finished option set because
+       * a variant is not mapped yet would push merchants towards doing it in
+       * one go. Completeness gates OPENING the campaign
+       * (`assessCampaignBuilderCompleteness`, surfaced in the panel), not
+       * saving it. What a failed generation skips is publishing the CONTRACT,
+       * which is correct: an invalid contract must never be stored.
+       *
+       * ORDER: contract first, then builder record. If the second write
+       * fails, the contract is ahead of the builder record, so the next load
+       * reconciles and any newly added option comes back needing a mapping —
+       * which BLOCKS the open. The reverse order would leave a stale contract
+       * able to open. Failing towards "blocked" is the safe direction.
+       */
+      case "save_builder": {
+        const raw = stringField(formData, "builderState");
+        let parsedJson: unknown;
+        try {
+          parsedJson = JSON.parse(raw);
+        } catch (error) {
+          return Response.json(
+            fail(`The configuration could not be read: ${error instanceof Error ? error.message : String(error)}`),
+            { status: 400 }
+          );
+        }
+
+        const parsed = parseCampaignBuilderState(parsedJson);
+        if (!parsed.ok) {
+          return Response.json(fail("Fix these before saving.", parsed.problems), { status: 400 });
+        }
+
+        // (2) — the cross-check the parser cannot do.
+        const eligible = new Set((await listMappableVariantsForCampaign(id)).map((v) => v.masterVariantId));
+        const foreign = mappedVariantIds(parsed.value).filter((variantId) => !eligible.has(variantId));
+        if (foreign.length > 0) {
+          // Deliberately does NOT echo the submitted ids back: they are
+          // internal identifiers, and a merchant cannot act on them anyway.
+          logger.warn("group_buy_campaigns.builder_foreign_variant_rejected", {
+            campaignId: id,
+            actor: staffActorRef,
+            rejectedCount: foreign.length,
+          });
+          return Response.json(
+            fail(
+              `${foreign.length} configuration${foreign.length === 1 ? " is" : "s are"} mapped to a product variant that is not an eligible variant of this campaign. Add it under Eligible variants first, then map it.`
+            ),
+            { status: 400 }
+          );
+        }
+
+        const generated = buildCampaignOptionsJson(parsed.value);
+        if (generated.ok) {
+          await saveGroupBuyCampaignOptionsUpload(id, generated.value, staffActorRef);
+        }
+        await saveGroupBuyCampaignBuilderState(id, parsed.value, staffActorRef);
+
+        const completeness = assessCampaignBuilderCompleteness(parsed.value);
+        logger.info("group_buy_campaigns.builder_saved", {
+          campaignId: id,
+          savedBy: staffActorRef,
+          contractPublished: generated.ok,
+          readyToOpen: isReadyToOpen(completeness),
+          outstandingCount: completeness.filter((problem) => problem.blocking).length,
+        });
+
+        return Response.json({
+          ...ok(),
+          builderSaveResult: {
+            contractPublished: generated.ok,
+            readyToOpen: isReadyToOpen(completeness),
+            outstanding: completeness.filter((problem) => problem.blocking).map((problem) => problem.message),
+          },
+        } satisfies ActionData);
       }
 
       case "open_campaign": {
@@ -1359,8 +1538,21 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 export default function GroupBuyCampaignDetailPage() {
-  const { apiKey, shop, campaign, candidateVariants, optionsUpload, refunds, unresolvedRefundLines } =
-    useLoaderData<typeof loader>();
+  const {
+    apiKey,
+    shop,
+    campaign,
+    candidateVariants,
+    optionsUpload,
+    refunds,
+    unresolvedRefundLines,
+    builderState,
+    builderSavedAt,
+    mappableVariants,
+    pricePreview,
+    generatedOptionsJson,
+    shopifyFilesUrl,
+  } = useLoaderData<typeof loader>();
   const actionData = useActionData<ActionData>();
   const navigation = useNavigation();
   const busy = navigation.state !== "idle";
@@ -1620,12 +1812,95 @@ export default function GroupBuyCampaignDetailPage() {
               ) : null}
             </section>
 
+            {actionData?.builderSaveResult ? (
+              <div
+                role="status"
+                style={{
+                  ...sectionStyle,
+                  borderColor: actionData.builderSaveResult.contractPublished ? "#2b7" : "#c80",
+                }}
+              >
+                <p style={{ margin: 0, fontWeight: 600 }}>
+                  Configuration saved.
+                  {actionData.builderSaveResult.contractPublished
+                    ? actionData.builderSaveResult.readyToOpen
+                      ? " This campaign is ready to open."
+                      : " The campaign-options file was updated."
+                    : " The campaign-options file was NOT updated, because the configuration cannot produce a valid one yet."}
+                </p>
+                {actionData.builderSaveResult.outstanding.length > 0 ? (
+                  <ul style={{ margin: "0.4rem 0 0", paddingLeft: "1.25rem", fontSize: "0.875rem" }}>
+                    {actionData.builderSaveResult.outstanding.slice(0, 8).map((item, index) => (
+                      <li key={index}>{item}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/*
+              THE VISUAL CAMPAIGN BUILDER (§1 to §14, §18, §20).
+
+              One form, one save. Every control inside the panel is
+              unnamed and edits client state; the only thing that posts is
+              the single `builderState` JSON field, which the action
+              re-validates from scratch. See the panel's header comment and
+              the `save_builder` case for why it is built that way.
+            */}
+            {canConfigureDraft(campaign.status) ? (
+              <Form method="post" id="campaign-builder-form">
+                <input type="hidden" name="intent" value="save_builder" />
+                <CampaignBuilderPanel
+                  initialState={builderState}
+                  mappableVariants={mappableVariants}
+                  preview={pricePreview}
+                  editable
+                  busy={busy}
+                  generatedJson={generatedOptionsJson}
+                  shopifyFilesUrl={shopifyFilesUrl}
+                />
+                <p style={{ margin: "0 0 1.5rem" }}>
+                  <button type="submit" disabled={busy}>
+                    Save configuration
+                  </button>
+                  {builderSavedAt ? (
+                    <span style={{ marginLeft: "0.75rem", fontSize: "0.8125rem", color: "#555" }}>
+                      Last saved {formatTimestamp(builderSavedAt)}.
+                    </span>
+                  ) : null}
+                </p>
+              </Form>
+            ) : (
+              /*
+                NO FORM AT ALL once the campaign is not a draft (§17). The
+                save intent, the hidden state field and every mutation
+                control are ABSENT rather than disabled — the same discipline
+                the tier and variant sections on this page already follow,
+                tested by "the tier/variant/options forms are entirely
+                absent, not merely disabled". A disabled control still tells
+                a merchant the action exists and might work.
+              */
+              <CampaignBuilderPanel
+                initialState={builderState}
+                mappableVariants={mappableVariants}
+                preview={pricePreview}
+                editable={false}
+                busy={busy}
+                generatedJson={generatedOptionsJson}
+                shopifyFilesUrl={shopifyFilesUrl}
+              />
+            )}
+
             <section style={sectionStyle}>
-              <h2 style={{ fontSize: "1rem", margin: "0 0 0.5rem" }}>Campaign-options upload</h2>
+              <h2 style={{ fontSize: "1rem", margin: "0 0 0.5rem" }}>
+                Campaign-options upload (advanced)
+              </h2>
               <p style={{ margin: "0 0 0.75rem", fontSize: "0.8rem", color: "#555" }}>
-                Describes WHAT MAY BE SOLD (option dimensions, allowed values, valid combinations, table/ordering-flow
-                configuration) — never pricing policy. Rejected at upload time if invalid; see
-                docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md §12.
+                The manual path, kept for importing a configuration prepared elsewhere. Describes WHAT MAY BE SOLD
+                (option dimensions, allowed values, valid combinations, table/ordering-flow configuration) — never
+                pricing policy. Rejected at upload time if invalid; see
+                docs/SLICE-2-AND-GROUP-BUY-OWNER-DECISIONS.md §12. Uploading here replaces what the builder above
+                generated, and the builder re-reads it on the next load.
               </p>
               {optionsUpload ? (
                 <p style={{ margin: "0 0 0.75rem", fontSize: "0.875rem" }}>

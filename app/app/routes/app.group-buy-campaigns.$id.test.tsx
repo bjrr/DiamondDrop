@@ -5,6 +5,10 @@ import { describe, expect, it } from "vitest";
 import GroupBuyCampaignDetailPage from "./app.group-buy-campaigns.$id";
 import { GroupBuyCampaignNotDraftForConfigurationError } from "~/db/repositories/groupBuyRepository.server";
 import { validateGroupBuyCampaignOptions } from "~/domain/groupbuy/campaignOptions";
+import {
+  emptyCampaignBuilderState,
+  type CampaignBuilderState,
+} from "~/domain/groupbuy/campaignBuilder";
 
 /**
  * Same technique as `app.warranty-claims.$id.test.tsx`: nothing is mocked.
@@ -177,6 +181,10 @@ function renderPage(
     actionData?: ActionFixture;
     refunds?: RefundFixture[];
     unresolvedRefundLines?: UnresolvedRefundLineFixture[];
+    builderState?: CampaignBuilderState;
+    mappableVariants?: { masterVariantId: string; label: string }[];
+    pricePreview?: unknown;
+    generatedOptionsJson?: string | null;
   }
 ): string {
   const loaderData = {
@@ -187,6 +195,14 @@ function renderPage(
     optionsUpload: options?.optionsUpload ?? null,
     refunds: options?.refunds ?? [],
     unresolvedRefundLines: options?.unresolvedRefundLines ?? [],
+    // The visual campaign builder's half of the loader. An empty state is the
+    // right default: a campaign nobody has configured yet.
+    builderState: options?.builderState ?? emptyCampaignBuilderState(),
+    builderSavedAt: null,
+    mappableVariants: options?.mappableVariants ?? [],
+    pricePreview: options?.pricePreview ?? null,
+    generatedOptionsJson: options?.generatedOptionsJson ?? null,
+    shopifyFilesUrl: "https://admin.shopify.com/store/caratforus-dev/content/files",
   };
   const router = createMemoryRouter(
     [
@@ -614,5 +630,264 @@ describe("archive and deletion panel", () => {
 
   it("never leaks cost or margin data through the new panel", () => {
     expect(renderPage(ARCHIVED).toLowerCase()).not.toMatch(NO_COST_MARGIN_LEAK);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE VISUAL CAMPAIGN BUILDER (§1 to §14, §17, §18)
+//
+// The builder's own logic is tested directly in
+// `app/domain/groupbuy/campaignBuilder.test.ts`. What is asserted HERE is
+// what a merchant actually sees: that the sections render, that nothing
+// internal leaks into them, and that a campaign which is no longer a draft
+// cannot be edited through this page.
+// ---------------------------------------------------------------------------
+
+/** A small, complete configuration: two priced options and one preference. */
+function configuredState(): CampaignBuilderState {
+  return {
+    ...emptyCampaignBuilderState(),
+    productType: "Engagement ring",
+    options: [
+      {
+        key: "metal",
+        label: "Metal",
+        required: true,
+        displayOrder: 1,
+        role: "variant_defining",
+        allowedValues: [
+          { value: "platinum", label: "Platinum" },
+          { value: "14k_white", label: "14k white gold" },
+        ],
+      },
+      {
+        key: "ring_size",
+        label: "Ring size",
+        required: true,
+        displayOrder: 2,
+        role: "variant_defining_band",
+        allowedValues: [
+          { value: "6.5", label: "Size 6.5", bandValue: "band_6_5_8" },
+          { value: "7", label: "Size 7", bandValue: "band_6_5_8" },
+        ],
+      },
+      {
+        key: "engraving_style",
+        label: "Engraving style",
+        required: false,
+        displayOrder: 3,
+        role: "customer_preference",
+        allowedValues: [{ value: "none", label: "No engraving" }],
+      },
+    ],
+    variantMappings: {},
+  };
+}
+
+const MAPPABLE = [
+  { masterVariantId: "aaaaaaaa-0000-0000-0000-000000000001", label: "Solitaire / platinum / PT950 / size 6.5-8" },
+  { masterVariantId: "aaaaaaaa-0000-0000-0000-000000000002", label: "Solitaire / white gold / 14k / size 6.5-8" },
+];
+
+describe("the campaign builder on a draft campaign", () => {
+  it("renders every configuration section the merchant needs", () => {
+    const text = textOf(renderPage(DRAFT_CAMPAIGN, { builderState: configuredState() }));
+    expect(text).toMatch(/Campaign basics/);
+    expect(text).toMatch(/Content and images/);
+    expect(text).toMatch(/Customer options/);
+    expect(text).toMatch(/Available configurations/);
+    expect(text).toMatch(/Mapped product variants/);
+    expect(text).toMatch(/Price preview/);
+    expect(text).toMatch(/Advanced configuration/);
+    expect(text).toMatch(/Review/);
+  });
+
+  it("posts the whole configuration as one field, under its own intent", () => {
+    const html = renderPage(DRAFT_CAMPAIGN, { builderState: configuredState() });
+    expect(html).toMatch(/name="intent" value="save_builder"/);
+    expect(html).toMatch(/name="builderState"/);
+    expect(html).toMatch(/Save configuration/);
+  });
+
+  it("describes options in the merchant's words, never in internal role names", () => {
+    const text = textOf(renderPage(DRAFT_CAMPAIGN, { builderState: configuredState() }));
+    expect(text).toMatch(/Affects price/);
+    expect(text).toMatch(/Does not affect price/);
+    expect(text).not.toMatch(/variant_defining/);
+    expect(text).not.toMatch(/customer_preference/);
+  });
+
+  it("counts the configurations and collapses the sizes into one priced group", () => {
+    // 2 metals x 2 sizes x 1 engraving = 4 configurations, but both sizes are
+    // in one band and engraving does not affect price, so there are 2 priced
+    // groups to map rather than 4.
+    const text = textOf(
+      renderPage(DRAFT_CAMPAIGN, { builderState: configuredState(), mappableVariants: MAPPABLE })
+    );
+    expect(text).toMatch(/4 of 4 switched on/);
+    expect(text).toMatch(/2 of 2 still need a product variant/);
+  });
+
+  it("asks for a variant by its readable label and never shows an id", () => {
+    const html = renderPage(DRAFT_CAMPAIGN, {
+      builderState: configuredState(),
+      mappableVariants: MAPPABLE,
+    });
+    expect(textOf(html)).toMatch(/Solitaire \/ platinum \/ PT950 \/ size 6\.5-8/);
+    // The id is the option's value — necessary for the form — but it must
+    // never be rendered as something the merchant reads.
+    expect(textOf(html)).not.toMatch(/aaaaaaaa-0000/);
+    expect(textOf(html)).not.toMatch(/gid:\/\//);
+    // §6: no variant is pre-selected, so a mapping is never silently guessed.
+    expect(html).toMatch(/Choose a variant/);
+  });
+
+  it("blocks the open and says what is missing, rather than letting it fail later", () => {
+    const text = textOf(renderPage(DRAFT_CAMPAIGN, { builderState: configuredState() }));
+    expect(text).toMatch(/to fix before this campaign can open/);
+    expect(text).toMatch(/Choose the product variant for Metal:/);
+  });
+
+  it("separates a display detail from a customer option", () => {
+    // §14. A merchant who adds "Production time" as an option would create
+    // purchasable combinations differing only by a label.
+    const text = textOf(renderPage(DRAFT_CAMPAIGN, { builderState: configuredState() }));
+    expect(text).toMatch(/Display details/);
+    expect(text).toMatch(/Customers read these; they do not choose them/);
+  });
+
+  it("points at Shopify Files rather than offering its own uploader", () => {
+    const html = renderPage(DRAFT_CAMPAIGN, { builderState: configuredState() });
+    expect(html).toMatch(/admin\.shopify\.com\/store\/caratforus-dev\/content\/files/);
+    expect(textOf(html)).toMatch(/Content then Files/);
+  });
+
+  it("offers the generated configuration read-only, and keeps the manual import separate (§12)", () => {
+    const html = renderPage(DRAFT_CAMPAIGN, {
+      builderState: configuredState(),
+      generatedOptionsJson: '{\n  "schemaVersion": 1\n}',
+    });
+    expect(textOf(html)).toMatch(/Show generated configuration/);
+    expect(textOf(html)).toMatch(/Read-only: edit the sections above, and this follows/);
+    // The raw-JSON path survives as the advanced import, rather than being
+    // replaced by the builder.
+    expect(textOf(html)).toMatch(/Campaign-options upload \(advanced\)/);
+    expect(html).toMatch(/name="intent" value="upload_options"/);
+  });
+
+  it("explains why no configuration file exists yet, rather than showing a broken one", () => {
+    const text = textOf(
+      renderPage(DRAFT_CAMPAIGN, { builderState: configuredState(), generatedOptionsJson: null })
+    );
+    expect(text).toMatch(/not complete enough to generate a file yet/);
+  });
+
+  it("leaks no cost, margin or landed-cost data through any builder section", () => {
+    expect(
+      renderPage(DRAFT_CAMPAIGN, { builderState: configuredState(), mappableVariants: MAPPABLE })
+    ).not.toMatch(NO_COST_MARGIN_LEAK);
+  });
+});
+
+describe("the campaign builder's price preview", () => {
+  const PREVIEW = {
+    currency: "USD",
+    pricedAsOf: "2026-10-01T12:00:00.000Z",
+    tiers: [
+      { tierNumber: 1, label: "Tier 1 (from 1 unit)" },
+      { tierNumber: 2, label: "Tier 2 (from 10 units)" },
+    ],
+    rows: [
+      {
+        variantGroupSignature: "group-platinum",
+        description: "Metal: Platinum / Ring size: band_6_5_8",
+        configurationCount: 2,
+        tierPrices: [
+          { tierNumber: 1, bankPaymentMinorUnits: "250000", regularCardMinorUnits: "261000" },
+          { tierNumber: 2, bankPaymentMinorUnits: "225000", regularCardMinorUnits: "235000" },
+        ],
+      },
+      {
+        variantGroupSignature: "group-white-gold",
+        description: "Metal: 14k white gold / Ring size: band_6_5_8",
+        configurationCount: 2,
+        problem: "Not priced yet: choose a product variant for this configuration first.",
+      },
+    ],
+    problems: [],
+  };
+
+  it("shows both customer-facing prices per tier, formatted from minor units", () => {
+    const text = textOf(
+      renderPage(DRAFT_CAMPAIGN, { builderState: configuredState(), pricePreview: PREVIEW })
+    );
+    expect(text).toMatch(/\$2,500\.00/);
+    expect(text).toMatch(/\$2,610\.00 card/);
+    expect(text).toMatch(/\$2,250\.00/);
+    expect(text).toMatch(/\$2,350\.00 card/);
+  });
+
+  it("says plainly that the figures are provisional until open", () => {
+    const text = textOf(
+      renderPage(DRAFT_CAMPAIGN, { builderState: configuredState(), pricePreview: PREVIEW })
+    );
+    expect(text).toMatch(/provisional until the campaign opens/i);
+  });
+
+  it("shows a row that could not be priced instead of dropping it", () => {
+    // A merchant who cannot see that a variant failed to price would open the
+    // campaign believing it was fine.
+    const text = textOf(
+      renderPage(DRAFT_CAMPAIGN, { builderState: configuredState(), pricePreview: PREVIEW })
+    );
+    expect(text).toMatch(/Metal: 14k white gold/);
+    expect(text).toMatch(/Not priced yet: choose a product variant/);
+  });
+
+  it("never shows an internal percentage or the words card fee or surcharge", () => {
+    // CLAUDE.md rule 13 forbids this wording on customer surfaces; the admin
+    // preview quotes the same two figures and has no reason to explain them
+    // with a rate either.
+    const text = textOf(
+      renderPage(DRAFT_CAMPAIGN, { builderState: configuredState(), pricePreview: PREVIEW })
+    );
+    expect(text).not.toMatch(/card fee|surcharge|cash discount/i);
+    // Deliberately NOT a blanket "no percent sign anywhere" assertion. The
+    // tier table elsewhere on this page legitimately shows each tier's
+    // percent off, which is a Group Buy discount, not the card uplift rate
+    // rule 13 forbids exposing. The wording is the real requirement, and
+    // "uplift" is the term that would leak the internal rule.
+    expect(text).not.toMatch(/uplift/i);
+  });
+});
+
+describe("the campaign builder once a campaign is no longer draft (§17)", () => {
+  it("says the configuration is locked and offers no save", () => {
+    const html = renderPage(OPEN_CAMPAIGN, { builderState: configuredState() });
+    expect(textOf(html)).toMatch(/Configuration is locked/);
+    expect(html).not.toMatch(/Save configuration/);
+    expect(html).not.toMatch(/name="intent" value="save_builder"/);
+  });
+
+  it("disables every control rather than leaving editable fields that would be refused", () => {
+    const html = renderPage(OPEN_CAMPAIGN, { builderState: configuredState() });
+    // The product type input is representative: if it is disabled, the
+    // `disabled` flag reached the controls.
+    expect(html).toMatch(/id="builder-product-type"[^>]*disabled/);
+    expect(html).not.toMatch(/Add an option/);
+  });
+
+  it("still shows the configuration, so staff can see what was opened", () => {
+    const html = renderPage(OPEN_CAMPAIGN, { builderState: configuredState() });
+    // The product type sits in a read-only input, so it is an attribute
+    // rather than page text — which is why this asserts on the markup.
+    expect(html).toMatch(/id="builder-product-type"[^>]*value="Engagement ring"/);
+    expect(textOf(html)).toMatch(/Mapped product variants/);
+    expect(textOf(html)).toMatch(/Metal/);
+  });
+
+  it("runs no price preview, because the real prices are frozen", () => {
+    const text = textOf(renderPage(OPEN_CAMPAIGN, { builderState: configuredState() }));
+    expect(text).toMatch(/Save the configuration to see a price preview/);
   });
 });

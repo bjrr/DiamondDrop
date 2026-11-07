@@ -13,6 +13,7 @@ import {
 } from "~/domain/groupbuy/campaignVisibility";
 import { validateTierSet, type TierDefinition } from "~/domain/groupbuy/tiers";
 import type { GroupBuyCampaignOptions } from "~/domain/groupbuy/campaignOptions";
+import type { CampaignBuilderState } from "~/domain/groupbuy/campaignBuilder";
 import { getCurrentTier } from "~/jobs/groupbuy/unitLedger.server";
 import { TIER_SYNCED_ACTION, TIER_SYNC_ENTITY_TYPE } from "~/jobs/groupbuy/tierPriceSync.server";
 import { listAuditEventsForEntity } from "~/db/repositories/auditEventRepository.server";
@@ -620,6 +621,149 @@ export async function getLatestGroupBuyCampaignOptionsUpload(
     options: payload.options,
     uploadedBy: payload.uploadedBy,
     uploadedAt: new Date(payload.uploadedAt),
+    contentHash: latest.contentHash,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// CAMPAIGN BUILDER STATE — the merchant-side working record behind the
+// visual campaign editor.
+//
+// SEPARATE FROM THE OPTIONS CONTRACT, ON PURPOSE. The contract
+// (`groupbuy.campaign_options.v1`, above) describes what may be sold and is
+// forbidden by §12 from carrying pricing structure of any kind — a rule
+// enforced by `findForbiddenPricingKeys`, whose backstop rejects any key
+// matching /pric(?:e|ing)/i at any depth. The builder needs to remember
+// three things that rule excludes: which options affect price, which
+// MasterVariant each priced configuration maps to, and the campaign's
+// imagery and presentational copy. So they live here, under their own kind,
+// and the contract stays exactly what it was.
+//
+// SAME APPEND-ONLY DISCIPLINE as the options upload: re-saving adds a row,
+// the current one is chosen by an explicit `sequence` integer rather than by
+// wall-clock `createdAt`, and the write is draft-only. See the options
+// section header above for the full reasoning on each of those; it applies
+// here unchanged rather than being restated.
+//
+// DRAFT-ONLY INCLUDES THE CONTENT FIELDS. A campaign's imagery and copy are
+// editable right up to open and frozen after it, the same as its options and
+// tiers. That is the conservative reading of §17 ("draft-only editing,
+// respect freeze") and it is deliberately NOT relaxed here: allowing
+// post-open content edits would be a new policy about what may change on a
+// live campaign, which is an owner decision and not this layer's to make.
+// ---------------------------------------------------------------------------
+
+export const GROUP_BUY_CAMPAIGN_BUILDER_SNAPSHOT_KIND = "groupbuy.campaign_builder.v1";
+
+export interface GroupBuyCampaignBuilderRecord {
+  readonly snapshotId: string;
+  readonly campaignId: string;
+  readonly sequence: number;
+  readonly state: CampaignBuilderState;
+  readonly savedBy: string;
+  readonly savedAt: Date;
+  readonly contentHash: string;
+}
+
+interface StoredGroupBuyCampaignBuilderPayload {
+  readonly campaignId: string;
+  readonly sequence: number;
+  readonly savedBy: string;
+  readonly savedAt: string;
+  readonly state: CampaignBuilderState;
+}
+
+/**
+ * Records the merchant's builder state for a draft campaign.
+ *
+ * TRUSTS ITS INPUT IS ALREADY ASSESSED, the same way
+ * `saveGroupBuyCampaignOptionsUpload` trusts its options are already
+ * validated: the caller runs `assessCampaignBuilderCompleteness` and decides
+ * what to do about the problems. Saving an INCOMPLETE state has to stay
+ * possible — a merchant configuring a campaign over several sittings must be
+ * able to keep partial work — so completeness gates the OPEN, not the save.
+ */
+export async function saveGroupBuyCampaignBuilderState(
+  campaignId: string,
+  state: CampaignBuilderState,
+  savedBy: string
+): Promise<GroupBuyCampaignBuilderRecord> {
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<{ id: string; status: string }[]>`
+      SELECT id, status FROM group_buy_campaign WHERE id = ${campaignId}::uuid FOR UPDATE
+    `;
+    const campaign = locked[0];
+    if (!campaign) throw new GroupBuyCampaignNotFoundError(campaignId);
+    if (campaign.status !== "draft") {
+      throw new GroupBuyCampaignNotDraftForConfigurationError(campaignId, campaign.status);
+    }
+
+    const priorSaves = await tx.snapshot.count({
+      where: {
+        kind: GROUP_BUY_CAMPAIGN_BUILDER_SNAPSHOT_KIND,
+        payload: { path: ["campaignId"], equals: campaignId },
+      },
+    });
+    const sequence = priorSaves + 1;
+
+    const savedAt = new Date();
+    const payload = JSON.parse(
+      JSON.stringify({
+        kind: GROUP_BUY_CAMPAIGN_BUILDER_SNAPSHOT_KIND,
+        campaignId,
+        sequence,
+        savedBy,
+        savedAt: savedAt.toISOString(),
+        state,
+      })
+    ) as JsonValue;
+    const contentHash = hashCanonicalJson(payload);
+
+    const snapshot = await tx.snapshot.create({
+      data: { kind: GROUP_BUY_CAMPAIGN_BUILDER_SNAPSHOT_KIND, payload: payload as never, contentHash },
+    });
+
+    return { snapshotId: snapshot.id, campaignId, sequence, state, savedBy, savedAt, contentHash };
+  });
+}
+
+/**
+ * The CURRENT builder state for a campaign — highest `sequence`, never
+ * latest `createdAt`. Null when the campaign has never been saved from the
+ * visual editor, which is the normal state of a campaign whose options were
+ * uploaded as raw JSON; the editor handles that by reading the contract and
+ * reconstructing a state from it (`builderStateFromCampaignOptions`).
+ */
+export async function getLatestGroupBuyCampaignBuilderState(
+  campaignId: string
+): Promise<GroupBuyCampaignBuilderRecord | null> {
+  const snapshots = await prisma.snapshot.findMany({
+    where: {
+      kind: GROUP_BUY_CAMPAIGN_BUILDER_SNAPSHOT_KIND,
+      payload: { path: ["campaignId"], equals: campaignId },
+    },
+  });
+  if (snapshots.length === 0) return null;
+
+  let latest: (typeof snapshots)[number] | null = null;
+  let latestSequence = -1;
+  for (const snapshot of snapshots) {
+    const payload = snapshot.payload as unknown as StoredGroupBuyCampaignBuilderPayload;
+    if (payload.sequence > latestSequence) {
+      latestSequence = payload.sequence;
+      latest = snapshot;
+    }
+  }
+  if (!latest) return null;
+
+  const payload = latest.payload as unknown as StoredGroupBuyCampaignBuilderPayload;
+  return {
+    snapshotId: latest.id,
+    campaignId: payload.campaignId,
+    sequence: payload.sequence,
+    state: payload.state,
+    savedBy: payload.savedBy,
+    savedAt: new Date(payload.savedAt),
     contentHash: latest.contentHash,
   };
 }

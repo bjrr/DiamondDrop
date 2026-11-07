@@ -47,5 +47,20 @@ export function shopifyAdminProductsUrl(shopDomain: string): string | null {
   return base ? `${base}/products` : null;
 }
 
+/**
+ * Content then Files, where campaign imagery is uploaded. The Group Buy
+ * campaign builder links here rather than uploading images itself: the files
+ * belong in Shopify, and this app requests no file scope (§0 Shopify-native
+ * first, plus the standing rule against broadening scopes speculatively).
+ */
+export function shopifyAdminFilesUrl(shopDomain: string): string {
+  const base = adminBase(shopDomain);
+  // Unlike the two above, this one never returns null: it is rendered as a
+  // plain link in a form, and an unrecognised shop host is not a reason to
+  // leave a merchant with no way to reach their own files. The bare Shopify
+  // admin entry point still gets them there in one more click.
+  return base ? `${base}/content/files` : "https://admin.shopify.com";
+}
+
 /** The tag staff should filter Customers by to find First Access signups. */
 export const FIRST_ACCESS_CUSTOMER_TAG = "first-access";
