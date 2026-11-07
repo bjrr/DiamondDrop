@@ -13,7 +13,10 @@ import {
 } from "~/domain/groupbuy/campaignVisibility";
 import { validateTierSet, type TierDefinition } from "~/domain/groupbuy/tiers";
 import type { GroupBuyCampaignOptions } from "~/domain/groupbuy/campaignOptions";
-import type { CampaignBuilderState } from "~/domain/groupbuy/campaignBuilder";
+import type {
+  BuilderCampaignPresentation,
+  CampaignBuilderState,
+} from "~/domain/groupbuy/campaignBuilder";
 import { getCurrentTier } from "~/jobs/groupbuy/unitLedger.server";
 import { TIER_SYNCED_ACTION, TIER_SYNC_ENTITY_TYPE } from "~/jobs/groupbuy/tierPriceSync.server";
 import { listAuditEventsForEntity } from "~/db/repositories/auditEventRepository.server";
@@ -766,6 +769,211 @@ export async function getLatestGroupBuyCampaignBuilderState(
     savedAt: new Date(payload.savedAt),
     contentHash: latest.contentHash,
   };
+}
+
+// ---------------------------------------------------------------------------
+// CAMPAIGN PRESENTATION — the one thing that may still change after open.
+//
+// Owner decision, 2026-11-06. A campaign that has opened has customers in it,
+// and everything they relied on when they joined is frozen: options, bands,
+// combinations, variant mappings, tiers, pricing configuration, and every
+// factual claim about the goods. What is NOT a promise about the goods is how
+// the campaign presents itself — its hero and card photography, its gallery,
+// its headline and its one-line promotional description. A placeholder photo
+// or a typo in those is worth being able to correct without cancelling a live
+// campaign.
+//
+// NEVER MUTATES THE FROZEN BUILDER SNAPSHOT. A presentation change writes a
+// NEW row under its own kind. The builder snapshot stays exactly as it was at
+// open, because it is the evidence of what the campaign opened with, and the
+// whole point of this separation collapses if the "frozen" record is the one
+// being edited.
+//
+// EVERY VERSION IS KEPT, and every row records: the version it replaced, its
+// own version, the Shopify staff member who made the change, when, and WHY.
+// The reason is required (`validatePresentationReason`) because "the hero
+// image changed on a live campaign three weeks ago" is a question somebody
+// will eventually ask, and the answer has to be in the record rather than in
+// someone's memory.
+//
+// NOT DRAFT-GATED, unlike every other write in this file — that is the point
+// of it. It is still status-gated: see `saveGroupBuyCampaignPresentation`.
+// ---------------------------------------------------------------------------
+
+export const GROUP_BUY_CAMPAIGN_PRESENTATION_SNAPSHOT_KIND = "groupbuy.campaign_presentation.v1";
+
+/** Statuses in which presentation may be corrected. */
+const PRESENTATION_EDITABLE_STATUSES = new Set(["draft", "open"]);
+
+export class GroupBuyCampaignPresentationNotEditableError extends Error {
+  constructor(
+    readonly campaignId: string,
+    readonly status: string
+  ) {
+    super(
+      `Group Buy campaign ${campaignId} is ${status}; presentation content can only be changed while a campaign is draft or open.`
+    );
+    this.name = "GroupBuyCampaignPresentationNotEditableError";
+  }
+}
+
+export interface GroupBuyCampaignPresentationRecord {
+  readonly snapshotId: string;
+  readonly campaignId: string;
+  /** 1-based, assigned transactionally. The sole "which one is current" key. */
+  readonly version: number;
+  /** The version this one replaced. Null for the first. */
+  readonly priorVersion: number | null;
+  readonly presentation: BuilderCampaignPresentation;
+  readonly changedBy: string;
+  readonly changedAt: Date;
+  /** Required, merchant-supplied. Never blank — see validatePresentationReason. */
+  readonly reason: string;
+  readonly contentHash: string;
+}
+
+interface StoredGroupBuyCampaignPresentationPayload {
+  readonly campaignId: string;
+  readonly version: number;
+  readonly priorVersion: number | null;
+  readonly changedBy: string;
+  readonly changedAt: string;
+  readonly reason: string;
+  readonly presentation: BuilderCampaignPresentation;
+}
+
+function toPresentationRecord(snapshot: {
+  id: string;
+  payload: unknown;
+  contentHash: string;
+}): GroupBuyCampaignPresentationRecord {
+  const payload = snapshot.payload as unknown as StoredGroupBuyCampaignPresentationPayload;
+  return {
+    snapshotId: snapshot.id,
+    campaignId: payload.campaignId,
+    version: payload.version,
+    priorVersion: payload.priorVersion,
+    presentation: payload.presentation,
+    changedBy: payload.changedBy,
+    changedAt: new Date(payload.changedAt),
+    reason: payload.reason,
+    contentHash: snapshot.contentHash,
+  };
+}
+
+/**
+ * Records a new presentation version.
+ *
+ * TRUSTS ITS INPUT IS ALREADY VALIDATED — `parseCampaignPresentation` for the
+ * content and `validatePresentationReason` for the reason — the same contract
+ * `saveGroupBuyCampaignOptionsUpload` has with its own validator.
+ *
+ * The row lock on the campaign is what makes "read the current version, write
+ * the next" safe against two staff members saving at once: the second
+ * transaction only begins counting after the first has committed, so two
+ * concurrent edits produce versions 4 and 5 rather than two version 4s.
+ */
+export async function saveGroupBuyCampaignPresentation(
+  campaignId: string,
+  presentation: BuilderCampaignPresentation,
+  changedBy: string,
+  reason: string
+): Promise<GroupBuyCampaignPresentationRecord> {
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<{ id: string; status: string }[]>`
+      SELECT id, status FROM group_buy_campaign WHERE id = ${campaignId}::uuid FOR UPDATE
+    `;
+    const campaign = locked[0];
+    if (!campaign) throw new GroupBuyCampaignNotFoundError(campaignId);
+    if (!PRESENTATION_EDITABLE_STATUSES.has(campaign.status)) {
+      throw new GroupBuyCampaignPresentationNotEditableError(campaignId, campaign.status);
+    }
+
+    const priorCount = await tx.snapshot.count({
+      where: {
+        kind: GROUP_BUY_CAMPAIGN_PRESENTATION_SNAPSHOT_KIND,
+        payload: { path: ["campaignId"], equals: campaignId },
+      },
+    });
+    const version = priorCount + 1;
+    const priorVersion = priorCount === 0 ? null : priorCount;
+
+    const changedAt = new Date();
+    const payload = JSON.parse(
+      JSON.stringify({
+        kind: GROUP_BUY_CAMPAIGN_PRESENTATION_SNAPSHOT_KIND,
+        campaignId,
+        version,
+        priorVersion,
+        changedBy,
+        changedAt: changedAt.toISOString(),
+        reason,
+        presentation,
+      })
+    ) as JsonValue;
+    const contentHash = hashCanonicalJson(payload);
+
+    const snapshot = await tx.snapshot.create({
+      data: { kind: GROUP_BUY_CAMPAIGN_PRESENTATION_SNAPSHOT_KIND, payload: payload as never, contentHash },
+    });
+
+    return {
+      snapshotId: snapshot.id,
+      campaignId,
+      version,
+      priorVersion,
+      presentation,
+      changedBy,
+      changedAt,
+      reason,
+      contentHash,
+    };
+  });
+}
+
+/**
+ * The CURRENT presentation for a campaign — highest `version`, never latest
+ * `createdAt`. Null when presentation has never been versioned separately, in
+ * which case the builder snapshot's own content is the presentation.
+ */
+export async function getLatestGroupBuyCampaignPresentation(
+  campaignId: string
+): Promise<GroupBuyCampaignPresentationRecord | null> {
+  const snapshots = await prisma.snapshot.findMany({
+    where: {
+      kind: GROUP_BUY_CAMPAIGN_PRESENTATION_SNAPSHOT_KIND,
+      payload: { path: ["campaignId"], equals: campaignId },
+    },
+  });
+  if (snapshots.length === 0) return null;
+
+  let latest: (typeof snapshots)[number] | null = null;
+  let latestVersion = -1;
+  for (const snapshot of snapshots) {
+    const payload = snapshot.payload as unknown as StoredGroupBuyCampaignPresentationPayload;
+    if (payload.version > latestVersion) {
+      latestVersion = payload.version;
+      latest = snapshot;
+    }
+  }
+  return latest === null ? null : toPresentationRecord(latest);
+}
+
+/**
+ * Every presentation version, newest first — the audit trail staff read to
+ * answer "who changed the hero image on this live campaign, when, and why".
+ * Nothing is ever removed from it.
+ */
+export async function listGroupBuyCampaignPresentationVersions(
+  campaignId: string
+): Promise<readonly GroupBuyCampaignPresentationRecord[]> {
+  const snapshots = await prisma.snapshot.findMany({
+    where: {
+      kind: GROUP_BUY_CAMPAIGN_PRESENTATION_SNAPSHOT_KIND,
+      payload: { path: ["campaignId"], equals: campaignId },
+    },
+  });
+  return snapshots.map(toPresentationRecord).sort((a, b) => b.version - a.version);
 }
 
 /**

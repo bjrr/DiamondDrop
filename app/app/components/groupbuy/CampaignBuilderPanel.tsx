@@ -35,7 +35,7 @@
  * the loader supplies (§6, §18).
  */
 
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
 import {
   BUILDER_OPTION_ROLES,
@@ -62,6 +62,7 @@ import {
   type EnumeratedConfiguration,
   type VariantGroup,
 } from "~/domain/groupbuy/campaignBuilder";
+import { pickCampaignImages } from "./shopifyFilePicker";
 
 // ---------------------------------------------------------------------------
 
@@ -151,12 +152,29 @@ export interface CampaignBuilderPanelProps {
   readonly initialState: CampaignBuilderState;
   readonly mappableVariants: readonly MappableVariantOption[];
   readonly preview: CampaignPricePreviewView | null;
-  /** False once the campaign is no longer draft (§17): everything renders read-only. */
+  /**
+   * Whether the COMMERCE configuration may change — true only while the
+   * campaign is draft (§17). Options, bands, combinations, mappings, tiers
+   * and every factual claim freeze at open.
+   */
   readonly editable: boolean;
+  /**
+   * Whether PRESENTATION may change: hero, mobile hero, card image, gallery,
+   * headline and short description. True while draft, and still true once the
+   * campaign is open (owner decision, 2026-11-06) — a placeholder photo or a
+   * typo on a live campaign is worth being able to fix.
+   */
+  readonly presentationEditable: boolean;
   readonly busy: boolean;
   /** The generated contract, for the read-only Advanced section (§12). */
   readonly generatedJson: string | null;
   readonly shopifyFilesUrl: string;
+  /**
+   * Reports whether anything has changed since load, so the page outside this
+   * panel can refuse to open a campaign against a configuration the merchant
+   * never saved.
+   */
+  readonly onEditedChange?: (edited: boolean) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -166,13 +184,39 @@ export default function CampaignBuilderPanel({
   mappableVariants,
   preview,
   editable,
+  presentationEditable,
   busy,
   generatedJson,
   shopifyFilesUrl,
+  onEditedChange,
 }: CampaignBuilderPanelProps) {
   const [state, setState] = useState<CampaignBuilderState>(initialState);
   const [showJson, setShowJson] = useState(false);
   const [copyState, setCopyState] = useState<CopyState>("idle");
+  const [pickError, setPickError] = useState<string | null>(null);
+
+  /**
+   * Opens Shopify's native file picker and applies what comes back.
+   *
+   * A cancellation changes nothing — not even clearing the existing image —
+   * because a merchant who opens the picker and changes their mind has not
+   * asked to remove anything. Removal is its own button.
+   */
+  const handlePick = (
+    apply: (picked: readonly BuilderImageRef[]) => void,
+    alreadySelected: readonly string[],
+    multiSelect: boolean
+  ) => {
+    setPickError(null);
+    void pickCampaignImages({ multiSelect, alreadySelected }).then((result) => {
+      if (result.outcome === "cancelled") return;
+      if (result.outcome === "failed") {
+        setPickError(result.message);
+        return;
+      }
+      apply(result.images);
+    });
+  };
 
   const patch = (changes: Partial<CampaignBuilderState>) => setState((current) => ({ ...current, ...changes }));
   const patchContent = (changes: Partial<CampaignBuilderState["content"]>) =>
@@ -223,6 +267,13 @@ export default function CampaignBuilderPanel({
     () => JSON.stringify(state) !== JSON.stringify(initialState),
     [state, initialState]
   );
+
+  // Reported in an effect, not during render: calling a parent's setState
+  // mid-render is the "Cannot update a component while rendering a different
+  // component" warning, and in React 18 it can loop.
+  useEffect(() => {
+    onEditedChange?.(edited);
+  }, [edited, onEditedChange]);
 
   // ---- option editing helpers
   const updateOption = (index: number, changes: Partial<BuilderOption>) =>
@@ -360,10 +411,15 @@ export default function CampaignBuilderPanel({
 
       <ContentSection
         state={state}
-        disabled={disabled}
-        editable={editable}
+        // Presentation stays editable on a live campaign, so this section's
+        // own `disabled` is NOT the page-wide one.
+        disabled={!presentationEditable || busy}
+        editable={presentationEditable}
+        frozenContentEditable={editable}
         patchContent={patchContent}
         shopifyFilesUrl={shopifyFilesUrl}
+        onPick={handlePick}
+        pickError={pickError}
       />
 
       <Section
@@ -454,7 +510,8 @@ export default function CampaignBuilderPanel({
         */}
         {edited ? (
           <p role="status" style={{ ...hint, color: "#8a5300" }}>
-            These prices were worked out before your latest changes. Save the configuration to recalculate them.
+            Price preview is based on the last saved configuration. Use <strong>Save Changes &amp; Refresh Price
+            Preview</strong> below to recalculate it.
           </p>
         ) : null}
         <PricePreviewTable preview={preview} />
@@ -597,69 +654,116 @@ function ReviewSummary({
 
 // ---------------------------------------------------------------------------
 
+/**
+ * One campaign image, chosen through SHOPIFY'S NATIVE FILE PICKER.
+ *
+ * There is no URL field. A merchant does not paste a CDN link; they press
+ * the button, Shopify's own Files browser opens, and what comes back is
+ * resolved server-side into a thumbnail. The alt text is Shopify's too —
+ * whatever the merchant set on the file in Shopify Files — so there is one
+ * place to maintain it rather than two that can disagree.
+ *
+ * A GRANDFATHERED REFERENCE (one stored before the picker existed, with a
+ * URL and no file id) still renders, and says so, with a prompt to re-pick
+ * it. It is not silently discarded: it is the campaign's current image.
+ */
 function ImageField({
   title,
+  buttonLabel,
   image,
   disabled,
+  editable,
   onChange,
+  onPick,
   shopifyFilesUrl,
 }: {
   title: string;
+  /** Merchant-facing, e.g. "Choose Hero Image". */
+  buttonLabel: string;
   image: BuilderImageRef | null;
   disabled: boolean;
+  editable: boolean;
   onChange: (next: BuilderImageRef | null) => void;
+  onPick: (apply: (picked: readonly BuilderImageRef[]) => void, alreadySelected: readonly string[]) => void;
   shopifyFilesUrl: string;
 }) {
-  const id = title.toLowerCase().replace(/[^a-z]+/g, "-");
+  const legacy = image !== null && image.fileGid.trim() === "";
+
   return (
     <div style={{ marginBottom: "0.9rem" }}>
-      <label style={label} htmlFor={`image-${id}`}>
-        {title}
-      </label>
+      <p style={{ ...label, marginBottom: "0.35rem" }}>{title}</p>
       <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-start", flexWrap: "wrap" }}>
         {image?.url ? (
           <img
             src={image.url}
-            alt=""
-            style={{ width: "4.5rem", height: "4.5rem", objectFit: "cover", border: "1px solid #ddd", borderRadius: "4px" }}
+            alt={image.altText}
+            style={{
+              width: "4.5rem",
+              height: "4.5rem",
+              objectFit: "cover",
+              border: "1px solid #ddd",
+              borderRadius: "4px",
+            }}
           />
-        ) : null}
-        <div style={{ flex: "1 1 18rem", minWidth: "14rem" }}>
-          <input
-            id={`image-${id}`}
-            style={{ ...input, marginBottom: "0.35rem", maxWidth: "100%" }}
-            value={image?.url ?? ""}
-            disabled={disabled}
-            placeholder="https://cdn.shopify.com/s/files/..."
-            onChange={(event) =>
-              onChange(
-                event.target.value === ""
-                  ? null
-                  : { fileGid: image?.fileGid ?? "", url: event.target.value, altText: image?.altText ?? "" }
-              )
-            }
+        ) : (
+          <span
+            aria-hidden="true"
+            style={{
+              width: "4.5rem",
+              height: "4.5rem",
+              border: "1px dashed #bbb",
+              borderRadius: "4px",
+              display: "inline-block",
+            }}
           />
-          <input
-            style={{ ...input, marginBottom: 0, maxWidth: "100%" }}
-            value={image?.altText ?? ""}
-            disabled={disabled || !image}
-            aria-label={`${title} description for screen readers`}
-            placeholder="Describe the image, for customers using a screen reader"
-            onChange={(event) =>
-              onChange(image ? { ...image, altText: event.target.value } : null)
-            }
-          />
+        )}
+        <div style={{ flex: "1 1 16rem", minWidth: "12rem" }}>
+          {editable ? (
+            <p style={{ display: "flex", gap: "0.5rem", margin: "0 0 0.35rem", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() =>
+                  onPick(
+                    (picked) => onChange(picked[0] ?? null),
+                    image && !legacy ? [image.fileGid] : []
+                  )
+                }
+              >
+                {image === null ? buttonLabel : "Replace"}
+              </button>
+              {image !== null ? (
+                <button type="button" disabled={disabled} onClick={() => onChange(null)}>
+                  Remove
+                </button>
+              ) : null}
+            </p>
+          ) : null}
+          {image === null ? (
+            <p style={{ ...hint, margin: 0 }}>None chosen.</p>
+          ) : (
+            <p style={{ ...hint, margin: 0 }}>
+              {image.altText.trim() === "" ? (
+                <>
+                  No description set. Add one on the file in{" "}
+                  <a href={shopifyFilesUrl} target="_blank" rel="noreferrer">
+                    Shopify Files
+                  </a>{" "}
+                  so customers using a screen reader know what it shows.
+                </>
+              ) : (
+                image.altText
+              )}
+            </p>
+          )}
+          {legacy ? (
+            <p style={{ ...hint, margin: "0.35rem 0 0", color: "#8a5300" }}>
+              This image was added before the Shopify picker was available, so it is stored as a link. Press Replace
+              to re-select it from Shopify Files.
+            </p>
+          ) : null}
         </div>
       </div>
-      {image && !image.altText.trim() ? (
-        <p style={{ ...hint, margin: "0.35rem 0 0" }}>
-          Add a description so customers using a screen reader know what this shows.
-        </p>
-      ) : null}
-      <p style={{ ...hint, margin: "0.35rem 0 0" }}>
-        Upload in Shopify under <a href={shopifyFilesUrl} target="_blank" rel="noreferrer">Content then Files</a>, then
-        copy the file link here.
-      </p>
     </div>
   );
 }
@@ -668,15 +772,33 @@ function ContentSection({
   state,
   disabled,
   editable,
+  frozenContentEditable,
   patchContent,
   shopifyFilesUrl,
+  onPick,
+  pickError,
 }: {
   state: CampaignBuilderState;
   disabled: boolean;
-  /** Presence of the add/remove controls, not merely their enablement. */
+  /** Presence of the presentation add/remove controls. */
   editable: boolean;
+  /**
+   * Whether the FROZEN half (highlights, display details) may be changed.
+   *
+   * Diverges from `editable` once a campaign opens: presentation stays
+   * correctable, but a highlight or a display detail is a claim about the
+   * goods and freezes with the rest of the commerce configuration. See
+   * `BuilderCampaignPresentation`'s header for the reasoning.
+   */
+  frozenContentEditable: boolean;
   patchContent: (changes: Partial<CampaignBuilderState["content"]>) => void;
   shopifyFilesUrl: string;
+  onPick: (
+    apply: (picked: readonly BuilderImageRef[]) => void,
+    alreadySelected: readonly string[],
+    multiSelect: boolean
+  ) => void;
+  pickError: string | null;
 }) {
   const { content } = state;
 
@@ -687,11 +809,18 @@ function ContentSection({
         : content.galleryImages.filter((_, i) => i !== index),
     });
 
+  const remainingGallerySlots = MAX_GALLERY_IMAGES - content.galleryImages.length;
+
   return (
     <Section
       title="Content and images"
-      description="How the campaign presents itself. Images live in Shopify Files; this records which ones to use."
+      description="How the campaign presents itself. Images are chosen from your Shopify Files library."
     >
+      {pickError ? (
+        <p role="alert" style={{ ...hint, ...danger }}>
+          {pickError}
+        </p>
+      ) : null}
       <label style={label} htmlFor="content-headline">
         Headline
       </label>
@@ -716,24 +845,33 @@ function ContentSection({
 
       <ImageField
         title="Hero image"
+        buttonLabel="Choose Hero Image"
         image={content.heroImage}
         disabled={disabled}
+        editable={editable}
         shopifyFilesUrl={shopifyFilesUrl}
         onChange={(next) => patchContent({ heroImage: next })}
+        onPick={(apply, already) => onPick(apply, already, false)}
       />
       <ImageField
-        title="Mobile hero image"
+        title="Mobile hero image (optional)"
+        buttonLabel="Choose Mobile Image"
         image={content.mobileHeroImage}
         disabled={disabled}
+        editable={editable}
         shopifyFilesUrl={shopifyFilesUrl}
         onChange={(next) => patchContent({ mobileHeroImage: next })}
+        onPick={(apply, already) => onPick(apply, already, false)}
       />
       <ImageField
-        title="Card image"
+        title="Campaign card image (optional)"
+        buttonLabel="Choose Card Image"
         image={content.cardImage}
         disabled={disabled}
+        editable={editable}
         shopifyFilesUrl={shopifyFilesUrl}
         onChange={(next) => patchContent({ cardImage: next })}
+        onPick={(apply, already) => onPick(apply, already, false)}
       />
 
       <fieldset style={{ border: "1px solid #eee", borderRadius: "4px", padding: "0.75rem", margin: "0 0 0.9rem" }}>
@@ -744,25 +882,47 @@ function ContentSection({
           <ImageField
             key={index}
             title={`Gallery image ${index + 1}`}
+            buttonLabel="Choose Image"
             image={image}
             disabled={disabled}
+            editable={editable}
             shopifyFilesUrl={shopifyFilesUrl}
             onChange={(next) => setGallery(index, next)}
+            onPick={(apply, already) => onPick(apply, already, false)}
           />
         ))}
-        {!editable ? null : content.galleryImages.length < MAX_GALLERY_IMAGES ? (
+        {!editable ? null : remainingGallerySlots > 0 ? (
           <button
             type="button"
             disabled={disabled}
             onClick={() =>
-              patchContent({ galleryImages: [...content.galleryImages, { fileGid: "", url: "", altText: "" }] })
+              onPick(
+                (picked) =>
+                  patchContent({
+                    // TRIMMED TO THE REMAINING SLOTS. The native picker's
+                    // multiSelect has no maximum, so a merchant can select
+                    // ten images into four free slots. Taking the first four
+                    // and saying so beats silently storing ten and having the
+                    // save refuse the lot.
+                    galleryImages: [...content.galleryImages, ...picked].slice(0, MAX_GALLERY_IMAGES),
+                  }),
+                content.galleryImages.map((image) => image.fileGid).filter((fileGid) => fileGid !== ""),
+                true
+              )
             }
           >
-            Add a gallery image
+            Add Gallery Images
           </button>
         ) : (
-          <p style={{ ...hint, margin: 0 }}>The gallery is full.</p>
+          <p style={{ ...hint, margin: 0 }}>
+            The gallery is full at {MAX_GALLERY_IMAGES} images. Remove one to add another.
+          </p>
         )}
+        {editable && remainingGallerySlots > 0 ? (
+          <p style={{ ...hint, margin: "0.35rem 0 0" }}>
+            You can add {remainingGallerySlots} more. Select several at once in the picker.
+          </p>
+        ) : null}
       </fieldset>
 
       <fieldset style={{ border: "1px solid #eee", borderRadius: "4px", padding: "0.75rem", margin: "0 0 0.9rem" }}>
@@ -774,7 +934,7 @@ function ContentSection({
             <input
               style={{ ...input, marginBottom: 0, maxWidth: "28rem" }}
               value={highlight}
-              disabled={disabled}
+              disabled={disabled || !frozenContentEditable}
               aria-label={`Highlight ${index + 1}`}
               onChange={(event) =>
                 patchContent({
@@ -782,7 +942,7 @@ function ContentSection({
                 })
               }
             />
-            {editable ? (
+            {frozenContentEditable ? (
               <button
                 type="button"
                 disabled={disabled}
@@ -793,7 +953,7 @@ function ContentSection({
             ) : null}
           </div>
         ))}
-        {editable && content.highlights.length < MAX_HIGHLIGHTS ? (
+        {frozenContentEditable && content.highlights.length < MAX_HIGHLIGHTS ? (
           <button
             type="button"
             disabled={disabled}
@@ -823,7 +983,7 @@ function ContentSection({
             <input
               style={narrowInput}
               value={detail.label}
-              disabled={disabled}
+              disabled={disabled || !frozenContentEditable}
               aria-label={`Display detail ${index + 1} label`}
               placeholder="Production time"
               onChange={(event) =>
@@ -837,7 +997,7 @@ function ContentSection({
             <input
               style={{ ...narrowInput, maxWidth: "16rem" }}
               value={detail.value}
-              disabled={disabled}
+              disabled={disabled || !frozenContentEditable}
               aria-label={`Display detail ${index + 1} value`}
               placeholder="4 to 6 weeks"
               onChange={(event) =>
@@ -848,7 +1008,7 @@ function ContentSection({
                 })
               }
             />
-            {editable ? (
+            {frozenContentEditable ? (
               <button
                 type="button"
                 disabled={disabled}
@@ -861,7 +1021,7 @@ function ContentSection({
             ) : null}
           </div>
         ))}
-        {editable && content.displayDetails.length < MAX_DISPLAY_DETAILS ? (
+        {frozenContentEditable && content.displayDetails.length < MAX_DISPLAY_DETAILS ? (
           <button
             type="button"
             disabled={disabled}

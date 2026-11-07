@@ -909,7 +909,7 @@ describe("parsing an untrusted submission", () => {
       const parsed = parseCampaignBuilderState(payload);
       expect(parsed.ok, url).toBe(false);
       if (parsed.ok) continue;
-      expect(parsed.problems.join(" ")).toMatch(/must be a Shopify Files address/);
+      expect(parsed.problems.join(" ")).toMatch(/must be a Shopify Files image/);
     }
   });
 
@@ -932,17 +932,19 @@ describe("parsing an untrusted submission", () => {
     expect(parseCampaignBuilderState(withoutId).ok).toBe(true);
   });
 
-  it("refuses a malformed file id when one is supplied", () => {
+  it("refuses a file id that is not a MediaImage", () => {
     const payload = validPayload() as any;
     payload.content.heroImage = {
-      fileGid: "not-a-gid",
+      // The picker is invoked with mediaTypes: [MediaImage], so a Video id
+      // arriving here did not come from where it claims to.
+      fileGid: "gid://shopify/Video/123",
       url: "https://cdn.shopify.com/s/files/1/x.jpg",
       altText: "",
     };
     const parsed = parseCampaignBuilderState(payload);
     expect(parsed.ok).toBe(false);
     if (parsed.ok) return;
-    expect(parsed.problems.join(" ")).toMatch(/invalid Shopify file id/);
+    expect(parsed.problems.join(" ")).toMatch(/not a Shopify image file/);
   });
 
   it("refuses oversized text instead of truncating it", () => {

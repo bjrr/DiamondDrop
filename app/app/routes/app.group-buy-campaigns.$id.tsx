@@ -2,7 +2,7 @@ import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { Form, Link, redirect, useActionData, useLoaderData, useNavigation, useRouteError } from "react-router";
-import type { CSSProperties, ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 
 import {
   GroupBuyCampaignNotDraftForConfigurationError,
@@ -20,6 +20,10 @@ import {
   getGroupBuyVariantIdentities,
   getLatestGroupBuyCampaignBuilderState,
   getLatestGroupBuyCampaignOptionsUpload,
+  getLatestGroupBuyCampaignPresentation,
+  GroupBuyCampaignPresentationNotEditableError,
+  listGroupBuyCampaignPresentationVersions,
+  saveGroupBuyCampaignPresentation,
   listMasterVariantsForGroupBuySelection,
   saveGroupBuyCampaignBuilderState,
   removeGroupBuyCampaignEligibleVariant,
@@ -42,8 +46,18 @@ import {
   isReadyToOpen,
   mappedVariantIds,
   parseCampaignBuilderState,
+  applyResolvedImages,
+  extractPresentation,
+  imageFileGidsToResolve,
+  parseCampaignPresentation,
+  MIN_PRESENTATION_REASON_LENGTH,
+  unverifiableImagePaths,
+  validatePresentationReason,
+  withPresentation,
+  type BuilderCampaignPresentation,
   type CampaignBuilderState,
 } from "~/domain/groupbuy/campaignBuilder";
+import { resolveCampaignImageRefs } from "~/shopify/admin/campaignImages.server";
 import {
   listMappableVariantsForCampaign,
   previewGroupBuyCampaignPrices,
@@ -324,6 +338,23 @@ interface LoaderData {
   /** The generated contract, read-only (§12). Null while the configuration is incomplete. */
   generatedOptionsJson: string | null;
   shopifyFilesUrl: string;
+  /** Presentation stays correctable while draft OR open (owner decision, 2026-11-06). */
+  presentationEditable: boolean;
+  /** Newest first. Never pruned — the audit trail for live-campaign changes. */
+  presentationVersions: readonly PresentationVersionView[];
+}
+
+/**
+ * One recorded presentation change. Deliberately carries no image URLs or
+ * copy: this is the audit list answering "who changed what, when, and why",
+ * and the content itself is already on the page above it.
+ */
+interface PresentationVersionView {
+  version: number;
+  priorVersion: number | null;
+  changedBy: string;
+  changedAt: string;
+  reason: string;
 }
 
 function buildRefundView(refund: {
@@ -591,6 +622,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       pricePreview: null,
       generatedOptionsJson: null,
       shopifyFilesUrl: shopifyAdminFilesUrl(session.shop),
+      presentationEditable: false,
+      presentationVersions: [],
     } satisfies LoaderData;
   }
 
@@ -645,14 +678,24 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   // — which options affect price, their size bands, the variant mapping and
   // the content. §16 is satisfied because an existing contract is read, never
   // reinterpreted; §13's two-way sync is this call.
-  const [builderRecord, mappableVariants] = await Promise.all([
+  const [builderRecord, mappableVariants, presentationVersions] = await Promise.all([
     getLatestGroupBuyCampaignBuilderState(id),
     listMappableVariantsForCampaign(id),
+    listGroupBuyCampaignPresentationVersions(id),
   ]);
 
-  const builderState: CampaignBuilderState = optionsUpload
+  const frozenBuilderState: CampaignBuilderState = optionsUpload
     ? builderStateFromCampaignOptions(optionsUpload.options, builderRecord?.state)
     : (builderRecord?.state ?? emptyCampaignBuilderState());
+
+  // FROZEN COMMERCE CONFIGURATION PLUS LATEST PRESENTATION — the one reading
+  // rule for a campaign that has opened, and the same one the storefront will
+  // follow later. The frozen snapshot is never mutated; a newer presentation
+  // version is laid over it for display.
+  //
+  // `presentationVersions` is sorted newest-first by the repository, so
+  // element 0 is current.
+  const builderState = withPresentation(frozenBuilderState, presentationVersions[0]?.presentation ?? null);
 
   // Generated for the read-only Advanced section (§12). `null` when the
   // configuration is not yet complete enough to produce a valid contract,
@@ -678,6 +721,18 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     pricePreview,
     generatedOptionsJson: generated.ok ? JSON.stringify(generated.value, null, 2) : null,
     shopifyFilesUrl: shopifyAdminFilesUrl(session.shop),
+    // Presentation stays correctable while a campaign is draft OR open; the
+    // repository is the authority on that (PRESENTATION_EDITABLE_STATUSES)
+    // and would refuse a write outside it, so the control is offered on
+    // exactly the statuses the write accepts.
+    presentationEditable: campaign.status === "draft" || campaign.status === "open",
+    presentationVersions: presentationVersions.map((version) => ({
+      version: version.version,
+      priorVersion: version.priorVersion,
+      changedBy: version.changedBy,
+      changedAt: version.changedAt.toISOString(),
+      reason: version.reason,
+    })),
   } satisfies LoaderData;
 }
 
@@ -730,6 +785,14 @@ interface ActionData {
   tierResyncResult?: TierResyncResult;
   settlementComputeResult?: SettlementComputeResult;
   builderSaveResult?: BuilderSaveResult;
+  presentationSaveResult?: PresentationSaveResult;
+}
+
+/** What a live-campaign presentation correction recorded. */
+interface PresentationSaveResult {
+  version: number;
+  priorVersion: number | null;
+  changedAt: string;
 }
 
 /**
@@ -744,6 +807,61 @@ interface BuilderSaveResult {
   contractPublished: boolean;
   readyToOpen: boolean;
   outstanding: readonly string[];
+}
+
+/**
+ * The presentation currently stored for a campaign — the latest version if
+ * one exists, otherwise the builder snapshot's own content.
+ *
+ * Used for one purpose: deciding which image references are GRANDFATHERED.
+ * A reference with a URL but no Shopify file id predates the native picker
+ * and must keep working, but only if it is genuinely one of those, meaning
+ * its URL is already stored. See `unverifiableImagePaths`.
+ */
+async function currentPresentation(campaignId: string): Promise<BuilderCampaignPresentation | null> {
+  const [presentationRecord, builderRecord] = await Promise.all([
+    getLatestGroupBuyCampaignPresentation(campaignId),
+    getLatestGroupBuyCampaignBuilderState(campaignId),
+  ]);
+  if (presentationRecord) return presentationRecord.presentation;
+  return builderRecord ? extractPresentation(builderRecord.state.content) : null;
+}
+
+/**
+ * Replaces every picked image's URL and alt text with Shopify's own answer,
+ * and refuses any reference that cannot be verified.
+ *
+ * TWO DISTINCT REFUSALS, both deliberate:
+ *
+ *   - A reference with a file id is resolved against the Admin API. If the
+ *     file is gone, is not an image, or is still processing, the save is
+ *     refused with Shopify's reason rather than saved with a broken URL.
+ *   - A NEW reference with no file id is refused outright. Without an id
+ *     there is nothing to resolve, so its URL could be any cdn.shopify.com
+ *     path including another shop's. Existing id-less references are
+ *     grandfathered; new ones are not.
+ */
+async function resolveStateImagery(
+  admin: Parameters<typeof resolveCampaignImageRefs>[0],
+  state: CampaignBuilderState,
+  previousPresentation: BuilderCampaignPresentation | null
+): Promise<{ ok: true; value: CampaignBuilderState } | { ok: false; problems: readonly string[] }> {
+  const presentation = extractPresentation(state.content);
+
+  const unverifiable = unverifiableImagePaths(presentation, previousPresentation);
+  if (unverifiable.length > 0) {
+    return {
+      ok: false,
+      problems: unverifiable.map(
+        (path) => `${path} was not chosen from Shopify Files. Use the Choose image button to select it.`
+      ),
+    };
+  }
+
+  const resolution = await resolveCampaignImageRefs(admin, imageFileGidsToResolve(presentation));
+  if (!resolution.ok) return { ok: false, problems: resolution.problems };
+
+  return { ok: true, value: withPresentation(state, applyResolvedImages(presentation, resolution.byGid)) };
 }
 
 function ok(): ActionData {
@@ -870,6 +988,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
         }
 
         // (2) — the cross-check the parser cannot do.
+        // The presentation currently stored, used to decide which GID-less
+        // legacy image references are grandfathered.
+        const previousPresentation = await currentPresentation(id);
+
         const eligible = new Set((await listMappableVariantsForCampaign(id)).map((v) => v.masterVariantId));
         const foreign = mappedVariantIds(parsed.value).filter((variantId) => !eligible.has(variantId));
         if (foreign.length > 0) {
@@ -888,13 +1010,23 @@ export async function action({ request, params }: ActionFunctionArgs) {
           );
         }
 
-        const generated = buildCampaignOptionsJson(parsed.value);
+        // (3) IMAGERY IS RE-RESOLVED, NOT TRUSTED. The browser's claimed
+        // URL for a picked file is discarded and replaced with the one
+        // Shopify reports for that file id, so a hand-crafted post cannot
+        // point a campaign at an image belonging to a different shop. See
+        // `campaignImages.server.ts`.
+        const resolvedState = await resolveStateImagery(admin, parsed.value, previousPresentation);
+        if (!resolvedState.ok) {
+          return Response.json(fail("Fix these before saving.", resolvedState.problems), { status: 400 });
+        }
+
+        const generated = buildCampaignOptionsJson(resolvedState.value);
         if (generated.ok) {
           await saveGroupBuyCampaignOptionsUpload(id, generated.value, staffActorRef);
         }
-        await saveGroupBuyCampaignBuilderState(id, parsed.value, staffActorRef);
+        await saveGroupBuyCampaignBuilderState(id, resolvedState.value, staffActorRef);
 
-        const completeness = assessCampaignBuilderCompleteness(parsed.value);
+        const completeness = assessCampaignBuilderCompleteness(resolvedState.value);
         logger.info("group_buy_campaigns.builder_saved", {
           campaignId: id,
           savedBy: staffActorRef,
@@ -909,6 +1041,94 @@ export async function action({ request, params }: ActionFunctionArgs) {
             contractPublished: generated.ok,
             readyToOpen: isReadyToOpen(completeness),
             outstanding: completeness.filter((problem) => problem.blocking).map((problem) => problem.message),
+          },
+        } satisfies ActionData);
+      }
+
+      /**
+       * A PRESENTATION CORRECTION ON A LIVE CAMPAIGN (owner decision,
+       * 2026-11-06). The only write in this route that is not draft-only.
+       *
+       * WHAT IT CAN AND CANNOT REACH. It reads exactly six fields from the
+       * submission — headline, short description, hero, mobile hero, card and
+       * gallery — through `parseCampaignPresentation`. Everything else in the
+       * payload is ignored, which is what stops a client posting the whole
+       * builder state here and changing an option, a band, a mapping or a
+       * display detail through the one door that stays open after a campaign
+       * ships. The frozen snapshot is not touched: this appends a new
+       * presentation version beside it.
+       *
+       * A REASON IS REQUIRED, and the staff identity comes from the ONLINE
+       * SESSION, never the form (D23). "The hero image changed on a live
+       * campaign" is a question someone will ask later, and the answer has to
+       * be in the record.
+       */
+      case "save_presentation": {
+        const raw = stringField(formData, "builderState");
+        let parsedJson: unknown;
+        try {
+          parsedJson = JSON.parse(raw);
+        } catch (error) {
+          return Response.json(
+            fail(`The content could not be read: ${error instanceof Error ? error.message : String(error)}`),
+            { status: 400 }
+          );
+        }
+
+        const reason = validatePresentationReason(stringField(formData, "reason"));
+        if (!reason.ok) {
+          return Response.json(fail(reason.problem), { status: 400 });
+        }
+
+        // The panel posts the whole builder state; the presentation fields
+        // live under `content`. Reading only that sub-object is the first of
+        // the two narrowings described above.
+        const content = (parsedJson as { content?: unknown } | null)?.content;
+        const parsed = parseCampaignPresentation(content);
+        if (!parsed.ok) {
+          return Response.json(fail("Fix these before saving.", parsed.problems), { status: 400 });
+        }
+
+        const previousPresentation = await currentPresentation(id);
+
+        const unverifiable = unverifiableImagePaths(parsed.value, previousPresentation);
+        if (unverifiable.length > 0) {
+          return Response.json(
+            fail(
+              "Fix these before saving.",
+              unverifiable.map(
+                (path) => `${path} was not chosen from Shopify Files. Use the Choose image button to select it.`
+              )
+            ),
+            { status: 400 }
+          );
+        }
+
+        const resolution = await resolveCampaignImageRefs(admin, imageFileGidsToResolve(parsed.value));
+        if (!resolution.ok) {
+          return Response.json(fail("Fix these before saving.", resolution.problems), { status: 400 });
+        }
+
+        const record = await saveGroupBuyCampaignPresentation(
+          id,
+          applyResolvedImages(parsed.value, resolution.byGid),
+          staffActorRef,
+          reason.value
+        );
+
+        logger.info("group_buy_campaigns.presentation_versioned", {
+          campaignId: id,
+          version: record.version,
+          priorVersion: record.priorVersion,
+          changedBy: staffActorRef,
+        });
+
+        return Response.json({
+          ...ok(),
+          presentationSaveResult: {
+            version: record.version,
+            priorVersion: record.priorVersion,
+            changedAt: record.changedAt.toISOString(),
           },
         } satisfies ActionData);
       }
@@ -1265,6 +1485,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
     if (error instanceof GroupBuyCampaignNotDraftForConfigurationError) {
       return Response.json(fail(error.message), { status: 409 });
     }
+    // The repository, not this route, is the authority on which statuses
+    // accept a presentation change. A stale tab submitting against a
+    // now-closed campaign gets the refusal verbatim rather than a generic
+    // failure.
+    if (error instanceof GroupBuyCampaignPresentationNotEditableError) {
+      return Response.json(fail(error.message), { status: 409 });
+    }
     if (error instanceof InvalidTierSetError) {
       return Response.json(fail("The tier set is invalid.", error.problems), { status: 400 });
     }
@@ -1413,6 +1640,7 @@ function statusLabel(status: string): string {
 const sectionStyle: CSSProperties = { marginBottom: "1.5rem", border: "1px solid #ddd", borderRadius: "4px", padding: "1rem" };
 const labelStyle: CSSProperties = { display: "block", fontWeight: 600, fontSize: "0.875rem", marginBottom: "0.25rem" };
 const inputStyle: CSSProperties = { display: "block", padding: "0.4rem 0.6rem", width: "100%", maxWidth: "24rem", marginBottom: "0.6rem" };
+const historyCellStyle: CSSProperties = { border: "1px solid #ddd", padding: "0.35rem 0.5rem", textAlign: "left", verticalAlign: "top" };
 
 /**
  * Per-refund controls, gated on `status`/`approvedAt` so the page never
@@ -1552,7 +1780,21 @@ export default function GroupBuyCampaignDetailPage() {
     pricePreview,
     generatedOptionsJson,
     shopifyFilesUrl,
+    presentationEditable,
+    presentationVersions,
   } = useLoaderData<typeof loader>();
+
+  /**
+   * Whether the campaign builder holds changes the server has not seen.
+   *
+   * Lifted out of the panel because it gates something OUTSIDE the panel: the
+   * Open Campaign control. A merchant who edited the metals, read the price
+   * preview (which is computed from the SAVED configuration) and then opened
+   * the campaign would have reviewed pricing for a configuration that was
+   * never saved. Opening freezes money, so that has to be impossible rather
+   * than merely discouraged.
+   */
+  const [builderEdited, setBuilderEdited] = useState(false);
   const actionData = useActionData<ActionData>();
   const navigation = useNavigation();
   const busy = navigation.state !== "idle";
@@ -1851,17 +2093,24 @@ export default function GroupBuyCampaignDetailPage() {
               <Form method="post" id="campaign-builder-form">
                 <input type="hidden" name="intent" value="save_builder" />
                 <CampaignBuilderPanel
+                  // REMOUNTED AFTER EVERY SAVE. The panel seeds its client
+                  // state from `initialState` once; without a changing key it
+                  // would keep the pre-save state after revalidation and go
+                  // on reporting unsaved changes that no longer exist.
+                  key={builderSavedAt ?? "unsaved"}
                   initialState={builderState}
                   mappableVariants={mappableVariants}
                   preview={pricePreview}
                   editable
+                  presentationEditable={presentationEditable}
                   busy={busy}
                   generatedJson={generatedOptionsJson}
                   shopifyFilesUrl={shopifyFilesUrl}
+                  onEditedChange={setBuilderEdited}
                 />
-                <p style={{ margin: "0 0 1.5rem" }}>
+                <p style={{ margin: "0 0 0.5rem" }}>
                   <button type="submit" disabled={busy}>
-                    Save configuration
+                    {builderEdited ? "Save Changes & Refresh Price Preview" : "Save configuration"}
                   </button>
                   {builderSavedAt ? (
                     <span style={{ marginLeft: "0.75rem", fontSize: "0.8125rem", color: "#555" }}>
@@ -1869,26 +2118,118 @@ export default function GroupBuyCampaignDetailPage() {
                     </span>
                   ) : null}
                 </p>
+                {builderEdited ? (
+                  <p role="status" style={{ margin: "0 0 1.5rem", fontSize: "0.875rem", color: "#8a5300" }}>
+                    You have unsaved changes. Price preview is based on the last saved configuration.
+                  </p>
+                ) : (
+                  <p style={{ margin: "0 0 1.5rem" }} />
+                )}
               </Form>
             ) : (
-              /*
-                NO FORM AT ALL once the campaign is not a draft (§17). The
-                save intent, the hidden state field and every mutation
-                control are ABSENT rather than disabled — the same discipline
-                the tier and variant sections on this page already follow,
-                tested by "the tier/variant/options forms are entirely
-                absent, not merely disabled". A disabled control still tells
-                a merchant the action exists and might work.
-              */
-              <CampaignBuilderPanel
-                initialState={builderState}
-                mappableVariants={mappableVariants}
-                preview={pricePreview}
-                editable={false}
-                busy={busy}
-                generatedJson={generatedOptionsJson}
-                shopifyFilesUrl={shopifyFilesUrl}
-              />
+              <>
+                {/*
+                  ONCE OPEN, TWO DIFFERENT THINGS HAPPEN IN ONE SECTION.
+
+                  The commerce configuration is read-only: no save intent, no
+                  hidden state field, and every mutation control ABSENT rather
+                  than disabled — the discipline the tier and variant sections
+                  already follow, since a greyed-out control still tells a
+                  merchant the action exists.
+
+                  Presentation is the exception the owner carved out on
+                  2026-11-06. While the campaign is open, the hero, mobile
+                  hero, card image, gallery, headline and short description
+                  stay correctable through their OWN form and their own
+                  intent, which requires a reason and appends a new version
+                  rather than touching the frozen snapshot.
+                */}
+                {presentationEditable ? (
+                  <Form method="post" id="campaign-presentation-form">
+                    <input type="hidden" name="intent" value="save_presentation" />
+                    <CampaignBuilderPanel
+                      key={presentationVersions[0]?.version ?? "v0"}
+                      initialState={builderState}
+                      mappableVariants={mappableVariants}
+                      preview={pricePreview}
+                      editable={false}
+                      presentationEditable
+                      busy={busy}
+                      generatedJson={generatedOptionsJson}
+                      shopifyFilesUrl={shopifyFilesUrl}
+                    />
+                    <section style={{ ...sectionStyle, borderColor: "#8a5300" }}>
+                      <h2 style={{ fontSize: "1rem", margin: "0 0 0.35rem" }}>
+                        Record a presentation change
+                      </h2>
+                      <p style={{ margin: "0 0 0.75rem", fontSize: "0.8rem", color: "#555" }}>
+                        This campaign is live, so only its images, headline and short description can change. Every
+                        change is kept as a new version with your name, the time, and the reason below. Nothing is
+                        overwritten, and the campaign&rsquo;s options, variants, tiers and product claims stay exactly
+                        as they were when it opened.
+                      </p>
+                      <label htmlFor="presentationReason" style={labelStyle}>
+                        Reason for this change
+                      </label>
+                      <input
+                        id="presentationReason"
+                        name="reason"
+                        required
+                        minLength={MIN_PRESENTATION_REASON_LENGTH}
+                        placeholder="Corrected headline typo"
+                        style={{ ...inputStyle, maxWidth: "34rem" }}
+                      />
+                      <button type="submit" disabled={busy}>
+                        Save presentation change
+                      </button>
+                    </section>
+                  </Form>
+                ) : (
+                  <CampaignBuilderPanel
+                    initialState={builderState}
+                    mappableVariants={mappableVariants}
+                    preview={pricePreview}
+                    editable={false}
+                    presentationEditable={false}
+                    busy={busy}
+                    generatedJson={generatedOptionsJson}
+                    shopifyFilesUrl={shopifyFilesUrl}
+                  />
+                )}
+
+                {presentationVersions.length > 0 ? (
+                  <section style={sectionStyle}>
+                    <h2 style={{ fontSize: "1rem", margin: "0 0 0.5rem" }}>Presentation change history</h2>
+                    <p style={{ margin: "0 0 0.75rem", fontSize: "0.8rem", color: "#555" }}>
+                      Every version is kept. Nothing here is ever removed.
+                    </p>
+                    <table style={{ borderCollapse: "collapse", width: "100%", fontSize: "0.8125rem" }}>
+                      <thead>
+                        <tr>
+                          <th style={historyCellStyle}>Version</th>
+                          <th style={historyCellStyle}>Replaced</th>
+                          <th style={historyCellStyle}>Changed by</th>
+                          <th style={historyCellStyle}>When</th>
+                          <th style={historyCellStyle}>Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {presentationVersions.map((version) => (
+                          <tr key={version.version}>
+                            <td style={historyCellStyle}>{version.version}</td>
+                            <td style={historyCellStyle}>
+                              {version.priorVersion === null ? "First version" : `Version ${version.priorVersion}`}
+                            </td>
+                            <td style={historyCellStyle}>{version.changedBy}</td>
+                            <td style={historyCellStyle}>{formatTimestamp(version.changedAt)}</td>
+                            <td style={historyCellStyle}>{version.reason}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </section>
+                ) : null}
+              </>
             )}
 
             <section style={sectionStyle}>
@@ -2002,9 +2343,33 @@ export default function GroupBuyCampaignDetailPage() {
                       <textarea id="overrideReason" name="overrideReason" rows={2} required style={{ ...inputStyle, maxWidth: "100%" }} />
                     </fieldset>
                   ) : null}
-                  <button type="submit" disabled={busy}>
+                  {/*
+                    REFUSED WHILE THE BUILDER HOLDS UNSAVED CHANGES.
+
+                    Opening freezes the campaign's prices. The price preview
+                    the merchant just read is computed from the SAVED
+                    configuration, so if the builder above has unsaved edits,
+                    the figures on screen do not describe what would be
+                    frozen. The merchant must never be able to believe they
+                    reviewed pricing for a configuration that was never
+                    saved, so this is disabled rather than warned about.
+
+                    Client-side only, and deliberately so: it is a UX guard
+                    against a specific misunderstanding, not a security
+                    boundary. The open path's own validation
+                    (`openGroupBuyCampaign`) remains the authority on whether
+                    a campaign may open, and it reads the saved configuration
+                    either way.
+                  */}
+                  <button type="submit" disabled={busy || builderEdited}>
                     Open campaign and freeze pricing
                   </button>
+                  {builderEdited ? (
+                    <p role="status" style={{ margin: "0.5rem 0 0", fontSize: "0.875rem", color: "#8a5300" }}>
+                      Save your configuration changes first. Opening freezes prices, and the price preview above is
+                      based on the last saved configuration.
+                    </p>
+                  ) : null}
                 </Form>
               </section>
             ) : null}

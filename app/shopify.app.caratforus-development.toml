@@ -187,7 +187,27 @@ embedded = true
 #                     write_metaobjects is deliberately NOT requested. The
 #                     app writes its own app-owned entries without it, and
 #                     it never writes merchant-owned metaobjects.
-scopes = "read_products,write_products,read_inventory,read_customers,write_customers,write_draft_orders,read_orders,write_payment_terms,write_orders,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_metaobjects"
+#
+#   read_files        Group Buy campaign imagery (owner approval,
+#                     2026-11-06). The Group Buy campaign builder opens
+#                     Shopify's NATIVE file picker through the App Home
+#                     Intents API (`pick:shopify/File`). That intent returns
+#                     only an array of file IDs — `response.data.ids` — and
+#                     nothing else: no URL, no alt text, no media type. So
+#                     the only way to turn a merchant's selection into
+#                     something renderable, or to confirm that what came back
+#                     is a MediaImage belonging to this shop rather than an
+#                     id a tampered form invented, is to resolve those ids
+#                     against the Admin API. That is the concrete need, and
+#                     it is a READ.
+#
+#                     write_files is deliberately NOT requested. Merchants
+#                     upload through Shopify Files (or through the picker's
+#                     own upload affordance, which is Shopify's code and
+#                     Shopify's permission, not ours). The app never creates,
+#                     replaces or deletes a merchant's file, so asking for
+#                     the ability to would be a privilege nothing uses.
+scopes = "read_products,write_products,read_inventory,read_customers,write_customers,write_draft_orders,read_orders,write_payment_terms,write_orders,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_metaobjects,read_files"
 optional_scopes = [ ]
 
 # Token exchange rather than the legacy OAuth redirect dance.

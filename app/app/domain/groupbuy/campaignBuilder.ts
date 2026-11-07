@@ -183,16 +183,116 @@ export interface BuilderImageRef {
   readonly altText: string;
 }
 
-/** §2 / §14 — campaign content, which the locked options contract has no field for. */
-export interface BuilderCampaignContent {
+/**
+ * PRESENTATION — the fields that may still be corrected after a campaign
+ * opens (owner decision, 2026-11-06).
+ *
+ * ===========================================================================
+ * THE LINE IS "IS THIS A PROMISE, OR IS IT A PICTURE?"
+ * ===========================================================================
+ * A campaign that has opened has customers in it. Anything they relied on
+ * when they joined is a commerce promise and is frozen: the options, the
+ * bands, the combinations, the variant mappings, the tiers, and every
+ * factual claim about what they are buying.
+ *
+ * A hero photograph, a card thumbnail, a headline and a one-line promotional
+ * description are not promises about the goods. They are how the campaign
+ * presents itself, and a typo or a placeholder photo in them is a thing
+ * worth being able to fix without cancelling a live campaign.
+ *
+ * ===========================================================================
+ * WHAT IS DELIBERATELY *NOT* IN HERE, AND WHY
+ * ===========================================================================
+ * `highlights` and `displayDetails` stay FROZEN, in `BuilderFrozenContent`
+ * below, even though both are "content" in a loose sense.
+ *
+ * `displayDetails` is where "Certification: GIA", "Clarity: VS1" and
+ * "Production time: 4 to 6 weeks" live. Those are certification, quality,
+ * material and specification claims — named explicitly in the owner's frozen
+ * list. A highlight is a promotional bullet, but nothing stops a merchant
+ * writing "Natural diamond, VS1 clarity" in one, which is the same kind of
+ * claim wearing different clothes.
+ *
+ * The owner's editable list names exactly six fields. Treating a seventh as
+ * editable because it felt like presentation would be deciding, on the
+ * owner's behalf, that a quality claim may change under a customer who
+ * already bought against it. The conservative reading is the correct one
+ * here, and widening it later is a one-line change; narrowing it after a
+ * campaign has shipped is not.
+ */
+export interface BuilderCampaignPresentation {
   readonly headline: string;
   readonly shortDescription: string;
-  readonly highlights: readonly string[];
   readonly heroImage: BuilderImageRef | null;
   readonly mobileHeroImage: BuilderImageRef | null;
   readonly cardImage: BuilderImageRef | null;
   readonly galleryImages: readonly BuilderImageRef[];
+}
+
+/** The content that is a commerce promise, and therefore freezes at open. */
+export interface BuilderFrozenContent {
+  readonly highlights: readonly string[];
   readonly displayDetails: readonly BuilderDisplayDetail[];
+}
+
+/**
+ * §2 / §14 — campaign content, which the locked options contract has no
+ * field for. Structurally the union of the two halves above, kept as one flat
+ * shape so the draft editor stays one coherent form (§20) and so existing
+ * stored snapshots keep deserialising unchanged.
+ */
+export interface BuilderCampaignContent extends BuilderCampaignPresentation, BuilderFrozenContent {}
+
+/** Field names in the presentation half. The one list everything else derives from. */
+export const PRESENTATION_FIELDS = [
+  "headline",
+  "shortDescription",
+  "heroImage",
+  "mobileHeroImage",
+  "cardImage",
+  "galleryImages",
+] as const satisfies readonly (keyof BuilderCampaignPresentation)[];
+
+/** Field names that freeze at open. */
+export const FROZEN_CONTENT_FIELDS = ["highlights", "displayDetails"] as const satisfies readonly (keyof BuilderFrozenContent)[];
+
+/** The presentation half of a campaign's content, for versioning after open. */
+export function extractPresentation(content: BuilderCampaignContent): BuilderCampaignPresentation {
+  return {
+    headline: content.headline,
+    shortDescription: content.shortDescription,
+    heroImage: content.heroImage,
+    mobileHeroImage: content.mobileHeroImage,
+    cardImage: content.cardImage,
+    galleryImages: content.galleryImages,
+  };
+}
+
+/**
+ * Lays a newer presentation version over the frozen builder state, which is
+ * how every reader (this editor now, the storefront later) sees a live
+ * campaign: FROZEN COMMERCE CONFIGURATION PLUS LATEST PRESENTATION.
+ *
+ * The frozen state is never mutated — a new object is returned — because the
+ * stored snapshot is evidence of what the campaign opened with.
+ */
+export function withPresentation(
+  state: CampaignBuilderState,
+  presentation: BuilderCampaignPresentation | null
+): CampaignBuilderState {
+  if (presentation === null) return state;
+  return {
+    ...state,
+    content: {
+      ...state.content,
+      headline: presentation.headline,
+      shortDescription: presentation.shortDescription,
+      heroImage: presentation.heroImage,
+      mobileHeroImage: presentation.mobileHeroImage,
+      cardImage: presentation.cardImage,
+      galleryImages: presentation.galleryImages,
+    },
+  };
 }
 
 /** §2 caps the gallery; more than this is a merchant mistake, not a layout. */
@@ -813,13 +913,16 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
  * came back quietly shortened would not know which half survived; the
  * submission is refused with the field named instead.
  */
-export function parseCampaignBuilderState(input: unknown): CampaignBuilderStateParseResult {
-  const problems: string[] = [];
-
-  if (!isPlainRecord(input)) {
-    return { ok: false, problems: ["The saved configuration was not an object."] };
-  }
-
+/**
+ * The field readers both parsers share, bound to one problem list.
+ *
+ * Extracted so that `parseCampaignBuilderState` and
+ * `parseCampaignPresentation` cannot drift apart. The presentation parser
+ * runs against a LIVE campaign, so if its image rules were a second
+ * implementation that happened to be laxer, the freeze would be bypassable
+ * through the one path that is still open after a campaign ships.
+ */
+function fieldReaders(problems: string[]) {
   const text = (value: unknown, path: string, { required = false } = {}): string => {
     if (value === undefined || value === null) {
       if (required) problems.push(`${path} is required.`);
@@ -836,6 +939,55 @@ export function parseCampaignBuilderState(input: unknown): CampaignBuilderStateP
     if (required && value.trim() === "") problems.push(`${path} is required.`);
     return value;
   };
+
+  const parseImage = (value: unknown, path: string): BuilderImageRef | null => {
+    if (value === undefined || value === null) return null;
+    if (!isPlainRecord(value)) {
+      problems.push(`${path} is not a valid image reference.`);
+      return null;
+    }
+    const fileGid = text(value.fileGid, `${path} file`);
+    const url = text(value.url, `${path} address`);
+    if (url.trim() === "") {
+      problems.push(`${path} is missing its Shopify Files address.`);
+      return null;
+    }
+    // SHOPIFY-HOSTED ONLY (§2 — Shopify-native media). A campaign image is
+    // rendered to customers, and an arbitrary remote address would have the
+    // storefront loading imagery from a host nobody vetted.
+    //
+    // This is now the SECOND line of defence rather than the only one: the
+    // normal path is Shopify's native file picker, whose selections are
+    // re-resolved against the Admin API on save so the stored URL is
+    // whatever Shopify says it is. This check still matters, because a
+    // GID-less legacy reference has no Admin API answer to be replaced with.
+    if (!/^https:\/\/cdn\.shopify\.com\//.test(url)) {
+      problems.push(
+        `${path} must be a Shopify Files image. Use “Choose image” to pick one from Shopify Files.`
+      );
+      return null;
+    }
+    if (fileGid.trim() !== "" && !/^gid:\/\/shopify\/MediaImage\//.test(fileGid)) {
+      // Narrowed from `gid://shopify/` to MediaImage specifically: the picker
+      // is invoked with `mediaTypes: ['MediaImage']`, so a Video or
+      // GenericFile id arriving here did not come from where it claims to.
+      problems.push(`${path} is not a Shopify image file.`);
+      return null;
+    }
+    return { fileGid, url, altText: text(value.altText, `${path} alt text`) };
+  };
+
+  return { text, parseImage };
+}
+
+export function parseCampaignBuilderState(input: unknown): CampaignBuilderStateParseResult {
+  const problems: string[] = [];
+
+  if (!isPlainRecord(input)) {
+    return { ok: false, problems: ["The saved configuration was not an object."] };
+  }
+
+  const { text, parseImage } = fieldReaders(problems);
 
   const productType = text(input.productType, "Product type");
   const title = text(input.title, "Title");
@@ -907,39 +1059,6 @@ export function parseCampaignBuilderState(input: unknown): CampaignBuilderStateP
   }
 
   // ---- content
-  const parseImage = (value: unknown, path: string): BuilderImageRef | null => {
-    if (value === undefined || value === null) return null;
-    if (!isPlainRecord(value)) {
-      problems.push(`${path} is not a valid image reference.`);
-      return null;
-    }
-    const fileGid = text(value.fileGid, `${path} file`);
-    const url = text(value.url, `${path} address`);
-    if (url.trim() === "") {
-      problems.push(`${path} is missing its Shopify Files address.`);
-      return null;
-    }
-    // SHOPIFY-HOSTED ONLY (§2 — Shopify-native media). This is the real
-    // fence: a campaign image is rendered to customers, and an arbitrary
-    // remote address here would have the storefront loading imagery from a
-    // host nobody vetted, with the referer and availability of that host
-    // outside CaratForUs's control.
-    if (!/^https:\/\/cdn\.shopify\.com\//.test(url)) {
-      problems.push(
-        `${path} must be a Shopify Files address beginning https://cdn.shopify.com/ — upload the image in Shopify under Content then Files, and copy its link.`
-      );
-      return null;
-    }
-    // The GID is optional, because the merchant copies a link rather than an
-    // id today. When one IS present it must be a Shopify GID, so that a
-    // later Files picker can rely on it.
-    if (fileGid.trim() !== "" && !/^gid:\/\/shopify\//.test(fileGid)) {
-      problems.push(`${path} has an invalid Shopify file id.`);
-      return null;
-    }
-    return { fileGid, url, altText: text(value.altText, `${path} alt text`) };
-  };
-
   const rawContent = isPlainRecord(input.content) ? input.content : {};
   if (input.content !== undefined && !isPlainRecord(input.content)) {
     problems.push("Content and images must be an object.");
@@ -1065,4 +1184,199 @@ export function parseCampaignBuilderState(input: unknown): CampaignBuilderStateP
  */
 export function mappedVariantIds(state: CampaignBuilderState): readonly string[] {
   return [...new Set(Object.values(state.variantMappings))];
+}
+
+// ---------------------------------------------------------------------------
+// Presentation: parsing, reasons, and image references
+// ---------------------------------------------------------------------------
+
+export type CampaignPresentationParseResult =
+  | { readonly ok: true; readonly value: BuilderCampaignPresentation }
+  | { readonly ok: false; readonly problems: readonly string[] };
+
+/**
+ * Parses a posted presentation edit. Uses the SAME field readers as the full
+ * builder parser (see `fieldReaders`), so the image rules on the one path
+ * that stays open after a campaign ships are not a second, laxer copy.
+ *
+ * Only the six presentation fields are read. Anything else in the payload is
+ * ignored rather than rejected: this endpoint's contract is "these six
+ * fields", and a client that sends the whole builder state to it must not be
+ * able to smuggle an option change through by including one.
+ */
+export function parseCampaignPresentation(input: unknown): CampaignPresentationParseResult {
+  const problems: string[] = [];
+
+  if (!isPlainRecord(input)) {
+    return { ok: false, problems: ["The presentation content was not an object."] };
+  }
+
+  const { text, parseImage } = fieldReaders(problems);
+
+  let galleryImages: BuilderImageRef[] = [];
+  if (input.galleryImages !== undefined) {
+    if (!Array.isArray(input.galleryImages)) {
+      problems.push("The gallery must be a list.");
+    } else if (input.galleryImages.length > MAX_GALLERY_IMAGES) {
+      problems.push(
+        `There are ${input.galleryImages.length} gallery images; the limit is ${MAX_GALLERY_IMAGES}.`
+      );
+    } else {
+      galleryImages = input.galleryImages
+        .map((value, index) => parseImage(value, `Gallery image ${index + 1}`))
+        .filter((image): image is BuilderImageRef => image !== null);
+    }
+  }
+
+  const value: BuilderCampaignPresentation = {
+    headline: text(input.headline, "Headline"),
+    shortDescription: text(input.shortDescription, "Short description"),
+    heroImage: parseImage(input.heroImage, "Hero image"),
+    mobileHeroImage: parseImage(input.mobileHeroImage, "Mobile hero image"),
+    cardImage: parseImage(input.cardImage, "Card image"),
+    galleryImages,
+  };
+
+  if (problems.length > 0) return { ok: false, problems };
+  return { ok: true, value };
+}
+
+/**
+ * A presentation change on a LIVE campaign has to say why (owner decision,
+ * 2026-11-06). Eight characters is not an anti-abuse measure — anyone
+ * determined to write "asdfasdf" will — it is enough to stop an empty box
+ * and an accidental single keystroke becoming the permanent audit record of
+ * why a live campaign's photography changed.
+ */
+export const MIN_PRESENTATION_REASON_LENGTH = 8;
+
+export function validatePresentationReason(
+  raw: string
+): { readonly ok: true; readonly value: string } | { readonly ok: false; readonly problem: string } {
+  const trimmed = raw.trim();
+  if (trimmed === "") {
+    return {
+      ok: false,
+      problem:
+        "Give a reason for this change. It is recorded against the campaign, for example “Corrected headline typo”.",
+    };
+  }
+  if (trimmed.length < MIN_PRESENTATION_REASON_LENGTH) {
+    return {
+      ok: false,
+      problem: `That reason is too short to be useful later. Use at least ${MIN_PRESENTATION_REASON_LENGTH} characters, for example “Corrected headline typo”.`,
+    };
+  }
+  if (trimmed.length > MAX_TEXT_LENGTH) {
+    return { ok: false, problem: `That reason is longer than ${MAX_TEXT_LENGTH} characters. Shorten it.` };
+  }
+  return { ok: true, value: trimmed };
+}
+
+/** One image reference, with the merchant-facing name of the field it came from. */
+export interface LocatedImageRef {
+  readonly path: string;
+  readonly ref: BuilderImageRef;
+}
+
+/** Every image in a presentation, labelled, in a stable order. */
+export function locatedImageRefs(presentation: BuilderCampaignPresentation): readonly LocatedImageRef[] {
+  const located: LocatedImageRef[] = [];
+  const add = (path: string, ref: BuilderImageRef | null) => {
+    if (ref !== null) located.push({ path, ref });
+  };
+  add("Hero image", presentation.heroImage);
+  add("Mobile hero image", presentation.mobileHeroImage);
+  add("Card image", presentation.cardImage);
+  presentation.galleryImages.forEach((ref, index) => add(`Gallery image ${index + 1}`, ref));
+  return located;
+}
+
+/**
+ * The Shopify file ids a submission needs resolved against the Admin API,
+ * deduplicated. The caller resolves these and replaces each reference's URL
+ * and alt text with Shopify's own answer — see
+ * `resolveCampaignImageRefs` in `campaignImages.server.ts`.
+ */
+export function imageFileGidsToResolve(presentation: BuilderCampaignPresentation): readonly string[] {
+  return [
+    ...new Set(
+      locatedImageRefs(presentation)
+        .map((located) => located.ref.fileGid)
+        .filter((fileGid) => fileGid.trim() !== "")
+    ),
+  ];
+}
+
+/**
+ * Images that carry a URL but NO Shopify file id, and whose URL was not
+ * already stored.
+ *
+ * ===========================================================================
+ * WHY A GID-LESS REFERENCE IS TOLERATED AT ALL
+ * ===========================================================================
+ * Before the native picker existed, a merchant pasted a Shopify Files link
+ * and no id was recorded. The owner asked for those snapshots to keep
+ * working, so a reference with no id is still valid — but ONLY if it is one
+ * of those, meaning its URL is already in the previously stored content.
+ *
+ * A NEW id-less reference is refused. Without an id there is nothing to
+ * resolve against the Admin API, so its URL could be any `cdn.shopify.com`
+ * path at all, including one belonging to a different shop. Grandfathering
+ * what already exists is compatibility; accepting new ones would be leaving
+ * the old hole open and calling it compatibility.
+ */
+export function unverifiableImagePaths(
+  next: BuilderCampaignPresentation,
+  previous: BuilderCampaignPresentation | null
+): readonly string[] {
+  const grandfathered = new Set(
+    previous === null
+      ? []
+      : locatedImageRefs(previous)
+          .filter((located) => located.ref.fileGid.trim() === "")
+          .map((located) => located.ref.url)
+  );
+
+  return locatedImageRefs(next)
+    .filter((located) => located.ref.fileGid.trim() === "" && !grandfathered.has(located.ref.url))
+    .map((located) => located.path);
+}
+
+/**
+ * Rewrites every image reference that has a file id so its URL and alt text
+ * are the ones Shopify reported for that id.
+ *
+ * This is the step that makes a submitted URL irrelevant rather than merely
+ * checked. A reference with no id is left alone — it is a grandfathered
+ * pasted link, already constrained to `cdn.shopify.com` by the parser and
+ * already confirmed by `unverifiableImagePaths` to be one that was previously
+ * stored.
+ *
+ * A reference whose id is absent from the map is also left alone rather than
+ * dropped. That cannot happen on the save path, which resolves every id and
+ * refuses the save on any problem; leaving it is the conservative behaviour
+ * if some future caller resolves only a subset.
+ */
+export function applyResolvedImages(
+  presentation: BuilderCampaignPresentation,
+  byGid: ReadonlyMap<string, { readonly url: string; readonly altText: string }>
+): BuilderCampaignPresentation {
+  const apply = (ref: BuilderImageRef | null): BuilderImageRef | null => {
+    if (ref === null || ref.fileGid.trim() === "") return ref;
+    const resolved = byGid.get(ref.fileGid);
+    if (resolved === undefined) return ref;
+    return { fileGid: ref.fileGid, url: resolved.url, altText: resolved.altText };
+  };
+
+  return {
+    headline: presentation.headline,
+    shortDescription: presentation.shortDescription,
+    heroImage: apply(presentation.heroImage),
+    mobileHeroImage: apply(presentation.mobileHeroImage),
+    cardImage: apply(presentation.cardImage),
+    galleryImages: presentation.galleryImages
+      .map((ref) => apply(ref))
+      .filter((ref): ref is BuilderImageRef => ref !== null),
+  };
 }

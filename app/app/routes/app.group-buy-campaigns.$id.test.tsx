@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { renderToStaticMarkup } from "react-dom/server";
 import { RouterProvider, createMemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
@@ -7,6 +10,7 @@ import { GroupBuyCampaignNotDraftForConfigurationError } from "~/db/repositories
 import { validateGroupBuyCampaignOptions } from "~/domain/groupbuy/campaignOptions";
 import {
   emptyCampaignBuilderState,
+  MIN_PRESENTATION_REASON_LENGTH,
   type CampaignBuilderState,
 } from "~/domain/groupbuy/campaignBuilder";
 
@@ -185,6 +189,14 @@ function renderPage(
     mappableVariants?: { masterVariantId: string; label: string }[];
     pricePreview?: unknown;
     generatedOptionsJson?: string | null;
+    presentationEditable?: boolean;
+    presentationVersions?: {
+      version: number;
+      priorVersion: number | null;
+      changedBy: string;
+      changedAt: string;
+      reason: string;
+    }[];
   }
 ): string {
   const loaderData = {
@@ -203,6 +215,12 @@ function renderPage(
     pricePreview: options?.pricePreview ?? null,
     generatedOptionsJson: options?.generatedOptionsJson ?? null,
     shopifyFilesUrl: "https://admin.shopify.com/store/caratforus-dev/content/files",
+    // Presentation stays correctable while draft OR open; the default
+    // mirrors the loader's own rule rather than hardcoding true, so a
+    // closed-campaign fixture behaves like the real page.
+    presentationEditable:
+      options?.presentationEditable ?? (campaign?.status === "draft" || campaign?.status === "open"),
+    presentationVersions: options?.presentationVersions ?? [],
   };
   const router = createMemoryRouter(
     [
@@ -756,10 +774,29 @@ describe("the campaign builder on a draft campaign", () => {
     expect(text).toMatch(/Customers read these; they do not choose them/);
   });
 
-  it("points at Shopify Files rather than offering its own uploader", () => {
+  it("offers Shopify's native file picker rather than a URL field or its own uploader", () => {
+    const text = textOf(renderPage(DRAFT_CAMPAIGN, { builderState: configuredState() }));
+    // The buttons the owner specified.
+    expect(text).toMatch(/Choose Hero Image/);
+    expect(text).toMatch(/Choose Mobile Image/);
+    expect(text).toMatch(/Choose Card Image/);
+    expect(text).toMatch(/Add Gallery Images/);
+    // No pasted CDN URL in the normal workflow, and no upload affordance of
+    // our own (the app requests read_files, not write_files).
+    expect(text).not.toMatch(/cdn\.shopify\.com\/s\/files/);
+    expect(text).not.toMatch(/copy the file link/i);
+    // Scoped to IMAGE uploading. A bare /upload/ check would catch the
+    // advanced campaign-options JSON upload further down the page, which is
+    // a legitimate and unrelated feature.
+    expect(text).not.toMatch(/upload (?:an? )?(?:image|photo|file)/i);
+    expect(text).not.toMatch(/drop (?:an? )?(?:image|file)/i);
+  });
+
+  it("renders no URL input for campaign imagery", () => {
     const html = renderPage(DRAFT_CAMPAIGN, { builderState: configuredState() });
-    expect(html).toMatch(/admin\.shopify\.com\/store\/caratforus-dev\/content\/files/);
-    expect(textOf(html)).toMatch(/Content then Files/);
+    // The old workflow had a text input per image holding a CDN address.
+    // Its absence is the point: a merchant cannot hand-type an image source.
+    expect(html).not.toMatch(/placeholder="https:\/\/cdn\.shopify\.com/);
   });
 
   it("offers the generated configuration read-only, and keeps the manual import separate (§12)", () => {
@@ -891,3 +928,242 @@ describe("the campaign builder once a campaign is no longer draft (§17)", () =>
     expect(text).toMatch(/Save the configuration to see a price preview/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// FROZEN COMMERCE CONFIGURATION vs CORRECTABLE PRESENTATION
+// (owner decision, 2026-11-06)
+//
+// A campaign that has opened has customers in it. Everything they relied on
+// is frozen; the photography, headline and short description stay
+// correctable through their own versioned, reasoned path.
+// ---------------------------------------------------------------------------
+
+describe("an open campaign's frozen commerce configuration", () => {
+  it("offers no way to change options, bands, mappings or combinations", () => {
+    const html = renderPage(OPEN_CAMPAIGN, { builderState: configuredState(), mappableVariants: MAPPABLE });
+    // No commerce save intent at all.
+    expect(html).not.toMatch(/name="intent" value="save_builder"/);
+    // And no commerce mutation controls, absent rather than disabled.
+    expect(html).not.toMatch(/Add an option/);
+    expect(html).not.toMatch(/Remove this option/);
+    expect(html).not.toMatch(/Add a choice/);
+    expect(html).not.toMatch(/Switch all off/);
+  });
+
+  it("disables the variant mapping and option controls", () => {
+    const html = renderPage(OPEN_CAMPAIGN, { builderState: configuredState(), mappableVariants: MAPPABLE });
+    expect(html).toMatch(/id="builder-product-type"[^>]*disabled/);
+    expect(html).toMatch(/id="option-label-0"[^>]*disabled/);
+    expect(html).toMatch(/id="option-role-0"[^>]*disabled/);
+  });
+
+  it("keeps the frozen CLAIMS uneditable: highlights and display details", () => {
+    // Display details are "Certification: GIA" and "Clarity: VS1"; a
+    // highlight can carry the same claim in prose. Both are material and
+    // certification claims, which the owner's frozen list names.
+    const html = renderPage(OPEN_CAMPAIGN, { builderState: withClaims() });
+    // React emits attributes in JSX order, and `disabled` is declared
+    // before `aria-label` on these inputs, so the assertion reads in that
+    // direction rather than assuming alphabetical output.
+    expect(html).toMatch(/disabled=""[^>]*aria-label="Highlight 1"/);
+    expect(html).toMatch(/disabled=""[^>]*aria-label="Display detail 1 label"/);
+    expect(html).toMatch(/disabled=""[^>]*aria-label="Display detail 1 value"/);
+    expect(html).not.toMatch(/Add a highlight/);
+    expect(html).not.toMatch(/Add a display detail/);
+  });
+
+  it("says the commerce configuration is locked", () => {
+    const text = textOf(renderPage(OPEN_CAMPAIGN, { builderState: configuredState() }));
+    expect(text).toMatch(/Configuration is locked/);
+  });
+});
+
+describe("an open campaign's correctable presentation", () => {
+  it("offers its own intent, separate from the commerce save", () => {
+    const html = renderPage(OPEN_CAMPAIGN, { builderState: configuredState() });
+    expect(html).toMatch(/name="intent" value="save_presentation"/);
+    expect(html).not.toMatch(/name="intent" value="save_builder"/);
+  });
+
+  it("still lets the merchant choose imagery and edit the headline", () => {
+    const html = renderPage(OPEN_CAMPAIGN, { builderState: configuredState() });
+    expect(textOf(html)).toMatch(/Choose Hero Image/);
+    expect(textOf(html)).toMatch(/Add Gallery Images/);
+    // The headline input is NOT disabled, unlike the commerce fields above.
+    expect(html).toMatch(/id="content-headline"/);
+    expect(html).not.toMatch(/id="content-headline"[^>]*disabled/);
+    expect(html).not.toMatch(/id="content-short-description"[^>]*disabled/);
+  });
+
+  it("REQUIRES a reason, with a minimum length", () => {
+    const html = renderPage(OPEN_CAMPAIGN, { builderState: configuredState() });
+    expect(html).toMatch(/id="presentationReason"[^>]*required/);
+    expect(html).toMatch(/name="reason"/);
+    expect(html).toMatch(new RegExp(`minLength="${MIN_PRESENTATION_REASON_LENGTH}"`));
+    expect(textOf(html)).toMatch(/Reason for this change/);
+  });
+
+  it("asks for no staff name, because identity comes from the signed-in session", () => {
+    // D23. A browser-supplied actor would make the audit record worthless.
+    const html = renderPage(OPEN_CAMPAIGN, { builderState: configuredState() });
+    expect(html).not.toMatch(/name="actor"/);
+    expect(html).not.toMatch(/name="changedBy"/);
+    expect(html).not.toMatch(/name="staff/);
+  });
+
+  it("explains what can and cannot change, so nobody expects more", () => {
+    const text = textOf(renderPage(OPEN_CAMPAIGN, { builderState: configuredState() }));
+    expect(text).toMatch(/only its images, headline and short description can change/);
+    expect(text).toMatch(/Nothing is overwritten/);
+    expect(text).toMatch(/options, variants, tiers and product claims stay exactly as they were/);
+  });
+
+  it("is offered on a draft campaign through the ordinary save, not a second form", () => {
+    // While draft there is nothing to version: the builder save covers it.
+    const html = renderPage(DRAFT_CAMPAIGN, { builderState: configuredState() });
+    expect(html).toMatch(/name="intent" value="save_builder"/);
+    expect(html).not.toMatch(/name="intent" value="save_presentation"/);
+  });
+
+  it("is withdrawn once the campaign closes", () => {
+    const html = renderPage(CLOSED_CAMPAIGN, { builderState: configuredState() });
+    expect(html).not.toMatch(/name="intent" value="save_presentation"/);
+    expect(html).not.toMatch(/name="intent" value="save_builder"/);
+    expect(html).not.toMatch(/Choose Hero Image/);
+  });
+});
+
+describe("the presentation change history", () => {
+  const VERSIONS = [
+    {
+      version: 2,
+      priorVersion: 1,
+      changedBy: "gid://shopify/StaffMember/77",
+      changedAt: "2026-11-02T09:30:00.000Z",
+      reason: "Replaced hero with final campaign photography",
+    },
+    {
+      version: 1,
+      priorVersion: null,
+      changedBy: "gid://shopify/StaffMember/42",
+      changedAt: "2026-11-01T12:00:00.000Z",
+      reason: "Corrected headline typo",
+    },
+  ];
+
+  it("shows every version with its prior version, actor, time and reason", () => {
+    const text = textOf(
+      renderPage(OPEN_CAMPAIGN, { builderState: configuredState(), presentationVersions: VERSIONS })
+    );
+    expect(text).toMatch(/Presentation change history/);
+    expect(text).toMatch(/Replaced hero with final campaign photography/);
+    expect(text).toMatch(/Corrected headline typo/);
+    expect(text).toMatch(/Version 1/); // version 2's prior
+    expect(text).toMatch(/First version/); // version 1 has no prior
+    expect(text).toMatch(/StaffMember\/77/);
+    expect(text).toMatch(/StaffMember\/42/);
+  });
+
+  it("states that nothing is ever removed", () => {
+    const text = textOf(
+      renderPage(OPEN_CAMPAIGN, { builderState: configuredState(), presentationVersions: VERSIONS })
+    );
+    expect(text).toMatch(/Every version is kept/);
+    expect(text).toMatch(/Nothing here is ever removed/);
+  });
+
+  it("keeps the earlier version visible after a later one exists", () => {
+    // The whole point of append-only: version 1 does not disappear when
+    // version 2 is written.
+    const text = textOf(
+      renderPage(OPEN_CAMPAIGN, { builderState: configuredState(), presentationVersions: VERSIONS })
+    );
+    const first = text.indexOf("Replaced hero with final campaign photography");
+    const second = text.indexOf("Corrected headline typo");
+    expect(first).toBeGreaterThan(-1);
+    expect(second).toBeGreaterThan(-1);
+    // Newest first.
+    expect(first).toBeLessThan(second);
+  });
+
+  it("renders no history section when there is nothing to show", () => {
+    const text = textOf(renderPage(OPEN_CAMPAIGN, { builderState: configuredState() }));
+    expect(text).not.toMatch(/Presentation change history/);
+  });
+});
+
+describe("saved-state price preview and the Open Campaign gate", () => {
+  it("offers Open Campaign on a clean draft", () => {
+    // The gate below must not block the normal case.
+    const html = renderPage(DRAFT_CAMPAIGN, { builderState: configuredState() });
+    expect(html).toMatch(/Open campaign and freeze pricing/);
+    expect(html).not.toMatch(/Save your configuration changes first/);
+  });
+
+  it("explains that the preview comes from the saved configuration", () => {
+    const PREVIEW = {
+      currency: "USD",
+      pricedAsOf: "2026-11-01T12:00:00.000Z",
+      tiers: [{ tierNumber: 1, label: "Tier 1 (from 1 unit)" }],
+      rows: [
+        {
+          variantGroupSignature: "g1",
+          description: "Metal: Platinum",
+          configurationCount: 2,
+          tierPrices: [{ tierNumber: 1, bankPaymentMinorUnits: "250000", regularCardMinorUnits: "261000" }],
+        },
+      ],
+      problems: [],
+    };
+    const text = textOf(
+      renderPage(DRAFT_CAMPAIGN, { builderState: configuredState(), pricePreview: PREVIEW })
+    );
+    expect(text).toMatch(/provisional until the campaign opens/i);
+  });
+
+  it("names the save action so it is obvious it refreshes the preview", () => {
+    // The unsaved-changes banner and the renamed button are client state, so
+    // what is asserted here is that the strings ship in the bundle for the
+    // browser to show once an edit happens.
+    const panel = readFileSync(
+      join(process.cwd(), "app", "components", "groupbuy", "CampaignBuilderPanel.tsx"),
+      "utf8"
+    );
+    expect(panel).toContain("Price preview is based on the last saved configuration.");
+
+    const route = readFileSync(
+      join(process.cwd(), "app", "routes", "app.group-buy-campaigns.$id.tsx"),
+      "utf8"
+    );
+    expect(route).toContain("Save Changes & Refresh Price Preview");
+    // And the Open control is gated on the same unsaved flag.
+    expect(route).toMatch(/disabled=\{busy \|\| builderEdited\}/);
+    expect(route).toContain("Save your configuration changes first");
+  });
+
+  it("does not compute prices in the browser", () => {
+    // The architectural rule the owner asked to keep: the preview comes from
+    // the real server-side pipeline, and the panel only formats it.
+    const panel = readFileSync(
+      join(process.cwd(), "app", "components", "groupbuy", "CampaignBuilderPanel.tsx"),
+      "utf8"
+    );
+    expect(panel).not.toMatch(/computeBuyNowPrice/);
+    expect(panel).not.toMatch(/campaignTierDualPrices/);
+    expect(panel).not.toMatch(/priceMultiplier/);
+    expect(panel).not.toMatch(/deriveRegularCardPrice/);
+  });
+});
+
+/** The same configuration, plus the two frozen claim fields. */
+function withClaims(): CampaignBuilderState {
+  const base = configuredState();
+  return {
+    ...base,
+    content: {
+      ...base.content,
+      highlights: ["Natural diamond, VS1 clarity"],
+      displayDetails: [{ label: "Certification", value: "GIA" }],
+    },
+  };
+}
