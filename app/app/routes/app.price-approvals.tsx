@@ -301,13 +301,32 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (decision === "approve") {
-      const { createProductionPriceSyncPort } = await import(
+      /**
+       * BOTH DEPENDENCIES, matching the scheduled path exactly.
+       *
+       * `internal.jobs.price-recalculation.tsx` builds a sync port AND
+       * metafield publish deps from this same module and passes both into
+       * the pricing workflow. This route previously passed only the port,
+       * which made manual approval quietly weaker than auto-publish: on a
+       * successful sync `syncApprovedPriceSyncIntent` uses `metafields` to
+       * write the variant Bank Payment Price metafield and recompute the
+       * product-level As Low As. Without it the Regular/Card Price would
+       * publish to Shopify while the Bank Payment presentation data stayed
+       * stale or missing, so a storefront could show a fresh card price
+       * beside an old bank price.
+       *
+       * Dynamically imported for the reason the module's own header gives:
+       * importing it at module scope makes the route fail to load wherever
+       * Shopify OAuth is not configured.
+       */
+      const { createProductionPriceSyncPort, createProductionMetafieldPublishDeps } = await import(
         "~/shopify/admin/productionPriceSyncPort.server"
       );
       const port = await createProductionPriceSyncPort();
+      const metafields = await createProductionMetafieldPublishDeps();
       const result = await decideAndSyncIntent(
         { intentId, status: "approved", actor, reason: reason || undefined },
-        { port }
+        { port, metafields }
       );
       logger.info("pricing.intent_approved_via_admin", {
         intentId,

@@ -143,9 +143,63 @@ describe("the route delegates instead of reimplementing", () => {
 
   it("rejects through decideIntent, and never publishes on a rejection", () => {
     expect(code).toMatch(/decideIntent\(\{[\s\S]*?status: "rejected"/);
-    // The sync port is only constructed on the approve branch.
-    const rejectBranch = code.slice(code.indexOf('decision === "reject"'), code.indexOf('decision === "approve"'));
-    expect(rejectBranch).not.toMatch(/createProductionPriceSyncPort|decideAndSyncIntent/);
+    // Neither Shopify dependency is constructed on the reject branch.
+    const rejectBranch = code.slice(
+      code.indexOf('decision === "reject"'),
+      code.indexOf('decision === "approve"')
+    );
+    expect(rejectBranch).not.toMatch(/createProductionPriceSyncPort/);
+    expect(rejectBranch).not.toMatch(/createProductionMetafieldPublishDeps/);
+    expect(rejectBranch).not.toMatch(/decideAndSyncIntent/);
+  });
+
+  /**
+   * MANUAL APPROVAL MUST HAVE THE SAME PRODUCTION WIRING AS AUTO-PUBLISH.
+   *
+   * This route shipped passing only `{ port }`. `decideAndSyncIntent` accepts
+   * `metafields` as OPTIONAL, so nothing failed: approval worked, the
+   * Regular/Card Price published, and the variant Bank Payment Price
+   * metafield plus the product-level As Low As were silently skipped. A
+   * storefront could then show a fresh card price beside a stale bank price,
+   * and no test or type error would have said a word.
+   *
+   * The scheduled recalculation route builds both from the same module. These
+   * assertions pin the two paths together.
+   */
+  it("constructs BOTH the sync port and the metafield publish deps on approve", () => {
+    const approveBranch = code.slice(code.indexOf('decision === "approve"'));
+    expect(approveBranch).toMatch(/createProductionPriceSyncPort\(\)/);
+    expect(approveBranch).toMatch(/createProductionMetafieldPublishDeps\(\)/);
+  });
+
+  it("passes both dependencies into decideAndSyncIntent", () => {
+    // The optionality of `metafields` is exactly why this needs asserting:
+    // omitting it is legal, silent, and wrong.
+    expect(code).toMatch(/decideAndSyncIntent\([\s\S]*?\{ port, metafields \}\s*\)/);
+  });
+
+  it("uses the same production module as the scheduled publish path", () => {
+    const scheduled = readFileSync(
+      join(process.cwd(), "app", "routes", "internal.jobs.price-recalculation.tsx"),
+      "utf8"
+    );
+    const moduleSpecifier = "~/shopify/admin/productionPriceSyncPort.server";
+    expect(code).toContain(moduleSpecifier);
+    expect(scheduled).toContain(moduleSpecifier);
+    // Both factories the scheduled path uses are used here too.
+    for (const factory of [
+      "createProductionPriceSyncPort",
+      "createProductionMetafieldPublishDeps",
+    ]) {
+      expect(scheduled, `scheduled path no longer uses ${factory}`).toContain(factory);
+      expect(code, `manual approval is missing ${factory}`).toContain(factory);
+    }
+  });
+
+  it("builds no metafield publishing of its own", () => {
+    // The existing workflow handles it. A second implementation here is the
+    // thing that would drift from the scheduled path.
+    expect(code).not.toMatch(/metafieldsSet|setPriceMetafields|recomputeAndPublishAsLowAs/);
   });
 
   it("requires a reason before rejecting", () => {
