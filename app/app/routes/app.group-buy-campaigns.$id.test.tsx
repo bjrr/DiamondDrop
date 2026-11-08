@@ -811,7 +811,11 @@ describe("the campaign builder on a draft campaign", () => {
       generatedOptionsJson: '{\n  "schemaVersion": 1\n}',
     });
     expect(textOf(html)).toMatch(/Show generated configuration/);
-    expect(textOf(html)).toMatch(/Read-only: edit the sections above, and this follows/);
+    // Asserts the PROMISE (read-only, derived from the sections above),
+    // not the punctuation — the explanatory copy was expanded for owner
+    // readability and should be editable without breaking this.
+    expect(textOf(html)).toMatch(/Read-only/);
+    expect(textOf(html)).toMatch(/edit the sections above/);
     // The raw-JSON path survives as the advanced import, rather than being
     // replaced by the builder.
     expect(textOf(html)).toMatch(/Campaign-options upload \(advanced\)/);
@@ -1268,3 +1272,133 @@ function withClaims(): CampaignBuilderState {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// ADMIN EXPLANATORY TEXT
+//
+// The builder shipped without it, and the owner could not tell from the
+// screen what several fields did. That is a defect in the page, not something
+// a README fixes — so the explanations live in the UI, and these assert they
+// are there and say the things that actually matter.
+//
+// Asserted on MEANING, not on exact sentences: the copy should be editable
+// for clarity without breaking the suite. Each case picks the one fact a
+// merchant would be harmed by not knowing.
+// ---------------------------------------------------------------------------
+
+describe("every major admin section explains itself", () => {
+  // Each section only renders in the status where it is actionable, so the
+  // fixture has to match: Open appears on a draft, Close and Settlement on an
+  // open campaign, and the rest throughout.
+  it.each([
+    ["Tiers", "draft", /discount ladder/i],
+    ["Eligible variants", "draft", /Which of your products/i],
+    ["Open campaign", "draft", /one-way/i],
+    ["Close campaign", "open", /final tier/i],
+    ["Archive and deletion", "draft", /housekeeping only/i],
+    ["Settlement", "closed", /approve and process/i],
+  ])("%s (%s campaign) has explanatory text under the heading", (_section, status, pattern) => {
+    const campaign =
+      status === "draft" ? DRAFT_CAMPAIGN : status === "open" ? OPEN_CAMPAIGN : CLOSED_CAMPAIGN;
+    expect(textOf(renderPage(campaign, { builderState: configuredState() }))).toMatch(pattern);
+  });
+
+  it("explains the page order, so the owner knows where to start", () => {
+    const text = textOf(renderPage(DRAFT_CAMPAIGN, { builderState: configuredState() }));
+    expect(text).toMatch(/How this page is organised/i);
+    expect(text).toMatch(/Work down the page/i);
+  });
+
+  it("says plainly that nothing is customer-visible until the campaign opens", () => {
+    // The single most reassuring fact for someone configuring their first
+    // campaign, and the one that stops cautious half-configuration.
+    const text = textOf(renderPage(DRAFT_CAMPAIGN, { builderState: configuredState() }));
+    expect(text).toMatch(/Nothing is visible to customers until you open/i);
+  });
+});
+
+describe("the dangerous steps carry warnings", () => {
+  it("warns that opening freezes pricing AND publishes to Shopify", () => {
+    // Opening is the only step that writes to the Shopify catalogue. A
+    // merchant who does not know that cannot consent to it.
+    const text = textOf(renderPage(DRAFT_CAMPAIGN, { builderState: configuredState() }));
+    expect(text).toMatch(/freezes it permanently/i);
+    expect(text).toMatch(/publishes the current tier price to the matching Shopify product/i);
+    expect(text).toMatch(/cannot be undone|Nothing here can be undone/i);
+  });
+
+  it("warns that tiers freeze at open", () => {
+    expect(textOf(renderPage(DRAFT_CAMPAIGN, { builderState: configuredState() }))).toMatch(
+      /freeze permanently at open/i
+    );
+  });
+
+  it("says closing moves no money by itself", () => {
+    // The Close section renders on an OPEN campaign — that is when the
+    // button is available and the warning is needed.
+    expect(textOf(renderPage(OPEN_CAMPAIGN, { builderState: configuredState() }))).toMatch(
+      /does not move any money/i
+    );
+  });
+});
+
+describe("fields say whether the customer sees them, and whether they freeze", () => {
+  const text = () => textOf(renderPage(DRAFT_CAMPAIGN, { builderState: configuredState() }));
+
+  it("marks the internal-only fields as internal", () => {
+    // Title and Description are internal; a merchant writing customer copy
+    // into them would never see it on the storefront.
+    expect(text()).toMatch(/Internal only/i);
+  });
+
+  it("says where each image appears", () => {
+    expect(text()).toMatch(/Campaign card is the thumbnail/i);
+    expect(text()).toMatch(/Mobile hero replaces it on phones/i);
+  });
+
+  it("warns that highlights and display details freeze, unlike the headline", () => {
+    // This is the distinction the whole presentation/frozen split rests on,
+    // and the one most likely to surprise someone.
+    const t = text();
+    expect(t).toMatch(/FREEZE when the campaign opens/i);
+    expect(t).toMatch(/Correctable after the campaign opens/i);
+  });
+
+  it("explains what the Price setting on an option actually decides", () => {
+    expect(text()).toMatch(/whether this option affects which variant is sold/i);
+  });
+
+  it("explains that mapping is required before the campaign can open", () => {
+    expect(text()).toMatch(/cannot open until they all have one/i);
+  });
+
+  it("says the price preview is provisional and why", () => {
+    expect(text()).toMatch(/metal costs move/i);
+  });
+
+  it("marks the size band as internal, so nobody thinks customers see it", () => {
+    expect(text()).toMatch(/Internal only/i);
+    // And the customer-facing promise is still stated.
+    expect(text()).toMatch(/ring sizes inside one manufacturing band share a single variant/i);
+  });
+});
+
+describe("the explanations use business language, not developer terms", () => {
+  it("avoids internal vocabulary in the visible copy", () => {
+    const text = textOf(renderPage(DRAFT_CAMPAIGN, { builderState: configuredState() }));
+    for (const jargon of [
+      "MasterVariant",
+      "masterVariantId",
+      "snapshot",
+      "schemaVersion",
+      "signature",
+      "Prisma",
+      "endpoint",
+      "payload",
+      "boolean",
+      "null",
+    ]) {
+      expect(text, jargon).not.toContain(jargon);
+    }
+  });
+});

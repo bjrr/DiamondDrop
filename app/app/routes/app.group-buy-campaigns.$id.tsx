@@ -1645,6 +1645,23 @@ const sectionStyle: CSSProperties = { marginBottom: "1.5rem", border: "1px solid
 const labelStyle: CSSProperties = { display: "block", fontWeight: 600, fontSize: "0.875rem", marginBottom: "0.25rem" };
 const inputStyle: CSSProperties = { display: "block", padding: "0.4rem 0.6rem", width: "100%", maxWidth: "24rem", marginBottom: "0.6rem" };
 const historyCellStyle: CSSProperties = { border: "1px solid #ddd", padding: "0.35rem 0.5rem", textAlign: "left", verticalAlign: "top" };
+const helpStyle: CSSProperties = { margin: "0 0 0.9rem", fontSize: "0.8rem", color: "#555", lineHeight: 1.5, maxWidth: "46rem" };
+const warnStyle: CSSProperties = { ...helpStyle, color: "#8a5300" };
+
+/**
+ * Explanatory text under a section heading or a field.
+ *
+ * WRITTEN FOR THE OWNER, NOT FOR AN ENGINEER. Every one of these answers the
+ * questions a business owner actually has — what is this for, does the
+ * customer see it, does it affect price, what happens if I leave it blank —
+ * in the application's own vocabulary rather than the code's. The campaign
+ * builder was shipped without them and the owner could not tell from the
+ * screen what several fields did, which is a defect in the page rather than
+ * something a README should paper over.
+ */
+function Help({ children, warning = false }: { children: ReactNode; warning?: boolean }) {
+  return <p style={warning ? warnStyle : helpStyle}>{children}</p>;
+}
 
 /**
  * Per-refund controls, gated on `status`/`approvedAt` so the page never
@@ -1910,6 +1927,16 @@ export default function GroupBuyCampaignDetailPage() {
 
             <section style={sectionStyle}>
               <h2 style={{ fontSize: "1rem", margin: "0 0 0.5rem" }}>Tiers</h2>
+              <Help>
+                The discount ladder. Each tier says how many units the whole campaign must sell before everyone in
+                it moves to that tier&rsquo;s price &mdash; buyers who joined earlier included. Percent off applies
+                to each variant&rsquo;s own price, so a 10% tier takes 10% off the $2,000 ring and 10% off the $4,000
+                one. Customers see the resulting prices, never the percentages themselves.
+              </Help>
+              <Help warning>
+                Tiers are required before a campaign can open, and they freeze permanently at open. Set them before
+                you open, not after.
+              </Help>
               {campaign.tiers.length === 0 ? (
                 <p style={{ margin: "0 0 0.75rem", fontSize: "0.875rem", color: "#555" }}>No tiers configured yet.</p>
               ) : (
@@ -1987,6 +2014,15 @@ export default function GroupBuyCampaignDetailPage() {
 
             <section style={sectionStyle}>
               <h2 style={{ fontSize: "1rem", margin: "0 0 0.5rem" }}>Eligible variants</h2>
+              <Help>
+                Which of your products this campaign may sell. Add every variant a customer could end up buying &mdash;
+                each metal, each size band, each stone weight. These are what the configuration further down maps
+                onto, so the list has to be complete before mapping will work.
+              </Help>
+              <Help>
+                Adding a variant here does not set its price. Each one keeps a placeholder until the campaign opens,
+                at which point its real price is calculated and frozen.
+              </Help>
               {campaign.variants.length === 0 ? (
                 <p style={{ margin: "0 0 0.75rem", fontSize: "0.875rem", color: "#555" }}>No eligible variants yet.</p>
               ) : (
@@ -2206,6 +2242,11 @@ export default function GroupBuyCampaignDetailPage() {
                 {presentationVersions.length > 0 ? (
                   <section style={sectionStyle}>
                     <h2 style={{ fontSize: "1rem", margin: "0 0 0.5rem" }}>Presentation change history</h2>
+              <Help>
+                Every correction made to this campaign&rsquo;s images, headline or short description after it opened,
+                with who made it and why. Internal only &mdash; customers never see this list. Nothing is ever
+                removed from it.
+              </Help>
                     <p style={{ margin: "0 0 0.75rem", fontSize: "0.8rem", color: "#555" }}>
                       Every version is kept. Nothing here is ever removed.
                     </p>
@@ -2294,6 +2335,12 @@ export default function GroupBuyCampaignDetailPage() {
             {canOpen(campaign.status) ? (
               <section style={{ ...sectionStyle, border: "2px solid #b00" }}>
                 <h2 style={{ fontSize: "1rem", margin: "0 0 0.25rem", color: "#b00" }}>Open campaign — freezes pricing</h2>
+                <Help warning>
+                  This is the one-way step. Opening calculates each eligible variant&rsquo;s price from today&rsquo;s
+                  costs, freezes it permanently, publishes the current tier price to the matching Shopify product
+                  variants, and makes the campaign visible to customers. Nothing here can be undone, and later cost
+                  changes will not move the frozen prices. Finish configuring and check the price preview first.
+                </Help>
                 <p style={{ margin: "0 0 0.75rem", fontSize: "0.85rem" }}>
                   Opening freezes this campaign&rsquo;s cost inputs, tier prices, and every eligible variant&rsquo;s
                   Bank Payment base price PERMANENTLY. This cannot be undone and market changes afterward cannot
@@ -2383,6 +2430,11 @@ export default function GroupBuyCampaignDetailPage() {
             {canClose(campaign.status) ? (
               <section style={{ ...sectionStyle, border: "2px solid #b00" }}>
                 <h2 style={{ fontSize: "1rem", margin: "0 0 0.25rem", color: "#b00" }}>Close campaign — locks the final tier</h2>
+                <Help warning>
+                  Ends the campaign and fixes the final tier everyone settles at. Closing works out what each buyer
+                  is owed back if the group unlocked a lower price than they paid, but it does not move any money:
+                  refunds are listed below for you to approve one at a time. Also one-way.
+                </Help>
                 <p style={{ margin: "0 0 0.75rem", fontSize: "0.85rem" }}>
                   Closing locks the final qualifying-unit count and tier PERMANENTLY and computes the tier-adjustment
                   refund owed on every resolvable line. This never changes the public count or unlocked tier — it only
@@ -2418,6 +2470,11 @@ export default function GroupBuyCampaignDetailPage() {
             {canSettle(campaign.status) ? (
               <section style={sectionStyle}>
                 <h2 style={{ fontSize: "1rem", margin: "0 0 0.5rem" }}>Settlement — tier-adjustment refunds</h2>
+                <Help>
+                  What each buyer is owed because the group finished at a lower tier than they paid at. The system
+                  calculates the amounts; you approve and process them one at a time. Nothing is refunded
+                  automatically, and each refund follows the payment method the customer originally used.
+                </Help>
                 <p style={{ margin: "0 0 0.75rem", fontSize: "0.8rem", color: "#555" }}>
                   Computed automatically at close against the locked final tier. Held through production/QC; issuing
                   money always requires an explicit approval, recorded with a reviewer identity and timestamp, before
@@ -2588,6 +2645,11 @@ function ArchivePanel({ campaign, busy }: { campaign: CampaignView; busy: boolea
   return (
     <section style={sectionStyle}>
       <h2 style={{ fontSize: "1rem", margin: "0 0 0.5rem" }}>Archive and deletion</h2>
+      <Help>
+        Archiving is housekeeping only. It hides the campaign from your default staff list; it does not change its
+        status, does not hide a closed campaign from the customer-facing Past Group Buys page, and deletes nothing.
+        Deletion is offered only while a campaign has no history worth keeping.
+      </Help>
 
       {archived ? (
         <>

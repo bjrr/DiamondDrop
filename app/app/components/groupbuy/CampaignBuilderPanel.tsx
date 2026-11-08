@@ -369,15 +369,34 @@ export default function CampaignBuilderPanel({
       {/* The whole state travels as one field. See this file's header. */}
       <input type="hidden" name="builderState" value={JSON.stringify(state)} form="campaign-builder-form" />
 
+      {editable ? (
+        <div style={{ ...section, background: "var(--carat-stone, #f2eee7)" }}>
+          <h2 style={{ fontSize: "1rem", margin: "0 0 0.35rem" }}>How this page is organised</h2>
+          <p style={{ ...hint, marginBottom: 0 }}>
+            Work down the page. <strong>Tiers</strong> and <strong>Eligible variants</strong> come first because
+            everything below uses them &mdash; the variant list fills the mapping dropdowns, and the tiers are what
+            the price preview prices against. Then describe the campaign, choose its images, define what the
+            customer picks, map each configuration to a variant, and check the preview.{" "}
+            <strong>Review</strong> below lists anything still missing. Nothing is visible to customers until you
+            open the campaign, and saving as often as you like is safe.
+          </p>
+        </div>
+      ) : null}
+
       <ReviewSummary problems={problems} ready={ready} editable={editable} />
 
       <Section
         title="Campaign basics"
-        description="What this campaign sells, in the merchant's own words. The product type is the only required field."
+        description="How this campaign is identified. Product type is the only required field here."
       >
         <label style={label} htmlFor="builder-product-type">
           Product type
         </label>
+        <p style={hint}>
+          Required. What kind of piece this campaign sells, in your own words &mdash; &ldquo;Engagement ring&rdquo;,
+          &ldquo;Tennis bracelet&rdquo;. Customers see it as a small category label beside the GROUP BUY badge on
+          the hub card and the campaign page. It does not affect price or which variants are sold.
+        </p>
         <input
           id="builder-product-type"
           style={input}
@@ -389,6 +408,10 @@ export default function CampaignBuilderPanel({
         <label style={label} htmlFor="builder-title">
           Title (optional)
         </label>
+        <p style={hint}>
+          Internal only. A name for this configuration in your own records. Customers never see it &mdash; the
+          headline under Content and images is what they read. Safe to leave blank.
+        </p>
         <input
           id="builder-title"
           style={input}
@@ -400,6 +423,10 @@ export default function CampaignBuilderPanel({
         <label style={label} htmlFor="builder-description">
           Description (optional)
         </label>
+        <p style={hint}>
+          Internal only, like the title. For customer-facing copy use the short description under Content and
+          images. Safe to leave blank.
+        </p>
         <textarea
           id="builder-description"
           style={{ ...input, maxWidth: "34rem", minHeight: "4rem" }}
@@ -426,8 +453,11 @@ export default function CampaignBuilderPanel({
         title="Customer options"
         description={
           <>
-            What a customer chooses, and whether each choice changes the price. Mark an option{" "}
-            <strong>{OPTION_ROLE_LABELS.variant_defining}</strong> when each choice is a different product variant.
+            What a customer picks on the product page &mdash; shape, metal, size. Each option needs a label, a
+            list of choices, and a <strong>Price</strong> setting that says whether choosing differently means a
+            different product variant. Mark an option{" "}
+            <strong>{OPTION_ROLE_LABELS.variant_defining}</strong> when each choice is a different variant with its
+            own price. These freeze permanently when the campaign opens.
           </>
         }
       >
@@ -465,7 +495,7 @@ export default function CampaignBuilderPanel({
         description={
           derived.tooLarge
             ? "The options currently produce too many configurations to list."
-            : `These ${derived.count} combinations are what a customer can choose from. Switch off anything you cannot supply.`
+            : `Every combination your options produce — ${derived.count} of them. These are exactly what a customer can buy, so switch off anything you cannot supply and it becomes unselectable on the storefront. They are grouped by the variant each one is priced from.`
         }
       >
         {derived.tooLarge ? (
@@ -485,7 +515,7 @@ export default function CampaignBuilderPanel({
 
       <Section
         title="Mapped product variants"
-        description="Each priced combination needs the product variant it sells. Choices that only affect price are grouped together, so a ring's sizes within one band share a single variant."
+        description="Connects each priced configuration to the product variant a customer actually buys. Every row needs one, and the campaign cannot open until they all have one — an unmapped configuration has no price and nothing to ship. Choices that do not affect price are not listed separately, and ring sizes inside one manufacturing band share a single variant, which is why there are fewer rows here than combinations above."
       >
         <VariantMappingTable
           state={state}
@@ -498,7 +528,7 @@ export default function CampaignBuilderPanel({
 
       <Section
         title="Price preview"
-        description="What each combination would cost at each tier if the campaign opened now. Provisional: the campaign's real prices are fixed when it opens."
+        description="What each configuration would cost at each tier if you opened the campaign right now, calculated by the real pricing system rather than estimated here. Provisional: metal costs move, so the figures that actually freeze are the ones calculated at the moment you open. Check this before opening — it is the last point at which prices can still change."
       >
         {/*
           THE PREVIEW IS CALCULATED SERVER-SIDE FROM THE SAVED CONFIGURATION,
@@ -519,7 +549,7 @@ export default function CampaignBuilderPanel({
 
       <Section
         title="Advanced configuration"
-        description="The campaign-options file this builder generates. Read-only: edit the sections above, and this follows."
+        description="The machine-readable file this builder produces, describing what may be sold. Read-only — edit the sections above and this follows. You only need it to copy a configuration between campaigns or to hand one to support. It deliberately contains no prices."
       >
         {generatedJson === null ? (
           <p style={hint}>
@@ -814,7 +844,7 @@ function ContentSection({
   return (
     <Section
       title="Content and images"
-      description="How the campaign presents itself. Images are chosen from your Shopify Files library."
+      description="Everything the customer reads and looks at. Images come from your Shopify Files library. While the campaign is a draft you can change all of it freely; once it is open, only the images, headline and short description can still be corrected, and each correction is recorded with a reason."
     >
       {pickError ? (
         <p role="alert" style={{ ...hint, ...danger }}>
@@ -824,6 +854,11 @@ function ContentSection({
       <label style={label} htmlFor="content-headline">
         Headline
       </label>
+      <p style={hint}>
+        Customer-facing. The campaign&rsquo;s name on the hub card and the main heading on its page &mdash;
+        &ldquo;The Signature Solitaire&rdquo;. Left blank, the campaign falls back to its internal campaign name,
+        which usually reads badly to a shopper. Correctable after the campaign opens.
+      </p>
       <input
         id="content-headline"
         style={{ ...input, maxWidth: "34rem" }}
@@ -835,6 +870,10 @@ function ContentSection({
       <label style={label} htmlFor="content-short-description">
         Short description
       </label>
+      <p style={hint}>
+        Customer-facing. One or two lines under the headline, and on the hub card where it is trimmed to two
+        lines. Keep it short. Correctable after the campaign opens.
+      </p>
       <textarea
         id="content-short-description"
         style={{ ...input, maxWidth: "34rem", minHeight: "3.5rem" }}
@@ -843,6 +882,13 @@ function ContentSection({
         onChange={(event) => patchContent({ shortDescription: event.target.value })}
       />
 
+      <p style={hint}>
+        <strong>Where each image appears.</strong> Hero is the first large picture on the campaign page. Mobile
+        hero replaces it on phones if you set one, which is worth doing when the hero is a wide crop. Campaign
+        card is the thumbnail in the Group Buys list &mdash; often the only image a shopper sees before deciding
+        to tap. Gallery images follow the hero on the page. Alt text comes from the file in Shopify Files, so edit
+        it there.
+      </p>
       <ImageField
         title="Hero image"
         buttonLabel="Choose Hero Image"
@@ -929,6 +975,11 @@ function ContentSection({
         <legend style={{ fontWeight: 600, fontSize: "0.875rem" }}>
           Highlights ({content.highlights.length} of {MAX_HIGHLIGHTS})
         </legend>
+        <p style={hint}>
+          Short customer-facing selling points, shown as a list on the campaign page. Optional. These count as
+          claims about the goods, so they FREEZE when the campaign opens and cannot be corrected afterwards &mdash;
+          unlike the headline and short description. Write them as though they will be read back to you later.
+        </p>
         {content.highlights.map((highlight, index) => (
           <div key={index} style={{ display: "flex", gap: "0.5rem", marginBottom: "0.4rem" }}>
             <input
@@ -975,8 +1026,10 @@ function ContentSection({
           Display details ({content.displayDetails.length} of {MAX_DISPLAY_DETAILS})
         </legend>
         <p style={hint}>
-          Facts shown with the campaign, like “Production time: 4 to 6 weeks”. Customers read these; they do not
-          choose them. Anything a customer picks belongs under Customer options.
+          Facts shown with the campaign, like “Production time: 4 to 6 weeks” or “Certification: GIA”. Customers
+          read these; they do not choose them — anything a customer picks belongs under Customer options instead.
+          This is where lead time, certification, metal and stone quality go. They are claims about the goods, so
+          like highlights they FREEZE when the campaign opens and cannot be corrected afterwards.
         </p>
         {content.displayDetails.map((detail, index) => (
           <div key={index} style={{ display: "flex", gap: "0.5rem", marginBottom: "0.4rem", flexWrap: "wrap" }}>
@@ -1139,6 +1192,12 @@ function OptionEditor({
       </div>
 
       <p style={hint}>{OPTION_ROLE_HELP[option.role]}</p>
+      <p style={hint}>
+        <strong>Label</strong> is what the customer reads. <strong>Internal key</strong> is the name this option is
+        stored under &mdash; it is filled in from the label and customers never see it; change it only if you have
+        a reason. <strong>Price</strong> decides whether this option affects which variant is sold, and therefore
+        the price. Use the arrows to set the order customers see.
+      </p>
 
       <label style={{ display: "block", fontSize: "0.875rem", marginBottom: "0.5rem" }}>
         <input
@@ -1158,7 +1217,14 @@ function OptionEditor({
           <tr>
             <th style={cell}>Label customers see</th>
             <th style={cell}>Stored value</th>
-            {isBand ? <th style={cell}>Prices from size band</th> : null}
+            {isBand ? (
+            <th style={cell}>
+              Prices from size band
+              <span style={{ display: "block", fontWeight: 400, color: "rgba(var(--color-foreground), 0.7)" }}>
+                Internal only
+              </span>
+            </th>
+          ) : null}
             {editable ? (
               <th style={cell}>
                 <span style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>
@@ -1205,6 +1271,7 @@ function OptionEditor({
                     disabled={disabled}
                     list={`bands-${index}`}
                     aria-label={`Choice ${valueIndex + 1} size band`}
+                    title="The manufacturing band this size is priced from. Sizes sharing a band share one variant and one price. Internal only — customers see the exact size."
                     placeholder="band_6_5_8"
                     onChange={(event) => onValueChange(valueIndex, { bandValue: event.target.value })}
                   />
