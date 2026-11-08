@@ -17,7 +17,7 @@
           "settings": {
             "title": "Group Buy",
             "text": "More buyers. Better pricing.",
-            "link": "/pages/group-buy",
+            "link": "/pages/group-buys",
             "image": "shopify://shop_images/carat-c-groupbuy.png"
           }
         },

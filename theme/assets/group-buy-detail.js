@@ -71,6 +71,29 @@
     return format.replace(/\{\{\s*amount\s*\}\}/g, grouped + "." + cents);
   }
 
+  /**
+   * THE ONE ACTIVE PRICE, for the payment method the customer has chosen.
+   *
+   * ONE FIGURE, BY CONSTRUCTION. This returns a single minor-units string,
+   * so "show both prices" is not something a caller can express. That is the
+   * point: the Group Buy rule is one active price at a time, and a rule
+   * enforced by the shape of the function cannot be forgotten by the next
+   * person editing the renderer.
+   *
+   * Before a payment method is chosen, the Regular/Card price stands in —
+   * it is the publicly advertised Group Buy figure (CLAUDE.md rule 13). The
+   * Bank Payment price appears only once Bank is the selected method.
+   *
+   * Both the main price block and the sticky bar call this, which is also
+   * why the two can never disagree.
+   */
+  function activePriceMinorUnits(price, paymentType) {
+    if (!price) return null;
+    return paymentType === "bank"
+      ? price.groupBuyBankPaymentPriceMinorUnits
+      : price.groupBuyRegularCardPriceMinorUnits;
+  }
+
   /** Calm, coarse remaining time. No ticking seconds, no manufactured urgency. */
   function formatRemaining(totalSeconds) {
     if (totalSeconds == null) return "";
@@ -617,33 +640,30 @@
         el("p", "gb-price__label", complete && state.resolved ? "Your Group Buy Price" : "From")
       );
 
-      var amountText = "";
-      if (state.resolved) {
-        amountText =
-          state.paymentType === "bank"
-            ? formatMoney(state.resolved.price.groupBuyBankPaymentPriceMinorUnits, cfg.moneyFormat)
-            : formatMoney(state.resolved.price.groupBuyRegularCardPriceMinorUnits, cfg.moneyFormat);
-      } else if (state.campaign.progress) {
-        amountText = formatMoney(
-          state.campaign.progress.groupBuyRegularCardPriceMinorUnits,
-          cfg.moneyFormat
-        );
-      }
-      block.appendChild(el("p", "gb-price__amount", amountText));
-
-      if (state.resolved) {
-        block.appendChild(
-          el(
-            "p",
-            "gb-price__alt",
-            state.paymentType === "bank"
-              ? "Regular/Card Price " +
-                  formatMoney(state.resolved.price.groupBuyRegularCardPriceMinorUnits, cfg.moneyFormat)
-              : "Bank Payment Price " +
-                  formatMoney(state.resolved.price.groupBuyBankPaymentPriceMinorUnits, cfg.moneyFormat)
-          )
-        );
-      }
+      // ONE ACTIVE PRICE. NEVER TWO.
+      //
+      // The price area shows the figure for the payment method the customer
+      // has chosen, and nothing else. There is deliberately no companion line
+      // quoting the other method.
+      //
+      // This block previously rendered the alternate price underneath —
+      // "Bank Payment Price $x" while Card was active, and the reverse. That
+      // reads as a helpful comparison and is in fact the thing the Group Buy
+      // rule forbids: two prices for the same ring competing for the
+      // shopper's attention, with no single figure they can point at and say
+      // "that is what I pay". The payment selector directly above is what
+      // explains why the number changes; a footnote repeating the other
+      // number undoes that explanation.
+      //
+      // Before any payment method is chosen the Regular/Card price stands in,
+      // because it is the publicly advertised Group Buy figure (CLAUDE.md
+      // rule 13). The Bank Payment price is never shown until Bank is the
+      // selected method.
+      var active = activePriceMinorUnits(
+        state.resolved ? state.resolved.price : state.campaign.progress,
+        state.resolved ? state.paymentType : null
+      );
+      block.appendChild(el("p", "gb-price__amount", active ? formatMoney(active, cfg.moneyFormat) : ""));
 
       if (state.unavailable) {
         block.appendChild(
@@ -1015,22 +1035,12 @@
 
       // THE SAME STATE as the main controls — same price, same predicate,
       // same label. The bar is a second rendering, not a second machine.
-      if (state.resolved) {
-        amount.textContent =
-          state.paymentType === "bank"
-            ? formatMoney(state.resolved.price.groupBuyBankPaymentPriceMinorUnits, cfg.moneyFormat)
-            : formatMoney(state.resolved.price.groupBuyRegularCardPriceMinorUnits, cfg.moneyFormat);
-        label.textContent = "Your Group Buy Price";
-      } else if (state.campaign.progress) {
-        amount.textContent = formatMoney(
-          state.campaign.progress.groupBuyRegularCardPriceMinorUnits,
-          cfg.moneyFormat
-        );
-        label.textContent = "From";
-      } else {
-        amount.textContent = "";
-        label.textContent = "";
-      }
+      var stickyActive = activePriceMinorUnits(
+        state.resolved ? state.resolved.price : state.campaign.progress,
+        state.resolved ? state.paymentType : null
+      );
+      amount.textContent = stickyActive ? formatMoney(stickyActive, cfg.moneyFormat) : "";
+      label.textContent = stickyActive ? (state.resolved ? "Your Group Buy Price" : "From") : "";
 
       var cta = ctaState();
       button.textContent = cta.label;

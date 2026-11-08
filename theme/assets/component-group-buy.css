@@ -344,12 +344,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.gb-price__alt {
-  margin: 0.5rem 0 0;
-  font-size: 1.35rem;
-  color: rgba(var(--color-foreground), 0.85);
-}
-
 .gb-price[data-loading="true"] .gb-price__amount {
   /* A quiet pulse while the server prices the new configuration. The figure
      is never blanked: a shopper watching the number vanish assumes a bug. */

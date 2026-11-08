@@ -95,6 +95,21 @@
             {{- 'templates.group_buy_campaign.cancellation_affirm_label' | t -}}
           </span>
         </label>
+        {% comment %}
+          The acknowledgment copy above is owner-approved and pinned by tests,
+          and carries no link of its own. This is a SEPARATE, plainly
+          labelled route to the policy, so a shopper can read the full terms
+          without the pinned string being edited.
+
+          It points at /pages/group-buy, the POLICY page — deliberately not
+          /pages/group-buys, which is where you browse campaigns. The two
+          are different concepts and the label says which this is.
+        {% endcomment %}
+        <p class="gb-share__note">
+          <a href="{{ routes.root_url }}pages/group-buy">
+            {{ 'templates.group_buy_detail.policy_link' | t }}
+          </a>
+        </p>
       </div>
     </template>
 
