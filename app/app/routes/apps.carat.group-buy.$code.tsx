@@ -1,9 +1,6 @@
 import type { LoaderFunctionArgs } from "react-router";
 
 import { prisma } from "~/db/client.server";
-import { getFrozenGroupBuyCampaignOptions } from "~/db/repositories/groupBuyRepository.server";
-import { resolveSelection } from "~/domain/groupbuy/storefrontSelection";
-import { getCampaignBuilderStateForResolution } from "~/jobs/groupbuy/publicCampaignFeed.server";
 import { buildCampaignProgress, type DualPrice } from "~/domain/groupbuy/campaignProgress";
 import {
   campaignTierDualPrices,
@@ -122,59 +119,6 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     ? campaign.variants.find((v) => v.masterVariantId === requested)
     : undefined;
 
-  // A CUSTOMER'S SELECTION, resolved here rather than in the browser.
-  //
-  // The redesigned storefront does not know variant ids and must not: which
-  // `MasterVariant` a configuration sells, and which size band an exact ring
-  // size prices from, are both internal. So the page sends what the shopper
-  // actually chose — `selection={"shape":"oval","ring_size":"7.5",...}` — and
-  // this resolves it through the frozen contract and the merchant's own
-  // mapping, using the same projection the Admin Builder used to create that
-  // mapping.
-  //
-  // REFUSED, NEVER APPROXIMATED. A selection that is not a declared
-  // combination, or that the merchant never mapped, returns 404 rather than
-  // falling through to the first eligible variant — which would quote one
-  // ring's price for another.
-  //
-  // Takes precedence over the legacy `variant` parameter when both are
-  // present: the selection is what the shopper is looking at.
-  const rawSelection = url.searchParams.get("selection");
-  if (rawSelection) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(rawSelection);
-    } catch {
-      return notFound();
-    }
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return notFound();
-
-    const selection: Record<string, string> = {};
-    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof value !== "string") return notFound();
-      selection[key] = value;
-    }
-
-    const [optionsUpload, builderState] = await Promise.all([
-      getFrozenGroupBuyCampaignOptions(campaign.snapshotId),
-      getCampaignBuilderStateForResolution(campaign.id),
-    ]);
-    if (!optionsUpload || !builderState) return notFound();
-
-    const resolution = resolveSelection(optionsUpload.options, builderState, selection);
-    if (!resolution.ok) {
-      logger.info("groupbuy.selection_unresolved", {
-        campaignCode: campaign.code,
-        reason: resolution.reason,
-      });
-      return Response.json({ error: "unavailable_configuration" }, { status: 404 });
-    }
-
-    selected = campaign.variants.find((v) => v.masterVariantId === resolution.masterVariantId);
-    // Mapped by the merchant but not an eligible campaign variant: refuse
-    // rather than fall back, for the same reason as above.
-    if (!selected) return Response.json({ error: "unavailable_configuration" }, { status: 404 });
-  }
 
   if (!selected && shopifyVariant) {
     const gid = shopifyVariant.startsWith("gid://")

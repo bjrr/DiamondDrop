@@ -1,5 +1,13 @@
 {
   "sections": {
+    "detail": {
+      "type": "group-buy-detail",
+      "settings": {
+        "color_scheme": "scheme-1",
+        "padding_top": 16,
+        "padding_bottom": 32
+      }
+    },
     "hub": {
       "type": "group-buy-hub",
       "settings": {
@@ -22,5 +30,9 @@
       }
     }
   },
-  "order": ["hub", "request"]
+  "order": [
+    "detail",
+    "hub",
+    "request"
+  ]
 }

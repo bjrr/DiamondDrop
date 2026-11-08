@@ -1,0 +1,181 @@
+{% comment %}
+  GROUP BUY — CAMPAIGN DETAIL.
+
+  ============================================================================
+  NO CAMPAIGN IN THEME EDITOR
+  ============================================================================
+  There is no campaign code, no product picker, no headline, no subheading
+  and no options JSON here. Which campaign this renders comes from the URL
+  (?campaign=<code>), and everything about it comes from the Admin Campaign
+  Builder by way of /apps/carat/group-buy-campaign/:code.
+
+  That is the whole point of this rewrite: a merchant configures a campaign
+  once, in the app, and it is immediately shareable and buyable without
+  anybody pasting a code into a theme setting or creating a Page per
+  campaign.
+
+  The settings below are presentation only — colour scheme and spacing.
+
+  ============================================================================
+  WHY THE BODY IS NOT SERVER-RENDERED
+  ============================================================================
+  Shopify caches section output, and this page shows live tier progress and
+  a price that depends on what the shopper has configured. Rendering a price
+  into cached HTML would serve the next shopper a stale one. So Liquid
+  renders the shell, the templates and an honest loading state; the data
+  arrives at runtime.
+
+  NO PRICE ARITHMETIC IN LIQUID. Nothing here computes, formats or rounds
+  money. Every figure is derived by the server's own Group Buy pricing path.
+
+  ============================================================================
+  THE PURCHASE MECHANISMS ARE UNCHANGED
+  ============================================================================
+  Card goes to Shopify's native /cart/add with the campaign's existing
+  acknowledgment line property. Bank goes to the dedicated Group Buy bank
+  checkout endpoint. This section restyles and re-datasources the page around
+  them; it does not replace either, and the acknowledgment copy below is the
+  owner-approved string the tests pin.
+{% endcomment %}
+
+{{ 'component-group-buy.css' | asset_url | stylesheet_tag }}
+<script src="{{ 'group-buy-detail.js' | asset_url }}" defer="defer"></script>
+
+<div
+  class="color-{{ section.settings.color_scheme }} gradient"
+  style="padding-top: {{ section.settings.padding_top }}px; padding-bottom: {{ section.settings.padding_bottom }}px;"
+>
+  <div
+    class="gb gb-detail"
+    data-carat-gb-detail
+    data-bootstrap-base="{{ routes.root_url | append: 'apps/carat/group-buy-campaign' | replace: '//apps', '/apps' }}"
+    data-resolve-base="{{ routes.root_url | append: 'apps/carat/group-buy-resolve' | replace: '//apps', '/apps' }}"
+    data-hub-endpoint="{{ routes.root_url | append: 'apps/carat/group-buy-campaigns' | replace: '//apps', '/apps' }}"
+    data-ack-endpoint="{{ routes.root_url | append: 'apps/carat/group-buy-cancellation-acknowledgment' | replace: '//apps', '/apps' }}"
+    data-bank-endpoint="{{ routes.root_url | append: 'apps/carat/group-buy-bank-checkout' | replace: '//apps', '/apps' }}"
+    data-hub-url="{{ routes.root_url | append: 'pages/group-buys' | replace: '//pages', '/pages' }}"
+    data-cart-add-url="{{ routes.cart_add_url }}"
+    data-cart-url="{{ routes.cart_url }}"
+    data-login-url="{{ routes.account_login_url }}"
+    data-money-format="{{ shop.money_format | escape }}"
+    data-signed-in="{% if customer %}true{% else %}false{% endif %}"
+  >
+    <p>
+      <a class="gb__back" data-carat-gb-back href="{{ routes.root_url }}pages/group-buys">
+        ‹ {{ 'templates.group_buy_detail.all_group_buys' | t }}
+      </a>
+    </p>
+
+    <div class="gb-state" data-carat-gb-state role="status">
+      {{ 'templates.group_buy_detail.loading' | t }}
+    </div>
+
+    <div data-carat-gb-body hidden></div>
+
+    {% comment %}
+      The acknowledgment copy is owner-approved and pinned by tests. It is
+      rendered here, in Liquid, from the SAME locale key the previous section
+      used — not retyped into JavaScript, which is how pinned copy drifts.
+    {% endcomment %}
+    <template data-carat-gb-ack-template>
+      <div>
+        <p class="gb-ack__text" id="CaratGbCancelDisclosure">
+          {{- 'templates.group_buy_campaign.cancellation_disclosure' | t -}}
+        </p>
+        <label class="gb-ack">
+          <input
+            class="gb-ack__box"
+            type="checkbox"
+            data-carat-gb-ack
+            aria-describedby="CaratGbCancelDisclosure"
+            required
+          >
+          <span class="gb-ack__text">
+            <span class="gb__sr">{{ 'templates.group_buy_campaign.cancellation_checkbox_label' | t }}: </span>
+            {{- 'templates.group_buy_campaign.cancellation_affirm_label' | t -}}
+          </span>
+        </label>
+      </div>
+    </template>
+
+    <template data-carat-gb-how-template>
+      <section class="gb-section">
+        <h2 class="gb-section__title">{{ 'templates.group_buy_detail.how_title' | t }}</h2>
+        <ol class="gb-how">
+          <li class="gb-how__step">
+            <h3 class="gb-how__name">{{ 'templates.group_buy_detail.how_1_name' | t }}</h3>
+            <p class="gb-how__text">{{ 'templates.group_buy_detail.how_1_text' | t }}</p>
+          </li>
+          <li class="gb-how__step">
+            <h3 class="gb-how__name">{{ 'templates.group_buy_detail.how_2_name' | t }}</h3>
+            <p class="gb-how__text">{{ 'templates.group_buy_detail.how_2_text' | t }}</p>
+          </li>
+          <li class="gb-how__step">
+            <h3 class="gb-how__name">{{ 'templates.group_buy_detail.how_3_name' | t }}</h3>
+            <p class="gb-how__text">{{ 'templates.group_buy_detail.how_3_text' | t }}</p>
+          </li>
+        </ol>
+      </section>
+    </template>
+
+    <div class="gb-sheet" data-carat-gb-sheet hidden>
+      <button class="gb-sheet__scrim" type="button" data-carat-gb-sheet-scrim aria-label="{{ 'templates.group_buy_detail.sheet_close' | t }}"></button>
+      <div class="gb-sheet__panel" role="dialog" aria-modal="true" aria-labelledby="gb-sheet-title">
+        <div class="gb-sheet__head">
+          <h2 class="gb-sheet__title" id="gb-sheet-title" data-carat-gb-sheet-title></h2>
+          <button class="gb-sheet__close" type="button" data-carat-gb-sheet-close aria-label="{{ 'templates.group_buy_detail.sheet_close' | t }}">&times;</button>
+        </div>
+        <div data-carat-gb-sheet-body></div>
+      </div>
+    </div>
+
+    <div class="gb-sticky" data-carat-gb-sticky data-visible="false" hidden>
+      <span class="gb-sticky__price">
+        <span class="gb-sticky__amount" data-carat-gb-sticky-amount></span>
+        <span class="gb-sticky__label" data-carat-gb-sticky-label></span>
+      </span>
+      <button class="button gb-sticky__cta" type="button" data-carat-gb-sticky-cta></button>
+    </div>
+  </div>
+</div>
+
+{% schema %}
+{
+  "name": "Group Buy detail",
+  "tag": "section",
+  "class": "section",
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "The campaign shown is taken from the page URL and configured entirely in the Group Buy app. There is no campaign code, product, headline or options JSON to enter here."
+    },
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "Color scheme",
+      "default": "scheme-1"
+    },
+    {
+      "type": "range",
+      "id": "padding_top",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "Top padding",
+      "default": 16
+    },
+    {
+      "type": "range",
+      "id": "padding_bottom",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "Bottom padding",
+      "default": 32
+    }
+  ],
+  "presets": [{ "name": "Group Buy detail" }]
+}
+{% endschema %}

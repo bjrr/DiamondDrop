@@ -129,6 +129,10 @@ describe("the countdown", () => {
 
 describe("the deep link", () => {
   it("needs no Shopify Page per campaign", () => {
+    // /pages/group-buy was NOT available: that handle belongs to the Group
+    // Buy POLICY page on the live store, found during the draft-theme
+    // preview. The hub lives at the plural handle instead.
+    expect(GROUP_BUY_HUB_PATH).toBe("/pages/group-buys");
     expect(campaignDetailUrl("signature-solitaire")).toBe(
       `${GROUP_BUY_HUB_PATH}?campaign=signature-solitaire`
     );

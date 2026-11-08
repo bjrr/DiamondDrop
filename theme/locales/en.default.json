@@ -761,6 +761,18 @@
       "empty_past": "Past Group Buys",
       "empty_shop": "Shop all jewelry",
       "empty_custom": "Custom Jewelry"
+    },
+    "group_buy_detail": {
+      "all_group_buys": "All Group Buys",
+      "loading": "Loading this Group Buy…",
+      "sheet_close": "Close",
+      "how_title": "How a Group Buy works",
+      "how_1_name": "Choose yours",
+      "how_1_text": "Configure your piece exactly how you want it.",
+      "how_2_name": "Join the group",
+      "how_2_text": "Your order helps the group reach lower price tiers.",
+      "how_3_name": "Everyone benefits",
+      "how_3_text": "The final unlocked tier determines the campaign result, settled under the Group Buy cancellation and refund policy."
     }
   },
   "sections": {

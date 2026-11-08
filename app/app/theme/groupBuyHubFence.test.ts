@@ -29,7 +29,7 @@ const THEME = join(process.cwd(), "..", "theme");
 const SECTION = readFileSync(join(THEME, "sections", "group-buy-hub.liquid"), "utf8");
 const SCRIPT = readFileSync(join(THEME, "assets", "group-buy-hub.js"), "utf8");
 const CSS = readFileSync(join(THEME, "assets", "component-group-buy.css"), "utf8");
-const TEMPLATE = readFileSync(join(THEME, "templates", "page.group-buy.json"), "utf8");
+const TEMPLATE = readFileSync(join(THEME, "templates", "page.group-buys.json"), "utf8");
 
 /** JS with block comments, line comments and string literals blanked out. */
 function codeOnly(source: string): string {

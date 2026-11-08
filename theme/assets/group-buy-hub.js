@@ -192,6 +192,15 @@
   /* ------------------------------------------------------------------ init */
 
   function init(root) {
+    // ONE PAGE, TWO VIEWS. When the URL names a campaign, the detail section
+    // on this same page is the page, and the hub stands down. See the
+    // matching comment in group-buy-detail.js.
+    if (new URLSearchParams(window.location.search).get("campaign")) {
+      var hubSection = root.closest(".shopify-section") || root;
+      hubSection.hidden = true;
+      return;
+    }
+
     var endpoint = root.getAttribute("data-endpoint");
     var detailBase = root.getAttribute("data-detail-base");
     var moneyFormat = root.getAttribute("data-money-format");

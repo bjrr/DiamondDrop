@@ -105,7 +105,7 @@ export interface PublicCampaignSummary {
  * as a query parameter because a Shopify Page has no sub-paths, and a query
  * parameter is a real, bookmarkable, shareable URL that Back works with.
  */
-export const GROUP_BUY_HUB_PATH = "/pages/group-buy";
+export const GROUP_BUY_HUB_PATH = "/pages/group-buys";
 
 export function campaignDetailUrl(code: string): string {
   return `${GROUP_BUY_HUB_PATH}?campaign=${encodeURIComponent(code)}`;
