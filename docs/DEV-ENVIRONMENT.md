@@ -107,6 +107,35 @@ as the `shopify theme push` incident recorded in `CLAUDE.md`. The script
 refuses to run if either config could reach production, and those refusals are
 mutation-tested.
 
+## Reaching the dev store's Admin API
+
+Worth knowing before reaching for the wrong tool: the **claude.ai Shopify MCP
+connection is authenticated against `caratforus.myshopify.com` — PRODUCTION.**
+`get-shop-info` confirms it, and `switch-shop` would revoke the production
+token and require a fresh authorization, so it is the wrong instrument for dev
+work.
+
+Dev-store Admin access needs neither. The CLI can execute GraphQL against any
+store where the app is installed:
+
+```bash
+npx shopify app execute --config caratforus-development \
+  --store caratforus-dev.myshopify.com --no-input \
+  --query-file q.graphql --output-file out.json
+```
+
+That uses the *production-pointing* app's install on the *dev* store, which
+touches nothing in production — the app record is not modified, only dev-store
+data is read or written. It is how `prisma/devSampleShopifyVariants.json` and
+`prisma/devSampleShopifyImages.json` were produced.
+
+One limit found by using it: `read_files` is **not** granted on that app's
+dev-store install, so `files(...)` returns `ACCESS_DENIED` even though the
+scope is declared in its config — consistent with that config never having
+been deployed. Product `media` works under `read_products` and yields the same
+`MediaImage` GIDs the Admin file picker returns, which is why the sample
+campaign's imagery is sourced that way.
+
 ## Reaching the dev database
 
 Credentials live in `app/.env.dev`, which is gitignored (`.env.*`). The URL
