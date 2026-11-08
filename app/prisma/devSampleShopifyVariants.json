@@ -1,0 +1,23 @@
+{
+  "note": "DEV ONLY. Shopify variant ids on caratforus-dev.myshopify.com for the DEV SAMPLE Group Buy product. Regenerate if the dev store product is recreated.",
+  "productGid": "gid://shopify/Product/15457740554541",
+  "handle": "dev-sample-aurora-halo-engagement-ring-group-buy",
+  "status": "ACTIVE",
+  "skuToVariantGid": {
+    "DEVSAMPLE-GB-YG-RD-S": "gid://shopify/ProductVariant/68263697514797",
+    "DEVSAMPLE-GB-YG-RD-M": "gid://shopify/ProductVariant/68263697547565",
+    "DEVSAMPLE-GB-YG-RD-L": "gid://shopify/ProductVariant/68263697580333",
+    "DEVSAMPLE-GB-YG-OV-S": "gid://shopify/ProductVariant/68263697613101",
+    "DEVSAMPLE-GB-YG-OV-M": "gid://shopify/ProductVariant/68263697645869",
+    "DEVSAMPLE-GB-YG-OV-L": "gid://shopify/ProductVariant/68263697678637",
+    "DEVSAMPLE-GB-WG-RD-S": "gid://shopify/ProductVariant/68263697711405",
+    "DEVSAMPLE-GB-WG-RD-M": "gid://shopify/ProductVariant/68263697744173",
+    "DEVSAMPLE-GB-WG-RD-L": "gid://shopify/ProductVariant/68263697776941",
+    "DEVSAMPLE-GB-WG-OV-S": "gid://shopify/ProductVariant/68263697809709",
+    "DEVSAMPLE-GB-WG-OV-M": "gid://shopify/ProductVariant/68263697842477",
+    "DEVSAMPLE-GB-WG-OV-L": "gid://shopify/ProductVariant/68263697875245",
+    "DEVSAMPLE-GB-PT-RD-S": "gid://shopify/ProductVariant/68263697908013",
+    "DEVSAMPLE-GB-PT-RD-M": "gid://shopify/ProductVariant/68263697940781",
+    "DEVSAMPLE-GB-PT-RD-L": "gid://shopify/ProductVariant/68263697973549"
+  }
+}

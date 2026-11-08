@@ -1,0 +1,35 @@
+{
+  "note": "DEV ONLY. MediaImage references on caratforus-dev.myshopify.com borrowed from the store's built-in Shopify sample products, used as DELIBERATELY OBVIOUS placeholder imagery for the DEV SAMPLE Group Buy campaign. These are not jewellery photographs and are not production assets.",
+  "images": [
+    {
+      "gid": "gid://shopify/MediaImage/45123099427117",
+      "url": "https://cdn.shopify.com/s/files/1/0962/5056/0813/files/snowboard_purple_hydrogen.jpg?v=1789674882",
+      "from": "The Inventory Not Tracked Snowboard"
+    },
+    {
+      "gid": "gid://shopify/MediaImage/45123099459885",
+      "url": "https://cdn.shopify.com/s/files/1/0962/5056/0813/files/gift_card.jpg?v=1789674882",
+      "from": "Gift Card"
+    },
+    {
+      "gid": "gid://shopify/MediaImage/45123099492653",
+      "url": "https://cdn.shopify.com/s/files/1/0962/5056/0813/files/Main_589fc064-24a2-4236-9eaf-13b2bd35d21d.jpg?v=1789674882",
+      "from": "The Complete Snowboard"
+    },
+    {
+      "gid": "gid://shopify/MediaImage/45123099525421",
+      "url": "https://cdn.shopify.com/s/files/1/0962/5056/0813/files/snowboard_sky.jpg?v=1789674882",
+      "from": "The Compare at Price Snowboard"
+    },
+    {
+      "gid": "gid://shopify/MediaImage/45123099558189",
+      "url": "https://cdn.shopify.com/s/files/1/0962/5056/0813/files/Main_c8ff0b5d-c712-429a-be00-b29bd55cbc9d.jpg?v=1789674882",
+      "from": "The Hidden Snowboard"
+    },
+    {
+      "gid": "gid://shopify/MediaImage/45123099656493",
+      "url": "https://cdn.shopify.com/s/files/1/0962/5056/0813/files/Main_52f8e304-92d9-4a36-82af-50df8fe31c69.jpg?v=1789674882",
+      "from": "The Archived Snowboard"
+    }
+  ]
+}

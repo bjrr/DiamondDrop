@@ -1,0 +1,149 @@
+# CaratForUs — Shopify app for the ISOLATED DEVELOPMENT environment.
+#
+# A SECOND, SEPARATE Shopify app record. It exists for one reason: the
+# "caratforus-development" app (client_id f54993df…) has its application_url
+# and its App Proxy pointed at https://caratforus.fly.dev — PRODUCTION — and
+# an app record carries ONE set of URLs no matter how many stores it is
+# installed on. So while the dev store used that app, every storefront request
+# to /apps/carat/… on caratforus-dev.myshopify.com was being answered by the
+# PRODUCTION backend against the PRODUCTION database. Separate Fly app and
+# separate Postgres do not isolate anything on their own; this file is what
+# actually moves the dev store's storefront traffic to the dev backend.
+#
+#   this app     caratforus-dev        -> https://caratforus-dev.fly.dev
+#   production   caratforus-development -> https://caratforus.fly.dev
+#
+# Deploy ONLY with an explicit config flag:
+#
+#   npx shopify app deploy --config caratforus-dev
+#
+# NEVER a bare `shopify app deploy`. Without --config the CLI targets whatever
+# app is currently linked, and the other app's record points at production.
+#
+# NOTHING HERE IS SECRET. client_id is a public identifier. The client secret
+# is held only in the caratforus-dev Fly secret store.
+
+name = "caratforus-dev"
+client_id = "378a656cdcad91aae261f578b890c674"
+
+# A REAL HOSTED ORIGIN, not a tunnel placeholder. The production config carries
+# a comment explaining that its URLs are dev-tunnel placeholders kept workable
+# by automatically_update_urls_on_dev. This app is the opposite case: it is
+# permanently hosted, and the URL must stay pinned (see [build] below).
+application_url = "https://caratforus-dev.fly.dev"
+
+embedded = true
+
+[access_scopes]
+# PRODUCTION'S SET PLUS ONE, and the one addition is Shopify's requirement
+# rather than a choice:
+#
+#   write_app_proxy   Refused the deploy outright without it —
+#                     "This app has an app proxy, so it must request
+#                      `write_app_proxy` as a required access scope and
+#                      stores must approve it."
+#
+#                     Production's config does not carry it because
+#                     production's App Proxy was never configured through a
+#                     config deploy; its own file header records that
+#                     `shopify app deploy` has deliberately never been run,
+#                     so the proxy was set on the app record directly and the
+#                     scope requirement never applied. This app is configured
+#                     as code, so it does apply. Not drift to reconcile — a
+#                     consequence of the two apps being administered
+#                     differently, and worth knowing before production is
+#                     ever deployed from its config.
+#
+# Everything else is IDENTICAL TO PRODUCTION, DELIBERATELY — and this is the
+# one place where "copy production" beats least privilege.
+#
+# The purpose of this environment is to find out how the application behaves
+# before production does. A narrower grant here would mean a flow that works
+# in dev and fails in production, or worse, one that fails in dev for a reason
+# that does not exist in production and gets "fixed" accordingly. The scope
+# set is a property of the application, so it is mirrored rather than
+# re-derived; the per-scope justifications live in
+# shopify.app.caratforus-development.toml and are not duplicated here, because
+# two copies of that reasoning would drift.
+#
+# Must stay in step with production's scopes AND with SHOPIFY_SCOPES in this
+# app's Fly secrets, which is what app/shopify.server.ts passes to the library.
+scopes = "read_products,write_products,read_inventory,read_customers,write_customers,write_draft_orders,read_orders,write_payment_terms,write_orders,read_merchant_managed_fulfillment_orders,write_merchant_managed_fulfillment_orders,read_metaobjects,read_files,write_app_proxy"
+optional_scopes = [ ]
+
+use_legacy_install_flow = false
+
+[auth]
+# Matches application_url. Path derived the same way production's is — from
+# authPathPrefix = "/auth" in app/shopify.server.ts, asserted by
+# app/shopify.server.test.ts.
+redirect_urls = [ "https://caratforus-dev.fly.dev/auth/callback" ]
+
+[webhooks]
+# 2026-07, matching production. A dev environment pinned to a different API
+# version tests a client production does not run.
+api_version = "2026-07"
+
+  [webhooks.privacy_compliance]
+  customer_data_request_url = "/webhooks/customers/data_request"
+  customer_deletion_url = "/webhooks/customers/redact"
+  shop_deletion_url = "/webhooks/shop/redact"
+
+  [[webhooks.subscriptions]]
+  topics = ["inventory_levels/update"]
+  uri = "/webhooks/carat/inventory-levels-update"
+
+  [[webhooks.subscriptions]]
+  topics = ["products/update"]
+  uri = "/webhooks/carat/products-update"
+
+  [[webhooks.subscriptions]]
+  topics = ["orders/create"]
+  uri = "/webhooks/carat/orders-create"
+
+  [[webhooks.subscriptions]]
+  topics = ["orders/paid"]
+  uri = "/webhooks/carat/orders-paid"
+
+[app_proxy]
+# THE REASON THIS APP RECORD EXISTS.
+#
+# Storefront requests to
+#   https://caratforus-dev.myshopify.com/apps/carat/...
+# are forwarded by Shopify to THIS url, so Group Buy hub and campaign-detail
+# data is served by the dev backend from the dev database. `subpath` must stay
+# equal to SHOPIFY_APP_PROXY_SUBPATH in this app's Fly secrets, which is what
+# app/shopify/proxy/verify.ts reads when checking the signature.
+url = "https://caratforus-dev.fly.dev/apps/carat"
+subpath = "carat"
+prefix = "apps"
+
+[build]
+dev_store_url = "caratforus-dev.myshopify.com"
+
+# FALSE, UNLIKE PRODUCTION'S CONFIG — the single most important line in this
+# file after the proxy URL.
+#
+# The other app sets this true because its URLs are tunnel placeholders that
+# every `shopify app dev` run is supposed to overwrite. Here the URLs are the
+# real hosted origin. If this were true, one `shopify app dev` run against
+# this config would silently repoint application_url, redirect_urls and the
+# App Proxy at a temporary tunnel that stops existing when the session ends —
+# and the dev storefront would then fail in a way that looks like a code bug.
+automatically_update_urls_on_dev = false
+
+# =============================================================================
+# DELIBERATELY ABSENT
+# =============================================================================
+# [events] subscriptions and [metaobjects.app.syos_center_size_profile] are
+# NOT declared here, and their omission is a decision rather than an oversight.
+#
+# Both belong to Set Your Own Stone. App-owned metaobjects are namespaced per
+# APP ($app:…), so this app would create its OWN syos_center_size_profile type
+# — a second, empty definition unrelated to the entries the dev store's
+# existing SYOS products already link to through the other app. Declaring them
+# would produce a duplicate definition in the Admin that matches no product,
+# which is worse than not having one.
+#
+# Add them here if and when SYOS itself is being exercised in this
+# environment, and populate the profiles as part of that work.

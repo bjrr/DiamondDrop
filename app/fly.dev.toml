@@ -1,0 +1,78 @@
+# CaratForUs — ISOLATED DEVELOPMENT environment.
+#
+# This is a SEPARATE Fly app with a SEPARATE Postgres and a SEPARATE Shopify
+# app installation. Nothing here touches production. The whole point of the
+# file is that `caratforus` never appears in it.
+#
+#   fly app        caratforus-dev          (production: caratforus)
+#   postgres       caratforus-dev-db       (production: caratforus-db, Managed)
+#   shopify store  caratforus-dev          (production: caratforus)
+#
+# Deploy with:  ./scripts/deploy-dev.sh
+# NEVER with a bare `flyctl deploy` — that reads fly.toml and would redeploy
+# production from a working tree prepared for dev.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS IS NOT A COPY OF fly.toml
+# ---------------------------------------------------------------------------
+# Three deliberate differences, each a cost or safety decision:
+#
+# 1. 512MB, not 1GB. Development serves one person. Production's headroom is
+#    for concurrent customers.
+#
+# 2. min_machines_running = 0. Production's comment says NEVER SCALE TO ZERO,
+#    because Shopify webhooks and the scheduler arrive unannounced and a
+#    cold start is acceptable while having no machine to start is not. In
+#    development there is no customer whose webhook can be lost and no
+#    scheduler (see 3), so scaling to zero is correct — and it is what makes
+#    this environment cost cents rather than dollars. A suspended machine
+#    bills only for its rootfs and resumes on the first request.
+#
+# 3. NO CRON MACHINES. Production runs four. They send email, publish prices
+#    to Shopify and expire orders — every one an outward-facing side effect.
+#    A development environment that fires them would be a development
+#    environment that emails people. If a scheduled job ever needs testing
+#    here, run it once by hand against this app rather than scheduling it.
+app = "caratforus-dev"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  # Same forward-only migration command as production, for the same reason:
+  # it refuses a migration whose recorded checksum has drifted, and a failing
+  # release_command aborts the deploy with the previous version still serving.
+  release_command = "npx prisma migrate deploy"
+  strategy = "immediate"
+
+[env]
+  # "production" because that is what the BUILD is — the Dockerfile produces a
+  # production bundle and the server expects to run as one. The environment is
+  # identified by APP_ENV=development, which is the flag the application and
+  # the development scripts actually read.
+  NODE_ENV = "production"
+  PORT = "3000"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 50
+    hard_limit = 80
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
