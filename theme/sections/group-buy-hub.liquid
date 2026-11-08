@@ -1,0 +1,166 @@
+{% comment %}
+  GROUP BUY HUB — the discovery surface for every open campaign.
+
+  ============================================================================
+  NO CAMPAIGN CONTENT IN THEME EDITOR
+  ============================================================================
+  This section has no campaign code, no product picker, no headline-per-
+  campaign and no options JSON. It cannot: the hub lists EVERY publicly open
+  campaign, and that membership changes whenever a campaign opens or closes.
+  A merchant who had to add and remove cards by hand here would be
+  maintaining a second, always-stale copy of what the Admin Campaign Builder
+  already knows.
+
+  So the campaigns arrive from the server at runtime, from
+  /apps/carat/group-buy-campaigns. The settings below are presentation only:
+  heading, colour scheme and spacing, which are genuinely a theme concern.
+
+  ============================================================================
+  THE SHELL IS SERVER-RENDERED, THE CARDS ARE NOT
+  ============================================================================
+  Liquid renders the heading and an honest loading state; JavaScript fills in
+  the cards. That is deliberate rather than lazy: campaign progress and tier
+  prices move as people buy, and Shopify caches section output. A card
+  rendered into the page HTML would be served stale to the next shopper, with
+  a unit count and a price that are quietly wrong.
+
+  NO PRICE ARITHMETIC HERE. Liquid formats nothing and computes nothing; every
+  figure arrives already derived by the server's own pricing path.
+{% endcomment %}
+
+{{ 'component-group-buy.css' | asset_url | stylesheet_tag }}
+<script src="{{ 'group-buy-hub.js' | asset_url }}" defer="defer"></script>
+
+<div
+  class="color-{{ section.settings.color_scheme }} gradient"
+  style="padding-top: {{ section.settings.padding_top }}px; padding-bottom: {{ section.settings.padding_bottom }}px;"
+>
+  <div
+    class="gb gb-hub"
+    data-carat-gb-hub
+    data-endpoint="{{ routes.root_url | append: 'apps/carat/group-buy-campaigns' | replace: '//apps', '/apps' }}"
+    data-detail-base="{{ routes.root_url | append: 'pages/group-buy' | replace: '//pages', '/pages' }}"
+    data-money-format="{{ shop.money_format | escape }}"
+  >
+    {%- if section.settings.heading != blank -%}
+      <h1 class="gb__headline {{ section.settings.heading_size }}">{{ section.settings.heading | escape }}</h1>
+    {%- endif -%}
+
+    {%- if section.settings.intro != blank -%}
+      <div class="gb__sub">{{ section.settings.intro }}</div>
+    {%- endif -%}
+
+    {% comment %}
+      The only state rendered server-side. Replaced wholesale once the
+      campaigns arrive, or by an honest failure message if they do not —
+      never left showing "Loading" forever.
+    {% endcomment %}
+    <div class="gb-state" data-carat-gb-hub-state role="status">
+      {{ 'templates.group_buy_hub.loading' | t }}
+    </div>
+
+    <ul class="gb-hub__grid" data-carat-gb-hub-grid hidden></ul>
+
+    <template data-carat-gb-card-template>
+      <li class="gb-card">
+        <a class="gb-card__link" data-field="link" href="#">
+          <span class="gb-card__media">
+            <img class="gb-card__image" data-field="image" alt="" loading="lazy" decoding="async" width="800" height="1000">
+          </span>
+        </a>
+        <div class="gb-card__body">
+          <p class="gb-card__label" data-field="label"></p>
+          <h2 class="gb-card__title">
+            <a class="gb-card__link" data-field="title-link" href="#"></a>
+          </h2>
+          <p class="gb-card__desc" data-field="desc"></p>
+          <p class="gb-card__price" data-field="price"></p>
+          <p class="gb-card__meta" data-field="progress"></p>
+          <p class="gb-card__meta" data-field="countdown"></p>
+          <span class="gb-card__cta" data-field="cta"></span>
+        </div>
+      </li>
+    </template>
+
+    <template data-carat-gb-empty-template>
+      <div class="gb-hub__empty">
+        <h2>{{ 'templates.group_buy_hub.empty_title' | t }}</h2>
+        <p>{{ 'templates.group_buy_hub.empty_body' | t }}</p>
+        <div class="gb-hub__empty-links">
+          <a class="button button--secondary" href="{{ routes.root_url }}pages/past-group-buys">
+            {{ 'templates.group_buy_hub.empty_past' | t }}
+          </a>
+          <a class="button button--secondary" href="{{ routes.all_products_collection_url }}">
+            {{ 'templates.group_buy_hub.empty_shop' | t }}
+          </a>
+          <a class="button button--secondary" href="{{ routes.root_url }}pages/custom-jewelry">
+            {{ 'templates.group_buy_hub.empty_custom' | t }}
+          </a>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
+{% schema %}
+{
+  "name": "Group Buy hub",
+  "tag": "section",
+  "class": "section",
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "Campaigns are listed automatically from the Group Buy campaigns you have opened in the app. There is nothing to add or remove here when a campaign opens or closes."
+    },
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Heading",
+      "default": "Group Buys"
+    },
+    {
+      "type": "select",
+      "id": "heading_size",
+      "options": [
+        { "value": "h2", "label": "Small" },
+        { "value": "h1", "label": "Medium" },
+        { "value": "h0", "label": "Large" }
+      ],
+      "default": "h1",
+      "label": "Heading size"
+    },
+    {
+      "type": "richtext",
+      "id": "intro",
+      "label": "Introduction"
+    },
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "Color scheme",
+      "default": "scheme-1"
+    },
+    {
+      "type": "range",
+      "id": "padding_top",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "Top padding",
+      "default": 24
+    },
+    {
+      "type": "range",
+      "id": "padding_bottom",
+      "min": 0,
+      "max": 100,
+      "step": 4,
+      "unit": "px",
+      "label": "Bottom padding",
+      "default": 48
+    }
+  ],
+  "presets": [{ "name": "Group Buy hub" }]
+}
+{% endschema %}

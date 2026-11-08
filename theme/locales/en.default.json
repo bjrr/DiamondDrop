@@ -753,6 +753,14 @@
         "text": "CaratForUs is launching soon. Wholesale-priced loose diamonds, Luxury Steals, Group Buys, custom jewelry and more. Join First Access:",
         "subject": "CaratForUs First Access"
       }
+    },
+    "group_buy_hub": {
+      "loading": "Loading Group Buys…",
+      "empty_title": "No Group Buy is open right now.",
+      "empty_body": "New campaigns open regularly. In the meantime, here is where else to look.",
+      "empty_past": "Past Group Buys",
+      "empty_shop": "Shop all jewelry",
+      "empty_custom": "Custom Jewelry"
     }
   },
   "sections": {

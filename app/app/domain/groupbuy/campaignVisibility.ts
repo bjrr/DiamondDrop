@@ -72,3 +72,32 @@ export const PUBLIC_PAST_GROUP_BUY_CAMPAIGNS = {
   ...EXCLUDE_TEST_FIXTURE_CAMPAIGNS,
   status: "closed",
 } as const;
+
+/**
+ * Eligible for the PUBLIC Group Buy hub — the campaigns a customer may
+ * discover and join right now.
+ *
+ * ONLY `open`. A draft has frozen nothing: it has no real prices, and listing
+ * one would advertise a campaign whose terms are still being decided. A
+ * closed one is history and belongs in Past Group Buys, where the archive
+ * fragment above already places it.
+ *
+ * FIXTURES EXCLUDED UNCONDITIONALLY, by the same shared predicate the archive
+ * uses. Live-gate campaigns are real, open campaigns with real frozen prices,
+ * created so the gates could prove enforcement against production — which is
+ * exactly why they must never appear on a discovery surface. The detail
+ * endpoint refuses them by code as well; this keeps them out of the list, and
+ * the two together are belt and braces rather than one control written twice.
+ *
+ * NOTE WHAT IS ABSENT, deliberately: `archivedAt`. It is absent here for a
+ * DIFFERENT reason than in the archive fragment above, and the difference
+ * matters. There, omitting it keeps genuine public history visible after
+ * staff tidy a dashboard. Here it is simply not the question being asked —
+ * archiving an OPEN campaign is not a thing the lifecycle does, so filtering
+ * on it would be dead weight implying a rule that does not exist. If that
+ * ever changes, this is the line to revisit.
+ */
+export const PUBLIC_ACTIVE_GROUP_BUY_CAMPAIGNS = {
+  ...EXCLUDE_TEST_FIXTURE_CAMPAIGNS,
+  status: "open",
+} as const;

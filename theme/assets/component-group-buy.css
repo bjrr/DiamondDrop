@@ -1,0 +1,900 @@
+/**
+ * Group Buy storefront — hub and campaign detail.
+ *
+ * ===========================================================================
+ * MOBILE IS THE BASE, NOT A BREAKPOINT
+ * ===========================================================================
+ * Every rule outside a media query describes the phone. The only media
+ * queries here are `min-width`, and each one ADDS to the mobile layout rather
+ * than undoing it. Written the other way round — desktop base, overrides
+ * downward — the phone ends up carrying the weight of rules it then has to
+ * cancel, which is how a "responsive" page ends up with a horizontal
+ * scrollbar at 320px.
+ *
+ * Reference widths, in the order they were designed for: 390, then 375 and
+ * 320, then 430, then tablet, then desktop.
+ *
+ * ===========================================================================
+ * THE PALETTE IS THE THEME'S OWN
+ * ===========================================================================
+ * `--carat-brass`, `--carat-ink`, `--carat-stone` and the tracking tokens
+ * already exist; nothing new is invented here. Dawn's `--color-foreground` /
+ * `--color-background` carry the section's colour scheme, so a merchant
+ * switching schemes in Theme Editor still gets a coherent page.
+ *
+ * CONTRAST: prices and progress figures are never dimmed. The ruling recorded
+ * in component-past-group-buys.css applies — the dimmed tier is for routine
+ * hint text, and a price a customer may rely on is not hint text.
+ */
+
+/* ========================================================================
+   Shared
+   ======================================================================== */
+
+.gb {
+  /* A single column that never exceeds the viewport. `min()` rather than a
+     fixed max-width so 320px is a first-class size rather than an overflow. */
+  width: min(100%, var(--carat-measure, 72rem));
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+  box-sizing: border-box;
+}
+
+@media screen and (max-width: 374px) {
+  .gb {
+    padding-inline: 1.1rem;
+  }
+}
+
+.gb__eyebrow {
+  font-size: 1.1rem;
+  letter-spacing: var(--carat-tracking-label, 0.12em);
+  text-transform: uppercase;
+  color: rgba(var(--color-foreground), 0.72);
+  margin: 0 0 0.5rem;
+}
+
+.gb__headline {
+  font-size: 2.4rem;
+  line-height: 1.2;
+  letter-spacing: var(--carat-tracking-heading, -0.01em);
+  margin: 0 0 0.6rem;
+  text-wrap: balance;
+}
+
+.gb__sub {
+  margin: 0 0 1.6rem;
+  color: rgba(var(--color-foreground), 0.8);
+  line-height: 1.55;
+}
+
+.gb__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  /* 44px of vertical reach without a visible 44px box. */
+  padding: 1rem 0;
+  font-size: 1.4rem;
+  text-decoration: none;
+  color: rgb(var(--color-foreground));
+}
+
+.gb__back:hover,
+.gb__back:focus-visible {
+  text-decoration: underline;
+}
+
+.gb-badge {
+  display: inline-block;
+  font-size: 1rem;
+  letter-spacing: var(--carat-tracking-label, 0.12em);
+  text-transform: uppercase;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--carat-brass, #c9a96a);
+  color: rgb(var(--color-foreground));
+  border-radius: 2px;
+}
+
+.gb-badge--best {
+  background: var(--carat-brass, #c9a96a);
+  border-color: var(--carat-brass, #c9a96a);
+  color: var(--carat-ink, #1c1b19);
+}
+
+/* Visually hidden but available to assistive technology. */
+.gb__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ========================================================================
+   Hub
+   ======================================================================== */
+
+.gb-hub__grid {
+  /* ONE CARD PER ROW ON MOBILE. Two jewellery cards side by side at 390px
+     makes each image too small to judge a ring by, which is the only thing
+     the card is for. */
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 3.2rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gb-card {
+  display: flex;
+  flex-direction: column;
+  /* The whole card is one link target; see the anchor rule below. */
+  position: relative;
+}
+
+.gb-card__media {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  background: var(--carat-stone, #f2eee7);
+  border-radius: 2px;
+}
+
+.gb-card__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.gb-card__body {
+  padding-top: 1.4rem;
+}
+
+.gb-card__label {
+  font-size: 1rem;
+  letter-spacing: var(--carat-tracking-label, 0.12em);
+  text-transform: uppercase;
+  color: rgba(var(--color-foreground), 0.7);
+  margin: 0 0 0.5rem;
+}
+
+.gb-card__title {
+  font-size: 1.9rem;
+  line-height: 1.25;
+  letter-spacing: var(--carat-tracking-heading, -0.01em);
+  margin: 0 0 0.5rem;
+}
+
+/* The card link covers the card without nesting interactive elements inside
+   it: the anchor is a sibling stretched over the card, so the heading stays a
+   heading and the "View Group Buy" text stays plain text. One tap target, one
+   accessible name, no nested controls. */
+.gb-card__link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.gb-card__link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.gb-card__desc {
+  margin: 0 0 1rem;
+  color: rgba(var(--color-foreground), 0.78);
+  line-height: 1.5;
+  /* Clamped so cards stay the same shape whatever the merchant wrote. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.gb-card__price {
+  font-size: 1.8rem;
+  margin: 0 0 0.6rem;
+  color: rgb(var(--color-foreground));
+}
+
+.gb-card__price strong {
+  font-weight: 600;
+}
+
+.gb-card__meta {
+  margin: 0 0 0.3rem;
+  font-size: 1.35rem;
+  color: rgba(var(--color-foreground), 0.85);
+  line-height: 1.45;
+}
+
+.gb-card__cta {
+  margin: 1rem 0 0;
+  font-size: 1.4rem;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid currentColor;
+  display: inline-block;
+  padding-bottom: 0.2rem;
+}
+
+.gb-hub__empty {
+  border: 1px solid rgba(var(--color-foreground), 0.18);
+  padding: 3rem 2rem;
+  text-align: center;
+  border-radius: 2px;
+}
+
+.gb-hub__empty h2 {
+  margin: 0 0 0.8rem;
+  font-size: 1.9rem;
+}
+
+.gb-hub__empty-links {
+  display: grid;
+  gap: 1rem;
+  margin: 2rem auto 0;
+  max-width: 28rem;
+}
+
+/* ========================================================================
+   Detail — gallery
+   ======================================================================== */
+
+.gb-gallery {
+  position: relative;
+  /* Full-bleed on a phone: jewellery photography earns the whole width, and
+     the page padding would otherwise shrink it twice. */
+  margin-inline: -1.5rem;
+}
+
+@media screen and (max-width: 374px) {
+  .gb-gallery {
+    margin-inline: -1.1rem;
+  }
+}
+
+.gb-gallery__track {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.gb-gallery__track::-webkit-scrollbar {
+  display: none;
+}
+
+.gb-gallery__slide {
+  flex: 0 0 100%;
+  scroll-snap-align: center;
+  aspect-ratio: 1 / 1;
+  background: var(--carat-stone, #f2eee7);
+}
+
+.gb-gallery__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.gb-gallery__dots {
+  display: flex;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 1rem 0 0;
+}
+
+.gb-gallery__dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background: rgba(var(--color-foreground), 0.25);
+  border: 0;
+  padding: 0;
+  /* The visible dot is small; the tap target is not. */
+  position: relative;
+}
+
+.gb-gallery__dot::after {
+  content: "";
+  position: absolute;
+  inset: -1.4rem;
+}
+
+.gb-gallery__dot[aria-current="true"] {
+  background: var(--carat-ink, #1c1b19);
+}
+
+.gb-gallery__count {
+  text-align: center;
+  font-size: 1.2rem;
+  color: rgba(var(--color-foreground), 0.7);
+  padding-top: 0.6rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ========================================================================
+   Detail — price and progress
+   ======================================================================== */
+
+.gb-price {
+  margin: 2rem 0 0;
+}
+
+.gb-price__label {
+  font-size: 1.2rem;
+  letter-spacing: var(--carat-tracking-label, 0.12em);
+  text-transform: uppercase;
+  color: rgba(var(--color-foreground), 0.72);
+  margin: 0 0 0.3rem;
+}
+
+.gb-price__amount {
+  font-size: 3.4rem;
+  line-height: 1.1;
+  margin: 0;
+  letter-spacing: var(--carat-tracking-heading, -0.01em);
+  font-variant-numeric: tabular-nums;
+}
+
+.gb-price__alt {
+  margin: 0.5rem 0 0;
+  font-size: 1.35rem;
+  color: rgba(var(--color-foreground), 0.85);
+}
+
+.gb-price[data-loading="true"] .gb-price__amount {
+  /* A quiet pulse while the server prices the new configuration. The figure
+     is never blanked: a shopper watching the number vanish assumes a bug. */
+  opacity: 0.45;
+}
+
+.gb-price__error {
+  margin: 0.6rem 0 0;
+  font-size: 1.35rem;
+  color: rgb(var(--color-foreground));
+  border-left: 2px solid var(--carat-brass, #c9a96a);
+  padding-left: 0.9rem;
+}
+
+.gb-progress {
+  margin: 2rem 0 0;
+  padding: 1.6rem;
+  background: var(--carat-stone, #f2eee7);
+  border-radius: 2px;
+}
+
+.gb-progress__joined {
+  margin: 0 0 0.9rem;
+  font-size: 1.5rem;
+}
+
+.gb-progress__next {
+  margin: 0;
+  font-size: 1.45rem;
+  line-height: 1.5;
+}
+
+/* The tier track: dots on a line, not a funding bar. A percentage would
+   describe money raised, which is not what a Group Buy measures. */
+.gb-tiers {
+  display: flex;
+  gap: 0.4rem;
+  margin: 1.4rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gb-tiers__step {
+  flex: 1 1 0;
+  text-align: center;
+  font-size: 1.1rem;
+  color: rgba(var(--color-foreground), 0.75);
+  font-variant-numeric: tabular-nums;
+}
+
+.gb-tiers__bar {
+  height: 2px;
+  background: rgba(var(--color-foreground), 0.18);
+  margin-bottom: 0.5rem;
+}
+
+.gb-tiers__step[data-state="unlocked"] .gb-tiers__bar,
+.gb-tiers__step[data-state="current"] .gb-tiers__bar {
+  background: var(--carat-brass, #c9a96a);
+}
+
+.gb-tiers__step[data-state="current"] {
+  color: rgb(var(--color-foreground));
+  font-weight: 600;
+}
+
+.gb-countdown {
+  margin: 1.4rem 0 0;
+  font-size: 1.35rem;
+  color: rgba(var(--color-foreground), 0.85);
+}
+
+.gb-countdown strong {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ========================================================================
+   Detail — configuration
+   ======================================================================== */
+
+.gb-config {
+  margin: 2.8rem 0 0;
+}
+
+.gb-option {
+  margin: 0 0 2rem;
+  border: 0;
+  padding: 0;
+}
+
+.gb-option__legend {
+  padding: 0;
+  font-size: 1.3rem;
+  letter-spacing: var(--carat-tracking-label, 0.12em);
+  text-transform: uppercase;
+  color: rgba(var(--color-foreground), 0.78);
+  margin-bottom: 0.9rem;
+}
+
+.gb-option__chosen {
+  text-transform: none;
+  letter-spacing: 0;
+  color: rgb(var(--color-foreground));
+  font-weight: 600;
+}
+
+.gb-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+
+.gb-pill {
+  /* 44px minimum, comfortably, with text that can breathe. */
+  min-height: 4.4rem;
+  padding: 0 1.6rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  background: transparent;
+  color: rgb(var(--color-foreground));
+  font-size: 1.45rem;
+  border-radius: 2px;
+  cursor: pointer;
+  /* Never depends on hover: selection is shown by border and weight. */
+  transition: border-color 0.12s ease;
+}
+
+.gb-pill[aria-pressed="true"] {
+  border-color: var(--carat-ink, #1c1b19);
+  border-width: 2px;
+  font-weight: 600;
+}
+
+.gb-pill:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+
+.gb-pill:focus-visible {
+  outline: 2px solid var(--carat-brass, #c9a96a);
+  outline-offset: 2px;
+}
+
+/* A one-line opener for an option with many values (ring size). */
+.gb-select-row {
+  width: 100%;
+  min-height: 5.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0 1.4rem;
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  background: transparent;
+  color: rgb(var(--color-foreground));
+  font-size: 1.5rem;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.gb-select-row__value {
+  font-weight: 600;
+}
+
+/* ========================================================================
+   Detail — payment, acknowledgment, actions
+   ======================================================================== */
+
+.gb-pay {
+  margin: 2.4rem 0 0;
+}
+
+.gb-pay__options {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 0.9rem;
+}
+
+.gb-pay__option {
+  min-height: 5.6rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.4rem;
+  border: 1px solid rgba(var(--color-foreground), 0.3);
+  background: transparent;
+  color: rgb(var(--color-foreground));
+  font-size: 1.5rem;
+  text-align: left;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.gb-pay__option[aria-pressed="true"] {
+  border-color: var(--carat-ink, #1c1b19);
+  border-width: 2px;
+  font-weight: 600;
+}
+
+.gb-ack {
+  margin: 2.4rem 0 0;
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  /* The whole row is the target, not just the 16px box. */
+  padding: 1.2rem;
+  border: 1px solid rgba(var(--color-foreground), 0.22);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.gb-ack__box {
+  width: 2.2rem;
+  height: 2.2rem;
+  flex: 0 0 auto;
+  margin-top: 0.1rem;
+}
+
+.gb-ack__text {
+  font-size: 1.35rem;
+  line-height: 1.5;
+}
+
+.gb-cta {
+  width: 100%;
+  min-height: 5.6rem;
+  margin-top: 1.6rem;
+  font-size: 1.6rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.gb-cta[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.gb-share {
+  margin: 1.6rem 0 0;
+}
+
+.gb-share__note {
+  margin: 0.8rem 0 0;
+  font-size: 1.3rem;
+  color: rgba(var(--color-foreground), 0.78);
+  line-height: 1.5;
+}
+
+/* ========================================================================
+   Detail — sticky purchase bar
+   ======================================================================== */
+
+.gb-sticky {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+  padding: 1rem 1.5rem calc(1rem + env(safe-area-inset-bottom, 0px));
+  background: rgb(var(--color-background));
+  border-top: 1px solid rgba(var(--color-foreground), 0.18);
+  transform: translateY(100%);
+  transition: transform 0.18s ease;
+}
+
+.gb-sticky[data-visible="true"] {
+  transform: translateY(0);
+}
+
+.gb-sticky__price {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.gb-sticky__amount {
+  display: block;
+  font-size: 1.8rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.gb-sticky__label {
+  display: block;
+  font-size: 1.1rem;
+  color: rgba(var(--color-foreground), 0.72);
+}
+
+.gb-sticky__cta {
+  flex: 0 0 auto;
+  min-height: 4.8rem;
+  padding-inline: 2rem;
+  cursor: pointer;
+}
+
+/* Keeps the last section clear of the bar. */
+.gb-detail__tail {
+  padding-bottom: 9rem;
+}
+
+/* ========================================================================
+   Detail — bottom sheet
+   ======================================================================== */
+
+.gb-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: none;
+}
+
+.gb-sheet[data-open="true"] {
+  display: block;
+}
+
+.gb-sheet__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.42);
+  border: 0;
+  width: 100%;
+  cursor: pointer;
+}
+
+.gb-sheet__panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: rgb(var(--color-background));
+  border-radius: 12px 12px 0 0;
+  padding: 1.6rem 1.5rem calc(2rem + env(safe-area-inset-bottom, 0px));
+}
+
+.gb-sheet__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.2rem;
+}
+
+.gb-sheet__title {
+  margin: 0;
+  font-size: 1.7rem;
+}
+
+.gb-sheet__close {
+  min-width: 4.4rem;
+  min-height: 4.4rem;
+  border: 0;
+  background: transparent;
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+  color: rgb(var(--color-foreground));
+}
+
+.gb-sheet__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+  gap: 0.8rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ========================================================================
+   Detail — details, how it works, related
+   ======================================================================== */
+
+.gb-section {
+  margin: 3.2rem 0 0;
+}
+
+.gb-section__title {
+  font-size: 1.7rem;
+  margin: 0 0 1.2rem;
+  letter-spacing: var(--carat-tracking-heading, -0.01em);
+}
+
+.gb-details {
+  margin: 0;
+  display: grid;
+  gap: 0;
+}
+
+.gb-details__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.6rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid rgba(var(--color-foreground), 0.14);
+  font-size: 1.4rem;
+}
+
+.gb-details__key {
+  color: rgba(var(--color-foreground), 0.75);
+}
+
+.gb-details__val {
+  text-align: right;
+  font-weight: 500;
+}
+
+.gb-highlights {
+  margin: 0 0 1.6rem;
+  padding-left: 1.4rem;
+  line-height: 1.6;
+}
+
+.gb-how {
+  display: grid;
+  gap: 1.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gb-how__step {
+  border-top: 1px solid rgba(var(--color-foreground), 0.16);
+  padding-top: 1.2rem;
+}
+
+.gb-how__name {
+  margin: 0 0 0.4rem;
+  font-size: 1.5rem;
+}
+
+.gb-how__text {
+  margin: 0;
+  font-size: 1.4rem;
+  color: rgba(var(--color-foreground), 0.82);
+  line-height: 1.55;
+}
+
+.gb-closed {
+  border: 1px solid var(--carat-brass, #c9a96a);
+  padding: 1.6rem;
+  border-radius: 2px;
+  margin: 2rem 0 0;
+}
+
+.gb-closed__title {
+  margin: 0 0 0.5rem;
+  font-size: 1.7rem;
+}
+
+/* A compact state used while the page is fetching, and for honest failures. */
+.gb-state {
+  padding: 3rem 0;
+  text-align: center;
+  color: rgba(var(--color-foreground), 0.8);
+}
+
+/* ========================================================================
+   Progressive enhancement — tablet
+   ======================================================================== */
+
+@media screen and (min-width: 750px) {
+  .gb {
+    padding-inline: 2.4rem;
+  }
+
+  .gb-hub__grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 3.6rem 2.4rem;
+  }
+
+  .gb-gallery {
+    margin-inline: 0;
+  }
+
+  .gb__headline {
+    font-size: 3rem;
+  }
+}
+
+/* ========================================================================
+   Progressive enhancement — desktop
+   ======================================================================== */
+
+@media screen and (min-width: 990px) {
+  .gb-hub__grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  /* Gallery left, purchase panel right — the same information in the same
+     order, re-laid out. Not a second application. */
+  .gb-detail__layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(32rem, 0.9fr);
+    gap: 4rem;
+    align-items: start;
+  }
+
+  .gb-detail__buy {
+    position: sticky;
+    top: 2rem;
+  }
+
+  /* The sticky bar is a phone affordance; with the panel in view it is noise. */
+  .gb-sticky {
+    display: none;
+  }
+
+  .gb-detail__tail {
+    padding-bottom: 0;
+  }
+
+  .gb-gallery__track {
+    overflow-x: visible;
+    flex-direction: column;
+    gap: 1.2rem;
+  }
+
+  .gb-gallery__slide {
+    flex: 1 1 auto;
+    aspect-ratio: 4 / 5;
+  }
+
+  .gb-gallery__dots,
+  .gb-gallery__count {
+    display: none;
+  }
+}
+
+/* ========================================================================
+   Motion
+   ======================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .gb-sticky,
+  .gb-pill {
+    transition: none;
+  }
+
+  .gb-gallery__track {
+    scroll-behavior: auto;
+  }
+}
