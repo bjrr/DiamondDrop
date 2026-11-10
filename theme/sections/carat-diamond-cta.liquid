@@ -1,0 +1,152 @@
+{%- comment -%}
+  CARAT DIAMOND CTA — the homepage entry point for loose certified diamonds.
+
+  WHY A SECTION OF ITS OWN, when the theme already has ten carat-* sections.
+  The requirement is a headline, ONE supporting sentence, and TWO labelled
+  buttons. Nothing already here is that shape:
+
+    carat-pagehead  has two buttons, but emits <h1> — and its own comment
+                    says level 1 belongs to the homepage. A second <h1> on
+                    the homepage is a real accessibility and SEO defect, not
+                    a style preference.
+    carat-split     has a supporting paragraph but one link, styled as a
+                    text arrow rather than a button.
+    carat-tiles     has per-tile CTAs but no section-level sentence.
+    carat-steps     has one CTA and no sentence.
+
+  So this is additive rather than a rewrite of any of them: ~1 section file,
+  no shared CSS touched, no JavaScript.
+
+  PROVIDER-NEUTRAL BY CONSTRUCTION. No supplier is named here, in the class
+  names, or in the default copy. The diamond inventory behind the buttons is
+  whoever is wired into /pages/diamonds at the time; replacing that supplier
+  must not require editing this file or the homepage. That is the same reason
+  the destination is /pages/diamonds and not /pages/<supplier>.
+
+  CSS IS SCOPED AND INLINE, deliberately. Appending to carat-editorial.css
+  would mean overwriting a 40KB shared asset on the live theme, and the
+  copies on the store have already drifted from this repository by a few
+  dozen bytes. An additive section that overwrites a shared stylesheet to
+  draw two buttons is trading a large regression risk for a small
+  convenience. `.carat-eyebrow`, `.button` and `.button--secondary` are
+  reused from the theme rather than redefined.
+{%- endcomment -%}
+
+{%- liquid
+  assign scheme = section.settings.color_scheme | default: 'scheme-2'
+-%}
+
+{%- style -%}
+  #shopify-section-{{ section.id }} .carat-dcta {
+    padding-block: 7rem;
+  }
+  #shopify-section-{{ section.id }} .carat-dcta__inner {
+    max-width: 72rem;
+    margin-inline: auto;
+    text-align: center;
+  }
+  #shopify-section-{{ section.id }} .carat-dcta__heading {
+    margin: 0;
+    font-size: clamp(2.8rem, 4vw, 4.4rem);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+  #shopify-section-{{ section.id }} .carat-dcta__text {
+    margin-block: 1.6rem 0;
+    font-size: 1.7rem;
+    line-height: 1.6;
+    opacity: 0.85;
+    text-wrap: pretty;
+  }
+  #shopify-section-{{ section.id }} .carat-dcta__actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1.2rem;
+    margin-block-start: 3.2rem;
+  }
+  #shopify-section-{{ section.id }} .carat-dcta__note {
+    margin-block-start: 1.8rem;
+    font-size: 1.3rem;
+    opacity: 0.7;
+  }
+  @media screen and (max-width: 749px) {
+    #shopify-section-{{ section.id }} .carat-dcta {
+      padding-block: 4.8rem;
+    }
+    /* Full-width buttons on a phone, matching carat-pagehead's own rule
+       rather than inventing a second mobile button behaviour. */
+    #shopify-section-{{ section.id }} .carat-dcta__actions .button {
+      width: 100%;
+    }
+  }
+{%- endstyle -%}
+
+<div class="carat-dcta color-{{ scheme }} gradient">
+  <div class="page-width carat-dcta__inner">
+    {%- if section.settings.eyebrow != blank -%}
+      <p class="carat-eyebrow">{{ section.settings.eyebrow | escape }}</p>
+    {%- endif -%}
+
+    {%- if section.settings.heading != blank -%}
+      <h2 class="carat-dcta__heading">{{ section.settings.heading | escape }}</h2>
+    {%- endif -%}
+
+    {%- if section.settings.text != blank -%}
+      <p class="carat-dcta__text">{{ section.settings.text | escape }}</p>
+    {%- endif -%}
+
+    {%- if section.settings.cta_label != blank -%}
+      <div class="carat-dcta__actions">
+        <a class="button" href="{{ section.settings.cta_link | default: '/pages/diamonds' }}">
+          {{- section.settings.cta_label | escape -}}
+        </a>
+        {%- if section.settings.cta2_label != blank -%}
+          <a class="button button--secondary" href="{{ section.settings.cta2_link | default: '/pages/diamonds' }}">
+            {{- section.settings.cta2_label | escape -}}
+          </a>
+        {%- endif -%}
+      </div>
+    {%- endif -%}
+
+    {%- if section.settings.note != blank -%}
+      <p class="carat-dcta__note">{{ section.settings.note | escape }}</p>
+    {%- endif -%}
+  </div>
+</div>
+
+{% schema %}
+{
+  "name": "Carat diamond CTA",
+  "tag": "section",
+  "class": "section",
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow" },
+    { "type": "text", "id": "heading", "label": "Headline" },
+    { "type": "text", "id": "text", "label": "Supporting sentence" },
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "Colour scheme",
+      "default": "scheme-2"
+    },
+    { "type": "text", "id": "cta_label", "label": "Primary button" },
+    {
+      "type": "url",
+      "id": "cta_link",
+      "label": "Primary link",
+      "info": "Point at the diamond page, never at a supplier's own site."
+    },
+    { "type": "text", "id": "cta2_label", "label": "Secondary button" },
+    { "type": "url", "id": "cta2_link", "label": "Secondary link" },
+    {
+      "type": "text",
+      "id": "note",
+      "label": "Small note under the buttons",
+      "info": "Optional. Keep to one short line."
+    }
+  ],
+  "presets": [{ "name": "Carat diamond CTA" }]
+}
+{% endschema %}

@@ -1,5 +1,18 @@
 {
   "sections": {
+    "diamonds": {
+      "type": "carat-diamond-cta",
+      "settings": {
+        "eyebrow": "Loose certified diamonds",
+        "heading": "Buy Diamonds at Direct Prices",
+        "text": "Search certified natural and lab-grown diamonds with transparent CaratForUs pricing.",
+        "color_scheme": "scheme-2",
+        "cta_label": "Shop Lab-Grown Diamonds",
+        "cta_link": "/pages/diamonds?type=lab-grown",
+        "cta2_label": "Shop Natural Diamonds",
+        "cta2_link": "/pages/diamonds?type=natural"
+      }
+    },
     "paths": {
       "type": "carat-paths",
       "blocks": {
@@ -196,6 +209,7 @@
   },
   "order": [
     "heroslider",
+    "diamonds",
     "paths",
     "groupbuy_steps",
     "why"

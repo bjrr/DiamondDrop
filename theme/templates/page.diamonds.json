@@ -1,0 +1,32 @@
+{
+  "sections": {
+    "head": {
+      "type": "carat-pagehead",
+      "settings": {
+        "level": "functional",
+        "eyebrow": "Loose certified diamonds",
+        "heading": "Buy Diamonds at Direct Prices",
+        "subheading": "Search certified natural and lab-grown diamonds with transparent CaratForUs pricing.",
+        "color_scheme": "scheme-1"
+      }
+    },
+    "main": {
+      "type": "main-page",
+      "settings": {
+        "padding_top": 12,
+        "padding_bottom": 12
+      }
+    },
+    "feed": {
+      "type": "apps",
+      "settings": {
+        "include_margins": true
+      }
+    }
+  },
+  "order": [
+    "head",
+    "main",
+    "feed"
+  ]
+}
