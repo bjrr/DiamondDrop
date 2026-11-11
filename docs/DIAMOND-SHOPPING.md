@@ -27,18 +27,102 @@ wiring, a CTA link, or a template filename, and it fails if a
 
 ## How the feed attaches
 
-The page template's third section is `apps` — Shopify's own `@app` block
-host. The diamond feed is added to it **in the theme editor**, not in code.
+`sections/carat-diamond-feed.liquid` accepts `@app` blocks and branches on
+whether any are present:
 
-That is the whole seam. Swapping providers is: remove one app block, add
-another. No template edit, no homepage edit, no URL change, no redirect.
-Building a custom API integration instead would have put the provider's data
-model into our Liquid and thrown that property away, which is why the brief
-rules it out unless Nivoda cannot support the experience.
+```liquid
+{%- if section.blocks.size > 0 -%}   {%- comment -%} the live provider feed {%- endcomment -%}
+{%- else -%}                         {%- comment -%} the Coming Soon state  {%- endcomment -%}
+```
 
-Template order is `head` → `main` → `feed`, and the order matters: the
-branded CaratForUs header renders before the third-party block, so the page
-reads as CaratForUs rather than as an embedded tool.
+So connecting a provider is **one action in the theme editor**: add their
+block to that section. The Coming Soon content then disappears on its own —
+nobody has to remember to remove it, which is exactly the kind of thing that
+gets forgotten and ends up stacked above a live product grid. Disconnecting
+restores the Coming Soon state just as automatically.
+
+No template edit, no homepage edit, no URL change, no redirect. Building a
+custom API integration instead would have put the provider's data model into
+our Liquid and thrown that property away, which is why the brief rules it out
+unless Nivoda cannot support the experience.
+
+### What survives a provider switch
+
+Page order is `hero` → `feed` → `shapes` → `value` → `education` → `next`.
+**Five of those six sections are ours and are untouched by the switch.** Only
+`feed` changes.
+
+| Section | File | On provider connect |
+|---|---|---|
+| Hero + category choices | `carat-diamond-hero` | kept; its two links become where the provider's feed is initialised |
+| **Diamond feed** | `carat-diamond-feed` | **replaced by the provider's app block** |
+| Shape navigation | `carat-diamond-shapes` | kept; link base/suffix repointed at the provider's shape parameter |
+| Value pillars | `carat-diamond-pillars` | kept |
+| Four characteristics | `carat-diamond-pillars` (second instance) | kept |
+| Ring path | `carat-diamond-next` | kept; each option gains a real link |
+
+The shape navigation is deliberately a **separate section from the feed**,
+because the brief requires it to outlive the switch ("pass the selected shape
+into whichever provider we choose") — so it cannot live inside the part that
+gets replaced. The control-rail preview is the opposite case and lives
+*inside* the Coming-Soon branch: a connected provider brings its own filter
+UI, and two filter bars, one real and one decorative, is the worst outcome
+available.
+
+## The Coming Soon state
+
+Until a provider is connected the feed area shows a framed, labelled preview
+of the controls customers will use — diamond type, shape, certification,
+carat, price, cut, colour, clarity — above a Coming Soon panel.
+
+**The controls are `inert` and `aria-hidden`.** No pointer events, no tab
+stops, no screen-reader exposure. The brief is explicit that placeholder
+filters must not appear operational, and there is nothing behind them to
+filter. The frame is labelled "Preview — live inventory is not connected yet"
+so the state reads as *not yet* rather than *broken*; disabled controls with
+no explanation would read as a bug.
+
+**No fake inventory anywhere.** No diamond cards, no counts, no prices, no
+results grid, no add-to-cart. Pinned by `diamondDestination.test.ts`, which
+fails if a `$`-amount, a cart form, a product loop or an inventory count
+appears in any diamond section.
+
+The "Join the Early Access List" CTA points at **`/pages/first-access`**, the
+existing First Access signup — which already offers a *Loose Diamonds*
+interest. A second signup form here would split one audience across two
+lists.
+
+The two "next step" options (Buy the Diamond / Build an Engagement Ring)
+render as `<div>`, not as disabled links or buttons: both need a selected
+diamond and a connected provider, and an element that was never interactive
+promises nothing to a keyboard or screen reader. When the integration exists,
+each gains an `href` and loses its state chip.
+
+### `?type=` and `?shape=` carry context, not filtering
+
+Shopify Liquid cannot read an arbitrary query string server-side, so the
+homepage's `?type=lab-grown` is reflected client-side: it marks the matching
+category with `aria-current` and names it in the feed area's copy. An
+unrecognised value is **ignored rather than defaulted**, so a stale or
+hand-edited link cannot confidently show the wrong category. It marks and it
+labels; it does not filter, sort or price.
+
+## Responsive
+
+Measured in a same-origin iframe at each width (Chrome will not resize its
+window below ~1229px):
+
+| Width | Overflow | Shapes/row | Category cards | CTA |
+|---|---|---|---|---|
+| 320px | none | 2 | 1 column | full width, 48px tall |
+| 390px | none | 2 | 1 column | full width, 48px tall |
+| 430px | none | 2 | 1 column | full width, 48px tall |
+| 768px | none | 5 | 2 columns | inline, 44px |
+| 1024px+ | none | 5 | 2 columns | inline, 44px |
+
+Exactly one `<h1>` at every width. Five across does not fit a 320px phone,
+and two across keeps each outline large enough to tell a cushion from a
+princess — which is the entire job of that section.
 
 ## The two-theme situation
 
@@ -65,7 +149,27 @@ the owner's launch flip and not this work's to perform.
    unpublished `188290826458`, gated by
    `docs/GROUP-BUY-STOREFRONT-LAUNCH-GATE.md`.
 
-2. **`theme/templates/index.json` in this repository and the LAUNCH theme's
+2. **The LAUNCH theme uses its own navigation menu.** Shopify menus are
+   *store-level*, shared by every theme, so adding "Diamonds" to `main-menu`
+   would have changed the live Coming Soon theme's navigation too — which the
+   brief forbids. The header's `menu` setting, however, is *theme-level*
+   (`sections/header-group.json`). So a second menu `launch-main-menu` exists
+   (main-menu plus a Diamonds item), and **only the LAUNCH theme's
+   header-group.json points at it**. The live theme still reads `main-menu`,
+   verified after the change.
+
+   This is a second piece of intentional repo-vs-LAUNCH drift:
+   `theme/sections/header-group.json` in this repository says `main-menu`,
+   and the LAUNCH theme says `launch-main-menu`. Pushing the repo copy to
+   LAUNCH would silently revert the navigation; pushing a repo copy that said
+   `launch-main-menu` to the live theme would change the live navigation.
+   Neither file is safe to push blindly — which is why both are listed here.
+
+   When LAUNCH is published, the cleanest resolution is to add Diamonds to
+   `main-menu` and point LAUNCH's header back at it, retiring
+   `launch-main-menu`.
+
+3. **`theme/templates/index.json` in this repository and the LAUNCH theme's
    copy differ on one line**, deliberately. The repo points the homepage Group
    Buy card at `/pages/group-buys` (the hub); LAUNCH points it at
    `/pages/group-buy` (the policy page). Because LAUNCH has no hub template,
@@ -74,6 +178,26 @@ the owner's launch flip and not this work's to perform.
    inserted into **LAUNCH's own copy**, preserving every other byte, rather
    than by pushing the repo file. Reconciling these two is a Group Buy
    deployment decision, not a diamond one.
+
+## The page is published, and what that means
+
+`/pages/diamonds` is **published** (`isPublished: true`). It had to be: an
+unpublished Shopify page returns 404 to everyone, including inside a theme
+preview, and the brief requires the page to render rather than 404.
+
+Publishing a page is a **store-level** act, not a theme-level one, so the URL
+is now reachable on the live Coming Soon theme too. That theme has no
+`page.diamonds.json`, so it falls back to the default `page` template and
+renders the page's **body copy** — which is why that body was written as a
+short, honest Coming Soon statement rather than left as placeholder prose. A
+visitor who finds the URL on the live site sees a presentable paragraph and a
+link to First Access, not a broken layout.
+
+To keep it from being *discovered* before launch, the page carries
+`seo.hidden = 1` — the same mechanism already used for the archived
+`first-access-v1` page. That keeps it out of the sitemap, storefront search
+and search engines while leaving the direct URL working. **Remove that
+metafield at launch**, or the finished page will stay unindexed.
 
 ## Pricing and markup
 

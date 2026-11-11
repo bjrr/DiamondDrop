@@ -182,13 +182,28 @@ describe("the /pages/diamonds template", () => {
     }
   });
 
-  it("hosts the diamond feed through the theme's app-block section", () => {
-    // `apps` is Shopify's own @app block host. Using it means the feed is
-    // added and removed in the theme editor, so swapping providers is a
-    // merchant action rather than a code change — which is what makes the
-    // neutrality above actually worth something.
-    const types = template.order.map((key) => template.sections[key]!.type);
-    expect(types).toContain("apps");
+  it("hosts the diamond feed in a section that accepts app blocks", () => {
+    // The feed is added and removed in the theme editor, so swapping
+    // providers is a merchant action rather than a code change — which is
+    // what makes the URL neutrality above actually worth something.
+    //
+    // THIS ASSERTION USED TO NAME Shopify's generic `apps` section, which is
+    // what the page carried while it was a stub. The designed page replaced
+    // it with `carat-diamond-feed`, which hosts the same `@app` blocks AND
+    // renders the Coming Soon state when none are present. So the thing
+    // worth pinning was never the section's name — it is that exactly one
+    // section on the page can host a provider. `diamondDestination.test.ts`
+    // covers the branch behaviour itself.
+    const hosts = template.order.filter((key) => {
+      const type = template.sections[key]!.type;
+      const path = join(THEME, "sections", `${type}.liquid`);
+      if (!existsSync(path)) return false;
+      const schema = readFileSync(path, "utf8").match(/\{%\s*schema\s*%\}([\s\S]*?)\{%\s*endschema\s*%\}/);
+      if (!schema) return false;
+      const blocks = (JSON.parse(schema[1]!).blocks ?? []) as { type: string }[];
+      return blocks.some((block) => block.type === "@app");
+    });
+    expect(hosts).toHaveLength(1);
   });
 
   it("references only sections that exist in the theme", () => {

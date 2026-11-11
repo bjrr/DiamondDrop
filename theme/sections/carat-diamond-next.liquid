@@ -1,0 +1,111 @@
+{%- comment -%}
+  WHAT HAPPENS AFTER A DIAMOND IS CHOSEN — "Found your diamond? Make it
+  yours."
+
+  THE TWO OPTIONS ARE NOT CLICKABLE, and that is the design rather than an
+  unfinished edge. Both need two things that do not exist yet: a selected
+  diamond, and a provider to have sold it. The brief is explicit that
+  purchasing must not be enabled until an actual provider/product
+  integration exists.
+
+  So they render as <div>, not as a disabled <a> or <button>. A disabled
+  control still occupies the tab order in some assistive technology and still
+  announces an action; an element that was never interactive promises
+  nothing. Each carries a visible state chip so the reason is on the page
+  instead of being something a visitor has to infer from a click that does
+  not respond.
+
+  WHY SHOW THEM AT ALL: the brief asks for the design to be prepared and
+  reviewable, and this is the step that makes the page a shopping journey
+  rather than a search box. It also fixes where the handover will go — when a
+  provider is connected, `href` replaces the state chip on each option and
+  the surrounding page is untouched.
+
+  The architecture note for later: a selected diamond needs to reach the
+  setting/ring-builder flow. CaratForUs already has Set Your Own Stone, which
+  is the existing path for "I have a stone, find it a setting", so that is
+  where "Build an Engagement Ring" should lead rather than a second parallel
+  builder. That is an owner decision, not something to wire silently here.
+{%- endcomment -%}
+
+{{ 'carat-diamonds.css' | asset_url | stylesheet_tag }}
+
+{%- liquid
+  assign scheme = section.settings.color_scheme | default: 'scheme-3'
+  assign on_dark = false
+  if scheme == 'scheme-3' or scheme == 'scheme-4'
+    assign on_dark = true
+  endif
+-%}
+
+<section class="cd-section color-{{ scheme }} gradient">
+  <div class="page-width">
+    <div class="cd-head{% if section.settings.center_head %} cd-head--center{% endif %}">
+      {%- if section.settings.eyebrow != blank -%}
+        <p class="carat-eyebrow{% if on_dark %} carat-eyebrow--on-dark{% endif %}">
+          {{- section.settings.eyebrow | escape -}}
+        </p>
+      {%- endif -%}
+      <h2 class="cd-head__heading">{{ section.settings.heading | escape }}</h2>
+      {%- if section.settings.text != blank -%}
+        <p class="cd-head__text">{{ section.settings.text | escape }}</p>
+      {%- endif -%}
+    </div>
+
+    <div class="cd-next__grid">
+      {%- for block in section.blocks -%}
+        <div class="cd-next__option" {{ block.shopify_attributes }}>
+          <span class="cd-next__label">{{ block.settings.title | escape }}</span>
+          {%- if block.settings.text != blank -%}
+            <span class="cd-next__text">{{ block.settings.text | escape }}</span>
+          {%- endif -%}
+          {%- if block.settings.state != blank -%}
+            <span class="cd-next__state">{{ block.settings.state | escape }}</span>
+          {%- endif -%}
+        </div>
+      {%- endfor -%}
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Carat diamond next steps",
+  "tag": "section",
+  "max_blocks": 3,
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "These options are deliberately not clickable: both need a selected diamond and a connected provider. Give each a link only once that integration exists."
+    },
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow", "default": "Next" },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Found your diamond? Make it yours." },
+    { "type": "text", "id": "text", "label": "Supporting copy" },
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "Colour scheme",
+      "default": "scheme-3"
+    },
+    { "type": "checkbox", "id": "center_head", "label": "Centre the heading", "default": false }
+  ],
+  "blocks": [
+    {
+      "type": "option",
+      "name": "Option",
+      "settings": [
+        { "type": "text", "id": "title", "label": "Title", "default": "Option" },
+        { "type": "text", "id": "text", "label": "One or two lines" },
+        {
+          "type": "text",
+          "id": "state",
+          "label": "State chip",
+          "default": "Available at launch",
+          "info": "Says why it is not actionable yet. Clear it once the option works."
+        }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Carat diamond next steps" }]
+}
+{% endschema %}

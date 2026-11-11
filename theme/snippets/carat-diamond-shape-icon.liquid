@@ -1,0 +1,92 @@
+{%- comment -%}
+  DIAMOND SHAPE OUTLINES.
+
+  Drawn here as inline SVG rather than uploaded as images, for three reasons:
+
+  1. There are no diamond-shape assets in this theme — the existing icon
+     snippets are UI chrome (accordion carets, social marks). Something had
+     to be made.
+  2. A photograph of a diamond is inventory. These are category outlines, so
+     drawing them avoids putting a picture of a stone we do not have in
+     front of a customer.
+  3. They inherit `currentColor` and scale, so one file serves the shape grid
+     and anywhere else a shape needs naming later.
+
+  The outlines are the stone's TABLE VIEW — the silhouette seen from above,
+  which is how every diamond search in the trade draws them. Deliberately
+  plain silhouettes with no facet lines: at 40px the facets turn to mud, and
+  a wrong facet pattern on an Asscher would be a claim about the cut.
+
+  THE ATTRIBUTES ARE CAPTURED, THE TAG IS NOT. The first version of this file
+  captured `<svg ...>` as an opening fragment and reused it in every branch,
+  which theme-check rejected outright:
+
+      LiquidHTMLSyntaxError — Attempting to close LiquidTag 'capture'
+      before it was opened
+
+  Liquid's HTML parser balances tags across capture boundaries, so half a tag
+  in a variable is not a thing that can exist. Capturing only the attribute
+  list keeps every tag closed where it is opened, at the cost of repeating
+  eleven characters per branch.
+
+  Usage:
+    {% render 'carat-diamond-shape-icon', shape: 'round', size: 40 %}
+
+  An unknown shape renders nothing rather than a fallback blob, so a typo is
+  visible as an absence instead of silently drawing the wrong stone.
+{%- endcomment -%}
+
+{%- liquid
+  assign s = shape | default: '' | downcase
+  assign px = size | default: 40
+-%}
+
+{%- capture a -%}
+class="cd-shape__icon" width="{{ px }}" height="{{ px }}" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false"
+{%- endcapture -%}
+
+{%- case s -%}
+  {%- when 'round' -%}
+    <svg {{ a }}><circle cx="24" cy="24" r="18" /></svg>
+
+  {%- when 'oval' -%}
+    <svg {{ a }}><ellipse cx="24" cy="24" rx="12.5" ry="18" /></svg>
+
+  {%- comment -%}
+    EMERALD / RADIANT / ASSCHER ARE SEPARATED BY PROPORTION, NOT BY DETAIL.
+
+    All three are cut-corner silhouettes, and the first version of this file
+    drew them at near-identical sizes — on the rendered page they were three
+    indistinguishable octagons, which makes a shape picker worse than no
+    shape picker. The trade separates them by aspect ratio, so these do too:
+
+      emerald  22 x 40  clearly elongated
+      radiant  30 x 34  rectangular but broad
+      asscher  34 x 34  square, with corner cuts deep enough to read
+
+    Checked at 44px, the size the shape grid actually renders.
+  {%- endcomment -%}
+  {%- when 'emerald' -%}
+    <svg {{ a }}><path d="M19 4h10l6 6v28l-6 6H19l-6-6V10z" /></svg>
+
+  {%- when 'radiant' -%}
+    <svg {{ a }}><path d="M15 7h18l6 6v22l-6 6H15l-6-6V13z" /></svg>
+
+  {%- when 'cushion' -%}
+    <svg {{ a }}><rect x="7" y="7" width="34" height="34" rx="11" /></svg>
+
+  {%- when 'princess' -%}
+    <svg {{ a }}><rect x="8" y="8" width="32" height="32" /></svg>
+
+  {%- when 'asscher' -%}
+    <svg {{ a }}><path d="M17 7h14l10 10v14l-10 10H17L7 31V17z" /></svg>
+
+  {%- when 'pear' -%}
+    <svg {{ a }}><path d="M24 4c8 9 14 18 14 25a14 14 0 0 1-28 0C10 22 16 13 24 4z" /></svg>
+
+  {%- when 'marquise' -%}
+    <svg {{ a }}><path d="M24 4c7 8 11 15 11 20s-4 12-11 20c-7-8-11-15-11-20s4-12 11-20z" /></svg>
+
+  {%- when 'heart' -%}
+    <svg {{ a }}><path d="M24 42C9 31 5 22 5 16.5A10.5 10.5 0 0 1 24 11a10.5 10.5 0 0 1 19 5.5C43 22 39 31 24 42z" /></svg>
+{%- endcase -%}

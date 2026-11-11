@@ -1,0 +1,93 @@
+{%- comment -%}
+  FOUR SHORT ITEMS UNDER A HEADING — used twice on this page: the CaratForUs
+  diamond proposition, and the four characteristics (cut, colour, clarity,
+  carat).
+
+  ONE SECTION, TWO INSTANCES, because the two are the same shape: a heading
+  and four restrained items. The only difference is whether each item carries
+  a mark, which is a setting rather than a second file.
+
+  WHY NOT carat-steps, which already renders a heading plus up to four
+  blocks: it numbers them. "1 Direct Pricing, 2 Certified Diamonds" asserts a
+  sequence that is not there, and numbering cut/colour/clarity/carat implies
+  an order of importance that jewellers argue about. Its desktop grid is also
+  three columns, so a fourth item wraps alone onto a second row.
+
+  The marks here are the characteristic's initial — C, C, C, C reads as a set
+  and is how the trade names them — or nothing at all for the proposition.
+{%- endcomment -%}
+
+{{ 'carat-diamonds.css' | asset_url | stylesheet_tag }}
+
+{%- liquid
+  assign scheme = section.settings.color_scheme | default: 'scheme-1'
+-%}
+
+<section class="cd-section color-{{ scheme }} gradient">
+  <div class="page-width">
+    <div class="cd-head{% if section.settings.center_head %} cd-head--center{% endif %}">
+      {%- if section.settings.eyebrow != blank -%}
+        <p class="carat-eyebrow">{{ section.settings.eyebrow | escape }}</p>
+      {%- endif -%}
+      {%- if section.settings.heading != blank -%}
+        <h2 class="cd-head__heading">{{ section.settings.heading | escape }}</h2>
+      {%- endif -%}
+      {%- if section.settings.text != blank -%}
+        <p class="cd-head__text">{{ section.settings.text | escape }}</p>
+      {%- endif -%}
+    </div>
+
+    <ul class="cd-pillars__grid" role="list">
+      {%- for block in section.blocks -%}
+        <li {{ block.shopify_attributes }}>
+          {%- if section.settings.show_marks and block.settings.mark != blank -%}
+            <span class="cd-pillar__mark" aria-hidden="true">{{ block.settings.mark | escape }}</span>
+          {%- endif -%}
+          <h3 class="cd-pillar__title">{{ block.settings.title | escape }}</h3>
+          {%- if block.settings.text != blank -%}
+            <p class="cd-pillar__text">{{ block.settings.text | escape }}</p>
+          {%- endif -%}
+        </li>
+      {%- endfor -%}
+    </ul>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Carat diamond pillars",
+  "tag": "section",
+  "max_blocks": 4,
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow" },
+    { "type": "text", "id": "heading", "label": "Heading" },
+    { "type": "text", "id": "text", "label": "Supporting copy" },
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "Colour scheme",
+      "default": "scheme-1"
+    },
+    { "type": "checkbox", "id": "center_head", "label": "Centre the heading", "default": false },
+    {
+      "type": "checkbox",
+      "id": "show_marks",
+      "label": "Show each item's mark",
+      "default": false,
+      "info": "Used for the four characteristics. Leave off for value pillars, where a mark would read as a step number."
+    }
+  ],
+  "blocks": [
+    {
+      "type": "pillar",
+      "name": "Item",
+      "settings": [
+        { "type": "text", "id": "mark", "label": "Mark", "info": "One or two characters, e.g. C." },
+        { "type": "text", "id": "title", "label": "Title", "default": "Title" },
+        { "type": "text", "id": "text", "label": "One or two lines" }
+      ]
+    }
+  ],
+  "presets": [{ "name": "Carat diamond pillars" }]
+}
+{% endschema %}

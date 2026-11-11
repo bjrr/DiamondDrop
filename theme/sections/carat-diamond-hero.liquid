@@ -1,0 +1,198 @@
+{%- comment -%}
+  DIAMOND HERO — the one H1 on /pages/diamonds.
+
+  WHY NOT carat-pagehead, which already has an eyebrow, a heading, a
+  subheading and two buttons and would have needed no new code: its own
+  header comment draws the line this page sits on the far side of. Level 3 is
+  "a page a customer arrived to DO something" — submit a claim, read a term —
+  and the rule is that a hero must EARN the first screen. A shopping
+  destination earns it; a warranty form does not. The brief also asks for two
+  "visual choices", and carat-pagehead renders buttons.
+
+  THE CATEGORY CHOICES ARE LINKS, NOT FILTERS. They carry `?type=` to the
+  feed area on this same page, and the only thing that reads it is this
+  page's own copy. They are not wired to inventory, because there is none;
+  when a provider is connected they become the natural place to initialise
+  its feed, and the href is the only line that has to change.
+
+  QUERY PARAMETERS ARE A CLIENT-SIDE CONCERN HERE, and not by preference:
+  Shopify Liquid cannot read an arbitrary query string server-side. So the
+  highlight is applied by the small script at the foot of this file, and the
+  page is complete and correct without it — no layout shift, no empty state,
+  just no highlight.
+{%- endcomment -%}
+
+{{ 'carat-diamonds.css' | asset_url | stylesheet_tag }}
+
+{%- liquid
+  assign scheme = section.settings.color_scheme | default: 'scheme-3'
+  assign link_one = section.settings.choice_one_link | default: '?type=lab-grown#diamond-search'
+  assign link_two = section.settings.choice_two_link | default: '?type=natural#diamond-search'
+-%}
+
+<section class="cd-hero color-{{ scheme }} gradient">
+  <div class="page-width cd-hero__inner">
+    <div class="cd-hero__copy">
+      {%- if section.settings.eyebrow != blank -%}
+        <p class="carat-eyebrow carat-eyebrow--on-dark">{{ section.settings.eyebrow | escape }}</p>
+      {%- endif -%}
+
+      <h1 class="cd-hero__title">
+        {{ section.settings.heading | default: page.title | escape }}
+      </h1>
+
+      {%- if section.settings.text != blank -%}
+        <p class="cd-hero__text">{{ section.settings.text | escape }}</p>
+      {%- endif -%}
+    </div>
+
+    {%- if section.settings.choice_one_label != blank -%}
+      <div class="cd-choices" data-cd-choices>
+        <a
+          class="cd-choice"
+          href="{{ link_one }}"
+          data-cd-choice="lab-grown"
+        >
+          <span class="cd-choice__label">{{ section.settings.choice_one_label | escape }}</span>
+          {%- if section.settings.choice_one_text != blank -%}
+            <span class="cd-choice__text">{{ section.settings.choice_one_text | escape }}</span>
+          {%- endif -%}
+          <span class="cd-choice__go">
+            {{- 'Browse' }} <span aria-hidden="true">&rarr;</span>
+          </span>
+        </a>
+
+        {%- if section.settings.choice_two_label != blank -%}
+          <a
+            class="cd-choice"
+            href="{{ link_two }}"
+            data-cd-choice="natural"
+          >
+            <span class="cd-choice__label">{{ section.settings.choice_two_label | escape }}</span>
+            {%- if section.settings.choice_two_text != blank -%}
+              <span class="cd-choice__text">{{ section.settings.choice_two_text | escape }}</span>
+            {%- endif -%}
+            <span class="cd-choice__go">
+              {{- 'Browse' }} <span aria-hidden="true">&rarr;</span>
+            </span>
+          </a>
+        {%- endif -%}
+      </div>
+    {%- endif -%}
+  </div>
+</section>
+
+<script>
+  /*
+   * Reflects ?type=lab-grown | natural as page CONTEXT. Three deliberate
+   * limits:
+   *
+   *   - It marks and it labels. It does not filter, sort or price, because
+   *     there is nothing connected to filter. A control that appears to
+   *     work and does not is worse than one that plainly waits.
+   *   - An unrecognised value is ignored rather than defaulted, so a stale
+   *     or hand-edited link cannot silently show the wrong category.
+   *   - `aria-current` carries it, so the highlight is announced rather
+   *     than being colour alone.
+   */
+  (function () {
+    var CATEGORIES = {
+      'lab-grown': 'Lab-Grown',
+      natural: 'Natural'
+    };
+
+    // Mirrors the shape list in carat-diamond-shape-icon.liquid. An
+    // allow-list rather than a passthrough: the value is written into the
+    // page, so it must never be attacker-controlled text.
+    var SHAPES = {
+      round: 'Round',
+      oval: 'Oval',
+      emerald: 'Emerald',
+      radiant: 'Radiant',
+      cushion: 'Cushion',
+      pear: 'Pear',
+      marquise: 'Marquise',
+      princess: 'Princess',
+      asscher: 'Asscher',
+      heart: 'Heart'
+    };
+
+    function reveal(selector, text) {
+      document.querySelectorAll(selector).forEach(function (node) {
+        node.textContent = text;
+        var holder = node.closest('[data-cd-context-holder]');
+        if (holder) holder.hidden = false;
+      });
+    }
+
+    function apply() {
+      var params = new URLSearchParams(window.location.search);
+      var type = params.get('type');
+      var shape = params.get('shape');
+
+      if (type && Object.prototype.hasOwnProperty.call(CATEGORIES, type)) {
+        document.querySelectorAll('[data-cd-choice]').forEach(function (choice) {
+          choice.setAttribute('aria-current', String(choice.dataset.cdChoice === type));
+        });
+
+        // The feed area states which category was asked for, so arriving
+        // from the homepage's "Shop Lab-Grown Diamonds" button does not land
+        // on a page that has forgotten the question.
+        reveal('[data-cd-context]', CATEGORIES[type]);
+      }
+
+      if (shape && Object.prototype.hasOwnProperty.call(SHAPES, shape)) {
+        document.querySelectorAll('[data-cd-shape]').forEach(function (node) {
+          node.setAttribute('aria-current', String(node.dataset.cdShape === shape));
+        });
+        reveal('[data-cd-shape-context]', SHAPES[shape]);
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', apply);
+    } else {
+      apply();
+    }
+  })();
+</script>
+
+{% schema %}
+{
+  "name": "Carat diamond hero",
+  "tag": "section",
+  "settings": [
+    { "type": "text", "id": "eyebrow", "label": "Eyebrow", "default": "CaratForUs Diamonds" },
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Headline (defaults to page title)",
+      "default": "Find Your Perfect Diamond"
+    },
+    {
+      "type": "text",
+      "id": "text",
+      "label": "Supporting copy",
+      "default": "Shop certified natural and lab-grown diamonds with transparent, direct pricing."
+    },
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "Colour scheme",
+      "default": "scheme-3"
+    },
+    { "type": "header", "content": "Category choices" },
+    {
+      "type": "paragraph",
+      "content": "The two links below are where a connected provider gets initialised. Until then they carry the chosen category to the search area on this page. Plain text rather than a URL picker, so a relative value like ?type=natural#diamond-search survives being saved."
+    },
+    { "type": "text", "id": "choice_one_label", "label": "First choice", "default": "Lab-Grown Diamonds" },
+    { "type": "text", "id": "choice_one_text", "label": "First choice line" },
+    { "type": "text", "id": "choice_one_link", "label": "First choice link", "default": "?type=lab-grown#diamond-search" },
+    { "type": "text", "id": "choice_two_label", "label": "Second choice", "default": "Natural Diamonds" },
+    { "type": "text", "id": "choice_two_text", "label": "Second choice line" },
+    { "type": "text", "id": "choice_two_link", "label": "Second choice link", "default": "?type=natural#diamond-search" }
+  ],
+  "presets": [{ "name": "Carat diamond hero" }]
+}
+{% endschema %}

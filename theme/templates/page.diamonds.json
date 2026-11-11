@@ -1,32 +1,170 @@
 {
   "sections": {
-    "head": {
-      "type": "carat-pagehead",
+    "hero": {
+      "type": "carat-diamond-hero",
       "settings": {
-        "level": "functional",
-        "eyebrow": "Loose certified diamonds",
-        "heading": "Buy Diamonds at Direct Prices",
-        "subheading": "Search certified natural and lab-grown diamonds with transparent CaratForUs pricing.",
-        "color_scheme": "scheme-1"
-      }
-    },
-    "main": {
-      "type": "main-page",
-      "settings": {
-        "padding_top": 12,
-        "padding_bottom": 12
+        "eyebrow": "CaratForUs Diamonds",
+        "heading": "Find Your Perfect Diamond",
+        "text": "Shop certified natural and lab-grown diamonds with transparent, direct pricing.",
+        "color_scheme": "scheme-3",
+        "choice_one_label": "Lab-Grown Diamonds",
+        "choice_one_text": "Identical to natural in composition, at a different price.",
+        "choice_one_link": "?type=lab-grown#diamond-search",
+        "choice_two_label": "Natural Diamonds",
+        "choice_two_text": "Formed over billions of years, independently graded.",
+        "choice_two_link": "?type=natural#diamond-search"
       }
     },
     "feed": {
-      "type": "apps",
+      "type": "carat-diamond-feed",
       "settings": {
-        "include_margins": true
+        "anchor_id": "diamond-search",
+        "color_scheme": "scheme-1",
+        "heading": "Search the diamond marketplace",
+        "text": "These are the controls you will use to narrow an extensive certified inventory down to the one stone you want.",
+        "preview_label": "Preview — live inventory is not connected yet",
+        "soon_heading": "Diamond Marketplace Coming Soon",
+        "soon_text": "We're preparing direct access to an extensive selection of certified natural and lab-grown diamonds. Soon you'll be able to compare diamonds, certificates and pricing in one place.",
+        "soon_cta_label": "Join the Early Access List",
+        "soon_cta_link": "/pages/first-access",
+        "soon_note": "First Access members hear before the public launch."
+      }
+    },
+    "shapes": {
+      "type": "carat-diamond-shapes",
+      "settings": {
+        "eyebrow": "Shapes",
+        "heading": "Start with a shape",
+        "text": "Shape sets the character of a diamond before anything else does. Pick the one you are drawn to, or compare several.",
+        "color_scheme": "scheme-2",
+        "link_base": "?shape=",
+        "link_suffix": "#diamond-search"
+      }
+    },
+    "value": {
+      "type": "carat-diamond-pillars",
+      "blocks": {
+        "pricing": {
+          "type": "pillar",
+          "settings": {
+            "title": "Direct Pricing",
+            "text": "Transparent pricing designed to deliver exceptional value."
+          }
+        },
+        "certified": {
+          "type": "pillar",
+          "settings": {
+            "title": "Certified Diamonds",
+            "text": "Shop independently graded diamonds from recognized laboratories."
+          }
+        },
+        "both": {
+          "type": "pillar",
+          "settings": {
+            "title": "Natural & Lab-Grown",
+            "text": "Compare both categories in one streamlined experience."
+          }
+        },
+        "guidance": {
+          "type": "pillar",
+          "settings": {
+            "title": "Expert Guidance",
+            "text": "Need help choosing? CaratForUs can help evaluate the details that matter."
+          }
+        }
+      },
+      "block_order": ["pricing", "certified", "both", "guidance"],
+      "settings": {
+        "eyebrow": "Why CaratForUs",
+        "heading": "Buying a diamond should be legible",
+        "text": "No bidding, no pressure, no pretending a markup is a discount.",
+        "color_scheme": "scheme-1",
+        "center_head": false,
+        "show_marks": false
+      }
+    },
+    "education": {
+      "type": "carat-diamond-pillars",
+      "blocks": {
+        "cut": {
+          "type": "pillar",
+          "settings": {
+            "mark": "C",
+            "title": "Cut",
+            "text": "How well the stone returns light. Cut does more for how a diamond looks than anything else on the report."
+          }
+        },
+        "color": {
+          "type": "pillar",
+          "settings": {
+            "mark": "C",
+            "title": "Color",
+            "text": "Graded from colorless downward. The difference between neighbouring grades is subtle once a stone is set."
+          }
+        },
+        "clarity": {
+          "type": "pillar",
+          "settings": {
+            "mark": "C",
+            "title": "Clarity",
+            "text": "The natural inclusions a stone formed with. Many are invisible without magnification."
+          }
+        },
+        "carat": {
+          "type": "pillar",
+          "settings": {
+            "mark": "C",
+            "title": "Carat",
+            "text": "Weight, not size. Two stones of equal carat can look different depending on how they are cut."
+          }
+        }
+      },
+      "block_order": ["cut", "color", "clarity", "carat"],
+      "settings": {
+        "eyebrow": "The four characteristics",
+        "heading": "What the grades actually mean",
+        "text": "Enough to shop with confidence, without a lecture. Ask us if you want to go deeper on any of them.",
+        "color_scheme": "scheme-2",
+        "center_head": false,
+        "show_marks": true
+      }
+    },
+    "next": {
+      "type": "carat-diamond-next",
+      "blocks": {
+        "buy": {
+          "type": "option",
+          "settings": {
+            "title": "Buy the Diamond",
+            "text": "Purchase the loose stone on its own, graded and insured in transit.",
+            "state": "Available at launch"
+          }
+        },
+        "build": {
+          "type": "option",
+          "settings": {
+            "title": "Build an Engagement Ring",
+            "text": "Set your chosen diamond into a setting selected with you.",
+            "state": "Available at launch"
+          }
+        }
+      },
+      "block_order": ["buy", "build"],
+      "settings": {
+        "eyebrow": "Next",
+        "heading": "Found your diamond? Make it yours.",
+        "text": "Both paths open when the marketplace does. Neither is live yet, so nothing here can be ordered.",
+        "color_scheme": "scheme-3",
+        "center_head": false
       }
     }
   },
   "order": [
-    "head",
-    "main",
-    "feed"
+    "hero",
+    "feed",
+    "shapes",
+    "value",
+    "education",
+    "next"
   ]
 }

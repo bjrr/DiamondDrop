@@ -1,0 +1,240 @@
+{%- comment -%}
+  THE DIAMOND FEED AREA — the only part of /pages/diamonds that a provider
+  replaces.
+
+  ===========================================================================
+  THE SEAM, AND WHY IT IS A BLOCK COUNT
+  ===========================================================================
+  This section accepts `@app` blocks. One branch:
+
+      blocks present  -> render them. That IS the live feed.
+      no blocks       -> render the Coming Soon state below.
+
+  So connecting Nivoda, UNI or anyone else is one action in the theme editor:
+  add their block to this section. The Coming Soon content then disappears on
+  its own — nobody has to remember to remove it, which is exactly the kind of
+  thing that gets forgotten and ends up stacked above a live product grid.
+  Disconnecting a provider restores the Coming Soon state just as
+  automatically.
+
+  No template edit, no section swap, no URL change, no redesign of anything
+  around it. The hero, shapes, pillars, four characteristics and ring path
+  are separate sections and are untouched by the switch.
+
+  WHY THE CONTROL PREVIEW LIVES IN THE COMING-SOON BRANCH and not above it:
+  a connected provider brings its own filter UI. Two filter bars, one real
+  and one decorative, is the worst outcome available here.
+
+  ===========================================================================
+  THE CONTROLS ARE INERT ON PURPOSE
+  ===========================================================================
+  The brief is explicit — the search presentation may be represented, but it
+  must be clear live inventory is not connected, and placeholder filters must
+  not appear operational.
+
+  So the rail is wrapped in `inert`: no pointer events, no tab stops, no
+  screen-reader exposure. It is framed and labelled "Preview" so the state
+  reads as not-yet rather than broken, and `aria-hidden` keeps assistive
+  technology from narrating eight controls that do nothing. The Coming Soon
+  panel below it is the part that is real.
+
+  NO FAKE INVENTORY. There are no diamond cards, no counts, no prices and no
+  results grid anywhere in this file. A customer cannot be shown a stone that
+  does not exist, and a reviewer cannot mistake a mock-up for stock.
+{%- endcomment -%}
+
+{{ 'carat-diamonds.css' | asset_url | stylesheet_tag }}
+
+{%- liquid
+  assign scheme = section.settings.color_scheme | default: 'scheme-1'
+  assign anchor = section.settings.anchor_id | default: 'diamond-search'
+-%}
+
+<section id="{{ anchor }}" class="cd-feed color-{{ scheme }} gradient">
+  <div class="page-width">
+    {%- if section.blocks.size > 0 -%}
+      {%- comment -%}
+        LIVE. A provider's block is installed and owns this area entirely.
+      {%- endcomment -%}
+      <div class="cd-feed__live">
+        {%- for block in section.blocks -%}
+          {% render block %}
+        {%- endfor -%}
+      </div>
+
+    {%- else -%}
+      <div class="cd-head">
+        <h2 class="cd-head__heading">{{ section.settings.heading | escape }}</h2>
+        {%- if section.settings.text != blank -%}
+          <p class="cd-head__text">{{ section.settings.text | escape }}</p>
+        {%- endif -%}
+        <p class="cd-head__text" data-cd-context-holder hidden>
+          {{ 'You asked about' }} <strong data-cd-context></strong> {{ 'diamonds. We will open that category first.' }}
+        </p>
+      </div>
+
+      <div class="cd-preview cd-preview--spaced">
+        <p class="cd-preview__tag">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false">
+            <circle cx="11" cy="11" r="7" />
+            <path d="M16 16l5 5" />
+          </svg>
+          {{ section.settings.preview_label | escape }}
+        </p>
+
+        <div class="cd-preview__body">
+          {%- comment -%}
+            `inert` is the whole point of this wrapper. It is supported in
+            every current browser and degrades to "looks dimmed, still
+            unclickable because nothing is bound" in anything older.
+          {%- endcomment -%}
+          <div class="cd-rail" inert aria-hidden="true">
+            <div class="cd-rail__row">
+              <div class="cd-rail__group">
+                <span class="cd-rail__label">Diamond type</span>
+                <div class="cd-rail__toggle">
+                  <span data-on="true">Lab-Grown</span>
+                  <span>Natural</span>
+                </div>
+              </div>
+              <div class="cd-rail__group">
+                <span class="cd-rail__label">Shape</span>
+                <div class="cd-rail__control">
+                  <span>Any shape</span>
+                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4l4 4 4-4" /></svg>
+                </div>
+              </div>
+              <div class="cd-rail__group">
+                <span class="cd-rail__label">Certification</span>
+                <div class="cd-rail__control">
+                  <span>Any laboratory</span>
+                  <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4l4 4 4-4" /></svg>
+                </div>
+              </div>
+            </div>
+
+            <div class="cd-rail__row">
+              <div class="cd-rail__group">
+                <span class="cd-rail__label">Carat</span>
+                <div class="cd-rail__track"><i></i></div>
+              </div>
+              <div class="cd-rail__group">
+                <span class="cd-rail__label">Price</span>
+                <div class="cd-rail__track"><i></i></div>
+              </div>
+            </div>
+
+            <div class="cd-rail__row">
+              <div class="cd-rail__group">
+                <span class="cd-rail__label">Cut</span>
+                <div class="cd-rail__track"><i></i></div>
+              </div>
+              <div class="cd-rail__group">
+                <span class="cd-rail__label">Colour</span>
+                <div class="cd-rail__track"><i></i></div>
+              </div>
+              <div class="cd-rail__group">
+                <span class="cd-rail__label">Clarity</span>
+                <div class="cd-rail__track"><i></i></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="cd-soon">
+          {%- comment -%} A drawn brilliant-cut outline, not a photograph. {%- endcomment -%}
+          <svg class="cd-soon__mark" width="34" height="34" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M10 18h28L24 40z" />
+            <path d="M10 18l5-10h18l5 10" />
+            <path d="M15 8l4 10M33 8l-4 10M10 18h28" />
+          </svg>
+
+          <h3 class="cd-soon__title">{{ section.settings.soon_heading | escape }}</h3>
+
+          {%- if section.settings.soon_text != blank -%}
+            <p class="cd-soon__text">{{ section.settings.soon_text | escape }}</p>
+          {%- endif -%}
+
+          {%- if section.settings.soon_cta_label != blank -%}
+            <div class="cd-soon__actions">
+              <a class="button" href="{{ section.settings.soon_cta_link | default: '/pages/first-access' }}">
+                {{- section.settings.soon_cta_label | escape -}}
+              </a>
+            </div>
+          {%- endif -%}
+
+          {%- if section.settings.soon_note != blank -%}
+            <p class="cd-soon__note">{{ section.settings.soon_note | escape }}</p>
+          {%- endif -%}
+        </div>
+      </div>
+    {%- endif -%}
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Carat diamond feed",
+  "tag": "section",
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "Add a diamond provider's app block here to go live. The Coming Soon state below is shown only while there is no block, and disappears by itself once one is added."
+    },
+    {
+      "type": "text",
+      "id": "anchor_id",
+      "label": "Anchor id",
+      "default": "diamond-search",
+      "info": "Linked to from the hero and the homepage. Changing it breaks those links."
+    },
+    {
+      "type": "color_scheme",
+      "id": "color_scheme",
+      "label": "Colour scheme",
+      "default": "scheme-1"
+    },
+    { "type": "header", "content": "Shown only before a provider is connected" },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Search the diamond marketplace" },
+    {
+      "type": "text",
+      "id": "text",
+      "label": "Supporting copy",
+      "default": "These are the controls you will use to narrow an extensive certified inventory down to the one stone you want."
+    },
+    {
+      "type": "text",
+      "id": "preview_label",
+      "label": "Preview frame label",
+      "default": "Preview — live inventory is not connected yet"
+    },
+    {
+      "type": "text",
+      "id": "soon_heading",
+      "label": "Coming Soon heading",
+      "default": "Diamond Marketplace Coming Soon"
+    },
+    {
+      "type": "text",
+      "id": "soon_text",
+      "label": "Coming Soon copy",
+      "default": "We're preparing direct access to an extensive selection of certified natural and lab-grown diamonds. Soon you'll be able to compare diamonds, certificates and pricing in one place."
+    },
+    { "type": "text", "id": "soon_cta_label", "label": "Button", "default": "Join the Early Access List" },
+    {
+      "type": "url",
+      "id": "soon_cta_link",
+      "label": "Button link",
+      "info": "Defaults to /pages/first-access — the existing First Access signup, which already offers a Loose Diamonds interest. A `url` setting cannot carry a relative default in its schema (Shopify rejects the section outright), so the fallback lives in this section's Liquid instead."
+    },
+    {
+      "type": "text",
+      "id": "soon_note",
+      "label": "Small note",
+      "default": "First Access members hear before the public launch."
+    }
+  ],
+  "blocks": [{ "type": "@app" }],
+  "presets": [{ "name": "Carat diamond feed" }]
+}
+{% endschema %}
