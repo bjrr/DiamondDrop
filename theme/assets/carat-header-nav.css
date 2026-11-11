@@ -1,0 +1,99 @@
+/*
+ * CaratForUs header navigation — ten items on one line, or none.
+ * ===========================================================================
+ * THE PROBLEM THIS SOLVES, MEASURED RATHER THAN ASSUMED.
+ *
+ * The launch menu is ten items, and several are long: "Let Us Beat Your
+ * Quote" renders 139px, "Set Your Own Stone" 122px, "Custom Jewelry" 103px.
+ * Measured in the browser, the ten together need ~823px of intrinsic width.
+ * The rest of the header needs ~413px (logo 185, icons 128, padding 100), so
+ * one clean line needs roughly 1236px before any breathing room.
+ *
+ * Dawn switches from the inline nav to the hamburger at 990px. That is far
+ * too late for this menu: at 1229px the items were already WRAPPING ONTO A
+ * SECOND ROW, which is the exact defect this file exists to remove.
+ *
+ * ===========================================================================
+ * TWO LEVERS, AND ONE DELIBERATELY NOT PULLED
+ * ===========================================================================
+ * 1. Trim the per-item padding from 1.2rem to 0.9rem. Six pixels per item,
+ *    sixty across the menu, and at this scale it reads as a slightly tighter
+ *    rhythm rather than as crowding.
+ *
+ * 2. Move the hamburger switch up to 1280px, so the inline nav only ever
+ *    appears where ten items genuinely fit. Below it the header becomes the
+ *    mobile one — hamburger, centred logo, icons — which is a coherent
+ *    layout rather than a squeezed desktop one.
+ *
+ * NOT PULLED: font-size. The brief permits "a very small font-size
+ *    adjustment", but the nav links already compute to 9.375px. Taking
+ *    anything off that buys a few pixels and costs legibility on the one
+ *    element every visitor uses, which is the opposite of the luxury
+ *    appearance the brief asks to preserve. The logo is untouched for the
+ *    same reason.
+ *
+ * Loaded from sections/header.liquid AFTER its inline <style> block, so
+ * these rules win on source order at equal specificity — notably over
+ * `header-drawer { display: none }`, which that block sets at 990px.
+ */
+
+/* ---------------------------------------------------------------------------
+   SPACING — applies wherever the inline nav is shown.
+   --------------------------------------------------------------------------- */
+
+@media screen and (min-width: 990px) {
+  .header__inline-menu .header__menu-item {
+    padding-left: 0.9rem;
+    padding-right: 0.9rem;
+  }
+
+  /* `summary` items (any dropdown) carry a wider right pad for their caret.
+     Trimmed proportionally so a future dropdown does not reintroduce the
+     overflow this file removes. */
+  .header__inline-menu summary.list-menu__item {
+    padding-right: 2.2rem;
+  }
+
+  /*
+   * NEVER WRAP. The trim and the breakpoint together should make this
+   * unreachable, but `flex-wrap: wrap` on .list-menu--inline is what let the
+   * menu silently fall onto a second row in the first place. Forbidding the
+   * wrap converts any future regression — an eleventh item, a longer label,
+   * a wider logo — into something immediately visible rather than a quiet
+   * second line.
+   */
+  .header__inline-menu > .list-menu--inline {
+    flex-wrap: nowrap;
+  }
+
+  .header__inline-menu .header__menu-item {
+    white-space: nowrap;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   THE SWITCH — mobile header below 1280px, desktop header at and above it.
+
+   Dawn's own desktop rules live in a `min-width: 990px` block, so this band
+   undoes exactly those three: the two-column-plus-nav grid, the visible
+   inline menu, and the hidden drawer. What is left is the mobile header,
+   which is already fully styled by the unprefixed rules in base.css.
+   --------------------------------------------------------------------------- */
+
+@media screen and (min-width: 990px) and (max-width: 1279.98px) {
+  .header.header--middle-left,
+  .header.header--middle-center,
+  .header.header--top-left {
+    grid-template-areas: 'left-icons heading icons';
+    grid-template-columns: 1fr 2fr 1fr;
+    column-gap: 1rem;
+  }
+
+  .header__inline-menu {
+    display: none;
+  }
+
+  header-drawer {
+    display: block;
+  }
+}

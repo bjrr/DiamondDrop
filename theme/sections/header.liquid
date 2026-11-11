@@ -100,6 +100,15 @@
   }
 </style>
 
+{%- comment -%}
+  CaratForUs navigation sizing. Loaded HERE, after the <style> block above,
+  on purpose: that block sets `header-drawer { display: none }` from 990px,
+  and this stylesheet needs to win that at equal specificity, which it can
+  only do on source order. See assets/carat-header-nav.css for the
+  measurements behind it.
+{%- endcomment -%}
+{{ 'carat-header-nav.css' | asset_url | stylesheet_tag }}
+
 {%- style -%}
   .header {
     padding: {{ section.settings.padding_top | times: 0.5 | round: 0 }}px 3rem {{ section.settings.padding_bottom | times: 0.5 | round: 0 }}px 3rem;

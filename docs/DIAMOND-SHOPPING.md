@@ -165,9 +165,71 @@ the owner's launch flip and not this work's to perform.
    `launch-main-menu` to the live theme would change the live navigation.
    Neither file is safe to push blindly — which is why both are listed here.
 
-   When LAUNCH is published, the cleanest resolution is to add Diamonds to
-   `main-menu` and point LAUNCH's header back at it, retiring
-   `launch-main-menu`.
+   When LAUNCH is published, the cleanest resolution is to copy the launch
+   menu's items onto `main-menu` and point LAUNCH's header back at it,
+   retiring `launch-main-menu`.
+
+   **The launch menu, final order (owner-set, 2026-11-10):**
+
+   | # | Label | Destination |
+   |---|---|---|
+   | 1 | Home | `/` |
+   | 2 | Jewelry | `/collections/all` |
+   | 3 | Luxury Steals | `/pages/luxury-steals` |
+   | 4 | Group Buy | `/pages/group-buy` |
+   | 5 | Diamonds | `/pages/diamonds` |
+   | 6 | Set Your Own Stone | `/pages/set-your-own-stone` |
+   | 7 | Let Us Beat Your Quote | `/pages/let-us-beat-your-quote` |
+   | 8 | Custom Jewelry | `/pages/custom-jewelry` |
+   | 9 | FAQ | `/pages/faq` |
+   | 10 | Contact | `/pages/contact` |
+
+   **"Jewelry" is a relabel of "Catalog", not a new destination.** The store
+   has exactly one collection — `frontpage`, holding one product — so there
+   is no existing Jewelry collection to point at, and creating one would be
+   the duplicate the brief asks to avoid. The item keeps its `CATALOG` type
+   and `/collections/all` target.
+
+### Fitting ten items in the header
+
+Dawn switches from the inline navigation to the hamburger at 990px. For a
+ten-item menu that is far too late: measured in the browser, the items need
+~823px of intrinsic width and the rest of the header ~413px (logo 185, icons
+128, padding 100), and **at 1229px the menu was already wrapping onto a
+second row** — silently, because `.list-menu--inline` sets `flex-wrap: wrap`.
+
+`assets/carat-header-nav.css` fixes it with two levers and one deliberate
+omission:
+
+- item padding trimmed `1.2rem` → `0.9rem` (6px per item, 60px across);
+- `flex-wrap: nowrap`, so a future eleventh item or longer label becomes
+  visible rather than quietly becoming a second row;
+- the inline/hamburger switch moved to **1280px**, below which the header
+  becomes the mobile one (hamburger, centred logo, icons) — a coherent
+  layout rather than a squeezed desktop one.
+
+**Font-size is deliberately untouched.** The brief permits a very small
+adjustment, but the nav links already compute to 9.375px; taking anything off
+that buys a few pixels and costs legibility on the one element every visitor
+uses. The logo is untouched for the same reason.
+
+The stylesheet is loaded from `sections/header.liquid` **after** its inline
+`<style>` block, and that ordering is load-bearing: the block sets
+`header-drawer { display: none }` from 990px, and the override that shows the
+drawer again between 990 and 1280 has equal specificity, so it wins only on
+source order. Moving the link higher would leave a 1024px tablet with no
+navigation at all, and nothing would error.
+`app/app/theme/headerNavigation.test.ts` pins that, along with the
+breakpoint direction, the nowrap, and the untouched font and logo.
+
+| Width | Result |
+|---|---|
+| 1920 / 1600 / 1440 / 1366 / 1280 | inline nav, **one row**, no overlap, no overflow |
+| 1279 and below | hamburger, clean |
+| 1024 / 768 / 430 / 390 / 320 | hamburger, all 10 items in order, no overflow |
+
+At the tightest desktop width (1280px) there is 80px of clearance between the
+last nav item and the header icons.
 
 3. **`theme/templates/index.json` in this repository and the LAUNCH theme's
    copy differ on one line**, deliberately. The repo points the homepage Group
