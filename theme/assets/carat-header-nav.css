@@ -1,86 +1,140 @@
 /*
- * CaratForUs header navigation — ten items on one line, or none.
+ * CaratForUs header navigation — ten items, fitted rather than hidden.
  * ===========================================================================
- * THE PROBLEM THIS SOLVES, MEASURED RATHER THAN ASSUMED.
+ * WHAT THIS REPLACED, AND WHY IT WAS WRONG
+ * ===========================================================================
+ * The first version of this file moved Dawn's inline-nav/hamburger switch
+ * from 990px up to 1280px. That removed the desktop navigation on ordinary
+ * laptops: a 1366px screen at Windows' default 125% display scaling reports a
+ * CSS viewport of ~1092px, and a 1440px screen at 125% reports ~1152px. Both
+ * fell below 1280 and got the hamburger. Raising a breakpoint hides the
+ * symptom and takes the navigation with it.
  *
- * The launch menu is ten items, and several are long: "Let Us Beat Your
- * Quote" renders 139px, "Set Your Own Stone" 122px, "Custom Jewelry" 103px.
- * Measured in the browser, the ten together need ~823px of intrinsic width.
- * The rest of the header needs ~413px (logo 185, icons 128, padding 100), so
- * one clean line needs roughly 1236px before any breathing room.
- *
- * Dawn switches from the inline nav to the hamburger at 990px. That is far
- * too late for this menu: at 1229px the items were already WRAPPING ONTO A
- * SECOND ROW, which is the exact defect this file exists to remove.
+ * The fix is to make the header actually FIT, then put the breakpoint where
+ * it genuinely stops fitting.
  *
  * ===========================================================================
- * TWO LEVERS, AND ONE DELIBERATELY NOT PULLED
+ * THE BUDGET, MEASURED IN THE BROWSER
  * ===========================================================================
- * 1. Trim the per-item padding from 1.2rem to 0.9rem. Six pixels per item,
- *    sixty across the menu, and at this scale it reads as a slightly tighter
- *    rhythm rather than as crowding.
+ * Before:   padding 100 + gaps 40 + logo 185 + icons 128 + nav 763 = 1216px
+ * After:    padding  40 + gaps 20 + logo 143 + icons 120 + nav 683 = 1015px
  *
- * 2. Move the hamburger switch up to 1280px, so the inline nav only ever
- *    appears where ten items genuinely fit. Below it the header becomes the
- *    mobile one — hamburger, centred logo, icons — which is a coherent
- *    layout rather than a squeezed desktop one.
+ * So the navigation now holds one row down to ~1015px, and the switch sits at
+ * 1025px — just above iPad landscape (1024px), which is tablet and should get
+ * the drawer.
  *
- * NOT PULLED: font-size. The brief permits "a very small font-size
- *    adjustment", but the nav links already compute to 9.375px. Taking
- *    anything off that buys a few pixels and costs legibility on the one
- *    element every visitor uses, which is the opposite of the luxury
- *    appearance the brief asks to preserve. The logo is untouched for the
- *    same reason.
+ * ===========================================================================
+ * FLUID, NOT STEPPED
+ * ===========================================================================
+ * Every value below interpolates between its tight figure at 1025px and its
+ * roomy figure at 1920px. A wide screen keeps the spacing the design was
+ * approved with; only genuinely narrow ones compress, and there is no width
+ * at which the header visibly jumps.
  *
- * Loaded from sections/header.liquid AFTER its inline <style> block, so
- * these rules win on source order at equal specificity — notably over
- * `header-drawer { display: none }`, which that block sets at 990px.
+ *   property        @1025px   @1920px
+ *   header padding    2rem      5rem
+ *   column gap        1rem      2rem
+ *   nav item padding  0.5rem    0.9rem
+ *   logo width       135px     170px
+ *   icon min-width    4rem      4.4rem
+ *
+ * Each clamp is `clamp(min, intercept + slope·vw, max)` where the middle term
+ * is the straight line through those two anchors.
+ *
+ * FONT-SIZE IS NOT A LEVER HERE. The nav links compute to 9.375px already.
+ * The brief says not to reduce legibility to save space, and at that size
+ * there is nothing to give. The logo floor of 135px is likewise a floor: it
+ * stays proportionate to the wordmark beside it rather than shrinking away.
+ *
+ * Loaded from sections/header.liquid AFTER its inline <style> block, so the
+ * drawer rules below win on source order. See that file's comment.
  */
 
-/* ---------------------------------------------------------------------------
-   SPACING — applies wherever the inline nav is shown.
-   --------------------------------------------------------------------------- */
+/* ===========================================================================
+   DESKTOP — from 1025px up. The navigation is visible here, so everything
+   in this block exists to keep ten items on one line.
+   =========================================================================== */
 
-@media screen and (min-width: 990px) {
-  .header__inline-menu .header__menu-item {
-    padding-left: 0.9rem;
-    padding-right: 0.9rem;
+@media screen and (min-width: 1025px) {
+  /*
+   * THE SELECTOR IS THIS LONG ON PURPOSE. The header's horizontal padding is
+   * set by base.css as
+   *
+   *     .header:not(.drawer-menu).page-width  { padding-inline: 5rem }
+   *
+   * which is three class-weight components. A shorter selector here loses
+   * the cascade silently — the first attempt used
+   * `.header.header--middle-left` (two) and the padding simply stayed at
+   * 50px a side, which cost 60px of the exact budget this file is trying to
+   * reclaim. Measured in the browser rather than reasoned about, because
+   * that is the only way a lost cascade shows up.
+   *
+   * Four components, so it outranks the rule above outright rather than
+   * depending on load order as well.
+   */
+  .header.page-width.header--middle-left:not(.drawer-menu),
+  .header.page-width.header--middle-center:not(.drawer-menu),
+  .header.page-width.header--top-left:not(.drawer-menu) {
+    padding-left: clamp(2rem, -1.4358rem + 3.352vw, 5rem);
+    padding-right: clamp(2rem, -1.4358rem + 3.352vw, 5rem);
+    column-gap: clamp(1rem, -0.1453rem + 1.1173vw, 2rem);
   }
 
-  /* `summary` items (any dropdown) carry a wider right pad for their caret.
-     Trimmed proportionally so a future dropdown does not reintroduce the
-     overflow this file removes. */
+  .header__inline-menu .header__menu-item {
+    padding-left: clamp(0.5rem, 0.0419rem + 0.4469vw, 0.9rem);
+    padding-right: clamp(0.5rem, 0.0419rem + 0.4469vw, 0.9rem);
+    white-space: nowrap;
+  }
+
   .header__inline-menu summary.list-menu__item {
-    padding-right: 2.2rem;
+    /* Dropdown carets need their own right pad; scaled with the rest so a
+       future dropdown cannot reintroduce the overflow this file removes. */
+    padding-right: clamp(1.6rem, 1.1419rem + 0.4469vw, 2.2rem);
+  }
+
+  .header .header__heading-logo-wrapper {
+    width: clamp(135px, 94.91px + 3.911vw, 170px);
   }
 
   /*
-   * NEVER WRAP. The trim and the breakpoint together should make this
-   * unreachable, but `flex-wrap: wrap` on .list-menu--inline is what let the
-   * menu silently fall onto a second row in the first place. Forbidding the
-   * wrap converts any future regression — an eleventh item, a longer label,
-   * a wider logo — into something immediately visible rather than a quiet
-   * second line.
+   * Icons stay square and clickable — 40px at the narrowest desktop, 44px
+   * when there is room. This is a pointer context, not a touch one, so 40px
+   * is comfortable; the mobile header keeps Dawn's full 44px untouched.
+   *
+   * `width`, NOT `min-width`. base.css sets `.header__icon { height: 4.4rem;
+   * width: 4.4rem }`, so a min-width floor of 40px changes nothing — the
+   * element is already 44px wide and a floor only stops it getting smaller.
+   * The first attempt did exactly that and the icons never moved. Height is
+   * set alongside so they stay square rather than becoming letterboxes.
+   */
+  .header__icons .header__icon,
+  .header__icons .header__search .header__icon {
+    width: clamp(4rem, 3.5419rem + 0.4469vw, 4.4rem);
+    height: clamp(4rem, 3.5419rem + 0.4469vw, 4.4rem);
+  }
+
+  /*
+   * NEVER WRAP. `.list-menu--inline` sets `flex-wrap: wrap`, and that is what
+   * made the original failure silent — the menu never overflowed, it just
+   * quietly became two rows. Forbidding the wrap turns any future regression
+   * (an eleventh item, a longer label, a wider logo) into something
+   * immediately visible instead.
    */
   .header__inline-menu > .list-menu--inline {
     flex-wrap: nowrap;
   }
-
-  .header__inline-menu .header__menu-item {
-    white-space: nowrap;
-  }
 }
 
-/* ---------------------------------------------------------------------------
-   THE SWITCH — mobile header below 1280px, desktop header at and above it.
+/* ===========================================================================
+   THE SWITCH — hamburger at 1024px and below.
 
-   Dawn's own desktop rules live in a `min-width: 990px` block, so this band
-   undoes exactly those three: the two-column-plus-nav grid, the visible
-   inline menu, and the hidden drawer. What is left is the mobile header,
-   which is already fully styled by the unprefixed rules in base.css.
-   --------------------------------------------------------------------------- */
+   Dawn's own desktop rules live in a `min-width: 990px` block, so the 990px
+   to 1024px band has to undo exactly those three: the nav-bearing grid, the
+   visible inline menu, and the hidden drawer. Below 990px Dawn already does
+   the right thing and this file stays out of the way.
+   =========================================================================== */
 
-@media screen and (min-width: 990px) and (max-width: 1279.98px) {
+@media screen and (min-width: 990px) and (max-width: 1024.98px) {
   .header.header--middle-left,
   .header.header--middle-center,
   .header.header--top-left {

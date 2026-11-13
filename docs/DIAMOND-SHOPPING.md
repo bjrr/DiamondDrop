@@ -176,13 +176,24 @@ the owner's launch flip and not this work's to perform.
    | 1 | Home | `/` |
    | 2 | Jewelry | `/collections/all` |
    | 3 | Luxury Steals | `/pages/luxury-steals` |
-   | 4 | Group Buy | `/pages/group-buy` |
+   | 4 | Group Buy | `/pages/group-buys` |
    | 5 | Diamonds | `/pages/diamonds` |
    | 6 | Set Your Own Stone | `/pages/set-your-own-stone` |
    | 7 | Let Us Beat Your Quote | `/pages/let-us-beat-your-quote` |
    | 8 | Custom Jewelry | `/pages/custom-jewelry` |
    | 9 | FAQ | `/pages/faq` |
    | 10 | Contact | `/pages/contact` |
+
+   **Group Buy points at `/pages/group-buys` — the hub, not the explainer.**
+   `/pages/group-buy` stays as the separate "How Group Buy works" policy
+   page (owner correction, 2026-11-12). Worth knowing before launch: **the
+   LAUNCH theme has no `templates/page.group-buys.json`**, because the Group
+   Buy storefront Phase 2 work still lives only in the unpublished
+   `188290826458` theme behind
+   `docs/GROUP-BUY-STOREFRONT-LAUNCH-GATE.md`. Until that template reaches
+   LAUNCH, this nav item renders the hub page through the default page
+   template, which is close to empty. The menu entry is correct; the
+   template it depends on has not shipped yet.
 
    **"Jewelry" is a relabel of "Catalog", not a new destination.** The store
    has exactly one collection — `frontpage`, holding one product — so there
@@ -198,38 +209,70 @@ ten-item menu that is far too late: measured in the browser, the items need
 128, padding 100), and **at 1229px the menu was already wrapping onto a
 second row** — silently, because `.list-menu--inline` sets `flex-wrap: wrap`.
 
-`assets/carat-header-nav.css` fixes it with two levers and one deliberate
-omission:
+**The first fix was wrong, and is recorded because the failure mode is easy
+to repeat.** It raised the breakpoint to 1280px. That passed every
+measurement and deleted the desktop navigation on ordinary laptops: a 1366px
+screen at the default 125% Windows display scaling reports a CSS viewport of
+~1092px, and a 1440px screen at 125% reports ~1152px. Both fell under 1280
+and got the hamburger. Raising a breakpoint hides the symptom and takes the
+navigation with it.
 
-- item padding trimmed `1.2rem` → `0.9rem` (6px per item, 60px across);
-- `flex-wrap: nowrap`, so a future eleventh item or longer label becomes
-  visible rather than quietly becoming a second row;
-- the inline/hamburger switch moved to **1280px**, below which the header
-  becomes the mobile one (hamburger, centred logo, icons) — a coherent
-  layout rather than a squeezed desktop one.
+The correct fix makes the header **fit**, then puts the switch where it
+genuinely stops fitting:
 
-**Font-size is deliberately untouched.** The brief permits a very small
-adjustment, but the nav links already compute to 9.375px; taking anything off
-that buys a few pixels and costs legibility on the one element every visitor
-uses. The logo is untouched for the same reason.
+| | before | after |
+|---|---|---|
+| header padding | 100px | 40px |
+| column gaps | 40px | 20px |
+| logo | 185px | 143px |
+| icons | 128px | 120px |
+| nav | 763px | 683px |
+| **total needed** | **1216px** | **1015px** |
+
+Every value interpolates with `clamp()` between its tight figure at 1025px
+and its roomy figure at 1920px, so a wide screen keeps the spacing the design
+was approved with and only narrow ones compress. No width jumps visibly.
+
+**Breakpoint: 1025px.** Desktop navigation at 1025px and above; hamburger at
+1024px and below, which is exactly iPad landscape.
+
+Two cascade bugs were found by measuring the rendered header rather than
+trusting the CSS, and both are now pinned:
+
+- base.css sets the padding through
+  `.header:not(.drawer-menu).page-width` — three class-weight components.
+  The override was first written with two, so it silently lost and the
+  padding stayed at 50px a side, costing 60px of a ~200px budget.
+- `.header__icon` already carries `width: 4.4rem`, so a `min-width` floor of
+  40px changed nothing: a floor cannot shrink something already wider. It
+  needed `width`.
+
+**Font-size is untouched** — the nav links compute to 9.375px and the brief
+says not to trade legibility for space. The logo has a 135px floor so it
+cannot scale away either.
 
 The stylesheet is loaded from `sections/header.liquid` **after** its inline
 `<style>` block, and that ordering is load-bearing: the block sets
-`header-drawer { display: none }` from 990px, and the override that shows the
-drawer again between 990 and 1280 has equal specificity, so it wins only on
-source order. Moving the link higher would leave a 1024px tablet with no
+`header-drawer { display: none }` from 990px, and the rule that shows the
+drawer again between 990 and 1024 has equal specificity, so it wins only on
+source order. Moving the link higher would leave a 1000px tablet with no
 navigation at all, and nothing would error.
-`app/app/theme/headerNavigation.test.ts` pins that, along with the
-breakpoint direction, the nowrap, and the untouched font and logo.
+`app/app/theme/headerNavigation.test.ts` pins all of it, and deliberately
+asserts the breakpoint from **both** sides — high enough not to wrap, low
+enough not to rob laptops.
 
-| Width | Result |
-|---|---|
-| 1920 / 1600 / 1440 / 1366 / 1280 | inline nav, **one row**, no overlap, no overflow |
-| 1279 and below | hamburger, clean |
-| 1024 / 768 / 430 / 390 / 320 | hamburger, all 10 items in order, no overflow |
+| Width | Mode | Rows | Overlap | Clipping | Clearance | Overflow |
+|---|---|---|---|---|---|---|
+| 1920 | desktop | 1 | no | no | 212px | no |
+| 1600 | desktop | 1 | no | no | 283px | no |
+| 1440 | desktop | 1 | no | no | 318px | no |
+| 1366 | desktop | 1 | no | no | 288px | no |
+| 1280 | desktop | 1 | no | no | 221px | no |
+| 1100 | desktop | 1 | no | no | 81px | no |
+| 1025 | desktop | 1 | no | no | 22px | no |
+| 1024 / 768 / 430 / 390 / 320 | hamburger | — | — | — | — | no |
 
-At the tightest desktop width (1280px) there is 80px of clearance between the
-last nav item and the header icons.
+All ten items appear in the drawer, in order, at every mobile width.
 
 3. **`theme/templates/index.json` in this repository and the LAUNCH theme's
    copy differ on one line**, deliberately. The repo points the homepage Group
