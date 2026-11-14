@@ -142,12 +142,32 @@ the owner's launch flip and not this work's to perform.
 
 ### Two things found while doing this, both outside the diamond brief
 
-1. **Neither live theme contains the Group Buy storefront Phase 2 work.**
-   Neither has `templates/page.group-buys.json` or
-   `sections/group-buy-detail.liquid`, so `/pages/group-buys` returns 200 and
-   renders an essentially empty page. That work still lives only in the
-   unpublished `188290826458`, gated by
-   `docs/GROUP-BUY-STOREFRONT-LAUNCH-GATE.md`.
+1. **The Group Buy storefront Phase 2 work is now in LAUNCH** (merged
+   2026-11-13; it was previously only in the unpublished `188290826458`). The
+   live COMING SOON theme still does not have it and was not given it.
+
+   Seven files were merged **from this repository, not from the Phase 2
+   theme** — the repo is the newer source, carrying the one-active-price
+   correction (`76ac98e`). Diffed first to be sure: all five shared
+   section/asset files are line-for-line identical between repo and theme
+   (the byte-size gap was line endings alone), so the repo was authoritative
+   and equivalent.
+
+   | File | Why |
+   |---|---|
+   | `sections/group-buy-hub.liquid` | the hub |
+   | `sections/group-buy-detail.liquid` | campaign detail |
+   | `assets/group-buy-hub.js` | hub behaviour |
+   | `assets/group-buy-detail.js` | detail + the one-active-price helper |
+   | `assets/component-group-buy.css` | both |
+   | `templates/page.group-buys.json` | `detail` → `hub` → `request` |
+   | `locales/en.default.json` | the 17 keys the two sections read |
+
+   The locale file is shared, so it was diffed rather than overwritten
+   blindly: the repo copy is a strict superset — exactly those 17 Group Buy
+   keys added, **zero LAUNCH-only keys and zero changed values** — which made
+   the push purely additive. Without it both sections would have rendered
+   "translation missing" in place of every heading and empty-state line.
 
 2. **The LAUNCH theme uses its own navigation menu.** Shopify menus are
    *store-level*, shared by every theme, so adding "Diamonds" to `main-menu`
@@ -186,14 +206,9 @@ the owner's launch flip and not this work's to perform.
 
    **Group Buy points at `/pages/group-buys` — the hub, not the explainer.**
    `/pages/group-buy` stays as the separate "How Group Buy works" policy
-   page (owner correction, 2026-11-12). Worth knowing before launch: **the
-   LAUNCH theme has no `templates/page.group-buys.json`**, because the Group
-   Buy storefront Phase 2 work still lives only in the unpublished
-   `188290826458` theme behind
-   `docs/GROUP-BUY-STOREFRONT-LAUNCH-GATE.md`. Until that template reaches
-   LAUNCH, this nav item renders the hub page through the default page
-   template, which is close to empty. The menu entry is correct; the
-   template it depends on has not shipped yet.
+   page (owner correction, 2026-11-12). The hub template reached LAUNCH in
+   the Phase 2 merge on 2026-11-13, so this nav item now renders the real
+   browse experience.
 
    **"Jewelry" is a relabel of "Catalog", not a new destination.** The store
    has exactly one collection — `frontpage`, holding one product — so there
@@ -274,15 +289,15 @@ enough not to rob laptops.
 
 All ten items appear in the drawer, in order, at every mobile width.
 
-3. **`theme/templates/index.json` in this repository and the LAUNCH theme's
-   copy differ on one line**, deliberately. The repo points the homepage Group
-   Buy card at `/pages/group-buys` (the hub); LAUNCH points it at
-   `/pages/group-buy` (the policy page). Because LAUNCH has no hub template,
-   pushing the repo's `index.json` wholesale to LAUNCH would repoint a working
-   card at an empty page — a Group Buy regression. So the diamond section was
-   inserted into **LAUNCH's own copy**, preserving every other byte, rather
-   than by pushing the repo file. Reconciling these two is a Group Buy
-   deployment decision, not a diamond one.
+3. **`theme/templates/index.json` drift — RESOLVED 2026-11-13.** The repo
+   pointed the homepage Group Buy card at `/pages/group-buys` (the hub) while
+   LAUNCH pointed it at `/pages/group-buy` (the explainer), because LAUNCH had
+   no hub template and the card would have landed on an empty page. The Group
+   Buy Phase 2 merge shipped that template, so the card was moved to the hub
+   and the two files are now byte-identical. Only the browse card moved; the
+   two "How Group Buy works" CTAs still point at the explainer, which is the
+   distinction `/pages/group-buys` (shop) versus `/pages/group-buy` (explain)
+   exists to preserve.
 
 ## The page is published, and what that means
 

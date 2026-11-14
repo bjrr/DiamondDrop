@@ -41,8 +41,24 @@ When the first legitimate Group Buy is ready for business launch:
 4. **Verify it on the unpublished theme** using the checklist below.
 5. Only after that passes, publish the redesigned theme.
 
-Unpublished theme: **`188290826458`** (`group-buy-part2-preview`).
-Preview URL: `https://caratforus.myshopify.com/pages/group-buys?preview_theme_id=188290826458`
+**Theme updated 2026-11-13.** The Phase 2 storefront was merged into the
+LAUNCH theme, so the gate now runs against **`188329197786`**
+(`LAUNCH - normal store homepage`), which also carries the navigation, the
+header fix and the diamond surface:
+
+`https://caratforus.com/pages/group-buys?preview_theme_id=188329197786`
+
+`188290826458` (`group-buy-part2-preview`) is superseded. It is left in place
+as the record of what was verified in Part 2, and nothing should be pushed to
+it.
+
+**What the merge did and did not prove.** The hub, the data bridge, the
+App Proxy, the empty state, the fixture refusal and the responsive layout are
+all verified inside LAUNCH. The **populated campaign detail is still
+unverified**, for the unchanged reason: production has no legitimate open
+Group Buy. The public feed returns zero campaigns and a fixture deep link
+returns `not_found`, which is the refusal working, not a defect. Everything
+below still applies the first time a real campaign opens.
 
 ---
 
