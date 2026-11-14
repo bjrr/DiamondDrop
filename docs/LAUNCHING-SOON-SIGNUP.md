@@ -135,3 +135,33 @@ is also the only way to get a delivery signed with **this** app's secret —
 the one `receiveShopifyWebhook` verifies against. A subscription created by
 any other app, including an MCP connector, would be registered, would
 deliver, and would 401 on every delivery.
+
+---
+
+## Backfill of pre-webhook signups
+
+`internal.jobs.backfill-first-access-emails` sends the confirmation to people
+who signed up before the webhook existed. It **calls the same handler**
+rather than reimplementing it, so the copy, the recipient, the tag gate and
+the idempotency keys are literally the same code — a second implementation
+would have its own keys and "no duplicates" would quietly become untrue.
+
+`dryRun` is the default and `createdBefore` is required: the failure mode is
+mailing a stranger, and there is no undo.
+
+**Run 2026-11-14. One recipient, not two.** The earlier report of "two
+missed signups" was wrong, and the correction matters because it decided who
+got emailed:
+
+| Customer | Tag | Outcome |
+|---|---|---|
+| `b***i@gmail.com`, created 2026-11-04 | `first-access` + 6 interests | confirmation **and** notification sent |
+| `o***s@caratforus.com`, created 2026-10-25 | **no tags at all** | correctly excluded |
+
+The "two" came from `customersCount(query:"tag:first-access")` returning 2
+while only one customer actually carries the tag. **A count query is not a
+membership test**, which is why the job re-checks the tag on each record
+after the search returns it, and why the handler checks it again after that.
+
+Re-running immediately afterwards returned `confirmationSent: false,
+notificationSent: false` — the idempotency keys held, with no duplicate.

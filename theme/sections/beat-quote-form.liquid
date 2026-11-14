@@ -225,7 +225,7 @@
                 literal would send people to a 404 on the one control that
                 exists to unblock them.
               {%- endcomment -%}
-              <a class="carat-link" href="{{ routes.account_login_url }}?return_url={{ request.path | url_encode }}">
+              <a class="carat-link" href="{{ routes.account_login_url }}{% if routes.account_login_url contains '?' %}&{% else %}?{% endif %}return_url={{ request.path | url_encode }}">
                 {{- 'templates.beat_quote.upload_signin_link' | t -}}
               </a>
             </div>

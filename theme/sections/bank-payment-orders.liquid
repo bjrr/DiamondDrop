@@ -111,7 +111,7 @@
         </ul>
         <div class="carat-bank-orders__actions">
           <a
-            href="{{ routes.account_login_url }}?return_url={{ request.path | url_encode }}"
+            href="{{ routes.account_login_url }}{% if routes.account_login_url contains '?' %}&{% else %}?{% endif %}return_url={{ request.path | url_encode }}"
             class="button"
             data-carat-bank-orders-signin-link
           >
