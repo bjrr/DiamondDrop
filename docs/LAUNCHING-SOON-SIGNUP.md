@@ -20,8 +20,9 @@ Mobile is optional, so the ordinary signup — a name and an email — never
 reached the backend. Nothing errored and the form said it had worked.
 
 **Nothing sent any email.** No confirmation, no internal notification, no
-template anywhere in the codebase. Two real signups had already been through
-the form and received nothing.
+template anywhere in the codebase. One real signup had already been through
+the form and received nothing — see the backfill section below, which also
+records why "two" was the wrong number.
 
 ## What triggers the emails now
 
