@@ -156,8 +156,8 @@ got emailed:
 
 | Customer | Tag | Outcome |
 |---|---|---|
-| `b***i@gmail.com`, created 2026-11-04 | `first-access` + 6 interests | confirmation **and** notification sent |
-| `o***s@caratforus.com`, created 2026-10-25 | **no tags at all** | correctly excluded |
+| `b***i` at gmail.com, created 2026-11-04 | `first-access` + 6 interests | confirmation **and** notification sent |
+| `o***s` at caratforus.com, created 2026-10-25 | **no tags at all** | correctly excluded |
 
 The "two" came from `customersCount(query:"tag:first-access")` returning 2
 while only one customer actually carries the tag. **A count query is not a

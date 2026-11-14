@@ -44,11 +44,55 @@
         "cta_label": "Email us to start a return",
         "cta_link": "mailto:orders@caratforus.com"
       }
+    },
+    "policy": {
+      "type": "carat-infocols",
+      "blocks": {
+        "window": {
+          "type": "list",
+          "settings": {
+            "title": "The return window",
+            "items": "Returns are accepted within 14 days.\nThe 14 days run from the date the carrier confirms delivery, not from the date you open the parcel.\nWe must receive the item back within that window, so start the return as soon as you know.\nEmail orders@caratforus.com first. We issue a return authorisation with the address and the deadline; items sent without one cannot be matched to an order or insured."
+          }
+        },
+        "condition": {
+          "type": "list",
+          "settings": {
+            "title": "The condition we need it back in",
+            "items": "Original, new and unworn condition.\nOriginal packaging included.\nAny IGI or other certification that came with the item, returned with it.\nIn its original ring size.\nReturn shipping is arranged and paid by you, and must be tracked and insured for the full value."
+          }
+        },
+        "exclusions": {
+          "type": "list",
+          "settings": {
+            "title": "What cannot be returned",
+            "items": "Items that have been resized are not refundable, unless the item is defective.\nEngraved, altered, personalised or otherwise customised items.\nLuxury Steals, which are final sale.\nWe say so on the product itself before you buy, never afterwards."
+          }
+        },
+        "defects": {
+          "type": "note",
+          "settings": {
+            "title": "If something is wrong with the item",
+            "text": "<p>A manufacturing defect is a different matter from a return, and it is not limited to 14 days. Every piece carries a <a href=\"/pages/warranty\">1-year limited manufacturing warranty</a>, and a resized item that proves defective is still covered. Start a <a href=\"/pages/warranty-claim\">warranty claim</a> rather than a return.</p>"
+          }
+        }
+      },
+      "block_order": [
+        "window",
+        "condition",
+        "exclusions",
+        "defects"
+      ],
+      "settings": {
+        "color_scheme": "scheme-1",
+        "pair_with_next": true
+      }
     }
   },
   "order": [
     "head",
     "intro",
+    "policy",
     "terms"
   ]
 }
