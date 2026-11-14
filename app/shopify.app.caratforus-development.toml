@@ -331,6 +331,29 @@ api_version = "2026-07"
   topics = ["orders/paid"]
   uri = "/webhooks/carat/orders-paid"
 
+  # Launching Soon signup emails (owner instruction, 2026-11-13).
+  #
+  # THE SIGNUP FORM IS NOT THE TRIGGER, deliberately. Its own fetch fired
+  # only when the optional mobile field was filled in, so the common signup
+  # — a name and an email — never reached the backend at all; it also cannot
+  # reach `/pages/first-access` on the published COMING SOON theme, which
+  # must not be modified. Shopify delivers this topic for every customer the
+  # form creates, with retries, regardless of what the browser did.
+  #
+  # NO SCOPE CHANGE. `read_customers` has been granted since 2026-09-29, and
+  # a webhook subscription is not a permission.
+  #
+  # DECLARED HERE, REGISTERED ELSEWHERE. This file has still never been
+  # pushed (see the header), so the live subscription was created through the
+  # app's own offline session by
+  # `internal.jobs.ensure-signup-webhook` — which is also the only way to
+  # get a delivery signed with THIS app's secret, the one
+  # `receiveShopifyWebhook` verifies against. The entry is kept here so a
+  # future `shopify app deploy` does not silently drop it.
+  [[webhooks.subscriptions]]
+  topics = ["customers/create"]
+  uri = "/webhooks/carat/customers-create"
+
 [app_proxy]
 # Storefront requests to
 #   https://caratforus-dev.myshopify.com/apps/carat/...

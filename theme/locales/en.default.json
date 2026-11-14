@@ -738,8 +738,8 @@
         "label": "Get First Access"
       },
       "success": {
-        "heading": "You’re in.",
-        "text": "We will email you before CaratForUs opens to everyone.",
+        "heading": "You’re on the list.",
+        "text": "Check your inbox for confirmation.",
         "share_prompt": "Know someone who’d love CaratForUs? Share First Access with a friend.",
         "share_whatsapp": "WhatsApp",
         "share_facebook": "Facebook",

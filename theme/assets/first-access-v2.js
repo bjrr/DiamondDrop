@@ -12,8 +12,16 @@
  * NOTHING HERE TOUCHES V1. Separate file, separate selectors, separate
  * storage key.
  *
- * THE BACKEND IS UNCHANGED. Same `/apps/carat/first-access-phone` route,
- * same payload of exactly two fields. No SMS consent is set or implied here.
+ * THE BACKEND ROUTE AND PAYLOAD ARE UNCHANGED: same
+ * `/apps/carat/first-access-phone`, same two fields. What changed on
+ * 2026-11-13 is WHEN it is called. It used to fire only when the optional
+ * mobile field was filled in, so a signup giving just a name and an email
+ * never reached the backend; email now decides. No SMS consent is set or
+ * implied here.
+ *
+ * THE CONFIRMATION EMAIL DOES NOT DEPEND ON THIS FILE. It is sent from the
+ * `customers/create` webhook, so it arrives even if this script never runs,
+ * the tab is closed mid-request, or the visitor blocks scripts.
  *
  * NO EM DASH CHARACTERS, in code or in comments. Owner rule for V2.
  */
@@ -175,23 +183,53 @@
   /**
    * The address and the number, and nothing else.
    *
-   * Names and interests are deliberately absent: they persist through the
-   * native post, and sending them to a public endpoint would mean a public
-   * endpoint could change them. Returns null when there is no number, so a
-   * signup without one makes no extra request at all.
+   * NAMES AND INTERESTS STAY OUT, and that is the original author's rule
+   * kept deliberately rather than an omission. They persist through the
+   * native Shopify post, so sending them here would add nothing; and this is
+   * a public endpoint, so anything it accepts is something a public endpoint
+   * could change. The route reads `email` and `phone` and nothing else.
+   *
+   * The first name the confirmation email greets by is read from the
+   * Shopify customer on the `customers/create` webhook, which is where it
+   * was already stored -- not from this request.
    */
-  function phoneSubmission(form) {
+  function signupSubmission(form) {
     function value(name) {
       var field = form.querySelector('input[name="' + name + '"]');
       return field ? String(field.value || '').trim() : '';
     }
-    var phone = value('contact[phone]');
-    if (phone === '') return null;
-    return { email: value('contact[email]'), phone: phone };
+
+    /*
+     * EMAIL IS THE GATE, NOT PHONE.
+     *
+     * This used to read:
+     *
+     *     var phone = value('contact[phone]');
+     *     if (phone === '') return null;
+     *
+     * which meant a signup giving only a name and an email -- the common
+     * case, since mobile is optional -- never called the backend at all.
+     * Email is the required contact field for this form, so it is what
+     * decides whether there is a submission to send.
+     *
+     * A blank phone is now passed through as an empty string rather than
+     * suppressing the whole request. The endpoint already treats that as
+     * "nothing to store" and answers 200 without logging, so no number can
+     * be cleared by its absence -- that guarantee lives on the server, where
+     * it belongs, and not in this file.
+     */
+    var email = value('contact[email]');
+    if (email === '') return null;
+
+    return { email: email, phone: value('contact[phone]') };
   }
 
-  /** Fire and forget. A failed phone write must never make a good signup look broken. */
-  function sendPhone(submission) {
+  /**
+   * Fire and forget. A failed write must never make a good signup look
+   * broken -- and since the confirmation email now hangs off Shopify customers/create
+   * rather than this request, nothing the customer receives depends on it.
+   */
+  function sendSignup(submission) {
     if (!submission || typeof window.fetch !== 'function') return;
     fetch(PHONE_ENDPOINT, {
       method: 'POST',
@@ -225,7 +263,7 @@
     }
     if (!raw) return;
     try {
-      sendPhone(JSON.parse(raw));
+      sendSignup(JSON.parse(raw));
     } catch (e) {
       /* Corrupt stash, already removed. */
     }
@@ -294,7 +332,7 @@
       clearError(form);
 
       // Captured before either path destroys the form.
-      var submission = phoneSubmission(form);
+      var submission = signupSubmission(form);
 
       if (typeof window.fetch !== 'function' || typeof FormData !== 'function') {
         rememberForReload(submission);
@@ -322,7 +360,7 @@
         .then(function (html) {
           if (!renderSuccess(signupEl, html)) throw new Error('no_success_panel');
           // The customer exists now. Only now may the number be sent.
-          sendPhone(submission);
+          sendSignup(submission);
         })
         .catch(function () {
           rememberForReload(submission);
