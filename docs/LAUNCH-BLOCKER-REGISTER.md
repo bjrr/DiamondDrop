@@ -365,7 +365,7 @@ images nor a catalogue — because neither exists yet:
 2. **Three ways to buy** — Buy Now, Group Buy, Custom Jewelry
 3. **Two more ways to pay less** — Luxury Steals (Final Sale stated up front), Let Us Beat Your Quote
 4. **Pay by bank, pay less** — and a link to the Bank Payment orders page
-5. **What you get either way** — warranty, insurance, the $100 signature rule, honest image labelling, support address
+5. **What you get either way** — warranty, insured signature-required delivery, honest image labelling, support address
 
 Copy is drafted from `docs/content/MVP1-STOREFRONT-COPY.md` Part 3, which is
 itself grounded in README and `docs/BANK-CARD-PRICING.md`, rather than
