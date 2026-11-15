@@ -920,8 +920,8 @@
       "empty": "No products found",
       "title": "Collection",
       "use_fewer_filters_html": "Use fewer filters or <a class=\"{{ class }}\" href=\"{{ link }}\">remove all</a>",
-      "nothing_listed": "Nothing listed yet",
-      "nothing_listed_body": "There are no pieces in the catalog at the moment. You can still join a Group Buy, have something made, or send us a quote to beat."
+      "nothing_listed": "Jewelry is coming soon",
+      "nothing_listed_body": "We are finishing the first CaratForUs jewelry collection. Join the early-access list and you will hear the moment it opens. In the meantime, these are open today."
     },
     "video": {
       "load_video": "Load video: {{ description }}"

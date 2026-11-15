@@ -14,48 +14,53 @@ The store was running Shopify's default rates, not CaratForUs policy.
 | Express, under $1,000 | $55 insured + signature | $15.00 | **$55.00** |
 | $1,000 and above | free Express insured + signature | free *Standard* at **$70+** | **free Express at $1,000+** |
 
-Three method definitions on the one US zone of the default profile, with
-non-overlapping price conditions, so a customer is never offered two
-contradictory answers:
+**Where they live now: Markets → United States → Shipping.** Two options,
+with free shipping attached to Express alone:
 
-| Rate | Price | Applies |
-|---|---|---|
-| Standard insured shipping with signature | $30.00 | $0.00 – $999.99 |
-| Express insured shipping with signature | $55.00 | $0.00 – $999.99 |
-| Free Express insured shipping with signature | $0.00 | $1,000.00 and above |
+| Option | Price | Transit | Free shipping |
+|---|---|---|---|
+| Standard insured shipping with signature | $30.00 | 3–5 business days | off |
+| Express insured shipping with signature | $55.00 | 1–2 business days | **on, from $1,000** |
 
-Timing lives in each rate's description, which is what the customer sees at
-checkout: ships in about 1 to 2 business days, then about 3 to 5 business
-days in transit for Standard, expedited for Express. Ring sizing (about 3 to
-5 extra business days) and made-to-order lead times (about 3 to 6 weeks) are
-product-level facts, not shipping rates, and belong on the product and in the
-shipping policy rather than in a rate name.
+Attaching the free threshold to Express rather than adding a third option is
+what makes the $1,000+ case *free Express* instead of *free Standard*, and it
+avoids a third rate that would only ever duplicate one of these two.
 
-The existing rates could not be updated in place — Shopify refused with *"this
-method definition... uses new configurations that are only available through
-Shopify's updated APIs"* — so they were deleted and replaced in one atomic
-`deliveryProfileUpdate`.
+Ring sizing (about 3 to 5 extra business days) and made-to-order lead times
+(about 3 to 6 weeks) are product-level facts, not shipping rates. They belong
+on the product page and in the shipping policy, not in a rate name.
 
-### Runtime has not caught up, and that is not yet explained
+A first attempt went through `deliveryProfileUpdate` on the default delivery
+profile. Shopify refused an in-place edit — *"this method definition... uses
+new configurations that are only available through Shopify's updated APIs"* —
+so the definitions were deleted and recreated there. **That surface turned
+out not to be the one checkout reads**; see below.
 
-The stored configuration reads back correct: three active definitions, right
-prices, right conditions, 377 variants covered, one location, one market, no
-carrier service.
+### RESOLVED 2026-11-14: the rates lived in Markets, not the delivery profile
 
-**Every runtime path still served the previous rates**, naming rates that no
-longer exist in configuration:
+The stored delivery-profile configuration was correct and the runtime still
+served $8/$15/free-at-$70 through every path. It was not caching and not
+propagation delay. Shopify Admin said so plainly:
 
-| Path | Result |
+> **Shipping has moved to Markets.** Your shipping rates have not changed, just
+> where you manage them.
+
+The live rates belonged to the **United States market**, and the delivery
+profile edited through `deliveryProfileUpdate` is a surface checkout no
+longer reads. The lesson is the one this file already half-learned: a
+configuration that reads back correct is not the same as a configuration that
+is in effect, and only the runtime settles it.
+
+Corrected in Markets > United States > Shipping, and verified at runtime:
+
+| Cart | Rates offered |
 |---|---|
-| `draftOrderCalculate` ($425 and $1,055) | `Standard $0.00`, `Express $15.00` |
-| `/cart/shipping_rates.json` (Dallas, New York, Atlanta) | `Standard $0.00`, `Express $15.00` |
-| Checkout summary ($425 and $1,055) | `Shipping FREE` |
+| $425 | Standard insured shipping with signature $30.00; Express insured shipping with signature $55.00 |
+| $1,055 | Express insured shipping with signature **$0.00**; Standard insured shipping with signature $30.00 |
 
-A fresh address each time rules out address-keyed caching. The most likely
-explanation is Shopify propagation delay on rate changes, but that is a
-guess, and **shipping must be re-verified before publishing** rather than
-assumed fixed. The quickest confirmation: a cart under $1,000 should offer
-$30 and $55, and one at $1,000+ should offer free Express only.
+No legacy $8/$15 rate and no free Standard rate at either price. Free
+shipping is attached to Express alone, with a $1,000 minimum, which is what
+makes the $1,000+ case free Express rather than free Standard.
 
 No order and no draft order was created during this testing; order count and
 draft-order count were both 0 before and after.
@@ -87,31 +92,51 @@ The acknowledgment block is untouched. It is versioned evidence a customer
 affirms, which is a different thing from a published policy, and merging the
 two would corrupt the evidence trail.
 
-## Shopify native policies — BLOCKED ON SCOPE
+## Shopify native policies — SET 2026-11-14
 
-Only **Privacy policy** exists in Shopify's own policy set. Refund and
-Shipping policies are empty, which is what checkout and the footer link to.
+Only Privacy existed; Refund and Shipping were empty, and those are what
+checkout and the footer link to.
 
-`shopPolicyUpdate` requires `write_legal_policies`, which neither the
-CaratForUs app nor the connector holds. **This is an owner action** in
-Settings → Policies. The refund text is ready to paste from the page content
-above.
+`shopPolicyUpdate` needs `write_legal_policies`, which neither app holds, so
+they were written through Shopify Admin instead. The editor is TinyMCE, and
+typing a long policy into it key-by-key wedged the renderer twice. Setting
+the content through the editor's own API in a single call
+(`tinymce.get(id).setContent(html)`) worked immediately, and the Save button
+enabled itself, which is how the change was known to have registered rather
+than merely to have been typed.
 
-## Payments
+Verified live on the storefront:
 
-Not readable by API — `shopifyPaymentsAccount` requires
-`read_shopify_payments`, which neither app holds. Verified instead by loading
-a real checkout (no order placed, no payment method touched):
+| Policy | URL | Contains |
+|---|---|---|
+| Refund | `/policies/refund-policy` | the 14-day window |
+| Shipping | `/policies/shipping-policy` | $30, $55 and the $1,000 threshold |
+| Privacy | `/policies/privacy-policy` | unchanged |
 
-- **Express checkout offers Shop Pay, PayPal, Google Pay and Venmo.**
-  Shop Pay's presence means **Shopify Payments is active**, since Shop Pay
-  requires it.
-- **No test-mode banner.** Shopify renders a prominent test-mode bar at
-  checkout when it is on, and there was none.
+`/policies/terms-of-service` returns 404 because no native ToS policy is set.
+Nothing links to it — the footer points at the `/pages/terms-of-service`
+page, which works — so that is tidiness rather than a defect.
 
-Both are inferences from the rendered checkout rather than from the payments
-settings page, so the owner should confirm the provider and test-mode state
-directly before publishing.
+## Payments — CONFIRMED 2026-11-14
+
+`shopifyPaymentsAccount` needs `read_shopify_payments`, which neither app
+holds, so this was read directly in Settings → Payments rather than inferred
+from a checkout page:
+
+| | |
+|---|---|
+| Provider | **Shopify Payments** |
+| Accepting payments | yes |
+| Receiving payouts | yes |
+| Payout account | Shopify Balance, ending 2121, USD, daily |
+| Card methods | Shop Pay, Visa, Mastercard, Amex, +4 |
+| Wallets at checkout | Shop Pay, PayPal, Google Pay, Venmo |
+| Fraud prevention | CVV verification on, automated |
+| **Test mode** | **OFF** |
+
+No identity, bank or verification step is outstanding. The only amber note is
+"Chargeback monitoring: currently unavailable", which is a plan feature and
+does not affect taking live payments.
 
 ## Catalog — the "zero published products" finding was a false alarm
 
@@ -141,6 +166,41 @@ per-metal pricing, ring sizes, untracked inventory so they stay purchasable
 through SYOS.
 
 **The real gap is merchandising, not configuration: there is no Buy Now
-jewelry catalog yet.** `/collections/all` is empty because nothing has been
-built to sell there, which is a business input rather than a defect to fix in
-Shopify.
+jewelry catalog yet.** No approved inventory source is waiting to be
+imported either — Kira appears in `docs/VENDOR-SKU-TRANSFORMATION.md` only as
+a *future* supplier, and no Kira or Laravo products exist in Shopify.
+
+### Jewelry Coming Soon, so an empty catalog is not a broken page
+
+`/collections/all` now presents an intentional Coming Soon state instead of
+reading as an accident. It lives in the product grid's **empty state**, which
+is the right place for two reasons: it renders only when the collection has
+no products, and it therefore **removes itself the moment real products are
+published** — no cleanup step to forget later.
+
+- Heading: *Jewelry is coming soon* (it previously said "Nothing listed yet",
+  which reads as a fault rather than a plan)
+- Body explains the first collection is being finished and points at the
+  early-access list
+- Four routes that work today: **Join the early-access list**, See Group
+  Buys, Shop Diamonds, Design something custom
+
+No fake products, no fake prices, no SYOS mounting promoted into Jewelry, and
+the navigation label stays **Jewelry**.
+
+## Branding
+
+**Social sharing image: set** to `carat-c-hero1-rings-desktop.png`, an
+existing approved brand asset already used by the homepage hero. Worth
+re-checking before publishing: `og:image` was not yet rendering on the
+storefront immediately afterwards, and the shipping episode above is a fresh
+reminder that a stored setting is not the same as a live one.
+
+**Favicon: still unset, deliberately.** The only brand mark available is the
+logo lockup, a gold diamond above the CARATFORUS wordmark. Scaled to 32px the
+wordmark becomes an unreadable smudge, which looks worse in a browser tab
+than Shopify's default. This needs a square, wordmark-free export of the
+diamond mark — a new asset, and the brief says not to invent one.
+
+`shop.description` is also empty, so `og:description` falls back to the shop
+name on every page. One sentence in Settings → General would fix it.
