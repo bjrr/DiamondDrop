@@ -6,64 +6,159 @@ Work of 2026-11-14, continuing the pre-launch audit.
 
 ## Shipping rates
 
-The store was running Shopify's default rates, not CaratForUs policy.
+Authoritative policy: **`docs/SHIPPING-AND-DELIVERY.md`**. The store was
+running Shopify's defaults ($8 / $15 / free Standard at $70), which matched
+nothing in it.
 
-| | Approved | Was | Now configured |
-|---|---|---|---|
-| Standard, under $1,000 | $30 insured + signature | $8.00 | **$30.00** |
-| Express, under $1,000 | $55 insured + signature | $15.00 | **$55.00** |
-| $1,000 and above | free Express insured + signature | free *Standard* at **$70+** | **free Express at $1,000+** |
+### Where the rates live, after two wrong answers
 
-**Where they live now: Markets → United States → Shipping.** Two options,
-with free shipping attached to Express alone:
-
-| Option | Price | Transit | Free shipping |
-|---|---|---|---|
-| Standard insured shipping with signature | $30.00 | 3–5 business days | off |
-| Express insured shipping with signature | $55.00 | 1–2 business days | **on, from $1,000** |
-
-Attaching the free threshold to Express rather than adding a third option is
-what makes the $1,000+ case *free Express* instead of *free Standard*, and it
-avoids a third rate that would only ever duplicate one of these two.
-
-Ring sizing (about 3 to 5 extra business days) and made-to-order lead times
-(about 3 to 6 weeks) are product-level facts, not shipping rates. They belong
-on the product page and in the shipping policy, not in a rate name.
-
-A first attempt went through `deliveryProfileUpdate` on the default delivery
-profile. Shopify refused an in-place edit — *"this method definition... uses
-new configurations that are only available through Shopify's updated APIs"* —
-so the definitions were deleted and recreated there. **That surface turned
-out not to be the one checkout reads**; see below.
-
-### RESOLVED 2026-11-14: the rates lived in Markets, not the delivery profile
-
-The stored delivery-profile configuration was correct and the runtime still
-served $8/$15/free-at-$70 through every path. It was not caching and not
-propagation delay. Shopify Admin said so plainly:
+The first attempt wrote the rates through `deliveryProfileUpdate`. They read
+back correct and the runtime kept serving $8/$15/free-at-$70 through every
+path — not caching, not propagation delay. Shopify Admin said why plainly:
 
 > **Shipping has moved to Markets.** Your shipping rates have not changed, just
 > where you manage them.
 
-The live rates belonged to the **United States market**, and the delivery
-profile edited through `deliveryProfileUpdate` is a surface checkout no
-longer reads. The lesson is the one this file already half-learned: a
-configuration that reads back correct is not the same as a configuration that
-is in effect, and only the runtime settles it.
+So the second attempt moved them to **Markets → United States → Shipping**,
+where they did take effect. But the Markets shipping UI cannot express what
+this policy needs: it offers product scope, additional rates and a
+free-shipping minimum, and has **no price-range upper bound and no second
+zone**. A $1,000+ cart therefore still showed paid Standard $30 alongside the
+free Express, which §2 forbids.
 
-Corrected in Markets > United States > Shipping, and verified at runtime:
+The fix was **"Switch back to shipping profiles"** in Settings → Shipping and
+delivery, which restores the delivery profile as the runtime authority and
+exposes both price-range conditions and multiple zones. The rates the first
+attempt had written were still there, correctly conditioned, and became live
+the moment authority moved back.
 
-| Cart | Rates offered |
-|---|---|
-| $425 | Standard insured shipping with signature $30.00; Express insured shipping with signature $55.00 |
-| $1,055 | Express insured shipping with signature **$0.00**; Standard insured shipping with signature $30.00 |
+The lesson, now learned twice: **a configuration that reads back correct is
+not the same as a configuration that is in effect.** Only the runtime settles
+it — and *which surface is authoritative* is itself a setting.
 
-No legacy $8/$15 rate and no free Standard rate at either price. Free
-shipping is attached to Express alone, with a $1,000 minimum, which is what
-makes the $1,000+ case free Express rather than free Standard.
+### Final configuration — one profile, two zones, four rates
 
-No order and no draft order was created during this testing; order count and
-draft-order count were both 0 before and after.
+`General profile` (`116303986906`), all 377 variants, nothing else:
+
+**Contiguous 48 states** — 48 states + DC. No AK, no HI, no territories.
+
+| Rate | Price | Condition |
+|---|---|---|
+| Standard Insured Shipping with Signature | $30.00 | $0 – $999.99 |
+| Express Insured Shipping with Signature | $55.00 | $0 – $999.99 |
+| Complimentary Express Insured Shipping with Signature | $0.00 | $1,000 and up |
+
+Three definitions rather than a free-shipping flag on Express, because §2
+requires paid Standard to **disappear** at $1,000, not to sit beside the free
+option. A price *range* on the two paid rates is what removes them.
+
+**Alaska and Hawaii** — AK, HI only. One UPS carrier-calculated participant
+(`105961554138`, service discovery on), so checkout quotes the carrier's real
+rate and real estimate. No flat rate and no $1,000 benefit reaches this zone,
+per §3.
+
+### Runtime verification — all seven cases
+
+Measured through `/cart/shipping_rates.json`, which is the path checkout uses.
+Stored configuration was explicitly *not* accepted as evidence.
+
+| # | Cart | Destination | Rates actually offered | §6 |
+|---|---|---|---|---|
+| A | $425.00 | Dallas TX | Standard $30.00; Express $55.00 | ✅ 6.1 |
+| B | $995.00 | Dallas TX | Standard $30.00; Express $55.00 | ✅ 6.1 |
+| C | **$1,000.00 exactly** | Dallas TX | Complimentary Express $0.00 **only** | ✅ 6.2 |
+| D | $1,055.00 | Dallas TX | Complimentary Express $0.00 **only** | ✅ 6.2 |
+| E | $1,055 − $100 = **$955** | Dallas TX | Standard $30.00; Express $55.00 | ✅ §2 |
+| F | $425 and $1,055 | Anchorage AK | UPS Ground $32.25; 2nd Day $37.30; Next Day $82.16; Next Day Early $112.16 | ✅ 6.4 |
+| G | $425 and $1,055 | Honolulu HI | identical UPS set | ✅ 6.4 |
+
+Three results worth stating rather than assuming:
+
+- **The threshold is inclusive.** Exactly $1,000.00 qualifies (case C), which
+  is what "$1,000.00 or more" requires. An exclusive boundary would have been
+  invisible at $1,055.
+- **Shopify evaluates the condition after discounts** (case E), which §2
+  requires. Verified with a single-use code created and **deleted
+  immediately**; `discountNodes` is empty again.
+- **AK/HI quote identically at $425 and $1,055**, proving the complimentary
+  tier does not leak into that zone.
+
+No legacy $8 / $15 / free-at-$70 rate appears anywhere (§6.5). Order count and
+draft-order count were **0 before and 0 after**, re-confirmed at the end.
+
+### ⚠️ OWNER DECISION REQUIRED — Bank Payment orders charge no shipping at all
+
+**This is a locked-policy conflict, left unresolved deliberately.**
+
+Everything above is the **native Shopify checkout**, which is the Card path.
+The **Bank Payment path does not use Shopify checkout**: it is a custom route
+(`apps.carat.bank-checkout`) that creates a **draft order**, and Shopify never
+applies delivery-profile rates to a draft order. Every Bank Payment draft
+order instead carries an explicit zero shipping line:
+
+```
+shippingLine: { title: "Shipping (included in item price)", price: "0.00" }
+```
+
+That is **owner decision D19, approved 2026-09-21**
+(`docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md` §4), whose stated reasoning is
+that shipping and insurance are already inside landed cost
+(`CostComponentType.shipping`, `.insurance`), so a separate charge would bill
+the customer twice. It is pinned by 2C criterion 95 and by
+`draftOrderAdapter.test.ts`.
+
+D19 and `docs/SHIPPING-AND-DELIVERY.md` cannot both hold:
+
+| | D19 (2026-09-21) | SHIPPING-AND-DELIVERY §2 |
+|---|---|---|
+| Below $1,000 | $0 — shipping is inside the item price | **$30 or $55, charged separately** |
+| $1,000 and above | $0 | $0 |
+| Basis | shipping is a cost component | shipping is a separately billed service |
+
+Consequences as the code stands today:
+
+- A Bank Payment order of $425 ships **free**, where the Card path charges
+  $30. The same basket costs less to ship by Bank Payment — on top of the
+  lower Bank Payment Price.
+- **§6.3 cannot be satisfied or even tested.** "A Bank Payment price reduction
+  that brings the total below $1,000 also removes complimentary Express
+  eligibility" presumes Bank Payment orders are charged shipping. They are not
+  charged at any value, so there is no eligibility to remove.
+- Alaska/Hawaii Bank Payment orders carry **no carrier rate**, so §3 does not
+  reach that path either.
+
+**Not fixed here, on purpose.** `CLAUDE.md` forbids silently changing a locked
+business decision, and the instruction for this round was explicitly not to
+reinterpret the policy. The override clause in `SHIPPING-AND-DELIVERY.md` §
+preamble covers "an older README summary, storefront draft, launch note, theme
+copy, or configuration" — **an approved owner decision is none of those**, so
+the newer document does not plainly supersede D19 on its own terms.
+
+It is also money-critical: charging Bank Payment customers $30/$55 means
+either billing shipping twice (if it stays in landed cost) or removing it from
+landed cost and repricing, which touches the pricing engine, the 24-hour
+guarantee basis, and Group Buy refund economics.
+
+Three ways out, for the owner to choose:
+
+1. **D19 stands; the policy is contiguous-48 Card-checkout only.** Cheapest,
+   and needs a one-line scope sentence in `SHIPPING-AND-DELIVERY.md`. Leaves
+   Bank Payment structurally cheaper to ship.
+2. **Charge shipping on Bank Payment draft orders too.** Satisfies the policy
+   in full, including §6.3 and AK/HI. Requires removing shipping/insurance
+   from landed cost and repricing — a pricing-engine change, not a shipping
+   change.
+3. **Keep shipping in landed cost for both paths and drop the separate
+   charge.** Internally consistent and simplest to operate, but contradicts
+   §2's $30/$55 outright.
+
+Until this is decided, the Card path matches the policy exactly and the Bank
+Payment path is more generous than the policy. Nothing undercharges the
+customer and nothing overcharges them.
+
+Ring sizing (about 3 to 5 extra business days) and made-to-order lead times
+(about 3 to 6 weeks) stayed out of the rate names: they are product-level
+facts, and §4 requires processing time not be presented as transit time.
 
 ## Returns policy
 
@@ -110,8 +205,32 @@ Verified live on the storefront:
 | Policy | URL | Contains |
 |---|---|---|
 | Refund | `/policies/refund-policy` | the 14-day window |
-| Shipping | `/policies/shipping-policy` | $30, $55 and the $1,000 threshold |
+| Shipping | `/policies/shipping-policy` | rewritten 2026-11-14 — see below |
 | Privacy | `/policies/privacy-policy` | unchanged |
+
+### Shipping policy rewritten 2026-11-14 for the locked policy
+
+The first version described one uniform U.S. program: $30/$55 for every state,
+free Express at $1,000 with no geographic qualification, and "Express transit
+is expedited" where §5 requires a stated 1–2 business days. All three were
+wrong once `docs/SHIPPING-AND-DELIVERY.md` landed.
+
+The replacement separates **Contiguous 48 states** from **Alaska and Hawaii**
+under their own headings, uses the §5 service names verbatim, carries the §5
+Alaska/Hawaii sentence, states that the threshold is measured after discounts
+and that tax/shipping/duties do not count toward it, says paid Standard is no
+longer offered once an order qualifies, says the signature **cannot be
+waived** (§1), and keeps preparation time visibly separate from transit time
+(§4). It promises no delivery-by hour (§5).
+
+Verified against the live storefront, not the editor: **19 assertions, all
+passing** — including the negative ones that no $8, $15 or $70 figure and no
+"cash discount"/"surcharge"/"card fee" wording survives anywhere on the page.
+
+Written through Admin again, because `shopPolicyUpdate` needs
+`write_legal_policies` and neither app holds it. Same technique as before:
+`tinymce.get(id).setContent(html)` in one call, then the Save button enabling
+itself is the signal that the change registered rather than merely been typed.
 
 `/policies/terms-of-service` returns 404 because no native ToS policy is set.
 Nothing links to it — the footer points at the `/pages/terms-of-service`
