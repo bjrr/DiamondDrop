@@ -319,15 +319,15 @@ two or three sentences about why you started this and I will work them in.
 >
 > ### It is covered
 > One year, against manufacturing faults. Every outbound shipment is insured
-> for its full value and tracked, and anything over $100 needs a signature —
-> yours, not a doorstep.
+> for its full value, tracked, and requires a signature — yours, not a doorstep.
 >
 > ### Buy it your way
 > Buy it now at today's price. Join a Group Buy and let the price fall as
 > more people join. Or have something made that does not exist yet.
 
 **Grounding:** README "Core Value Proposition", "Shipping, Insurance &
-Signature" ($100 signature threshold, full-value insurance, tracking),
+Signature", `docs/SHIPPING-AND-DELIVERY.md` (full-value insurance, tracking,
+signature required on every outbound customer shipment), and
 `docs/BANK-CARD-PRICING.md`.
 
 **Checked:** "the price is lower when you pay by bank transfer" states the
@@ -356,7 +356,7 @@ with the decisions marked, not finished copy.**
 | Order acceptance — that placing an order is an offer we may decline | — | ❓ needs your decision |
 | Group Buy mechanics, tier settlement, refunds after review | README | ✍️ ready |
 | Returns, warranty, final-sale categories — **by reference to the policy pages, not restated** | the six pages | ✍️ ready |
-| Shipping, insurance, the $100 signature rule, title and risk of loss | README | ❓ when does title pass? |
+| Shipping, insurance, signature-required delivery, title and risk of loss | `docs/SHIPPING-AND-DELIVERY.md` | ❓ when does title pass? |
 | Limitation of liability | — | ⚖️ counsel |
 | Warranty disclaimer beyond the express one-year warranty | — | ⚖️ counsel |
 | Governing law and venue | — | ❓ which state? |
