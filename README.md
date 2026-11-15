@@ -21,6 +21,7 @@ Authoritative MVP1 policy documents:
 - `docs/LUXURY-STEALS.md` — Luxury Steals inventory/scarcity, Final Sale rules, required disclosures/acknowledgments, claim separation, and evidence.
 - `docs/LET-US-BEAT-YOUR-QUOTE.md` — competitor custom quotes, active online listings, competing Group Buys, verification, guarantee/fallback eligibility, acknowledgments, and evidence.
 - `docs/WARRANTY-CLAIMS.md` — 1-year limited manufacturing warranty claim intake, authorization, inbound shipping, inspection, coverage decision, remedies, and evidence.
+- `docs/SHIPPING-AND-DELIVERY.md` — authoritative outbound shipping zones, rates, transit-time definitions, full-value insurance, signature requirement, post-discount free-Express threshold, and Alaska/Hawaii treatment.
 - `docs/BANK-CARD-PRICING.md` — locked Bank Payment Price vs Regular/Card Price policy, tiered card-price increases, $5 card-price rounding, eligible bank-payment methods, checkout behavior, and customer-facing savings display.
 - `docs/REQUIRED-CUSTOMER-ACCOUNTS.md` — locked requirement that every purchase and customer self-service order workflow use an authenticated Shopify customer account; guest purchase and guest magic-link access are not supported.
 - `docs/SET-YOUR-OWN-STONE.md` — Set Your Own Stone ready-mount compatibility, purchasable Automatic/Review Required results, mounting detail experience, prong-only stone removal, and seamless handoff into the existing Custom Jewelry workflow.
@@ -429,11 +430,14 @@ Later edits to live product/policy/design pages must not overwrite historical tr
 
 ## Shipping, Insurance & Signature — MVP1 Locked Direction
 
-- Every outbound customer shipment is insured for the full order value.
-- Every shipment has tracking.
-- Any shipment with order value **above $100** requires signature confirmation.
-- Customers may not waive required signature above $100.
-- Orders at $100 or less may ship without signature unless CaratForUs requires stricter controls.
+The authoritative shipping policy is `docs/SHIPPING-AND-DELIVERY.md`.
+
+- Every outbound customer shipment is insured for the full order value, tracked, and requires signature confirmation.
+- The standard flat-rate program applies to the contiguous 48 states only.
+- Below **$1,000 after all merchandise discounts**, including Bank Payment pricing reductions where applicable: Standard insured shipping with signature is **$30 / 3–5 business days** and Express insured shipping with signature is **$55 / 1–2 business days**.
+- At **$1,000 or more after all merchandise discounts**, including Bank Payment pricing reductions where applicable: offer **Complimentary Express Insured Shipping with Signature / 1–2 business days** and do not offer paid Standard shipping.
+- Alaska and Hawaii use a separate zone with insured, signature-required shipping at the applicable actual/calculated carrier rate; they do not receive the $1,000 complimentary-Express benefit initially.
+- Transit-time promises begin after shipment; in-stock processing is approximately 1–2 business days, ring sizing may add approximately 3–5 business days, and made-to-order pieces generally require approximately 3–6 weeks unless the product states otherwise.
 - Use the checkout/payment-approved shipping address unless a later change is explicitly reviewed/documented.
 - Post-order address changes require audit history.
 - Store carrier/service, tracking, ship date, insured value/reference where available, signature flag, delivery evidence, address, changes, and claim/exception references.
