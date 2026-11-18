@@ -626,13 +626,6 @@ export async function action({ request }: ActionFunctionArgs) {
   const { campaignCode, lines: requestLines, shippingAddress } = parsed.data;
   const intent = parsed.data.intent ?? "create_order";
 
-  // Refused, not ignored — identical contract to `apps.carat.bank-checkout.tsx`.
-  if (intent === "shipping_rates" && parsed.data.shippingServiceTitle !== undefined) {
-    return badRequest("shippingServiceTitle must not be sent with intent 'shipping_rates'");
-  }
-  if (intent === "create_order" && parsed.data.shippingServiceTitle === undefined) {
-    return badRequest("shippingServiceTitle is required to create an order");
-  }
   const resolvedEmail = parsed.data.email.toLowerCase();
 
   // --- CANCELLATION ACKNOWLEDGMENT — resolved BEFORE any campaign/Shopify
@@ -772,6 +765,24 @@ export async function action({ request }: ActionFunctionArgs) {
       quotedRegularCardPriceMinorUnits: price.regularCardPriceMinorUnits,
     };
   });
+
+  // ==========================================================================
+  // THE SHIPPING CONTRACT IS CHECKED HERE, NOT AT THE TOP OF THE ACTION
+  // ==========================================================================
+  // It was at the top in the first version of this change, and that MASKED
+  // more useful refusals: a request whose basket was itself unacceptable got
+  // `invalid_request` instead of the specific code naming what was wrong with
+  // it. The ordering rule: a request's SHAPE is only worth complaining about
+  // once its CONTENT has been accepted, because the specific refusals are ones
+  // the customer can act on and a missing `shippingServiceTitle` is a theme
+  // bug they cannot. Same placement and same reasoning as
+  // `apps.carat.bank-checkout.tsx`.
+  if (intent === "shipping_rates" && parsed.data.shippingServiceTitle !== undefined) {
+    return badRequest("shippingServiceTitle must not be sent with intent 'shipping_rates'");
+  }
+  if (intent === "create_order" && parsed.data.shippingServiceTitle === undefined) {
+    return badRequest("shippingServiceTitle is required to create an order");
+  }
 
   let draftOrderPort: DraftOrderPort;
   try {

@@ -417,13 +417,6 @@ export async function action({ request }: ActionFunctionArgs) {
   // as a benefit reservation.
   const requestIntent = parsed.data.intent ?? "create_order";
 
-  // Refused, not ignored — identical contract to the bank-checkout route.
-  if (requestIntent === "shipping_rates" && parsed.data.shippingServiceTitle !== undefined) {
-    return badRequest("shippingServiceTitle must not be sent with intent 'shipping_rates'");
-  }
-  if (requestIntent === "create_order" && parsed.data.shippingServiceTitle === undefined) {
-    return badRequest("shippingServiceTitle is required to create an order");
-  }
 
   // ==========================================================================
   // THIS ENDPOINT IS THE CARD PATH. A BANK BASIS HERE IS REFUSED, LOUDLY.
@@ -496,6 +489,24 @@ export async function action({ request }: ActionFunctionArgs) {
   // write. If the benefit turns out to be unusable, the create step refuses on
   // its own authority — this branch does not duplicate that judgement, it only
   // needs a number to quote shipping against.
+  // ==========================================================================
+  // THE SHIPPING CONTRACT IS CHECKED HERE, NOT AT THE TOP OF THE ACTION
+  // ==========================================================================
+  // It was at the top in the first version of this change, and that MASKED
+  // more useful refusals: a request whose basket was itself unacceptable got
+  // `invalid_request` instead of the specific code naming what was wrong with
+  // it. The ordering rule: a request's SHAPE is only worth complaining about
+  // once its CONTENT has been accepted, because the specific refusals are ones
+  // the customer can act on and a missing `shippingServiceTitle` is a theme
+  // bug they cannot. Same placement and same reasoning as
+  // `apps.carat.bank-checkout.tsx`.
+  if (requestIntent === "shipping_rates" && parsed.data.shippingServiceTitle !== undefined) {
+    return badRequest("shippingServiceTitle must not be sent with intent 'shipping_rates'");
+  }
+  if (requestIntent === "create_order" && parsed.data.shippingServiceTitle === undefined) {
+    return badRequest("shippingServiceTitle is required to create an order");
+  }
+
   if (requestIntent === "shipping_rates") {
     const benefit = await prisma.beatQuoteFallbackBenefit.findUnique({
       where: { benefitCode },

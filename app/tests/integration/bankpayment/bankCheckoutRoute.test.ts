@@ -904,6 +904,10 @@ function bankBody(shopifyVariantGid: string | null, quantity = 1, email = `Buyer
     email,
     shippingAddress: SHIPPING_ADDRESS,
     lines: [{ shopifyVariantId: shopifyVariantGid, quantity }],
+    // Shipping became required for order creation on 2026-11-15. This
+    // builder feeds `signedPost` DIRECTLY, so unlike bodies that go through
+    // `checkoutRequest` it gets no default and must carry the field itself.
+    shippingServiceTitle: STANDARD_RATE.title,
   };
 }
 
@@ -945,7 +949,10 @@ describe("D12/D15 — no Shopify invoice; our own payment instructions", () => {
     expect(sent.text).toContain(FAKE_ZELLE);
     for (const value of FAKE_WIRE_VALUES) expect(sent.text).toContain(value);
     expect(sent.text).toContain(`Order reference: ${body.bankPaymentOrderId}`);
-    expect(sent.text).toContain("Amount due: 600.00 USD");
+    // 600.00 merchandise + 30.00 Standard shipping. Shipping joined the
+    // amount due on 2026-11-15; the email states what the customer owes, so
+    // it states the total including carriage.
+    expect(sent.text).toContain("Amount due: 630.00 USD");
   });
 
   it("the HTTP response carries the FULL instruction set — both methods — and no Shopify internals", async () => {
@@ -980,7 +987,8 @@ describe("D12/D15 — no Shopify invoice; our own payment instructions", () => {
     };
 
     expect(body.instructions.flow).toBe("buy_now");
-    expect(body.instructions.formattedAmountDue).toBe("1200.00 USD"); // 2 x 600.00
+    // 2 x 600.00 merchandise = 1200.00, + 30.00 Standard shipping.
+    expect(body.instructions.formattedAmountDue).toBe("1230.00 USD");
     expect(body.instructions.reference).toBe(body.bankPaymentOrderId);
     expect(body.instructions.supportEmail).toBe("orders@caratforus.com");
     // Buy Now has no automatic extension; that is Group Buy's lifecycle.
@@ -1169,9 +1177,14 @@ describe("D12/D15 — no Shopify invoice; our own payment instructions", () => {
 
     expect(response.status).toBe(200);
     const body = (await response.json()) as { instructions: { formattedAmountDue: string } };
-    // 2 x 1000.00 (bank) + 1 x 2080.00 (card: $2,000 at the 4.0% tier) = 4080.00
-    expect(body.instructions.formattedAmountDue).toBe("4080.00 USD");
-    expect(emailControl.sent[0]!.text).toContain("Amount due: 4080.00 USD");
+    // 2 x 1000.00 (bank) + 1 x 2080.00 (card: $2,000 at the 4.0% tier)
+    // = 4080.00 merchandise, + 30.00 Standard shipping = 4110.00.
+    //
+    // The per-line bank/card split is what this test is about and it is
+    // unchanged. Shipping is a single addend on top, never folded into a line
+    // — which is exactly why adding it did not disturb the split.
+    expect(body.instructions.formattedAmountDue).toBe("4110.00 USD");
+    expect(emailControl.sent[0]!.text).toContain("Amount due: 4110.00 USD");
   });
 
   it("no log line contains any coordinate value", async () => {
@@ -1252,7 +1265,17 @@ describe("criteria 97-99 — the shipping address is sent to Shopify and never p
       where: { id: body.bankPaymentOrderId },
     });
     expect(Object.keys(stored).map((k) => k.toLowerCase())).not.toContain("address");
-    expect(JSON.stringify(stored).toLowerCase()).not.toContain("lovelace");
+    // BIGINT-SAFE STRINGIFY. `shipping_price_minor_units` (added 2026-11-15)
+    // is the first column on this row that is reliably non-null AND a BigInt,
+    // and plain `JSON.stringify` throws "Do not know how to serialize a
+    // BigInt" on it. The assertion is about the ADDRESS never being persisted,
+    // so the fix is to serialise bigints rather than to narrow what is
+    // inspected — dropping columns from the scan would quietly shrink the
+    // guarantee this test exists to make.
+    const storedJson = JSON.stringify(stored, (_key, value) =>
+      typeof value === "bigint" ? value.toString() : value
+    );
+    expect(storedJson.toLowerCase()).not.toContain("lovelace");
     expect(stored.customerEmail).toMatch(/@example\.com$/);
   });
 });
@@ -1766,11 +1789,13 @@ describe("shipping is charged on Bank Payment orders (owner decision 2026-11-15)
 
     expect(response.status).toBe(200);
     const dto = (await response.json()) as {
-      formattedAmountDue: string;
+      instructions: { formattedAmountDue: string };
       shipping: { serviceTitle: string; priceMinorUnits: string; currency: string };
     };
-    // 425.00 merchandise + 30.00 shipping.
-    expect(dto.formattedAmountDue).toBe("455.00 USD");
+    // 425.00 merchandise + 30.00 shipping. THE AMOUNT LIVES ON
+    // `instructions`: the customer response names its fields explicitly and
+    // does not re-expose the persisted dto's own `formattedAmountDue`.
+    expect(dto.instructions.formattedAmountDue).toBe("455.00 USD");
     expect(dto.shipping).toEqual({
       serviceTitle: "Standard Insured Shipping with Signature",
       priceMinorUnits: "3000",
@@ -1900,12 +1925,13 @@ describe("shipping is charged on Bank Payment orders (owner decision 2026-11-15)
 
       expect(response.status).toBe(200);
       const dto = (await response.json()) as {
-        formattedAmountDue: string;
+        instructions: { formattedAmountDue: string };
         shipping: { priceMinorUnits: string };
       };
       // 1,055.00 and nothing added — earned, and recorded as a priced decision
-      // of zero rather than as an absent one.
-      expect(dto.formattedAmountDue).toBe("1055.00 USD");
+      // of zero rather than as an absent one. THE AMOUNT LIVES ON
+      // `instructions`: the customer response names its fields explicitly.
+      expect(dto.instructions.formattedAmountDue).toBe("1055.00 USD");
       expect(dto.shipping.priceMinorUnits).toBe("0");
       expect(port.createCalls[0]?.expectedShippingPrice.amountMinorUnits).toBe(0n);
     });
@@ -2079,14 +2105,14 @@ describe("shipping is charged on Bank Payment orders (owner decision 2026-11-15)
         } as never);
 
       const first = (await (await submit("Standard Insured Shipping with Signature")).json()) as {
-        formattedAmountDue: string;
+        instructions: { formattedAmountDue: string };
       };
       const second = (await (await submit("Express Insured Shipping with Signature")).json()) as {
-        formattedAmountDue: string;
+        instructions: { formattedAmountDue: string };
       };
 
-      expect(first.formattedAmountDue).toBe("455.00 USD");
-      expect(second.formattedAmountDue).toBe("480.00 USD");
+      expect(first.instructions.formattedAmountDue).toBe("455.00 USD");
+      expect(second.instructions.formattedAmountDue).toBe("480.00 USD");
       expect(port.createCalls).toHaveLength(2);
     });
 

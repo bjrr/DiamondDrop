@@ -214,6 +214,25 @@ export interface BankCheckoutCustomerResponse {
   readonly quotedAt: string;
   readonly guaranteeExpiresAt: string;
   readonly lines: readonly BankCheckoutLineResultDto[];
+  /**
+   * The shipping service bought and what it cost.
+   *
+   * SURFACED SO THE TOTAL RECONCILES. `instructions.formattedAmountDue`
+   * includes shipping from 2026-11-15 onward, so without this the
+   * confirmation screen showed a customer who had just chosen "$30 Standard"
+   * an amount due of $455.00 against lines summing to $425.00 and no way to
+   * account for the difference. That is a clarity defect the shipping change
+   * itself introduced, and the shipping policy's own requirement is that the
+   * charge be *shown*, not merely applied.
+   *
+   * Optional only for stored payloads written before shipping was charged —
+   * see `BankCheckoutResultDto.shipping`.
+   */
+  readonly shipping?: {
+    readonly serviceTitle: string;
+    readonly priceMinorUnits: string;
+    readonly currency: string;
+  };
   readonly instructions: PaymentInstructionsView;
 }
 
@@ -229,6 +248,9 @@ export function toCustomerResponse(
     quotedAt: result.quotedAt,
     guaranteeExpiresAt: result.guaranteeExpiresAt,
     lines: result.lines,
+    // Spread-conditional, so a replay of a pre-shipping payload omits the key
+    // rather than carrying `undefined` through JSON.
+    ...(result.shipping ? { shipping: result.shipping } : {}),
     instructions,
   };
 }
@@ -282,6 +304,24 @@ export function resolveFormattedAmountDue(stored: StoredBankCheckoutResult): str
       if (line.currency !== currency) return null;
       const unit = BigInt(line.eligibleAtQuoteTime ? line.quotedBankPaymentPriceMinorUnits : line.quotedRegularCardPriceMinorUnits);
       total += unit * BigInt(line.quantity);
+    }
+    // THE SHIPPING CHARGE IS ADDED BACK WHEN THE PAYLOAD RECORDS ONE
+    // (owner decision 2026-11-15).
+    //
+    // The merchandise sum above is the whole amount for a payload written
+    // before shipping was charged — those orders genuinely owed merchandise
+    // alone, and inventing a charge for them would misstate what the customer
+    // agreed to. But a payload that DOES carry `shipping` owes it, and
+    // recomputing merchandise alone would under-quote by exactly the shipping
+    // amount: the customer would be shown, and told to transfer, $30 or $55
+    // less than the order is for.
+    //
+    // A currency mismatch returns null rather than being coerced, matching
+    // how the line loop above treats one.
+    const shipping = stored.shipping;
+    if (shipping) {
+      if (shipping.currency !== currency) return null;
+      total += BigInt(shipping.priceMinorUnits);
     }
     return `${decimalFromMinorUnits(total)} ${currency}`;
   } catch {

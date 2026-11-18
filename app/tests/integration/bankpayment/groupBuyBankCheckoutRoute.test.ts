@@ -606,6 +606,8 @@ describe("pricing — from the frozen snapshot at the CURRENT tier, never getPub
           email: `Buyer-${uniq()}@Example.com`,
           shippingAddress: SHIPPING_ADDRESS,
           lines: [{ shopifyVariantId: variant.shopifyVariantGid, quantity: 2 }],
+          // Direct `signedPost`, so no default is applied for it.
+          shippingServiceTitle: STANDARD_RATE.title,
         },
       }),
       params: {},
@@ -1441,6 +1443,9 @@ describe("bank-payment-orders — the Group Buy half", () => {
           email: `Buyer-${uniq()}@Example.com`,
           shippingAddress: SHIPPING_ADDRESS,
           lines: [{ shopifyVariantId: variant.shopifyVariantGid, quantity: 2 }],
+          // Direct `signedPost`, so the `checkoutRequest` default does not
+          // apply here and the body must carry the chosen service itself.
+          shippingServiceTitle: STANDARD_RATE.title,
         }
       ),
       params: {},

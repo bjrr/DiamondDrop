@@ -8,6 +8,7 @@ import { fallbackExpiresAt } from "~/domain/beatyourquote/fallbackBenefit";
 import { action as redeemAction } from "~/routes/apps.carat.beat-quote-redeem";
 import type { AdminGraphqlClient } from "~/shopify/admin/productClient.server";
 import type {
+  CalculateShippingRatesInput,
   CreateRedemptionDraftOrderInput,
   CreatedDraftOrder,
   DraftOrderPort,
@@ -284,12 +285,37 @@ async function seedBenefit(
  * `draftOrderRedemption.test.ts` instead. What this fake IS good for is proving
  * the route computed the right discount and lines before calling it.
  */
-function recordingPort(options: { fail?: boolean } = {}): DraftOrderPort & {
+/**
+ * The shipping service this suite's fake Shopify offers (owner decision
+ * 2026-11-18). $30.00 Standard rather than a free rate, so the default case
+ * here is one where shipping genuinely costs money — a free default would let
+ * a regression that drops the charge pass almost every test in the file.
+ *
+ * GBP, matching the London address and the fixture prices, because the route
+ * refuses a shipping quote in a currency other than the lines'.
+ */
+const REDEMPTION_SHIPPING_RATE = {
+  handle: "handle-standard",
+  title: "Standard Insured Shipping with Signature",
+  priceMinorUnits: 3000n,
+  currency: "USD",
+};
+
+function recordingPort(
+  options: {
+    fail?: boolean;
+    /** Override what Shopify offers. `[]` models an undeliverable destination. */
+    shippingRates?: readonly { handle: string; title: string; priceMinorUnits: bigint; currency: string }[];
+  } = {}
+): DraftOrderPort & {
   calls: CreateRedemptionDraftOrderInput[];
+  shippingRateCalls: CalculateShippingRatesInput[];
 } {
   const calls: CreateRedemptionDraftOrderInput[] = [];
+  const shippingRateCalls: CalculateShippingRatesInput[] = [];
   return {
     calls,
+    shippingRateCalls,
     // The Custom Jewelry final-purchase path. Refused rather than stubbed
     // permissively: no Bank Payment, Group Buy, redemption or deposit flow
     // should ever create a custom jewelry draft order, so a call here is a
@@ -299,8 +325,13 @@ function recordingPort(options: { fail?: boolean } = {}): DraftOrderPort & {
     // array is a MEANINGFUL value here — "undeliverable destination" — and
     // returning it by accident would quietly assert something this test
     // never set out to check.
-    async calculateAvailableShippingRates(): Promise<never> {
-      throw new Error("calculateAvailableShippingRates is not expected in this test");
+    // NOW EXERCISED. The redemption path resolves shipping before creating
+    // anything, and RECORDS what it was asked, because the benefit discount
+    // must reach the quote: §2 qualifies on the total after all discounts, and
+    // the fallback benefit is a genuine merchandise reduction.
+    async calculateAvailableShippingRates(input: CalculateShippingRatesInput) {
+      shippingRateCalls.push(input);
+      return options.shippingRates ?? [REDEMPTION_SHIPPING_RATE];
     },
     async createCustomJewelryDraftOrder(): Promise<never> {
       throw new Error("createCustomJewelryDraftOrder is not expected in this test");
@@ -366,6 +397,10 @@ function redeemBody(
       countryCode: "GB",
     },
     lines,
+    // Shipping became required for order creation on 2026-11-18, when the
+    // owner made the quote-matched price a merchandise price. The guarantee
+    // still covers the jewellery price only; this is the separate charge.
+    shippingServiceTitle: REDEMPTION_SHIPPING_RATE.title,
   };
 }
 

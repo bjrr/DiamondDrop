@@ -8,6 +8,7 @@ import {
   CUSTOM_JEWELRY_FINAL_APPROVAL_ACKNOWLEDGMENT_TEXT,
   CUSTOM_JEWELRY_FINAL_APPROVAL_AFFIRMATIVE_ACTION_LABEL,
   CUSTOM_JEWELRY_FINAL_SALE_TEXT,
+  CUSTOM_JEWELRY_SHIPPING_TEXT,
 } from "~/domain/customjewelry/finalApprovalCopy";
 import { Money } from "~/domain/money/money";
 import { loader as approvalPageLoader } from "~/routes/apps.carat.custom-jewelry-approval.$packageId";
@@ -152,7 +153,15 @@ describe("viewing the package", () => {
     const terms = body.terms as unknown as Record<string, string>;
     expect(terms.finalSale).toBe(CUSTOM_JEWELRY_FINAL_SALE_TEXT);
     expect(terms.warranty).toContain("1-year limited manufacturing warranty");
-    expect(terms.shipping).toContain("included in the price");
+    // CHANGED 2026-11-18. This asserted `"included in the price"`, which the
+    // owner's decision makes false: the approved price is a MERCHANDISE price
+    // and shipping is charged separately. Asserted against the pinned module
+    // constant rather than a retyped sentence, and the old claim is asserted
+    // ABSENT — so a revert fails here as well as in the unit test, on the
+    // surface the customer actually reads before approving.
+    expect(terms.shipping).toBe(CUSTOM_JEWELRY_SHIPPING_TEXT);
+    expect(terms.shipping).toContain("calculated separately from the approved jewelry price");
+    expect(terms.shipping).not.toContain("included in the price");
 
     // The acknowledgment, with the exact words and the exact button caption.
     const ack = body.acknowledgment as unknown as Record<string, unknown>;

@@ -540,16 +540,6 @@ export async function action({ request }: ActionFunctionArgs) {
   const resolvedEmail = parsed.data.email.toLowerCase();
   const intent = parsed.data.intent ?? "create_order";
 
-  // Refused, not ignored. A caller that sends a service title on a rate quote
-  // has misunderstood the contract, and silently dropping it would let a
-  // theme bug "select" a service that was never applied to anything.
-  if (intent === "shipping_rates" && parsed.data.shippingServiceTitle !== undefined) {
-    return badRequest("shippingServiceTitle must not be sent with intent 'shipping_rates'");
-  }
-  if (intent === "create_order" && parsed.data.shippingServiceTitle === undefined) {
-    return badRequest("shippingServiceTitle is required to create an order");
-  }
-
   // --- PAYMENT COORDINATES MUST EXIST BEFORE ANY DRAFT ORDER DOES (D12). ---
   //
   // Same gate, same reasoning as `apps.carat.group-buy-bank-checkout.tsx`:
@@ -665,6 +655,35 @@ export async function action({ request }: ActionFunctionArgs) {
   if (!currency || quotedLines.some((l) => l.currency !== currency)) {
     logger.error("bank_checkout.currency_resolution_failed", { currency });
     return Response.json({ error: "pricing_failed" }, { status: 500 });
+  }
+
+  // ==========================================================================
+  // THE SHIPPING CONTRACT IS CHECKED HERE, NOT AT THE TOP OF THE ACTION
+  // ==========================================================================
+  // It was at the top in the first version of this change, and that MASKED
+  // more useful refusals. A cart containing a Group Buy variant and no chosen
+  // service got `invalid_request` instead of `group_buy_variant_present`, and
+  // an unsynced variant got it instead of `unpurchasable_lines` — so the
+  // customer was told "check the form" when the actual problem was an item in
+  // their cart, which is a different action entirely. Two integration tests
+  // asserting the specific codes caught it.
+  //
+  // The ordering rule this settles: a request's SHAPE is only worth
+  // complaining about once the request's CONTENT has been accepted. Group Buy
+  // exclusion, unknown variants and unsynced prices are all refusals the
+  // customer can act on; a missing `shippingServiceTitle` is a theme bug they
+  // cannot. So the specific business refusals above win, and this runs only
+  // once the basket itself is known to be purchasable.
+  //
+  // Still before the Shopify port is created, so a malformed request costs no
+  // Admin API call.
+  if (intent === "shipping_rates" && parsed.data.shippingServiceTitle !== undefined) {
+    // Refused, not ignored: silently dropping it would let a theme bug
+    // "select" a service that was never applied to anything.
+    return badRequest("shippingServiceTitle must not be sent with intent 'shipping_rates'");
+  }
+  if (intent === "create_order" && parsed.data.shippingServiceTitle === undefined) {
+    return badRequest("shippingServiceTitle is required to create an order");
   }
 
   // The coordinate gate lives further up, before the first Shopify call —
