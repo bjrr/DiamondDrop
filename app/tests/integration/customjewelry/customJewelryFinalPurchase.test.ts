@@ -15,6 +15,7 @@ import { fallbackExpiresAt } from "~/domain/beatyourquote/fallbackBenefit";
 import { Money } from "~/domain/money/money";
 import { createCustomJewelryFinalPurchase } from "~/jobs/customjewelry/createFinalPurchase.server";
 import type {
+  CalculateShippingRatesInput,
   CreateCustomJewelryDraftOrderInput,
   CreatedDraftOrder,
   DraftOrderPort,
@@ -55,20 +56,57 @@ const SHIPPING = {
   countryCode: "GB",
 };
 
-/** Records what it was asked to create, and can be made to fail. */
-function recordingPort(options: { fail?: boolean } = {}): DraftOrderPort & {
+/** The contiguous-48 rates this suite's fake Shopify offers by default. */
+const STANDARD_RATE = {
+  handle: "handle-standard",
+  title: "Standard Insured Shipping with Signature",
+  priceMinorUnits: 3000n,
+  currency: "USD",
+};
+const EXPRESS_RATE = {
+  handle: "handle-express",
+  title: "Express Insured Shipping with Signature",
+  priceMinorUnits: 5500n,
+  currency: "USD",
+};
+const COMPLIMENTARY_RATE = {
+  handle: "handle-complimentary",
+  title: "Complimentary Express Insured Shipping with Signature",
+  priceMinorUnits: 0n,
+  currency: "USD",
+};
+
+/** Records what it was asked to create and to quote, and can be made to fail. */
+function recordingPort(
+  options: {
+    fail?: boolean;
+    /** Override what Shopify "offers". `[]` models an undeliverable destination. */
+    shippingRates?: readonly { handle: string; title: string; priceMinorUnits: bigint; currency: string }[];
+    /** Make the rate call itself fail, modelling a Shopify outage. */
+    shippingFails?: boolean;
+  } = {}
+): DraftOrderPort & {
   calls: CreateCustomJewelryDraftOrderInput[];
+  shippingRateCalls: CalculateShippingRatesInput[];
 } {
   const calls: CreateCustomJewelryDraftOrderInput[] = [];
+  const shippingRateCalls: CalculateShippingRatesInput[] = [];
   return {
     calls,
+    shippingRateCalls,
     // Not exercised by this suite: nothing it drives quotes a shipping
     // rate. Throws rather than returning an empty array, because an empty
     // array is a MEANINGFUL value here — "undeliverable destination" — and
     // returning it by accident would quietly assert something this test
     // never set out to check.
-    async calculateAvailableShippingRates(): Promise<never> {
-      throw new Error("calculateAvailableShippingRates is not expected in this test");
+    // NOW EXERCISED (owner decision 2026-11-18). RECORDED, because what this
+    // method is ASKED is the subtle assertion: the quote must be against the
+    // approved merchandise price with the deposit credit LEFT OUT, since a
+    // deposit already paid is a prepayment and not a price reduction.
+    async calculateAvailableShippingRates(input: CalculateShippingRatesInput) {
+      shippingRateCalls.push(input);
+      if (options.shippingFails) throw new Error("Shopify could not be reached");
+      return options.shippingRates ?? [STANDARD_RATE, EXPRESS_RATE];
     },
     async createCustomJewelryDraftOrder(
       input: CreateCustomJewelryDraftOrderInput
@@ -210,6 +248,9 @@ function purchase(packageId: string, port: DraftOrderPort, overrides: Record<str
     email: "ada@example.com",
     shippingAddress: SHIPPING,
     paymentBasis: "card",
+    // Defaulted so the pre-existing cases stay about what they were about;
+    // the shipping cases below override it explicitly.
+    shippingServiceTitle: STANDARD_RATE.title,
     draftOrderPort: port,
     now: NOW,
     ...overrides,
@@ -696,3 +737,183 @@ async function freshProject(): Promise<string> {
   });
   return row.id;
 }
+
+/**
+ * ============================================================================
+ * SHIPPING ON CUSTOM JEWELRY (owner decision 2026-11-18)
+ * ============================================================================
+ * The approved custom-jewelry price is a MERCHANDISE price. Shipping is a
+ * separate charge under `docs/SHIPPING-AND-DELIVERY.md`, applied exactly as it
+ * is to Buy Now and Group Buy. This path used to carry an unconditional
+ * "Shipping (included in item price) — $0.00" line.
+ *
+ * The subtle part, and most of what these tests defend, is WHICH FIGURE the
+ * $1,000 threshold is evaluated against: Shopify ranks rate conditions against
+ * the discounted total, and this flow carries two very different reductions.
+ */
+describe("shipping on the final purchase (owner decision 2026-11-18)", () => {
+  it("charges the chosen service, and sends Shopify a title and a price rather than nothing", async () => {
+    const { packageId } = await approvedPackage();
+    const port = recordingPort();
+
+    const result = await purchase(packageId, port);
+
+    expect(result.outcome).toBe("created");
+    expect(port.calls).toHaveLength(1);
+    expect(port.calls[0]!.shippingServiceTitle).toBe("Standard Insured Shipping with Signature");
+    expect(port.calls[0]!.shippingPrice.amountMinorUnits).toBe(3000n);
+  });
+
+  it("never sends the superseded zero shipping line", async () => {
+    const { packageId } = await approvedPackage();
+    const port = recordingPort();
+
+    await purchase(packageId, port);
+
+    expect(JSON.stringify(port.calls[0])).not.toContain("Shipping (included in item price)");
+  });
+
+  describe("the threshold is evaluated on the approved MERCHANDISE price", () => {
+    it("quotes against the gross approved price, with the deposit credit LEFT OUT", async () => {
+      // THE DECISION THAT NEEDED MAKING. The $49 Design Deposit has already
+      // been paid, so the jewellery still costs the approved price — it is a
+      // prepayment, not a price reduction. Passing it to the rate quote would
+      // mean two customers buying the same piece got different shipping purely
+      // because one of them had paid a deposit.
+      const { packageId } = await approvedPackage({ withPaidDeposit: true });
+      const port = recordingPort();
+
+      await purchase(packageId, port);
+
+      expect(port.shippingRateCalls).toHaveLength(1);
+      const quoted = port.shippingRateCalls[0]!;
+      // The gross approved price, undiminished.
+      expect(quoted.lineItems).toHaveLength(1);
+      expect(quoted.lineItems[0]!.unitPrice.amountMinorUnits).toBe(CARD_PRICE);
+      // And NO discount at all, because the only reduction here is the deposit.
+      expect(quoted.appliedDiscount).toBeUndefined();
+    });
+
+    it("quotes a custom line, which only rates at all because it requires shipping", async () => {
+      // A custom line defaults to requiresShipping false and returns an empty
+      // rate list. The adapter sets the flag; this asserts the quote is shaped
+      // as a custom line rather than silently needing a variant.
+      const { packageId } = await approvedPackage();
+      const port = recordingPort();
+
+      await purchase(packageId, port);
+
+      const line = port.shippingRateCalls[0]!.lineItems[0]!;
+      expect("title" in line).toBe(true);
+      expect("shopifyVariantGid" in line).toBe(false);
+    });
+
+    it("charges nothing when complimentary Express is what Shopify offered", async () => {
+      const { packageId } = await approvedPackage();
+      const port = recordingPort({ shippingRates: [COMPLIMENTARY_RATE] });
+
+      const result = await purchase(packageId, port, {
+        shippingServiceTitle: COMPLIMENTARY_RATE.title,
+      });
+
+      expect(result.outcome).toBe("created");
+      // Zero as a PRICED DECISION — earned above $1,000 — which is a different
+      // thing from the unconditional zero line this decision removed.
+      expect(port.calls[0]!.shippingPrice.amountMinorUnits).toBe(0n);
+      expect(port.calls[0]!.shippingServiceTitle).toBe(COMPLIMENTARY_RATE.title);
+    });
+
+    it("refuses paid Standard when only complimentary Express is offered", async () => {
+      const { packageId } = await approvedPackage();
+      const port = recordingPort({ shippingRates: [COMPLIMENTARY_RATE] });
+
+      const result = await purchase(packageId, port);
+
+      expect(result.outcome).toBe("refused");
+      if (result.outcome !== "refused") return;
+      expect(result.refusal).toBe("shipping_unavailable");
+      expect(port.calls).toHaveLength(0);
+    });
+  });
+
+  describe("no purchase is created unless shipping resolved", () => {
+    it("refuses when nothing can be shipped to the address, rather than shipping free", async () => {
+      // THE MOST IMPORTANT FAILURE CASE on this path too.
+      const { packageId } = await approvedPackage();
+      const port = recordingPort({ shippingRates: [] });
+
+      const result = await purchase(packageId, port);
+
+      expect(result.outcome).toBe("refused");
+      if (result.outcome !== "refused") return;
+      expect(result.refusal).toBe("shipping_unavailable");
+      expect(result.detail).toMatch(/nothing can be shipped/i);
+      expect(port.calls).toHaveLength(0);
+    });
+
+    it("refuses an unknown service rather than substituting one", async () => {
+      const { packageId } = await approvedPackage();
+      const port = recordingPort();
+
+      const result = await purchase(packageId, port, { shippingServiceTitle: "Free Shipping" });
+
+      expect(result.outcome).toBe("refused");
+      if (result.outcome !== "refused") return;
+      expect(result.refusal).toBe("shipping_unavailable");
+      expect(port.calls).toHaveLength(0);
+    });
+
+    it("refuses when the rate call itself fails, and creates nothing", async () => {
+      const { packageId } = await approvedPackage();
+      const port = recordingPort({ shippingFails: true });
+
+      const result = await purchase(packageId, port);
+
+      expect(result.outcome).toBe("refused");
+      if (result.outcome !== "refused") return;
+      expect(result.refusal).toBe("shipping_unavailable");
+      expect(port.calls).toHaveLength(0);
+    });
+
+    it("does not leave a Let Us Beat Your Quote benefit locked when shipping refuses", async () => {
+      // The benefit is reserved BEFORE shipping is resolved, and it is single
+      // use. A customer who never got a checkout must be able to try again —
+      // the same guarantee the draft-order failure path already made.
+      const code = await benefit();
+      const { packageId } = await approvedPackage();
+      const port = recordingPort({ shippingRates: [] });
+
+      const result = await purchase(packageId, port, { benefitCode: code });
+
+      expect(result.outcome).toBe("refused");
+      const intent = await prisma.beatQuoteRedemptionIntent.findFirst({
+        where: { benefit: { benefitCode: code } },
+        orderBy: { reservedAt: "desc" },
+      });
+      // Released, not left `reserved`.
+      expect(intent?.status).not.toBe("reserved");
+    });
+  });
+
+  describe("a quote-match benefit DOES reduce the qualifying total", () => {
+    it("passes the benefit discount to the rate quote, unlike the deposit", async () => {
+      // The other half of the distinction. A Let Us Beat Your Quote benefit
+      // genuinely reduces what the jewellery costs, so §2 qualifies on the
+      // reduced total — "after all discounts". The deposit credit does not.
+      const code = await benefit();
+      const { packageId } = await approvedPackage();
+      const port = recordingPort();
+
+      const result = await purchase(packageId, port, { benefitCode: code });
+
+      expect(result.outcome).toBe("created");
+      const quoted = port.shippingRateCalls[0]!;
+      expect(quoted.appliedDiscount).toBeDefined();
+      expect(quoted.appliedDiscount!.amountMinorUnits).toBeGreaterThan(0n);
+      // Still quoted against the GROSS line price; the reduction travels as a
+      // discount rather than being baked into the line, exactly as the draft
+      // order itself records the sale.
+      expect(quoted.lineItems[0]!.unitPrice.amountMinorUnits).toBe(CARD_PRICE);
+    });
+  });
+});

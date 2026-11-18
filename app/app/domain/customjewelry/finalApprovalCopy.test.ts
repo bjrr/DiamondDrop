@@ -58,6 +58,8 @@ describe("the pinned text", () => {
         "engraving where applicable, exactly as displayed on this page. " +
         "I approve the final price shown and the $49 Design Deposit credit applied to it, and I understand the amount " +
         "due is the remaining balance after that credit. " +
+        "I understand the approved price is the price of the jewelry itself, and that shipping is calculated separately " +
+        "under the CaratForUs Shipping Policy and shown to me before I pay. " +
         "I understand that once my final design and specifications are approved and the jewelry is purchased, my order is " +
         "final sale except for covered defects, incorrect specifications, shipping damage, or material failure to match the " +
         "approved design and specifications."
@@ -84,9 +86,17 @@ describe("the pinned text", () => {
       "Your piece is covered by the CaratForUs 1-year limited manufacturing warranty, which covers qualifying defects in " +
         "materials, construction, setting, or assembly under normal use."
     );
+    // CHANGED 2026-11-18. It used to claim shipping was included in the price,
+    // which the owner's decision makes false: the approved price is a
+    // MERCHANDISE price and shipping is charged separately. The old sentence is
+    // asserted absent below, so a revert fails loudly rather than quietly
+    // re-promising free shipping on the approval page.
     expect(CUSTOM_JEWELRY_SHIPPING_TEXT).toBe(
-      "Standard shipping and insurance are included in the price shown."
+      "Every piece is shipped insured for its full value, tracked, and with a signature required on delivery. " +
+        "Shipping is calculated separately from the approved jewelry price, under the CaratForUs Shipping Policy, " +
+        "and is shown before you pay."
     );
+    expect(CUSTOM_JEWELRY_SHIPPING_TEXT).not.toContain("included in the price");
   });
 
   it("is exactly the checkbox label — the AFFIRMATIVE ACTION, and the evidence", () => {
@@ -117,9 +127,11 @@ describe("the pinned text", () => {
 
   it("names its policy slugs and versions", () => {
     expect(CUSTOM_JEWELRY_FINAL_APPROVAL_POLICY_SLUG).toBe("custom-jewelry-final-approval");
-    // VERSION 2 — the owner's wording. Version 1 remains in the database and
-    // remains what existing approval packages point at.
-    expect(CUSTOM_JEWELRY_FINAL_APPROVAL_POLICY_VERSION).toBe(2);
+    // VERSION 3 — the shipping sentence (owner decision 2026-11-18). Versions
+    // 1 and 2 remain in the database and remain what existing approval
+    // packages point at; `policy_version` is append-only, so an edit to either
+    // is impossible rather than merely discouraged.
+    expect(CUSTOM_JEWELRY_FINAL_APPROVAL_POLICY_VERSION).toBe(3);
     // SEPARATE from the acknowledgment, because the package preserves them
     // separately and they can change independently.
     expect(CUSTOM_JEWELRY_FINAL_SALE_POLICY_SLUG).toBe("custom-jewelry-final-sale");

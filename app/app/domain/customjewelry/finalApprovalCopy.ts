@@ -78,8 +78,15 @@ import { CUSTOM_JEWELRY_DEPOSIT_AMOUNT_MINOR_UNITS } from "./designDepositAcknow
  * NO REPAIR-TIMING PROMISE. The warranty covers defects; how long a remedy
  * takes is not stated anywhere authoritative and must not be invented here.
  *
- * NO DELIVERY-DATE PROMISE. Shipping is included in the price. That is all the
- * README supports.
+ * NO DELIVERY-DATE PROMISE. Shipping rates and their transit windows depend on
+ * destination and order value and are resolved at purchase, so naming a date
+ * or a duration here would invent a promise nothing authoritative supports.
+ *
+ * NO CLAIM THAT SHIPPING IS INCLUDED. It said exactly that until 2026-11-18,
+ * when the owner made the approved price a merchandise price with shipping
+ * charged separately under `docs/SHIPPING-AND-DELIVERY.md`. See
+ * CUSTOM_JEWELRY_SHIPPING_TEXT for what replaced it and why leaving it would
+ * have been the worst kind of stale copy.
  */
 
 /**
@@ -110,13 +117,45 @@ export const CUSTOM_JEWELRY_WARRANTY_TEXT =
   "materials, construction, setting, or assembly under normal use.";
 
 /**
- * Shipping. One fact, which is the only one the README supports.
+ * Shipping.
  *
- * NOT A DELIVERY PROMISE, and the test rejects "days", "weeks", "business day"
- * and "arrive" for exactly that reason.
+ * ============================================================================
+ * CHANGED 2026-11-18 — THIS USED TO SAY SHIPPING WAS INCLUDED, AND IT ISN'T
+ * ============================================================================
+ * The previous text was *"Standard shipping and insurance are included in the
+ * price shown."* Under the owner's decision of 2026-11-18 that is false: the
+ * approved custom-jewelry price is a **merchandise price**, and shipping is a
+ * separate fulfilment charge under `docs/SHIPPING-AND-DELIVERY.md`.
+ *
+ * Leaving it would have been the worst kind of stale copy. It sits on the
+ * final-approval page, directly above the acknowledgment the customer
+ * certifies, and it promised the one thing the new rule removes — so a
+ * customer would have approved a price believing shipping was in it and then
+ * met a $30 or $55 charge at purchase. The owner's instruction is explicit:
+ * *"Do not surprise the customer with a new shipping charge after they have
+ * approved the final design."*
+ *
+ * INSURANCE AND SIGNATURE SURVIVE AS FACTS because they remain true on every
+ * shipment (§1 of the shipping policy) — what changed is who the cost sits
+ * with, not what the service is.
+ *
+ * STILL NOT A DELIVERY PROMISE. No number, no "day", no "week": the rates and
+ * their transit windows depend on destination and order value and are shown at
+ * purchase, so naming one here would be inventing a promise. The test enforces
+ * all three exclusions.
+ *
+ * "IS SHIPPED", NOT "SHIPS". The first draft read "Your piece ships insured
+ * for its full value", and the prohibition test caught it: "ships ins…"
+ * contains the substring "ships in", which the owner banned to keep a
+ * turnaround promise ("ships in 3 days") out of this surface. The rule cannot
+ * tell the two apart, and loosening a prohibition to accommodate one's own
+ * phrasing is the wrong way round — so the sentence was reworded instead. It
+ * reads better for it.
  */
 export const CUSTOM_JEWELRY_SHIPPING_TEXT =
-  "Standard shipping and insurance are included in the price shown.";
+  "Every piece is shipped insured for its full value, tracked, and with a signature required on delivery. Shipping " +
+  "is calculated separately from the approved jewelry price, under the CaratForUs Shipping Policy, and is shown " +
+  "before you pay.";
 
 /**
  * The deposit credit, stated as the locked disclosure already states it.
@@ -157,6 +196,8 @@ export const CUSTOM_JEWELRY_FINAL_APPROVAL_ACKNOWLEDGMENT_TEXT =
   "engraving where applicable, exactly as displayed on this page. " +
   "I approve the final price shown and the $49 Design Deposit credit applied to it, and I understand the amount " +
   "due is the remaining balance after that credit. " +
+  "I understand the approved price is the price of the jewelry itself, and that shipping is calculated separately " +
+  "under the CaratForUs Shipping Policy and shown to me before I pay. " +
   "I understand that once my final design and specifications are approved and the jewelry is purchased, my order is " +
   "final sale except for covered defects, incorrect specifications, shipping damage, or material failure to match the " +
   "approved design and specifications.";
@@ -214,20 +255,40 @@ export const CUSTOM_JEWELRY_FINAL_APPROVAL_POLICY_SLUG = "custom-jewelry-final-a
  * Bump together with the text above, as a NEW version, on any approved wording
  * change.
  *
- * VERSION 2 (owner decision 2026-10-12). Version 1 is NOT edited — it is still
- * in the database and still what existing approval packages point at, which is
- * the entire purpose of versioning: an acknowledgment row references the
- * version it was shown under, so changing v1 would retroactively alter what
- * existing evidence claims a customer agreed to.
+ * VERSION 3 (owner decision 2026-11-18). Versions 1 and 2 are NOT edited —
+ * both remain in the database and remain what existing approval packages point
+ * at, which is the entire purpose of versioning: an acknowledgment row
+ * references the version it was shown under, so changing an old one would
+ * retroactively alter what existing evidence claims a customer agreed to. The
+ * `policy_version` table's BEFORE UPDATE/DELETE triggers make that impossible
+ * by construction rather than by care.
  *
- * WHAT CHANGED, and it is the middle sentence only. v1 said "the credit of my
- * $49 Design Deposit against it, and I understand I am paying the remaining
- * balance"; v2 says "the $49 Design Deposit credit applied to it, and I
- * understand the amount due is the remaining balance after that credit". The
- * owner's wording names the credit as a thing applied to the price and states
- * the amount due, which is clearer about what is actually being collected.
+ * WHAT CHANGED IN v3: one sentence ADDED, nothing altered and nothing removed.
+ *
+ *   "I understand the approved price is the price of the jewelry itself, and
+ *    that shipping is calculated separately under the CaratForUs Shipping
+ *    Policy and shown to me before I pay."
+ *
+ * The owner's decision makes the approved custom-jewelry price a MERCHANDISE
+ * price, with shipping charged separately under
+ * `docs/SHIPPING-AND-DELIVERY.md`. The instruction was that the customer must
+ * understand this **before** final design approval, and that they must not be
+ * surprised by a shipping charge afterwards — so the point is certified in the
+ * acknowledgment, not merely displayed near it.
+ *
+ * STRICTLY ADDITIVE, which is what keeps this from weakening the
+ * acknowledgment. All three of v2's sentences survive verbatim: the approval
+ * scope, the price-and-deposit-credit clause, and the final-sale term with its
+ * four exceptions. No waiver, no limitation of liability, no acceptance of
+ * delay was introduced alongside it.
+ *
+ * WHAT CHANGED IN v2 (owner decision 2026-10-12), for the record: the middle
+ * sentence only. v1 said "the credit of my $49 Design Deposit against it, and
+ * I understand I am paying the remaining balance"; v2 says "the $49 Design
+ * Deposit credit applied to it, and I understand the amount due is the
+ * remaining balance after that credit".
  */
-export const CUSTOM_JEWELRY_FINAL_APPROVAL_POLICY_VERSION = 2;
+export const CUSTOM_JEWELRY_FINAL_APPROVAL_POLICY_VERSION = 3;
 
 /**
  * The final-sale copy's own slug and version.

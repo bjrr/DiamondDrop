@@ -68,6 +68,11 @@ function redemptionReply(opts: {
   valueType?: string;
   allowDiscountCodesInCheckout?: boolean;
   noAppliedDiscount?: boolean;
+  /** What Shopify says it charged for shipping. Defaults to agreeing with `redemptionInput`. */
+  shippingAmount?: string;
+  shippingTitle?: string;
+  /** Models a handle Shopify ignored: no shipping line at all. */
+  omitShipping?: boolean;
 }) {
   return {
     data: {
@@ -92,8 +97,22 @@ function redemptionReply(opts: {
               quantity: l.quantity,
               originalUnitPrice: l.price,
               variant: { id: l.variantGid },
+              requiresShipping: true,
             })),
           },
+          // "30.0", not "30.00": Shopify normalises trailing zeros on a
+          // MoneyBag, so encoding the real wire format is what makes the echo
+          // check's minor-unit comparison a tested property.
+          ...(opts.omitShipping
+            ? {}
+            : {
+                shippingLine: {
+                  title: opts.shippingTitle ?? "Standard Insured Shipping with Signature",
+                },
+                totalShippingPriceSet: {
+                  shopMoney: { amount: opts.shippingAmount ?? "30.0", currencyCode: "USD" },
+                },
+              }),
         },
         userErrors: [],
       },
@@ -112,6 +131,10 @@ function redemptionInput(
     discount: Money.fromMinorUnits(5_000n, "USD"),
     discountTitle: "Let Us Beat Your Quote — 10% off",
     redemptionIntentId: "11111111-2222-3333-4444-555555555555",
+    // Shipping became required on 2026-11-18. $30.00 Standard, so the
+    // default case in this file is one where shipping COSTS money.
+    shippingRateHandle: "signed-handle-standard",
+    expectedShippingPrice: Money.fromMinorUnits(3000n, "USD"),
     ...overrides,
   };
 }

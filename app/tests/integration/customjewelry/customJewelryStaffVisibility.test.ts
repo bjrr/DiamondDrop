@@ -48,13 +48,24 @@ const usd = (minor: bigint) => Money.fromMinorUnits(minor, "USD");
 
 function port(): DraftOrderPort {
   return {
-    // Not exercised by this suite: nothing it drives quotes a shipping
-    // rate. Throws rather than returning an empty array, because an empty
-    // array is a MEANINGFUL value here — "undeliverable destination" — and
-    // returning it by accident would quietly assert something this test
-    // never set out to check.
-    async calculateAvailableShippingRates(): Promise<never> {
-      throw new Error("calculateAvailableShippingRates is not expected in this test");
+    // NOW EXERCISED. The final-purchase path resolves shipping before it
+    // creates anything (owner decision 2026-11-18), so this fake offers the
+    // contiguous-48 Standard rate rather than throwing. $30.00 rather than
+    // zero, so this suite runs against an order that genuinely carries a
+    // shipping charge.
+    //
+    // USD, matching the approval package — the fixture prices are `usd(...)`
+    // even though the address is a London one, and the purchase path refuses a
+    // shipping quote in a different currency from the package.
+    async calculateAvailableShippingRates() {
+      return [
+        {
+          handle: "handle-standard",
+          title: "Standard Insured Shipping with Signature",
+          priceMinorUnits: 3000n,
+          currency: "USD",
+        },
+      ];
     },
     async createCustomJewelryDraftOrder(
       _input: CreateCustomJewelryDraftOrderInput
@@ -178,6 +189,7 @@ describe("the project's approval history", () => {
       email: "ada@example.com",
       shippingAddress: { address1: "1 Way", city: "London", zip: "SW1A 1AA", countryCode: "GB" },
       paymentBasis: "card",
+      shippingServiceTitle: "Standard Insured Shipping with Signature",
       draftOrderPort: port(),
       now: NOW,
     });
@@ -279,6 +291,7 @@ describe("payment anomalies", () => {
       email: "ada@example.com",
       shippingAddress: { address1: "1 Way", city: "London", zip: "SW1A 1AA", countryCode: "GB" },
       paymentBasis: basis,
+      shippingServiceTitle: "Standard Insured Shipping with Signature",
       draftOrderPort: port(),
       now: NOW,
     });

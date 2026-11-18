@@ -39,6 +39,30 @@ export const BEAT_QUOTE_FALLBACK_CURRENCY = "USD";
 export const BEAT_QUOTE_FALLBACK_VALIDITY_DAYS = 90;
 
 /**
+ * WHAT THE COMPARISON IS AND IS NOT ABOUT (owner decision 2026-11-18).
+ *
+ * The quote-match guarantee is a guarantee about the **jewellery price**.
+ * Competitor shipping is not part of it — it never was, and this states so
+ * plainly rather than leaving the customer to infer it — and CaratForUs
+ * shipping is charged separately under `docs/SHIPPING-AND-DELIVERY.md`.
+ *
+ * SHOWN BEFORE THE CUSTOMER FINALIZES, which is the owner's actual
+ * requirement: "make sure the customer sees this before accepting/finalizing
+ * the resulting CaratForUs quote." The redemption route returns it with the
+ * shipping-rate quote, i.e. on the step where the customer is choosing how the
+ * piece ships and has not yet committed.
+ *
+ * NOT AN ACKNOWLEDGMENT. Nothing here is certified, versioned or retained as
+ * evidence, because the owner required disclosure rather than consent — and
+ * manufacturing a new acknowledgment would add a friction point the brief did
+ * not ask for. The Custom Jewelry case IS certified, because that decision
+ * named approval explicitly.
+ */
+export const BEAT_QUOTE_SHIPPING_DISCLOSURE =
+  "Our price match covers the price of the jewelry itself. Shipping is calculated separately under the CaratForUs " +
+  "Shipping Policy and shown here before you place your order.";
+
+/**
  * Where a fallback may be redeemed.
  *
  * Amendment §3: "redeemable on eligible regular Buy Now merchandise or Custom

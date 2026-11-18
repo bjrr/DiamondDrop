@@ -208,6 +208,50 @@ async function main() {
 
   try {
     // ======================================================================
+    // SHIPPING, RESOLVED THE WAY PRODUCTION RESOLVES IT (2026-11-18)
+    // ======================================================================
+    // Quoted on the APPROVED MERCHANDISE PRICE with no deposit credit
+    // applied, exactly as `createFinalPurchase.server.ts` does, because the
+    // credit is a prepayment rather than a price reduction.
+    //
+    // $5,175.37 is well over $1,000, so this is expected to come back as
+    // Complimentary Express Insured Shipping with Signature at $0.00 — which
+    // makes this gate prove something the unit tests cannot: that a
+    // legitimately free rate still travels as a priced decision and survives
+    // the adapter's echo check, rather than being confused with the
+    // superseded unconditional zero line.
+    console.log("0. SHIPPING: asking Shopify what it offers for the approved price");
+    const liveRates = await adapter.calculateAvailableShippingRates({
+      shippingAddress: {
+        firstName: "Carat",
+        lastName: "LiveGate",
+        address1: "1 Live Gate Way",
+        city: "Austin",
+        provinceCode: "TX",
+        zip: "78701",
+        countryCode: "US",
+      },
+      lineItems: [
+        {
+          title: "Custom Jewelry — live gate probe (CJ-LIVEGATE, approved design v1)",
+          quantity: 1,
+          unitPrice: GROSS,
+        },
+      ],
+    });
+    console.log(
+      `   offered: ${liveRates.map((r) => `${r.title} = ${r.priceMinorUnits} ${r.currency}`).join("; ") || "(none)"}`
+    );
+    const liveShipping = liveRates[0];
+    if (!liveShipping) {
+      // A REFUSAL, not a fallback. If Shopify offers nothing, the production
+      // path refuses the purchase, and so does this gate.
+      throw new Error(
+        "Shopify offered no shipping rates for the live-gate address; the production path would refuse the purchase"
+      );
+    }
+
+    // ======================================================================
     // THE CARD BASIS — custom line + discount, and NO payment terms
     // ======================================================================
     console.log("1. CARD basis: a custom line at the gross price, less a fixed credit");
@@ -233,6 +277,13 @@ async function main() {
       totalCredit: CREDIT,
       creditTitle: "Design Deposit credit + Let Us Beat Your Quote benefit",
       paymentBasis: "card",
+      // Shipping became required on 2026-11-18. The LIVE gate resolves it the
+      // way production does — from Shopify's own availableShippingRates for
+      // this destination and the approved merchandise price — rather than
+      // asserting a figure, because the point of a live gate is to find out
+      // what Shopify actually offers.
+      shippingServiceTitle: liveShipping.title,
+      shippingPrice: Money.fromMinorUnits(liveShipping.priceMinorUnits, liveShipping.currency),
       note: "carat-live-gate-cj-final — custom line + discount verification. Safe to delete.",
       tags: ["carat-live-gate-cj-final"],
     });
@@ -325,6 +376,13 @@ async function main() {
       totalCredit: CREDIT,
       creditTitle: "Design Deposit credit + Let Us Beat Your Quote benefit",
       paymentBasis: "bank_payment",
+      // Shipping became required on 2026-11-18. The LIVE gate resolves it the
+      // way production does — from Shopify's own availableShippingRates for
+      // this destination and the approved merchandise price — rather than
+      // asserting a figure, because the point of a live gate is to find out
+      // what Shopify actually offers.
+      shippingServiceTitle: liveShipping.title,
+      shippingPrice: Money.fromMinorUnits(liveShipping.priceMinorUnits, liveShipping.currency),
       note: "carat-live-gate-cj-final — bank basis. Safe to delete.",
       tags: ["carat-live-gate-cj-final"],
     });

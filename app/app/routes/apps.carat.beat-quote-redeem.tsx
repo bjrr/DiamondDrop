@@ -5,13 +5,19 @@ import { prisma } from "~/db/client.server";
 import { getPublishedVariantPrice } from "~/db/repositories/publishedPriceRepository.server";
 import {
   BEAT_QUOTE_FALLBACK_PERCENT,
+  BEAT_QUOTE_SHIPPING_DISCLOSURE,
   type FallbackRefusal,
 } from "~/domain/beatyourquote/fallbackBenefit";
-import type {
-  IneligibleLineReason,
-  RedemptionLineInput,
-  RedemptionPaymentBasis,
+import {
+  quoteRedemption,
+  type IneligibleLineReason,
+  type RedemptionLineInput,
+  type RedemptionPaymentBasis,
 } from "~/domain/beatyourquote/redemptionCalculation";
+import {
+  resolveShippingRateSelection,
+  type AvailableShippingRate,
+} from "~/domain/shipping/shippingRateSelection";
 import { normalizeShopifyVariantGid } from "~/domain/cart/shopifyVariantId";
 import { Money } from "~/domain/money/money";
 import {
@@ -141,6 +147,24 @@ const redemptionRequestSchema = z
     email: z.string().trim().email().max(320),
     shippingAddress: shippingAddressRequestSchema,
     lines: z.array(redemptionLineRequestSchema).min(1).max(MAX_REQUEST_LINES),
+    /**
+     * SHIPPING (owner decision 2026-11-18) — the same two-request contract
+     * `apps.carat.bank-checkout.tsx` uses. `"shipping_rates"` quotes and
+     * creates nothing; otherwise `shippingServiceTitle` is required.
+     *
+     * A TITLE, never a price and never a rate handle. Note how this fits the
+     * rule the schema comment above already states: this is a choice of
+     * service, the same category as which variant and how many — not a price
+     * claim. The server re-resolves the rate, and the price it charges comes
+     * from Shopify's own list.
+     *
+     * The quote-match guarantee is untouched by this. It is a guarantee about
+     * the JEWELLERY PRICE: the benefit below reduces merchandise, and
+     * CaratForUs shipping is charged separately on top. Competitor shipping
+     * was never part of the comparison and still is not.
+     */
+    intent: z.enum(["shipping_rates", "create_order"]).optional(),
+    shippingServiceTitle: z.string().trim().min(1).max(255).optional(),
     /**
      * THE ONE THING THE CUSTOMER DECIDES THAT CHANGES THE MONEY, and it is
      * here precisely because the owner forbade deciding it for them: "do not
@@ -387,6 +411,19 @@ export async function action({ request }: ActionFunctionArgs) {
     return badRequest("body does not match the benefit redemption request contract");
   }
   const { benefitCode, email, shippingAddress, lines: requestLines, paymentBasis } = parsed.data;
+  // NAMED `requestIntent`, not `intent`: `intent` is already this route's name
+  // for the RESERVED redemption intent further down, and two different things
+  // called intent in one function is how a shipping flag ends up being read
+  // as a benefit reservation.
+  const requestIntent = parsed.data.intent ?? "create_order";
+
+  // Refused, not ignored — identical contract to the bank-checkout route.
+  if (requestIntent === "shipping_rates" && parsed.data.shippingServiceTitle !== undefined) {
+    return badRequest("shippingServiceTitle must not be sent with intent 'shipping_rates'");
+  }
+  if (requestIntent === "create_order" && parsed.data.shippingServiceTitle === undefined) {
+    return badRequest("shippingServiceTitle is required to create an order");
+  }
 
   // ==========================================================================
   // THIS ENDPOINT IS THE CARD PATH. A BANK BASIS HERE IS REFUSED, LOUDLY.
@@ -440,6 +477,91 @@ export async function action({ request }: ActionFunctionArgs) {
     ineligibleBecause: line.ineligibleBecause,
   }));
 
+  const shippingQuoteLines = resolved.lines.map((line) => ({
+    shopifyVariantGid: line.shopifyVariantGid,
+    quantity: line.quantity,
+    unitPrice: line.unitPrice,
+  }));
+
+  // ==========================================================================
+  // THE RATE QUOTE — BEFORE ANY RESERVATION, AND IT RESERVES NOTHING
+  // ==========================================================================
+  // Owner decision 2026-11-18. The customer must be able to see shipping
+  // options before finalizing, and the benefit is SINGLE USE: reserving it to
+  // answer "what would shipping cost?" would spend it on a question.
+  //
+  // So this branch reads the benefit's frozen cap and re-derives the discount
+  // through the SAME pure `quoteRedemption` the reservation uses, rather than
+  // guessing at 10% or hard-coding a cap. Same inputs, same discount, no
+  // write. If the benefit turns out to be unusable, the create step refuses on
+  // its own authority — this branch does not duplicate that judgement, it only
+  // needs a number to quote shipping against.
+  if (requestIntent === "shipping_rates") {
+    const benefit = await prisma.beatQuoteFallbackBenefit.findUnique({
+      where: { benefitCode },
+      select: { maxDiscountMinorUnits: true, currency: true },
+    });
+    if (!benefit) {
+      // Conflated exactly as the create path conflates it — see `refused`.
+      return refused("benefit_not_found");
+    }
+
+    const prospective = quoteRedemption({
+      lines: redemptionLines,
+      surface: "buy_now",
+      paymentBasis,
+      benefitMaxDiscount: Money.fromMinorUnits(benefit.maxDiscountMinorUnits, benefit.currency),
+      otherPromotionApplied: false,
+      stackingExpresslyAuthorized: false,
+    });
+
+    let rates: readonly AvailableShippingRate[];
+    try {
+      const port = await draftOrderPort();
+      rates = await port.calculateAvailableShippingRates({
+        shippingAddress,
+        lineItems: shippingQuoteLines,
+        // THE BENEFIT IS PASSED, because it is a genuine merchandise
+        // reduction: §2 qualifies on the total "after all discounts". This is
+        // the opposite call from Custom Jewelry's deposit credit, which is a
+        // prepayment and is deliberately left out — see the adapter.
+        ...(prospective.discount.amountMinorUnits > 0n
+          ? {
+              appliedDiscount: {
+                amountMinorUnits: prospective.discount.amountMinorUnits,
+                title: `Let Us Beat Your Quote — ${BEAT_QUOTE_FALLBACK_PERCENT}% off`,
+              },
+            }
+          : {}),
+      });
+    } catch (error) {
+      logger.error("beat_quote_redeem.shipping_rates_failed", {
+        errorName: error instanceof Error ? error.name : "unknown",
+      });
+      return Response.json(
+        { error: "shipping_unavailable", reason: "Shipping options could not be retrieved. Please try again." },
+        { status: 503 }
+      );
+    }
+
+    return Response.json(
+      {
+        // No handle. The customer picks by title and the server re-resolves it.
+        shippingRates: rates.map((rate) => ({
+          title: rate.title,
+          priceMinorUnits: rate.priceMinorUnits.toString(),
+          currency: rate.currency,
+        })),
+        // STATED HERE SO THE CUSTOMER SEES IT BEFORE FINALIZING (owner §4).
+        // The guarantee is about the jewellery price; CaratForUs shipping is
+        // charged separately under the shipping policy, and competitor
+        // shipping was never part of the comparison.
+        shippingDisclosure: BEAT_QUOTE_SHIPPING_DISCLOSURE,
+      },
+      { status: 200 }
+    );
+  }
+
   const now = new Date();
   const reservation = await reserveBeatQuoteRedemption({
     benefitCode,
@@ -491,6 +613,80 @@ export async function action({ request }: ActionFunctionArgs) {
   const intent = reservation.intent;
   const discount = Money.fromMinorUnits(intent.discountMinorUnits, intent.currency);
 
+  // ---- SHIPPING, against the RESERVED discount -------------------------
+  //
+  // Quoted with the actual reserved benefit applied, not the prospective one
+  // from the quote step: Shopify ranks rate conditions against the discounted
+  // total, so the rate it offers and the rate it will accept for the handle
+  // must be computed from the same figure. That is also what makes a HANDLE
+  // usable here where Custom Jewelry's deposit credit makes one unusable.
+  //
+  // A failure RELEASES THE BENEFIT. It has just been reserved, and a customer
+  // who never got a checkout must be able to try again — the same reasoning,
+  // and the same release, as the draft-order failure path below.
+  let resolvedShippingRate: AvailableShippingRate;
+  try {
+    const port = await draftOrderPort();
+    const rates = await port.calculateAvailableShippingRates({
+      shippingAddress,
+      lineItems: shippingQuoteLines,
+      ...(discount.amountMinorUnits > 0n
+        ? {
+            appliedDiscount: {
+              amountMinorUnits: discount.amountMinorUnits,
+              title: `Let Us Beat Your Quote — ${BEAT_QUOTE_FALLBACK_PERCENT}% off`,
+            },
+          }
+        : {}),
+    });
+    const selection = resolveShippingRateSelection({
+      requestedServiceTitle: parsed.data.shippingServiceTitle!,
+      availableRates: rates,
+    });
+    if (selection.kind !== "resolved") {
+      await releaseBeatQuoteRedemption({
+        intentId: intent.id,
+        reason: "checkout_failed",
+        detail: `shipping service not resolvable: ${selection.kind}`,
+        now: new Date(),
+      });
+      logger.warn("beat_quote_redeem.shipping_unresolved", { kind: selection.kind });
+      return Response.json(
+        selection.kind === "no_rates_available"
+          ? {
+              error: "shipping_unavailable",
+              reason: "We cannot ship to this address. Please check it, or contact us for help.",
+            }
+          : {
+              error: "shipping_service_unavailable",
+              reason:
+                "The shipping option you chose is no longer available for this order. Please choose again.",
+              shippingRates: selection.available.map((rate) => ({
+                title: rate.title,
+                priceMinorUnits: rate.priceMinorUnits.toString(),
+                currency: rate.currency,
+              })),
+            },
+        { status: selection.kind === "no_rates_available" ? 400 : 409 }
+      );
+    }
+    resolvedShippingRate = selection.rate;
+  } catch (error) {
+    await releaseBeatQuoteRedemption({
+      intentId: intent.id,
+      reason: "checkout_failed",
+      detail: "shipping rates could not be retrieved",
+      now: new Date(),
+    });
+    logger.error("beat_quote_redeem.shipping_rates_failed_after_reserve", {
+      errorName: error instanceof Error ? error.name : "unknown",
+    });
+    return Response.json(
+      { error: "shipping_unavailable", reason: "Shipping options could not be retrieved. Please try again." },
+      { status: 503 }
+    );
+  }
+
   let created;
   try {
     const port = await draftOrderPort();
@@ -498,11 +694,12 @@ export async function action({ request }: ActionFunctionArgs) {
       customerGid,
       email: email.toLowerCase(),
       shippingAddress,
-      lineItems: resolved.lines.map((line) => ({
-        shopifyVariantGid: line.shopifyVariantGid,
-        quantity: line.quantity,
-        unitPrice: line.unitPrice,
-      })),
+      lineItems: shippingQuoteLines,
+      shippingRateHandle: resolvedShippingRate.handle,
+      expectedShippingPrice: Money.fromMinorUnits(
+        resolvedShippingRate.priceMinorUnits,
+        resolvedShippingRate.currency
+      ),
       discount,
       discountTitle: `Let Us Beat Your Quote — ${BEAT_QUOTE_FALLBACK_PERCENT}% off`,
       redemptionIntentId: intent.id,

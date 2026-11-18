@@ -208,27 +208,97 @@ unreachable in any case, because no product is published and nothing can be
 added to a cart. The updated dialog, JavaScript and copy went to the **LAUNCH**
 theme, which is the one that will go live. LAUNCH remains unpublished.
 
-#### Still open — two flows this does not reach
+#### CLOSED 2026-11-18 — Custom Jewelry and quote redemption now charge shipping too
 
-`createRedemptionDraftOrder` (quote redemption) and
-`createCustomJewelryDraftOrder` (Custom Jewelry final purchase) ship physical
-jewellery and **still carry the $0.00 line**, deliberately. Both price from a
-figure the customer has already formally agreed — a competitor-matched quote,
-and an approved custom-design price held as versioned acknowledgment evidence
-— so adding $30 or $55 afterwards changes an agreed total. Both also treat
-Card and Bank Payment identically today, so neither breaks the
-consistency-between-payment-methods rule; the gap is against §2's separate
-charge.
+The two flows flagged above were resolved by a further owner decision three
+days later: **the approved custom-jewelry price and the quote-matched price are
+MERCHANDISE prices**, so shipping is separate there as well. All four purchase
+paths — Buy Now, Group Buy, Custom Jewelry, Let Us Beat Your Quote — now charge
+shipping on both Card and Bank Payment. `docs/SHIPPING-AND-DELIVERY.md` §8
+carries the locked rule and the full reasoning.
 
-Resolving it needs a different owner decision: **does an approved custom or
-quote-matched price include shipping, or is shipping added on top?** The
-design-approval flow would also have to state the answer *before* approval, not
-after. Recorded in `docs/SHIPPING-AND-DELIVERY.md` §8 rather than quietly
-decided here.
+**The blocking question turned out to have an answer that cost nothing.** Both
+flows build draft orders from CUSTOM lines, and the 2026-11-15 note in this
+file recorded that custom lines return no shipping rates — so the obvious
+reading was that they needed either a second rate engine or a placeholder
+product, both unattractive. That note was half right: the observation held, the
+explanation did not. The cause is `requiresShipping`, which defaults to FALSE
+on a custom line, so Shopify treats it as having nothing to ship:
 
-`createServiceDraftOrder` (the $49 design deposit) keeps its zero line
-correctly and permanently — it is a service with nothing to ship.
+| Custom line | Rates returned |
+|---|---|
+| `requiresShipping: true` | Standard $30.00, Express $55.00 |
+| flag omitted | *(none)* |
 
+With the flag set, both flows use the same native `availableShippingRates`
+every other path uses. Setting it also fixed a quieter defect: a Custom Jewelry
+order previously told Shopify a physical ring required no shipping at all,
+which is wrong for fulfilment as well as for rating.
+
+**Two reductions, treated differently, and this is where the money is.**
+Shopify ranks rate conditions against the *discounted* total — measured:
+$1,020 undiscounted offers complimentary Express, $1,020 less $49 offers the
+paid rates. So:
+
+| Reduction | In the rate quote? | Why |
+|---|---|---|
+| Let Us Beat Your Quote benefit | **yes** | a real merchandise reduction; §2 qualifies "after all discounts" |
+| $49 Design Deposit credit | **no** | a PREPAYMENT. The piece still costs the approved price. Counting it would give two customers buying the same $1,020 piece different shipping purely because one paid a deposit |
+
+**One path cannot use a signed rate handle, and finding out why was the
+nastiest measurement of this round.** The deposit credit must travel as
+`appliedDiscount` (Shopify has no credit primitive for a draft order), so
+Shopify re-ranks rates against the credited total. Sending the
+complimentary-Express handle earned on the merchandise price makes Shopify
+**silently substitute "Standard Insured Shipping with Signature — $30.00"**,
+with no `userError` — a different service at a different price, reported as
+success. The adapter's echo check catches it, so the handle route fails closed
+rather than mis-charging; it simply cannot succeed. Custom Jewelry therefore
+sends an explicit title and price, **both taken from Shopify's own rate list**
+quoted on the approved merchandise price. Shopify's value, transported
+differently — not a CaratForUs rate table.
+
+**The customer is told before approving, not after.** The display copy on the
+approval page said *"Standard shipping and insurance are included in the price
+shown."* — directly above the checkbox, promising the one thing this decision
+removes. It now states that the piece is shipped insured, tracked and
+signature-required and that shipping is calculated separately. The
+acknowledgment gained one sentence saying the same thing, so it is **certified
+rather than merely displayed**: a sentence shown near a checkbox but absent
+from the certified text leaves no evidence the customer was told.
+
+Evidence is preserved by **adding** a version rather than rewording one.
+Acknowledgment policy **v3** now applies; v1 (571 chars) and v2 (592 chars) are
+byte-unchanged in `policy_version` and remain what existing approval packages
+point at. Verified in production after deploy: three versions present, only v3
+mentioning shipping. `getLatestPolicyVersion` picks it up with no code change.
+
+For Let Us Beat Your Quote, the comparison is **unchanged**: it guarantees the
+jewellery price, competitor shipping was never in it, and the redemption route
+now returns a disclosure saying so alongside the rate quote — on the step
+before the customer commits.
+
+Runtime-verified on the shapes these flows actually use:
+
+| Case | Offered |
+|---|---|
+| Custom Jewelry custom line, $425, TX | Standard $30.00; Express $55.00 |
+| Custom Jewelry custom line, **exactly $1,000**, TX | Complimentary Express only |
+| Custom Jewelry custom line, $1,250, Alaska *and* Hawaii | UPS Ground $32.25 … Early $115.39 — no free threshold |
+| Quote redemption, $980 after benefit | Standard $30.00; Express $55.00 |
+| Quote redemption, $1,250 less 10% = $1,125 | Complimentary Express only |
+
+Zero orders and zero draft orders before and after. No paid order placed.
+
+**Neither flow has a storefront surface yet** — `beat-quote-redeem` has no
+theme caller, and custom-jewelry final purchase has no route at all — so
+nothing customer-facing changed behaviour today. What did change is that
+neither can now be wired up as a free-shipping path by omission.
+`shippingConsistencyFence.test.ts` fails if a fifth path tries.
+
+**`createServiceDraftOrder` remains the only exemption, permanently:** the $49
+design deposit is a service with nothing to ship, so it states no shipping line
+at all. The superseded `$0.00` constant is deleted rather than left unused.
 
 ## Returns policy
 

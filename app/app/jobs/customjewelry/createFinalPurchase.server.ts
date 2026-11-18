@@ -17,6 +17,10 @@ import {
   type ReserveRefusal,
 } from "~/jobs/beatyourquote/redeemFallbackBenefit.server";
 import { logger } from "~/lib/logger.server";
+import {
+  resolveShippingRateSelection,
+  type AvailableShippingRate,
+} from "~/domain/shipping/shippingRateSelection";
 import type { DraftOrderPort, DraftOrderShippingAddressInput } from "~/shopify/admin/draftOrderAdapter.server";
 
 /**
@@ -73,7 +77,14 @@ export type CreateFinalPurchaseRefusal =
   /** The project is already purchased, or past it. */
   | "project_not_purchasable"
   /** The benefit could not be reserved. Carries the reservation's own refusal. */
-  | "benefit_refused";
+  | "benefit_refused"
+  /**
+   * Shipping could not be resolved (owner decision 2026-11-18): nothing is
+   * deliverable to the address, the chosen service is no longer offered, or
+   * Shopify could not be asked. A REFUSAL, never a fallback to free shipping —
+   * see `resolveShippingRateSelection`.
+   */
+  | "shipping_unavailable";
 
 export type CreateFinalPurchaseResult =
   | { readonly outcome: "created"; readonly purchase: CustomJewelryFinalPurchase }
@@ -103,6 +114,18 @@ export interface CreateFinalPurchaseInput {
    * redemption engine.
    */
   readonly benefitCode?: string;
+  /**
+   * The shipping service the customer chose, BY TITLE (owner decision
+   * 2026-11-18). Never a price and never a rate handle — the same contract
+   * every other flow uses, for the same reason: the browser must have no way
+   * to express what shipping costs. Resolved against
+   * `quoteFinalPurchaseShipping`'s list, which is Shopify's own.
+   *
+   * Required. A purchase cannot be created without a resolved service, and
+   * making it optional would permit exactly the silent $0.00 this decision
+   * removed.
+   */
+  readonly shippingServiceTitle: string;
   readonly draftOrderPort: DraftOrderPort;
   readonly now: Date;
 }
@@ -257,6 +280,94 @@ export async function createCustomJewelryFinalPurchase(
   );
   const title = describePiece(pkg);
 
+  // ---- SHIPPING (owner decision 2026-11-18) -----------------------------
+  //
+  // THE THRESHOLD IS EVALUATED ON THE MERCHANDISE PRICE, and the two credits
+  // are treated differently because they are different things:
+  //
+  //   benefitDiscount  a Let Us Beat Your Quote reduction — the jewellery
+  //                    genuinely costs less, so it REDUCES the qualifying
+  //                    merchandise total (§2, "after all discounts").
+  //   depositCredit    the $49 Design Deposit, already PAID. The jewellery
+  //                    still costs the approved price, so it does NOT reduce
+  //                    the qualifying total. Treating a prepayment as a
+  //                    discount would mean two customers buying the same
+  //                    $1,020 piece got different shipping purely because one
+  //                    of them had paid a deposit.
+  //
+  // So the quote is gross price less the benefit, and the deposit credit is
+  // left out of it entirely.
+  const shippingQuoteDiscount =
+    amounts.benefitDiscount.amountMinorUnits > 0n
+      ? {
+          amountMinorUnits: amounts.benefitDiscount.amountMinorUnits,
+          title: describeCredit(Money.zero(pkg.currency), amounts.benefitDiscount),
+        }
+      : undefined;
+
+  let shippingRates: readonly AvailableShippingRate[];
+  try {
+    shippingRates = await input.draftOrderPort.calculateAvailableShippingRates({
+      shippingAddress: input.shippingAddress,
+      lineItems: [{ title, quantity: 1, unitPrice: amounts.grossApprovedPrice }],
+      ...(shippingQuoteDiscount ? { appliedDiscount: shippingQuoteDiscount } : {}),
+    });
+  } catch (error) {
+    // NO FALLBACK TO FREE SHIPPING. A rate-calculation outage refuses the
+    // purchase; the benefit is released by the caller's own error path below
+    // only when the draft order fails, so it is released explicitly here too.
+    if (reservedIntentId) {
+      await releaseBeatQuoteRedemption({
+        intentId: reservedIntentId,
+        reason: "checkout_failed",
+        detail: "shipping rates could not be retrieved",
+        now: new Date(),
+      });
+    }
+    logger.error("custom_jewelry_purchase.shipping_rates_failed", {
+      approvalPackageId: pkg.id,
+      errorName: error instanceof Error ? error.name : "unknown",
+    });
+    return {
+      outcome: "refused",
+      refusal: "shipping_unavailable",
+      detail: "shipping options could not be retrieved",
+    };
+  }
+
+  const shippingSelection = resolveShippingRateSelection({
+    requestedServiceTitle: input.shippingServiceTitle,
+    availableRates: shippingRates,
+  });
+  if (shippingSelection.kind !== "resolved") {
+    if (reservedIntentId) {
+      await releaseBeatQuoteRedemption({
+        intentId: reservedIntentId,
+        reason: "checkout_failed",
+        detail: `shipping service not resolvable: ${shippingSelection.kind}`,
+        now: new Date(),
+      });
+    }
+    logger.warn("custom_jewelry_purchase.shipping_unresolved", {
+      approvalPackageId: pkg.id,
+      kind: shippingSelection.kind,
+    });
+    return {
+      outcome: "refused",
+      refusal: "shipping_unavailable",
+      detail:
+        shippingSelection.kind === "no_rates_available"
+          ? "nothing can be shipped to this address"
+          : "the chosen shipping service is no longer available for this order",
+    };
+  }
+  const shippingRate = shippingSelection.rate;
+  if (shippingRate.currency !== pkg.currency) {
+    throw new FinalPurchaseError(
+      `shipping is quoted in ${shippingRate.currency} but the approval package is in ${pkg.currency}`
+    );
+  }
+
   let created;
   try {
     created = await input.draftOrderPort.createCustomJewelryDraftOrder({
@@ -270,6 +381,12 @@ export async function createCustomJewelryFinalPurchase(
       totalCredit,
       creditTitle: describeCredit(amounts.depositCredit, amounts.benefitDiscount),
       paymentBasis: input.paymentBasis,
+      // Shopify's own quoted service and price, resolved above against the
+      // approved merchandise price. A title and price rather than a handle
+      // because the deposit credit travels as a discount and Shopify
+      // substitutes a handle it no longer considers earned — see the adapter.
+      shippingServiceTitle: shippingRate.title,
+      shippingPrice: Money.fromMinorUnits(shippingRate.priceMinorUnits, shippingRate.currency),
       note:
         `Custom Jewelry ${pkg.project.projectReference}, approval package v${pkg.version} (${pkg.id}). ` +
         `Gross ${amounts.grossApprovedPrice.amountMinorUnits} ${pkg.currency}; deposit credit ` +

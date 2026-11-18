@@ -87,15 +87,46 @@ const CREATE_DRAFT_ORDER_MUTATION = `#graphql
  *
  * `availableShippingRates` comes from the SAME delivery profile that native
  * Card checkout reads, evaluated against the line prices sent here. Because
- * the Bank Payment path sends Bank Payment prices, the $1,000 threshold is
- * evaluated against the Bank Payment merchandise total without this app ever
+ * each flow sends the prices IT will actually charge, the $1,000 threshold is
+ * evaluated against that flow's own merchandise total without this app ever
  * knowing the threshold exists.
  *
- * A `variantId` IS REQUIRED for rates to come back at all. A custom line with
- * only a title and a price returns an EMPTY rate list — measured, not assumed
- * — because a line with no variant has no shipping requirement and no
- * delivery-profile association. That is why the Custom Jewelry and quote
- * redemption flows, whose lines are custom, cannot simply adopt this method.
+ * ============================================================================
+ * `requiresShipping: true` IS WHAT MAKES A CUSTOM LINE SHIPPABLE
+ * ============================================================================
+ * A CORRECTION. An earlier version of this comment claimed a `variantId` was
+ * required for rates to come back at all, because a custom line returned an
+ * empty list. The observation was right and the explanation was wrong: the
+ * cause is `requiresShipping`, which defaults to FALSE on a custom line, so
+ * Shopify treats it as having nothing to ship and offers no rates. Measured
+ * both ways against production:
+ *
+ *     custom line, requiresShipping: true   -> Standard $30, Express $55
+ *     custom line, flag omitted             -> []
+ *
+ * That matters because it is what lets Custom Jewelry and Let Us Beat Your
+ * Quote use this same native mechanism instead of needing a second rate engine
+ * or a placeholder product. Every custom line sent from here therefore carries
+ * the flag explicitly.
+ *
+ * ============================================================================
+ * THE THRESHOLD IS EVALUATED AFTER `appliedDiscount`, NOT ON THE SUBTOTAL
+ * ============================================================================
+ * Also measured: Shopify ranks rate conditions against the discounted total,
+ * not `lineItemsSubtotalPrice`. $1,020 with no discount offers complimentary
+ * Express; $1,020 less a $49 discount offers the paid rates.
+ *
+ * So whether a discount belongs in this call is a POLICY question the caller
+ * must answer, and the two callers answer it differently on purpose:
+ *
+ *   - Let Us Beat Your Quote passes its fallback benefit, because that is a
+ *     genuine merchandise discount and §2 qualifies on the total "after all
+ *     discounts".
+ *   - Custom Jewelry does NOT pass the Design Deposit credit, because a
+ *     deposit already paid is a PREPAYMENT, not a price reduction. The
+ *     merchandise still costs the approved price. Passing it would mean two
+ *     customers buying the same $1,020 piece got different shipping purely
+ *     because one had paid a deposit.
  */
 const CALCULATE_SHIPPING_RATES_MUTATION = `#graphql
   mutation CaratCalculateDraftOrderShippingRates($input: DraftOrderInput!) {
@@ -175,8 +206,19 @@ const CREATE_REDEMPTION_DRAFT_ORDER_MUTATION = `#graphql
             quantity
             originalUnitPrice
             variant { id }
+            # Read back for the Custom Jewelry path specifically. A custom line
+            # defaults to requiresShipping FALSE, which produced an order
+            # Shopify believed needed no shipping at all — so this is verified
+            # rather than assumed to have taken effect.
+            requiresShipping
           }
         }
+        # Shipping, read back so both callers can verify what Shopify actually
+        # applied against what the customer was quoted. The Custom Jewelry
+        # path needs it most: it sends an explicit title and price rather than
+        # a handle, so nothing else would catch Shopify substituting a service.
+        shippingLine { title }
+        totalShippingPriceSet { shopMoney { amount currencyCode } }
       }
       userErrors { field message }
     }
@@ -221,23 +263,29 @@ const CANCEL_DRAFT_ORDER_MUTATION = `#graphql
  * the pricing engine"). `shippingCostAllowanceFence.test.ts` pins the
  * distinction so a later reader cannot quietly re-import the old reasoning.
  *
- * WHAT STILL USES THIS CONSTANT: `createRedemptionDraftOrder` and
- * `createCustomJewelryDraftOrder`, and only because resolving them needs a
- * different owner decision. Both ship physical jewellery, so a zero shipping
- * line on them is a real gap against `docs/SHIPPING-AND-DELIVERY.md` §2 — but
- * both also price from a figure the customer has already formally AGREED (a
- * competitor-matched quote, and an approved custom-design price held as
- * versioned acknowledgment evidence), so adding $30 or $55 afterwards changes
- * an agreed total. Both treat Card and Bank Payment identically today, so
- * neither breaks the consistency-between-payment-methods rule that the
- * 2026-11-15 decision actually states. Flagged in §8 of that document rather
- * than silently changed here.
+ * ============================================================================
+ * AND ON 2026-11-18 THE LAST TWO HOLDOUTS WENT WITH IT
+ * ============================================================================
+ * The 2026-11-15 change left `createRedemptionDraftOrder` and
+ * `createCustomJewelryDraftOrder` carrying the zero line, flagged as needing
+ * their own decision because both price from a figure the customer had already
+ * formally agreed. The owner made it: **the approved custom-jewelry price and
+ * the quote-matched price are MERCHANDISE prices**, and shipping is a separate
+ * fulfilment charge under `docs/SHIPPING-AND-DELIVERY.md` — applied
+ * consistently across Buy Now, Group Buy, Custom Jewelry and Let Us Beat Your
+ * Quote, on Card and Bank Payment alike. Neither is a free-shipping path any
+ * more, and the customer is told before approving rather than after.
  *
- * `createServiceDraftOrder` sets NO shipping line at all, which is correct and
- * permanent: the $49 Custom Jewelry design deposit is a service with nothing
- * to ship, so there is no shipping fact to state either way.
+ * SO THE CONSTANT IS GONE, not merely unused. Nothing in this adapter sets a
+ * zero shipping line, and `shippingConsistencyFence.test.ts` fails if the
+ * string comes back anywhere. `createServiceDraftOrder` never set one at all —
+ * the $49 design deposit is a service with nothing to ship, so it states no
+ * shipping fact either way, which remains correct and permanent.
+ *
+ * The title is quoted here deliberately, in prose rather than as a live
+ * constant, so a search for *"Shipping (included in item price)"* lands on this
+ * explanation instead of on nothing.
  */
-const ZERO_SHIPPING_LINE_TITLE = "Shipping (included in item price)";
 
 /**
  * The page size of the `lineItems` connection in CREATE_DRAFT_ORDER_MUTATION,
@@ -373,9 +421,97 @@ export interface DraftOrderShippingAddressInput {
  * email, no customer identity, no tags, no note, and asking for them would
  * invite a caller to think a quote and an order are the same request.
  */
+/**
+ * A line for a rate quote. Either a real variant, or a custom line for the
+ * flows whose merchandise has no Shopify variant (Custom Jewelry's approved
+ * design, a quote-matched piece).
+ */
+export type ShippingRateQuoteLine =
+  | {
+      readonly shopifyVariantGid: string;
+      readonly quantity: number;
+      /** The price THIS flow will charge for the line — not the variant's Shopify price. */
+      readonly unitPrice: Money;
+    }
+  | {
+      /** Customer-facing line name. Only used to make the line real enough to rate. */
+      readonly title: string;
+      readonly quantity: number;
+      readonly unitPrice: Money;
+    };
+
 export interface CalculateShippingRatesInput {
   shippingAddress: DraftOrderShippingAddressInput;
-  lineItems: readonly DraftOrderLineItemInput[];
+  lineItems: readonly ShippingRateQuoteLine[];
+  /**
+   * A MERCHANDISE PRICE REDUCTION to apply before Shopify ranks the rates.
+   *
+   * Shopify evaluates rate conditions against the discounted total, so this
+   * directly decides whether the $1,000 threshold is met. Pass it only for a
+   * genuine reduction in what the jewellery costs (Let Us Beat Your Quote's
+   * fallback benefit). Do NOT pass a prepayment such as the Custom Jewelry
+   * Design Deposit credit: the merchandise still costs the approved price, and
+   * treating a deposit as a discount would give two customers buying the same
+   * piece different shipping. See the mutation's own comment.
+   */
+  appliedDiscount?: { readonly amountMinorUnits: bigint; readonly title: string };
+}
+
+/**
+ * THE SHIPPING ECHO CHECK, shared by every method that charges shipping.
+ *
+ * Each of them decides the charge differently — Buy Now, Group Buy and quote
+ * redemption send a signed handle and let Shopify derive the price; Custom
+ * Jewelry sends an explicit title and price because a handle cannot survive
+ * its deposit credit. All three therefore have the same question to answer
+ * afterwards: did Shopify apply the amount the customer was actually quoted?
+ *
+ * One function rather than three copies, because three copies of a money check
+ * is three chances for one of them to be relaxed quietly.
+ *
+ * COMPARED IN MINOR UNITS, NEVER AS STRINGS. Shopify normalises a MoneyBag
+ * amount, returning "30.0" for "30.00", and comparing those as text is the
+ * exact defect that once made this adapter refuse perfectly good draft orders
+ * — see `moneyBagAmountToMinorUnits`.
+ *
+ * A MISSING SHIPPING LINE IS A FAILURE, NOT A PASS. If the handle or the
+ * explicit line were silently ignored, the draft would carry no shipping at
+ * all — which is free shipping, and the superseded zero-line behaviour
+ * returning by the back door. So absence is rejected explicitly rather than
+ * read as zero. A shipping line genuinely priced at zero (Complimentary
+ * Express at $1,000+) still passes, because the amount is present and matches.
+ */
+function assertShippingEcho(
+  draftOrder: {
+    shippingLine?: { title: string | null } | null;
+    totalShippingPriceSet?: { shopMoney?: { amount: string; currencyCode: string } | null } | null;
+  },
+  expected: Money
+): void {
+  const returned = draftOrder.totalShippingPriceSet?.shopMoney;
+  if (!returned) {
+    throw new AdminApiError("draftOrderCreate", [
+      "a shipping charge was resolved but the response echoed no shipping total",
+    ]);
+  }
+  const returnedMinorUnits = moneyBagAmountToMinorUnits(returned.amount);
+  if (returnedMinorUnits === null) {
+    throw new AdminApiError("draftOrderCreate", [
+      `shipping total "${returned.amount}" is not a plain decimal amount`,
+    ]);
+  }
+  if (returnedMinorUnits !== expected.amountMinorUnits) {
+    throw new AdminApiError("draftOrderCreate", [
+      `shipping charge mismatch — the customer was quoted ` +
+        `${minorUnitsToDecimalString(expected.amountMinorUnits)} but Shopify applied ` +
+        `${returned.amount} for "${draftOrder.shippingLine?.title ?? "(no title)"}"`,
+    ]);
+  }
+  if (returned.currencyCode !== expected.currency) {
+    throw new AdminApiError("draftOrderCreate", [
+      `shipping currency mismatch — expected ${expected.currency} but Shopify applied ${returned.currencyCode}`,
+    ]);
+  }
 }
 
 export interface CreateDraftOrderInput {
@@ -511,6 +647,19 @@ export interface CreateRedemptionDraftOrderInput {
   discountTitle: string;
   /** The reservation this draft order belongs to, for cross-reference from the Shopify admin. */
   redemptionIntentId: string;
+  /**
+   * REQUIRED (owner decision 2026-11-18). Shopify's signed handle for a rate
+   * it offered for this destination and these lines **with the fallback
+   * benefit applied** — the benefit is a genuine merchandise reduction, so the
+   * $1,000 threshold qualifies on the reduced total per §2.
+   *
+   * Non-optional for the same reason as on `CreateDraftOrderInput`: it makes
+   * "no order until a shipping service is resolved" a property of the type
+   * rather than a check a caller can forget.
+   */
+  shippingRateHandle: string;
+  /** The price quoted for `shippingRateHandle`, for the echo check only. Never sent to Shopify. */
+  expectedShippingPrice: Money;
   note?: string;
   tags?: readonly string[];
 }
@@ -577,6 +726,24 @@ export interface CreateCustomJewelryDraftOrderInput {
    * pays through Shopify's checkout.
    */
   paymentBasis: "card" | "bank_payment";
+  /**
+   * REQUIRED (owner decision 2026-11-18). The shipping service and price the
+   * customer is charged, BOTH resolved from Shopify's own
+   * `availableShippingRates` quoted on the **approved merchandise price** —
+   * never from a CaratForUs rate table.
+   *
+   * A title and price rather than a handle, uniquely among the flows: the
+   * Design Deposit credit travels as `appliedDiscount` (Shopify has no credit
+   * primitive), Shopify ranks rates against the discounted total, and a handle
+   * earned on the merchandise price is then silently substituted for a
+   * different service. See the `shippingLine` comment in the mutation for the
+   * measurement.
+   *
+   * Zero is legitimate: Complimentary Express Insured Shipping with Signature
+   * at an approved price of $1,000 or more.
+   */
+  shippingServiceTitle: string;
+  shippingPrice: Money;
   customAttributes?: readonly DraftOrderLineItemAttributeInput[];
   note?: string;
   tags?: readonly string[];
@@ -747,15 +914,47 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
         },
         // `priceOverride`, not the variant's own Shopify price. The whole
         // point is to have Shopify evaluate its rate conditions against the
-        // price THIS payment method will actually charge.
-        lineItems: input.lineItems.map((line) => ({
-          variantId: line.shopifyVariantGid,
-          quantity: line.quantity,
-          priceOverride: {
-            amount: minorUnitsToDecimalString(line.unitPrice.amountMinorUnits),
-            currencyCode: line.unitPrice.currency,
-          },
-        })),
+        // price THIS flow will actually charge.
+        //
+        // A CUSTOM LINE TAKES A DIFFERENT SHAPE. `priceOverride` applies to a
+        // variant's price; a line with no variant has no price to override, so
+        // it carries `originalUnitPriceWithCurrency` and the
+        // `requiresShipping` flag that makes it shippable at all.
+        lineItems: input.lineItems.map((line) =>
+          "shopifyVariantGid" in line
+            ? {
+                variantId: line.shopifyVariantGid,
+                quantity: line.quantity,
+                priceOverride: {
+                  amount: minorUnitsToDecimalString(line.unitPrice.amountMinorUnits),
+                  currencyCode: line.unitPrice.currency,
+                },
+              }
+            : {
+                title: line.title,
+                quantity: line.quantity,
+                requiresShipping: true,
+                originalUnitPriceWithCurrency: {
+                  amount: minorUnitsToDecimalString(line.unitPrice.amountMinorUnits),
+                  currencyCode: line.unitPrice.currency,
+                },
+              }
+        ),
+        // Sent ONLY when the caller judged the discount to be a merchandise
+        // price reduction — see this mutation's comment. Omitted entirely
+        // rather than sent as zero, because a zero FIXED_AMOUNT discount is
+        // still a discount as far as Shopify's own echo is concerned.
+        ...(input.appliedDiscount
+          ? {
+              appliedDiscount: {
+                valueType: "FIXED_AMOUNT",
+                value: Number(
+                  minorUnitsToDecimalString(input.appliedDiscount.amountMinorUnits)
+                ),
+                title: input.appliedDiscount.title,
+              },
+            }
+          : {}),
       },
     };
 
@@ -918,8 +1117,7 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
         // without having resolved a real service first. That is the type
         // system enforcing "do not create an order until a valid shipping
         // service has been resolved", rather than a runtime check someone can
-        // forget. The old unconditional zero line is gone — see
-        // ZERO_SHIPPING_LINE_TITLE's comment for why it survives for services.
+        // forget.
         shippingLine: { shippingRateHandle: input.shippingRateHandle },
         // PAYMENT TERMS ARE WHAT KEEP THE COMPLETED ORDER UNPAID, and the
         // live gate caught their absence the hard way: completing a draft
@@ -991,42 +1189,7 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
     }
 
     // STEP 6 — THE SHIPPING ECHO CHECK (owner decision 2026-11-15).
-    //
-    // We sent a signed handle, not a price, so Shopify alone decided what to
-    // charge. This confirms it decided the same thing the customer was
-    // quoted. Compared in MINOR UNITS, never as strings: Shopify normalises
-    // "30.00" to "30.0", and comparing those as text is the exact defect that
-    // once made this adapter refuse perfectly good draft orders (see
-    // `moneyBagAmountToMinorUnits`).
-    //
-    // A missing shipping line is a failure, not a pass. If the handle were
-    // silently ignored the draft would carry no shipping at all, which is both
-    // free shipping and the superseded D19 behaviour returning by the back
-    // door — so absence is checked explicitly rather than treated as zero.
-    const returnedShipping = draftOrder.totalShippingPriceSet?.shopMoney;
-    if (!returnedShipping) {
-      throw new AdminApiError("draftOrderCreate", [
-        "sent a shipping rate handle but the response echoed no shipping total",
-      ]);
-    }
-    const returnedShippingMinorUnits = moneyBagAmountToMinorUnits(returnedShipping.amount);
-    if (returnedShippingMinorUnits === null) {
-      throw new AdminApiError("draftOrderCreate", [
-        `shipping total "${returnedShipping.amount}" is not a plain decimal amount`,
-      ]);
-    }
-    if (returnedShippingMinorUnits !== input.expectedShippingPrice.amountMinorUnits) {
-      throw new AdminApiError("draftOrderCreate", [
-        `shipping charge mismatch — the customer was quoted ` +
-          `${minorUnitsToDecimalString(input.expectedShippingPrice.amountMinorUnits)} but Shopify applied ` +
-          `${returnedShipping.amount} for "${draftOrder.shippingLine?.title ?? "(no title)"}"`,
-      ]);
-    }
-    if (returnedShipping.currencyCode !== input.expectedShippingPrice.currency) {
-      throw new AdminApiError("draftOrderCreate", [
-        `shipping currency mismatch — expected ${input.expectedShippingPrice.currency} but Shopify applied ${returnedShipping.currencyCode}`,
-      ]);
-    }
+    assertShippingEcho(draftOrder, input.expectedShippingPrice);
 
     return {
       draftOrderGid: draftOrder.id,
@@ -1305,13 +1468,23 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
           phone: input.shippingAddress.phone,
         },
         lineItems: lineItemsVariables,
-        // Explicit nil shipping, same reasoning as `createDraftOrder` (D19):
-        // shipping is already priced into the landed cost behind each line's
-        // unit price, so a second shipping charge would bill it twice.
-        shippingLine: {
-          title: ZERO_SHIPPING_LINE_TITLE,
-          price: minorUnitsToDecimalString(Money.zero(currency).amountMinorUnits),
-        },
+        // THE HANDLE, as `createDraftOrder` does (owner decision 2026-11-18).
+        //
+        // The zero shipping line that used to sit here is gone: CaratForUs
+        // shipping rules apply to Let Us Beat Your Quote exactly as they apply
+        // to Buy Now. The quote-match comparison is still on the JEWELLERY
+        // PRICE alone — the benefit below reduces merchandise, and shipping is
+        // charged separately on top — so this changes what the customer pays
+        // for carriage, not what was guaranteed about the piece.
+        //
+        // A handle works here, unlike in `createCustomJewelryDraftOrder`,
+        // because the caller quotes the rates with THIS SAME benefit applied:
+        // Shopify ranks conditions against the discounted total, so the rate
+        // it offered and the rate it will accept are computed from the same
+        // figure. The fallback benefit is a genuine merchandise reduction, so
+        // qualifying on the reduced total is what §2's "after all discounts"
+        // requires.
+        shippingLine: { shippingRateHandle: input.shippingRateHandle },
         // THE BENEFIT. FIXED_AMOUNT, not PERCENTAGE — the cap and the
         // merchandise-only exclusions mean a percentage Shopify evaluates for
         // itself is a different number from the one promised.
@@ -1343,7 +1516,16 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
           valueType: string;
           amountSet?: { shopMoney?: { amount: string; currencyCode: string } | null } | null;
         } | null;
-        lineItems?: { nodes?: { quantity: number; originalUnitPrice: string; variant?: { id: string } | null }[] };
+        lineItems?: {
+          nodes?: {
+            quantity: number;
+            originalUnitPrice: string;
+            variant?: { id: string } | null;
+            requiresShipping?: boolean | null;
+          }[];
+        };
+        shippingLine?: { title: string | null } | null;
+        totalShippingPriceSet?: { shopMoney?: { amount: string; currencyCode: string } | null } | null;
       } | null;
       userErrors?: { field?: string[] | null; message: string }[];
     }>("draftOrderCreate", CREATE_REDEMPTION_DRAFT_ORDER_MUTATION, variables, "draftOrderCreate");
@@ -1435,6 +1617,10 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
           `the fallback benefit is not stackable and must not be combinable at checkout`,
       ]);
     }
+
+    // Shipping (owner decision 2026-11-18): we sent a handle, so confirm
+    // Shopify charged what the customer was quoted for it.
+    assertShippingEcho(draftOrder, input.expectedShippingPrice);
 
     return { draftOrderGid: draftOrder.id, invoiceUrl: draftOrder.invoiceUrl };
   }
@@ -1534,17 +1720,57 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
             // No `variantId` — this IS the custom line.
             title: input.title,
             quantity: 1,
+            // REQUIRED, and not merely for rating (owner decision
+            // 2026-11-18). A custom line defaults to `requiresShipping: false`,
+            // which told Shopify this physical ring needed no shipping at all
+            // — so the resulting order carried no shipping requirement for
+            // fulfilment either. Setting it is both what makes the line
+            // ratable and what makes the order honest about needing to be
+            // shipped.
+            requiresShipping: true,
             originalUnitPriceWithCurrency: { amount: grossDecimalString, currencyCode: currency },
             ...(input.customAttributes && input.customAttributes.length > 0
               ? { customAttributes: input.customAttributes.map((a) => ({ key: a.key, value: a.value })) }
               : {}),
           },
         ],
-        // Explicit nil shipping (D19): shipping and insurance are already
-        // priced into the approved price, so a second charge bills them twice.
+        // ====================================================================
+        // AN EXPLICIT TITLE AND PRICE HERE, NOT A HANDLE. THIS IS DELIBERATE.
+        // ====================================================================
+        // Every other flow passes `shippingRateHandle` and lets Shopify derive
+        // the charge, precisely so this app never asserts a shipping price.
+        // This method cannot, and the reason is worth stating because the
+        // difference looks like the exact thing the handle rule exists to
+        // forbid.
+        //
+        // The approved custom-jewelry price is the MERCHANDISE price, and the
+        // $49 Design Deposit credit below is a PREPAYMENT — the customer
+        // already paid it, so the jewellery still costs the approved price.
+        // The threshold must therefore be evaluated on the approved price.
+        // But Shopify has no credit primitive for a draft order, so the credit
+        // has to travel as `appliedDiscount`, and Shopify ranks rate
+        // conditions against the DISCOUNTED total.
+        //
+        // The consequence was measured rather than guessed, and it is nasty: a
+        // $1,020 approved piece earns the complimentary Express handle on its
+        // merchandise price, and sending that handle on the credited draft
+        // makes Shopify SILENTLY SUBSTITUTE "Standard Insured Shipping with
+        // Signature — $30.00". No `userError`, no refusal — a different
+        // service at a different price. (The echo check below catches it, so
+        // the handle route fails closed rather than mis-charging; it simply
+        // cannot succeed.)
+        //
+        // So the title and price are set explicitly. BOTH STILL COME FROM
+        // SHOPIFY: the caller resolves them from `availableShippingRates`
+        // quoted on the approved merchandise price, so this is Shopify's own
+        // quoted value transported differently — not a CaratForUs rate table,
+        // and not a second rate engine.
         shippingLine: {
-          title: ZERO_SHIPPING_LINE_TITLE,
-          price: minorUnitsToDecimalString(Money.zero(currency).amountMinorUnits),
+          title: input.shippingServiceTitle,
+          priceWithCurrency: {
+            amount: minorUnitsToDecimalString(input.shippingPrice.amountMinorUnits),
+            currencyCode: input.shippingPrice.currency,
+          },
         },
         // THE CREDIT. Sent only when there is one — an `appliedDiscount` of
         // zero would render a £0.00 discount line on the customer's invoice,
@@ -1581,7 +1807,16 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
           valueType: string;
           amountSet?: { shopMoney?: { amount: string; currencyCode: string } | null } | null;
         } | null;
-        lineItems?: { nodes?: { quantity: number; originalUnitPrice: string; variant?: { id: string } | null }[] };
+        lineItems?: {
+          nodes?: {
+            quantity: number;
+            originalUnitPrice: string;
+            variant?: { id: string } | null;
+            requiresShipping?: boolean | null;
+          }[];
+        };
+        shippingLine?: { title: string | null } | null;
+        totalShippingPriceSet?: { shopMoney?: { amount: string; currencyCode: string } | null } | null;
       } | null;
       userErrors?: { field?: string[] | null; message: string }[];
     }>("draftOrderCreate", CREATE_REDEMPTION_DRAFT_ORDER_MUTATION, variables, "draftOrderCreate");
@@ -1672,6 +1907,29 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
           `a code typed at this checkout would reduce an approved custom price`,
       ]);
     }
+
+    // ========================================================================
+    // THE LINE MUST ACTUALLY REQUIRE SHIPPING (owner decision 2026-11-18).
+    // ========================================================================
+    // `requiresShipping` defaults to FALSE on a custom line, and this method
+    // relied on that default until now — so the resulting order told Shopify a
+    // physical ring needed no shipping. Verified rather than assumed, because
+    // it is the difference between an order that can be fulfilled as a
+    // shipment and one that cannot.
+    const customLine = draftOrder.lineItems?.nodes?.[0];
+    if (customLine?.requiresShipping !== true) {
+      throw new AdminApiError("draftOrderCreate", [
+        `sent requiresShipping:true on the custom line but Shopify echoed ${String(customLine?.requiresShipping)}; ` +
+          `a custom-jewelry order that does not require shipping cannot be fulfilled as a shipment`,
+      ]);
+    }
+
+    // Shipping. THE MOST LOAD-BEARING CHECK IN THIS METHOD, because this is
+    // the one path that sends an explicit title and price rather than a signed
+    // handle: Shopify silently substitutes a different service when a handle
+    // cannot survive the deposit credit, and nothing but this comparison would
+    // notice the same thing happening to an explicit line.
+    assertShippingEcho(draftOrder, input.shippingPrice);
 
     return { draftOrderGid: draftOrder.id, invoiceUrl: draftOrder.invoiceUrl };
   }
