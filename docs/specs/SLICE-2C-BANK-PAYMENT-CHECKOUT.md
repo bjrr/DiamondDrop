@@ -96,10 +96,39 @@ form, the guarantee sweep, the verification admin surface, and the disclosures.
 
 ## 4. The three owner decisions, as approved
 
-**D19 — shipping and tax.** Shipping and insurance are **already in landed
-cost** (`CostComponentType.shipping`, `.insurance`; `README.md` requires it so
-they do not silently erode margin). A separate shipping charge would bill the
-customer twice. The draft order therefore carries a **zero-price shipping
+**D19 — shipping and tax.**
+
+> ### ⚠️ SUPERSEDED ON SHIPPING — owner decision 2026-11-15
+>
+> **`docs/SHIPPING-AND-DELIVERY.md` §8 now controls shipping on Bank Payment
+> orders, and that document controls shipping treatment generally.** CaratForUs
+> shipping rules apply consistently regardless of payment method, so a Bank
+> Payment order is charged the same $30 / $55 / complimentary-at-$1,000 rates
+> as Card checkout, with the threshold evaluated on the **Bank Payment**
+> merchandise total. The unconditional zero-price shipping line is gone.
+>
+> **D19's double-charge reasoning was checked against production and does not
+> hold.** The `cost_component` rows are `shipping` $12.00 and `insurance` $3.00,
+> both `cost_side` — an internal fulfilment-cost allowance marked up by the
+> margin solve, not a customer shipping amount passed through at face value.
+> $12.00 is neither $30 nor $55, and nothing converts one into the other. The
+> pricing engine was therefore left unchanged; see §8 of the shipping document
+> for the full argument and
+> `app/app/domain/pricing/shippingCostAllowanceFence.test.ts` for the fence
+> that keeps it true.
+>
+> **What survives from D19:** the tax treatment below, and the 24-hour
+> guarantee covering **merchandise only**. Both still govern — shipping is a
+> non-merchandise charge and is not covered by the guarantee either.
+>
+> Criterion 95 and the two live-gate rows that assert a zero shipping line are
+> superseded along with the decision; they are left in place as the record of
+> what was built, not as a current requirement.
+
+The original text, for the record: shipping and insurance are **already in
+landed cost** (`CostComponentType.shipping`, `.insurance`; `README.md` requires
+it so they do not silently erode margin). A separate shipping charge would bill
+the customer twice. The draft order therefore carries a **zero-price shipping
 line** — explicit rather than absent, so the record shows shipping was priced
 at nil deliberately.
 
@@ -237,7 +266,7 @@ second path to checkout.
 from `logged_in_customer_id` when present, never required to be a customer
 account (D20).
 
-**95.** A **zero-price shipping line** is set explicitly on the draft order
+**95.** ~~A **zero-price shipping line** is set explicitly on the draft order~~ **SUPERSEDED 2026-11-15** (see §4 D19) — the draft order now carries the resolved policy shipping rate
 (D19). Tax is computed by Shopify and **recalculated at completion**; only
 merchandise is guaranteed.
 
@@ -711,7 +740,7 @@ and `app/tests/live/slice2cA.completion.ts` (14 checks).
 | 76 — Group Buy separation | all four campaign states exercised live: open blocks, draft/closed/cancelled do not |
 | 77 — quote and guarantee stored | 24h window asserted |
 | 87, 89 — verified completion through to a real order | `#1003`, exact gid persisted |
-| 95, D19 — explicit zero shipping line | present at zero on the live draft |
+| ~~95, D19 — explicit zero shipping line~~ **SUPERSEDED 2026-11-15** | *was:* present at zero on the live draft |
 | 97-99 — no duplicated PII | address at Shopify, absent from every column and every quote line |
 
 ### What the live gate found that no unit test could
@@ -1117,7 +1146,7 @@ touching the admin:
 | Savings merchandise-only | **$52.00** |
 | Approved copy live | the button note, and the disclosure in the dialog |
 | Proxy round trip | dialog → `/apps/carat/bank-checkout` → draft order → invoice |
-| D19 zero shipping line | invoice shows "Shipping (included in item price) · FREE" |
+| ~~D19 zero shipping line~~ **SUPERSEDED 2026-11-15** | *was:* invoice shows "Shipping (included in item price) · FREE" |
 | Payment terms | invoice shows "Choose payment method later · **Due on receipt**" |
 | Invoice total | **$1,188.00** — the Bank Payment Price, not the card or native price |
 | Quote persisted | 24-hour window, bank `118800` / card `124000`, eligible |
@@ -1240,6 +1269,14 @@ mode → cart showing bank **$1,188.00** against a native **$699.95**, card
 **$1,240.00** (4% tier, $5 ceiling), savings **$52.00** → dialog → App Proxy →
 draft order → invoice reading *"Shipping (included in item price) · FREE"*,
 *"Choose payment method later · Due on receipt"*, total **$1,188.00**.
+
+> **The FREE shipping line in that transcript is SUPERSEDED (2026-11-15).** It
+> is the historical record of what the gate observed, kept as-is. Today the
+> same walk-through would show the resolved policy shipping service and its
+> charge — at $1,188.00 that is Complimentary Express Insured Shipping with
+> Signature, earned by exceeding $1,000, so the total happens to match; below
+> $1,000 it would be $30 or $55 on top. See §4 D19 and
+> `docs/SHIPPING-AND-DELIVERY.md` §8.
 
 *Found by the gate:* the vendored theme had **never been on the store**, and
 the PDP Bank Payment button did not switch the cart — see below.

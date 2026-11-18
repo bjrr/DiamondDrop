@@ -2,11 +2,19 @@ import { describe, expect, it } from "vitest";
 
 import {
   computeGroupBuyBankCheckoutIdempotencyKey,
+  type GroupBuyCheckoutIdempotencyKeyShipping,
   type GroupBuyCheckoutIdempotencyKeyLine,
 } from "./groupBuyCheckoutIdempotencyKey";
 
 const CUSTOMER_GID = "gid://shopify/Customer/222222";
 const CAMPAIGN_ID = "11111111-1111-1111-1111-111111111111";
+
+/** The baseline shipping selection. Varied explicitly by the tests that care. */
+const SHIPPING: GroupBuyCheckoutIdempotencyKeyShipping = {
+  serviceTitle: "Standard Insured Shipping with Signature",
+  priceMinorUnits: "3000",
+  currency: "USD",
+};
 
 const lineA: GroupBuyCheckoutIdempotencyKeyLine = {
   shopifyVariantGid: "gid://shopify/ProductVariant/1",
@@ -23,57 +31,58 @@ const lineB: GroupBuyCheckoutIdempotencyKeyLine = {
 
 describe("computeGroupBuyBankCheckoutIdempotencyKey", () => {
   it("is deterministic for identical input", () => {
-    const a = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA, lineB]);
-    const b = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA, lineB]);
+    const a = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA, lineB], SHIPPING);
+    const b = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA, lineB], SHIPPING);
     expect(a).toBe(b);
   });
 
   it("is independent of line order", () => {
-    const forward = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA, lineB]);
-    const reversed = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineB, lineA]);
+    const forward = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA, lineB], SHIPPING);
+    const reversed = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineB, lineA], SHIPPING);
     expect(forward).toBe(reversed);
   });
 
   it("differs when the customer gid differs", () => {
-    const a = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA]);
-    const b = computeGroupBuyBankCheckoutIdempotencyKey("gid://shopify/Customer/999999", CAMPAIGN_ID, [lineA]);
+    const a = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA], SHIPPING);
+    const b = computeGroupBuyBankCheckoutIdempotencyKey("gid://shopify/Customer/999999", CAMPAIGN_ID, [lineA], SHIPPING);
     expect(a).not.toBe(b);
   });
 
   it("differs when the campaign differs — two campaigns for one customer must never collide into one key", () => {
-    const a = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA]);
+    const a = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA], SHIPPING);
     const b = computeGroupBuyBankCheckoutIdempotencyKey(
       CUSTOMER_GID,
       "22222222-2222-2222-2222-222222222222",
-      [lineA]
+      [lineA],
+      SHIPPING
     );
     expect(a).not.toBe(b);
   });
 
   it("differs when a line's quantity differs", () => {
-    const a = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA]);
+    const a = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA], SHIPPING);
     const b = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [
       { ...lineA, quantity: 3 },
-    ]);
+    ], SHIPPING);
     expect(a).not.toBe(b);
   });
 
   it("differs when a line's resolved unit price differs — a genuine tier change is a new attempt, not a replay", () => {
-    const a = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA]);
+    const a = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA], SHIPPING);
     const b = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [
       { ...lineA, unitPriceMinorUnits: "100001" },
-    ]);
+    ], SHIPPING);
     expect(a).not.toBe(b);
   });
 
   it("differs when the set of lines differs even if totals coincidentally match", () => {
-    const a = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA, lineB]);
-    const b = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA]);
+    const a = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA, lineB], SHIPPING);
+    const b = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA], SHIPPING);
     expect(a).not.toBe(b);
   });
 
   it("is stable across independent runs (no time/random component)", () => {
-    const key = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA, lineB]);
+    const key = computeGroupBuyBankCheckoutIdempotencyKey(CUSTOMER_GID, CAMPAIGN_ID, [lineA, lineB], SHIPPING);
     expect(key).toMatch(/^group_buy_bank_checkout:[0-9a-f]{64}$/);
   });
 });

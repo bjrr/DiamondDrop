@@ -34,6 +34,14 @@ export interface GroupBuyCheckoutIdempotencyKeyLine {
   readonly currency: string;
 }
 
+/** The resolved, Shopify-authoritative shipping service this order is charged for. */
+export interface GroupBuyCheckoutIdempotencyKeyShipping {
+  readonly serviceTitle: string;
+  /** Decimal string minor units. "0" is legitimate — complimentary Express at $1,000+. */
+  readonly priceMinorUnits: string;
+  readonly currency: string;
+}
+
 const KEY_PREFIX = "group_buy_bank_checkout";
 
 /**
@@ -43,7 +51,15 @@ const KEY_PREFIX = "group_buy_bank_checkout";
 export function computeGroupBuyBankCheckoutIdempotencyKey(
   customerGid: string,
   campaignId: string,
-  lines: readonly GroupBuyCheckoutIdempotencyKeyLine[]
+  lines: readonly GroupBuyCheckoutIdempotencyKeyLine[],
+  /**
+   * The resolved shipping service (owner decision 2026-11-15). Included for
+   * the same reason as the lines: two submissions that chose different
+   * services are two different totals, and must not collapse onto one key.
+   * See `idempotencyKey.ts`'s `IdempotencyKeyShipping` for the full argument
+   * and the production check that made changing every key safe.
+   */
+  shipping: GroupBuyCheckoutIdempotencyKeyShipping
 ): string {
   const sortedLines = [...lines].sort((a, b) =>
     a.shopifyVariantGid < b.shopifyVariantGid ? -1 : a.shopifyVariantGid > b.shopifyVariantGid ? 1 : 0
@@ -58,6 +74,11 @@ export function computeGroupBuyBankCheckoutIdempotencyKey(
       unitPriceMinorUnits: line.unitPriceMinorUnits,
       currency: line.currency,
     })),
+    shipping: {
+      serviceTitle: shipping.serviceTitle,
+      priceMinorUnits: shipping.priceMinorUnits,
+      currency: shipping.currency,
+    },
   });
 
   return `${KEY_PREFIX}:${hash}`;

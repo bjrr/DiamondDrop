@@ -79,8 +79,33 @@ export interface BankCheckoutResultDto {
   readonly quotedAt: string;
   /** ISO-8601. `quotedAt` + 24 hours. */
   readonly guaranteeExpiresAt: string;
-  /** e.g. "1062.00 USD" — sum of CHARGED unit price x quantity. Not secret. */
+  /**
+   * e.g. "1062.00 USD" — MERCHANDISE (sum of CHARGED unit price x quantity)
+   * **plus the shipping charge**. Not secret.
+   *
+   * Shipping joined this total on 2026-11-15, when the owner superseded D19's
+   * shipping treatment: Bank Payment orders are charged the same policy rates
+   * as Card checkout. The merchandise and shipping parts are also carried
+   * separately below, so the customer is shown a breakdown rather than one
+   * number they cannot reconcile.
+   */
   readonly formattedAmountDue: string;
+  /**
+   * The shipping service bought and what it cost, as Shopify applied it.
+   *
+   * OPTIONAL ONLY FOR STORED PAYLOADS WRITTEN BEFORE 2026-11-15, which had no
+   * shipping charge at all (every Bank Payment draft then carried an explicit
+   * $0.00 line). A replay of one of those must not crash, and must not
+   * fabricate a shipping charge that was never agreed. Every NEW payload sets
+   * it — `apps.carat.bank-checkout.tsx` cannot create an order without a
+   * resolved rate.
+   */
+  readonly shipping?: {
+    readonly serviceTitle: string;
+    /** Decimal-string minor units. Zero is legitimate: complimentary Express at $1,000+. */
+    readonly priceMinorUnits: string;
+    readonly currency: string;
+  };
   readonly lines: readonly BankCheckoutLineResultDto[];
 }
 
@@ -136,6 +161,7 @@ export function buildBankCheckoutLineResultDto(line: QuotedLineForResult): BankC
 export function buildBankCheckoutResultDto(input: {
   bankPaymentOrderId: string;
   draftOrderGid: string;
+  shipping?: { serviceTitle: string; priceMinorUnits: bigint; currency: string };
   quotedAt: Date;
   guaranteeExpiresAt: Date;
   formattedAmountDue: string;
@@ -147,6 +173,18 @@ export function buildBankCheckoutResultDto(input: {
     quotedAt: input.quotedAt.toISOString(),
     guaranteeExpiresAt: input.guaranteeExpiresAt.toISOString(),
     formattedAmountDue: input.formattedAmountDue,
+    // Spread-conditional so a caller with no shipping (only the pre-2026-11-15
+    // replay shape) omits the key entirely rather than storing `undefined`,
+    // which `hashCanonicalJson` and JSON round-tripping treat differently.
+    ...(input.shipping
+      ? {
+          shipping: {
+            serviceTitle: input.shipping.serviceTitle,
+            priceMinorUnits: input.shipping.priceMinorUnits.toString(),
+            currency: input.shipping.currency,
+          },
+        }
+      : {}),
     lines: input.lines.map(buildBankCheckoutLineResultDto),
   };
 }

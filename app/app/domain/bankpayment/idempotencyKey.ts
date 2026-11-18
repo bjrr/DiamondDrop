@@ -35,6 +35,35 @@ export interface IdempotencyKeyLine {
   readonly currency: string;
 }
 
+/**
+ * THE SHIPPING CHARGE IS PART OF THE KEY (owner decision 2026-11-15).
+ *
+ * Same reasoning as the lines, applied to the other thing the customer is
+ * charged for. A customer who submits with Standard $30, gets a timeout, and
+ * resubmits having switched to Express $55 has made TWO distinct checkout
+ * attempts for two different totals — collapsing them onto one key would
+ * replay the first result and charge $30 for the service they re-picked. A
+ * genuine double-submit, where nothing changed, still collapses to one key
+ * because every field here is identical.
+ *
+ * The resolved service is what is hashed, never the requested title: the
+ * server looks the rate up from Shopify's authoritative list, so this records
+ * what will actually be charged rather than what the browser asked for.
+ *
+ * ADDING THIS CHANGED EVERY KEY. Checked against production before doing it:
+ * one `bank_payment_order` (`cancelled`), five `group_buy_bank_payment_order`
+ * (all `inactive`), zero Shopify orders and zero Shopify draft orders — so no
+ * open attempt existed whose key a customer could have re-submitted against.
+ * Pre-launch is the only time this is free; after launch it would need a
+ * migration or a version prefix.
+ */
+export interface IdempotencyKeyShipping {
+  readonly serviceTitle: string;
+  /** Decimal string minor units. "0" is legitimate — complimentary Express at $1,000+. */
+  readonly priceMinorUnits: string;
+  readonly currency: string;
+}
+
 const KEY_PREFIX = "bank_checkout";
 
 /**
@@ -46,7 +75,8 @@ const KEY_PREFIX = "bank_checkout";
 export function computeBankCheckoutIdempotencyKey(
   resolvedEmail: string,
   mode: "bank",
-  lines: readonly IdempotencyKeyLine[]
+  lines: readonly IdempotencyKeyLine[],
+  shipping: IdempotencyKeyShipping
 ): string {
   const sortedLines = [...lines].sort((a, b) =>
     a.shopifyVariantGid < b.shopifyVariantGid ? -1 : a.shopifyVariantGid > b.shopifyVariantGid ? 1 : 0
@@ -61,6 +91,11 @@ export function computeBankCheckoutIdempotencyKey(
       unitPriceMinorUnits: line.unitPriceMinorUnits,
       currency: line.currency,
     })),
+    shipping: {
+      serviceTitle: shipping.serviceTitle,
+      priceMinorUnits: shipping.priceMinorUnits,
+      currency: shipping.currency,
+    },
   });
 
   return `${KEY_PREFIX}:${hash}`;

@@ -63,6 +63,9 @@ window.CaratBankPaymentCheckout = (function () {
   var STATUS_SELECTOR = '[data-carat-bank-checkout-status]';
   var ERROR_SUMMARY_SELECTOR = '[data-carat-bank-checkout-error-summary]';
   var FIELD_ERROR_TEXT_SELECTOR = '[data-carat-bank-checkout-field-error-text]';
+  var SHIPPING_SELECTOR = '[data-carat-bank-checkout-shipping]';
+  var SHIPPING_OPTIONS_SELECTOR = '[data-carat-bank-checkout-shipping-options]';
+  var SHIPPING_RADIO_NAME = 'caratBankCheckoutShippingService';
 
   // Mirrors `shippingAddressRequestSchema` in apps.carat.bank-checkout.tsx —
   // required vs optional here MUST stay in sync with that schema, since a
@@ -149,13 +152,35 @@ window.CaratBankPaymentCheckout = (function () {
   }
 
   /** Pure. `lines` is already in the shape the route expects — see buildRequestLines. */
-  function buildRequestBody(values, lines) {
-    return {
+  /**
+   * TWO BODIES, ONE BUILDER (owner decision 2026-11-15).
+   *
+   * `shippingServiceTitle` absent -> `intent: 'shipping_rates'`, which asks
+   * the server what services this basket and destination can have and creates
+   * NOTHING. Present -> an order-creation body carrying the chosen service.
+   *
+   * ONLY A TITLE CROSSES THE WIRE. No price and no rate handle: the server
+   * re-calculates the authoritative rates and looks the handle up from its own
+   * list, so there is nothing here a tampered browser could turn into cheaper
+   * shipping. See `app/app/domain/shipping/shippingRateSelection.ts`.
+   *
+   * The two shapes must stay mutually exclusive — the route REFUSES a body
+   * that sends a service title alongside the quote intent, rather than
+   * ignoring one of them.
+   */
+  function buildRequestBody(values, lines, shippingServiceTitle) {
+    var body = {
       mode: 'bank',
       email: values.email,
       shippingAddress: buildShippingAddress(values),
       lines: lines,
     };
+    if (nonEmptyString(shippingServiceTitle)) {
+      body.shippingServiceTitle = shippingServiceTitle;
+    } else {
+      body.intent = 'shipping_rates';
+    }
+    return body;
   }
 
   /**
@@ -217,6 +242,16 @@ window.CaratBankPaymentCheckout = (function () {
         return 'error_invalid_request';
       case 'authentication_required':
         return 'error_authentication_required';
+      // Shipping (owner decision 2026-11-15). Two codes, two distinct
+      // messages, because the customer's next action differs: an
+      // undeliverable address needs correcting, whereas a service that has
+      // just stopped being available needs re-picking from a refreshed list.
+      // Collapsing them to one message would tell half the customers to do
+      // the wrong thing.
+      case 'shipping_unavailable':
+        return 'error_shipping_unavailable';
+      case 'shipping_service_unavailable':
+        return 'error_shipping_service_unavailable';
       default:
         return 'error_generic';
     }
@@ -224,6 +259,105 @@ window.CaratBankPaymentCheckout = (function () {
 
   function nonEmptyString(value) {
     return typeof value === 'string' && value.length > 0;
+  }
+
+  /**
+   * Pure. The server sends minor units as a STRING and never a float, so this
+   * formats from the string rather than parsing to a Number first — $1,055.00
+   * in cents is well inside Number's safe range, but the habit is what keeps a
+   * larger figure from silently losing precision later.
+   *
+   * Two-decimal minor units only, which is every currency this store sells in.
+   */
+  function formatShippingPrice(priceMinorUnits, currency) {
+    var digits = String(priceMinorUnits == null ? '' : priceMinorUnits).replace(/[^0-9]/g, '');
+    if (digits === '') return '';
+    while (digits.length < 3) digits = '0' + digits;
+    var major = digits.slice(0, -2).replace(/^0+(?=\d)/, '');
+    var minor = digits.slice(-2);
+    return major + '.' + minor + ' ' + (currency || '');
+  }
+
+  /**
+   * Pure. Turns a rate into the label the customer reads.
+   *
+   * A ZERO PRICE IS NAMED, NOT SHOWN AS "0.00". "Complimentary Express Insured
+   * Shipping with Signature — 0.00 USD" invites the question "zero of what?";
+   * the service name already says it is complimentary, so the price is
+   * replaced by the word rather than printed.
+   */
+  function shippingOptionLabel(rate) {
+    if (String(rate.priceMinorUnits) === '0') {
+      return rate.title + ' — ' + localeString('shipping_included');
+    }
+    return rate.title + ' — ' + formatShippingPrice(rate.priceMinorUnits, rate.currency);
+  }
+
+  /**
+   * Replaces the shipping options with `rates`, selecting the cheapest by
+   * default so the customer is never pushed toward the dearer service.
+   *
+   * RETURNS the title it pre-selected, or null when there is nothing to
+   * choose — the caller needs to know, because "no rates" is a refusal rather
+   * than an empty list to render.
+   */
+  function renderShippingOptions(form, rates) {
+    var fieldset = form.querySelector(SHIPPING_SELECTOR);
+    var container = form.querySelector(SHIPPING_OPTIONS_SELECTOR);
+    if (!fieldset || !container) return null;
+
+    container.textContent = '';
+    if (!rates || rates.length === 0) {
+      fieldset.hidden = true;
+      return null;
+    }
+
+    var cheapestIndex = 0;
+    for (var i = 1; i < rates.length; i += 1) {
+      if (Number(rates[i].priceMinorUnits) < Number(rates[cheapestIndex].priceMinorUnits)) {
+        cheapestIndex = i;
+      }
+    }
+
+    rates.forEach(function (rate, index) {
+      var id = 'CaratBankCheckoutShipping-' + index;
+      var wrapper = document.createElement('div');
+      wrapper.className = 'carat-bank-checkout-modal__shipping-option';
+
+      var input = document.createElement('input');
+      input.type = 'radio';
+      input.name = SHIPPING_RADIO_NAME;
+      input.id = id;
+      // THE TITLE IS THE VALUE, and it is the only thing submitted. No price
+      // and no rate handle ride along, so a tampered DOM cannot buy cheaper
+      // shipping — the server re-resolves the rate from its own list.
+      input.value = rate.title;
+      if (index === cheapestIndex) input.checked = true;
+
+      var label = document.createElement('label');
+      label.setAttribute('for', id);
+      label.textContent = shippingOptionLabel(rate);
+
+      wrapper.appendChild(input);
+      wrapper.appendChild(label);
+      container.appendChild(wrapper);
+    });
+
+    fieldset.hidden = false;
+    return rates[cheapestIndex].title;
+  }
+
+  /** The service the customer has chosen, or null while none is offered/selected. */
+  function selectedShippingService(form) {
+    var checked = form.querySelector('input[name="' + SHIPPING_RADIO_NAME + '"]:checked');
+    return checked && nonEmptyString(checked.value) ? checked.value : null;
+  }
+
+  function shippingRatesFromBody(body) {
+    if (!body || typeof body !== 'object' || !Array.isArray(body.shippingRates)) return [];
+    return body.shippingRates.filter(function (rate) {
+      return rate && nonEmptyString(rate.title);
+    });
   }
 
   /**
@@ -507,6 +641,21 @@ window.CaratBankPaymentCheckout = (function () {
 
     setSubmitting(form, true);
 
+    // ========================================================================
+    // TWO SUBMITS, DELIBERATELY (owner decision 2026-11-15)
+    // ========================================================================
+    // The first press quotes shipping and creates NOTHING; the second, with a
+    // service chosen, creates the order. The rates depend on the destination
+    // the customer has just finished typing AND on the Bank Payment
+    // merchandise total, so there is no earlier moment at which they could
+    // honestly be shown.
+    //
+    // `chosenService` is read from the DOM at submit time rather than held in
+    // a module variable: the radios ARE the state, and a cached copy could
+    // disagree with what the customer can see — which is the one thing that
+    // must never happen about a charge.
+    var chosenService = selectedShippingService(form);
+
     fetchCart()
       .then(function (cart) {
         var lines = buildRequestLines(cart);
@@ -519,7 +668,7 @@ window.CaratBankPaymentCheckout = (function () {
         return fetch(PROXY_PATH, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify(buildRequestBody(values, lines)),
+          body: JSON.stringify(buildRequestBody(values, lines, chosenService)),
         });
       })
       .then(function (response) {
@@ -534,8 +683,35 @@ window.CaratBankPaymentCheckout = (function () {
       })
       .then(function (result) {
         if (!result.response.ok) {
+          // A service that has just stopped being available comes back with
+          // the LIVE list attached — usually because the basket crossed
+          // $1,000 between the quote and the submit, so complimentary Express
+          // replaced the paid options. Re-render from that list so the
+          // customer can act on the message instead of guessing.
+          var replacement = shippingRatesFromBody(result.body);
+          if (replacement.length > 0) renderShippingOptions(form, replacement);
           showErrorSummary(modal, [localeString(messageKeyForFailure(result.response.status, result.body))]);
           setSubmitting(form, false);
+          return;
+        }
+
+        // ====================================================================
+        // THE RATE QUOTE. No order exists yet.
+        // ====================================================================
+        // A 200 carrying `shippingRates` is the answer to the quote intent.
+        // Render the choices and stop — pressing submit again, now with a
+        // service selected, is what creates the order.
+        if (!chosenService && result.body && Array.isArray(result.body.shippingRates)) {
+          var rates = shippingRatesFromBody(result.body);
+          var preselected = renderShippingOptions(form, rates);
+          setSubmitting(form, false);
+          if (!preselected) {
+            // Nothing can be shipped to this address. A refusal, never a
+            // silent $0 — the customer is told, and no order is created.
+            showErrorSummary(modal, [localeString('error_shipping_unavailable')]);
+            return;
+          }
+          setStatus(form, localeString('shipping_choose_prompt'));
           return;
         }
 

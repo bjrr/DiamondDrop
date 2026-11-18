@@ -23,6 +23,10 @@ import {
 } from "~/domain/bankpayment/groupBuyPaymentWindow";
 import { buildGroupBuyPaymentInstructionsEmail } from "~/domain/bankpayment/groupBuyPaymentInstructionsEmail";
 import { normalizeShopifyVariantGid } from "~/domain/cart/shopifyVariantId";
+import {
+  resolveShippingRateSelection,
+  type AvailableShippingRate,
+} from "~/domain/shipping/shippingRateSelection";
 import { resolveEmailPort } from "~/lib/email/configuredPort.server";
 import {
   resolveBankPaymentCoordinates,
@@ -202,6 +206,20 @@ const groupBuyBankCheckoutRequestSchema = z.object({
   // absence, mirroring `returnPolicyAcknowledgmentAccepted` in the RMA
   // intake route. See this file's CANCELLATION ACKNOWLEDGMENT module comment.
   cancellationAcknowledgmentAccepted: z.literal(true),
+  /**
+   * SHIPPING (owner decision 2026-11-15) — identical contract to
+   * `apps.carat.bank-checkout.tsx`: `"shipping_rates"` quotes and creates
+   * nothing; otherwise `shippingServiceTitle` is required.
+   *
+   * The rates are calculated from the FROZEN TIER Bank Payment prices this
+   * order will actually be charged, so the $1,000 threshold is evaluated
+   * against the Group Buy merchandise total for the current tier. Shipping
+   * itself stays strictly outside the tier price, the Bank/Card derivation,
+   * the tier savings and any later tier-reduction refund — see this file's
+   * SHIPPING module comment.
+   */
+  intent: z.enum(["shipping_rates", "create_order"]).optional(),
+  shippingServiceTitle: z.string().trim().min(1).max(255).optional(),
 });
 
 function badRequest(reason: string) {
@@ -272,6 +290,8 @@ async function performGroupBuyBankCheckout(input: {
   campaignId: string;
   campaignCode: string;
   tierNumber: number;
+  /** Validated against Shopify's authoritative list. A NON-MERCHANDISE charge — never folded into a tier price. */
+  shippingRate: AvailableShippingRate;
   quotedLines: readonly QuotedGroupBuyCheckoutLine[];
   idempotencyKey: string;
   /**
@@ -342,6 +362,11 @@ async function performGroupBuyBankCheckout(input: {
     email: input.resolvedEmail,
     shippingAddress: input.shippingAddress,
     lineItems,
+    shippingRateHandle: input.shippingRate.handle,
+    expectedShippingPrice: Money.fromMinorUnits(
+      input.shippingRate.priceMinorUnits,
+      input.shippingRate.currency
+    ),
     // Staff-facing only (never cost/margin data) — lets an admin looking at
     // the Shopify order understand which campaign/tier produced it without
     // cross-referencing our own database first.
@@ -399,6 +424,13 @@ async function performGroupBuyBankCheckout(input: {
         tierNumberAtQuote: input.tierNumber,
         quotedAt,
         cancellationAcknowledgmentId: cancellationAcknowledgment.id,
+        // NON-MERCHANDISE, recorded alongside the order rather than on a
+        // line. Settlement at campaign close sums the LINES for merchandise;
+        // keeping shipping off the lines is what stops a tier-reduction
+        // refund from sweeping a shipping service already performed.
+        shippingServiceTitle: input.shippingRate.title,
+        shippingPriceMinorUnits: input.shippingRate.priceMinorUnits,
+        shippingCurrency: input.shippingRate.currency,
       },
     });
 
@@ -443,10 +475,15 @@ async function performGroupBuyBankCheckout(input: {
    * no per-line eligibility flag to honour here: the whole order is one
    * payment basis, chosen at placement.
    */
-  const totalDueMinorUnits = input.quotedLines.reduce(
+  const merchandiseDueMinorUnits = input.quotedLines.reduce(
     (sum, line) => sum + line.quotedBankPaymentPriceMinorUnits * BigInt(line.quantity),
     0n
   );
+  // SHIPPING IS A SEPARATE ADDEND, deliberately not folded into any line.
+  // Settlement at campaign close recomputes merchandise from the frozen tier
+  // and the LINES; a shipping amount hidden inside a line would be swept into
+  // that recomputation and refunded as though it were merchandise.
+  const totalDueMinorUnits = merchandiseDueMinorUnits + input.shippingRate.priceMinorUnits;
   const formattedAmountDue = minorUnitsToDecimalString(totalDueMinorUnits);
   const amountCurrency = input.quotedLines[0]!.currency;
 
@@ -587,6 +624,15 @@ export async function action({ request }: ActionFunctionArgs) {
     return badRequest("body does not match the group buy bank checkout request contract");
   }
   const { campaignCode, lines: requestLines, shippingAddress } = parsed.data;
+  const intent = parsed.data.intent ?? "create_order";
+
+  // Refused, not ignored — identical contract to `apps.carat.bank-checkout.tsx`.
+  if (intent === "shipping_rates" && parsed.data.shippingServiceTitle !== undefined) {
+    return badRequest("shippingServiceTitle must not be sent with intent 'shipping_rates'");
+  }
+  if (intent === "create_order" && parsed.data.shippingServiceTitle === undefined) {
+    return badRequest("shippingServiceTitle is required to create an order");
+  }
   const resolvedEmail = parsed.data.email.toLowerCase();
 
   // --- CANCELLATION ACKNOWLEDGMENT — resolved BEFORE any campaign/Shopify
@@ -727,18 +773,6 @@ export async function action({ request }: ActionFunctionArgs) {
     };
   });
 
-  // --- Idempotency key, committed BEFORE the Admin API call. ---
-  const idempotencyKey = computeGroupBuyBankCheckoutIdempotencyKey(
-    customerGid,
-    campaign.id,
-    quotedLines.map((line) => ({
-      shopifyVariantGid: line.shopifyVariantGid,
-      quantity: line.quantity,
-      unitPriceMinorUnits: line.quotedBankPaymentPriceMinorUnits.toString(),
-      currency: line.currency,
-    }))
-  );
-
   let draftOrderPort: DraftOrderPort;
   try {
     draftOrderPort = await createDraftOrderPort();
@@ -748,6 +782,110 @@ export async function action({ request }: ActionFunctionArgs) {
     });
     return Response.json({ error: "checkout_unavailable" }, { status: 503 });
   }
+
+  // ==========================================================================
+  // SHIPPING — quoted against the FROZEN TIER PRICES (owner 2026-11-15)
+  // ==========================================================================
+  // The line prices sent here are `quotedBankPaymentPriceMinorUnits`, the
+  // frozen tier's Bank Payment prices — the exact figures this order is
+  // charged. So Shopify evaluates the $1,000 threshold against the Group Buy
+  // Bank Payment merchandise total, and nothing about the campaign freeze, the
+  // tier multiplier or the Bank/Card derivation is touched to achieve it.
+  //
+  // THIS CANNOT MOVE A TIER PRICE. It reads them and adds a separate charge.
+  // `groupBuyShippingSeparationFence.test.ts` asserts that no shipping value
+  // reaches a tier price, a frozen base, a savings figure or a refund amount.
+  let availableRates: readonly AvailableShippingRate[];
+  try {
+    availableRates = await draftOrderPort.calculateAvailableShippingRates({
+      shippingAddress,
+      lineItems: quotedLines.map((line) => ({
+        shopifyVariantGid: line.shopifyVariantGid,
+        quantity: line.quantity,
+        unitPrice: Money.fromMinorUnits(line.quotedBankPaymentPriceMinorUnits, line.currency),
+      })),
+    });
+  } catch (error) {
+    // No free-shipping fallback here either.
+    logger.error("group_buy_bank_checkout.shipping_rates_failed", {
+      operation: error instanceof AdminApiError ? error.operation : "unknown",
+      problems: error instanceof AdminApiError ? error.problems : undefined,
+    });
+    return Response.json(
+      { error: "shipping_unavailable", reason: "Shipping options could not be retrieved. Please try again." },
+      { status: 503 }
+    );
+  }
+
+  if (intent === "shipping_rates") {
+    return Response.json(
+      {
+        shippingRates: availableRates.map((rate) => ({
+          title: rate.title,
+          priceMinorUnits: rate.priceMinorUnits.toString(),
+          currency: rate.currency,
+        })),
+      },
+      { status: 200 }
+    );
+  }
+
+  const selection = resolveShippingRateSelection({
+    requestedServiceTitle: parsed.data.shippingServiceTitle!,
+    availableRates,
+  });
+  if (selection.kind === "no_rates_available") {
+    logger.warn("group_buy_bank_checkout.no_shipping_rates", { lineCount: quotedLines.length });
+    return Response.json(
+      {
+        error: "shipping_unavailable",
+        reason: "We cannot ship to this address. Please check it, or contact us for help.",
+      },
+      { status: 400 }
+    );
+  }
+  if (selection.kind === "service_unavailable") {
+    logger.info("group_buy_bank_checkout.shipping_service_unavailable", {
+      availableCount: selection.available.length,
+    });
+    return Response.json(
+      {
+        error: "shipping_service_unavailable",
+        reason: "The shipping option you chose is no longer available for this order. Please choose again.",
+        shippingRates: selection.available.map((rate) => ({
+          title: rate.title,
+          priceMinorUnits: rate.priceMinorUnits.toString(),
+          currency: rate.currency,
+        })),
+      },
+      { status: 409 }
+    );
+  }
+  const resolvedShippingRate = selection.rate;
+  if (resolvedShippingRate.currency !== campaign.currency) {
+    logger.error("group_buy_bank_checkout.shipping_currency_mismatch", {
+      shippingCurrency: resolvedShippingRate.currency,
+      campaignCurrency: campaign.currency,
+    });
+    return Response.json({ error: "pricing_failed" }, { status: 500 });
+  }
+
+  // --- Idempotency key, committed BEFORE the Admin API call. ---
+  const idempotencyKey = computeGroupBuyBankCheckoutIdempotencyKey(
+    customerGid,
+    campaign.id,
+    quotedLines.map((line) => ({
+      shopifyVariantGid: line.shopifyVariantGid,
+      quantity: line.quantity,
+      unitPriceMinorUnits: line.quotedBankPaymentPriceMinorUnits.toString(),
+      currency: line.currency,
+    })),
+    {
+      serviceTitle: resolvedShippingRate.title,
+      priceMinorUnits: resolvedShippingRate.priceMinorUnits.toString(),
+      currency: resolvedShippingRate.currency,
+    }
+  );
 
   try {
     const result = await executeIdempotent(
@@ -768,6 +906,7 @@ export async function action({ request }: ActionFunctionArgs) {
           campaignCode: campaign.code,
           tierNumber: tier.tierNumber,
           quotedLines,
+          shippingRate: resolvedShippingRate,
           idempotencyKey,
           cancellationPolicyVersion: { id: cancellationPolicyVersion.id, text: cancellationPolicyVersion.text },
           paymentCoordinates: paymentCoordinates.coordinates,

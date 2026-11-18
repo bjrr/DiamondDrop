@@ -30,15 +30,19 @@ export interface BankPaymentCheckoutModule {
       values: Record<string, string>
     ): Array<{ field: string; messageKey: string }>;
     buildShippingAddress(values: Record<string, string>): Record<string, string>;
+    /**
+     * The third argument is the chosen shipping service TITLE (owner decision
+     * 2026-11-15). Omitted/blank produces the rate-quote body
+     * (`intent: 'shipping_rates'`); present produces the order-creation body
+     * carrying `shippingServiceTitle`. Typed loosely on purpose — the test
+     * asserts the exact shape with `toEqual`, which is a stronger check than
+     * a structural type that would have to be kept in step by hand.
+     */
     buildRequestBody(
       values: Record<string, string>,
-      lines: Array<{ shopifyVariantId: string; quantity: number }>
-    ): {
-      mode: "bank";
-      email: string;
-      shippingAddress: Record<string, string>;
-      lines: Array<{ shopifyVariantId: string; quantity: number }>;
-    };
+      lines: Array<{ shopifyVariantId: string; quantity: number }>,
+      shippingServiceTitle?: string
+    ): Record<string, unknown>;
     buildRequestLines(cart: unknown): Array<{ shopifyVariantId: string; quantity: number }>;
     messageKeyForFailure(status: number, body: unknown): string;
   };

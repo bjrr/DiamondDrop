@@ -18,6 +18,8 @@ import type { LuxuryStealOrderReviewPort } from "~/shopify/admin/luxuryStealOrde
 import { handleGroupBuyOrderCreateWebhook } from "~/shopify/webhooks/groupBuyOrderHandler.server";
 import type { ReceivedWebhookEvent } from "~/shopify/webhooks/receive.server";
 import type {
+  AvailableShippingRate,
+  CalculateShippingRatesInput,
   CancelDraftOrderInput,
   CompleteDraftOrderInput,
   CompletedDraftOrder,
@@ -93,11 +95,19 @@ function signedPost(path: string, queryParams: Record<string, string>, body: unk
   });
 }
 
+/** Defaults the shipping service — same reasoning as the Buy Now suite's helper. */
+function withDefaultShippingService(body: unknown): unknown {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return body;
+  const asRecord = body as Record<string, unknown>;
+  if ("shippingServiceTitle" in asRecord || "intent" in asRecord) return body;
+  return { ...asRecord, shippingServiceTitle: STANDARD_RATE.title };
+}
+
 function checkoutRequest(overrides: Partial<{ query: Record<string, string>; body: unknown }> = {}) {
   return signedPost(
     "/apps/carat/group-buy-bank-checkout",
     overrides.query ?? { shop: SHOP, logged_in_customer_id: DEFAULT_CUSTOMER_ID },
-    overrides.body
+    withDefaultShippingService(overrides.body)
   );
 }
 
@@ -110,15 +120,41 @@ const SHIPPING_ADDRESS = {
   countryCode: "GB",
 };
 
-function fakeDraftOrderPort(): DraftOrderPort & {
+/** The two paid contiguous-48 rates — see the Buy Now suite for why the default charges money. */
+const STANDARD_RATE: AvailableShippingRate = {
+  handle: "handle-standard",
+  title: "Standard Insured Shipping with Signature",
+  priceMinorUnits: 3000n,
+  currency: "USD",
+};
+const EXPRESS_RATE: AvailableShippingRate = {
+  handle: "handle-express",
+  title: "Express Insured Shipping with Signature",
+  priceMinorUnits: 5500n,
+  currency: "USD",
+};
+
+function fakeDraftOrderPort(options?: {
+  shippingRates?: readonly AvailableShippingRate[];
+}): DraftOrderPort & {
   createCalls: CreateDraftOrderInput[];
   completeCalls: CompleteDraftOrderInput[];
+  shippingRateCalls: CalculateShippingRatesInput[];
 } {
   const createCalls: CreateDraftOrderInput[] = [];
   const completeCalls: CompleteDraftOrderInput[] = [];
+  const shippingRateCalls: CalculateShippingRatesInput[] = [];
   return {
     createCalls,
     completeCalls,
+    shippingRateCalls,
+    async calculateAvailableShippingRates(input: CalculateShippingRatesInput) {
+      // Recorded so a test can prove the prices quoted against are the FROZEN
+      // TIER Bank Payment prices, which is what keeps the $1,000 threshold
+      // evaluated on the Group Buy merchandise total.
+      shippingRateCalls.push(input);
+      return options?.shippingRates ?? [STANDARD_RATE, EXPRESS_RATE];
+    },
     // Not exercised by this suite. Throws rather than returning a stub value,
 
     // so an accidental call is loud instead of silently succeeding.

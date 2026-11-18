@@ -6,6 +6,8 @@ import { prisma } from "~/db/client.server";
 import type { SendEmailInput } from "~/lib/email/port";
 import { __resetEnvCacheForTests } from "~/lib/env.server";
 import type {
+  AvailableShippingRate,
+  CalculateShippingRatesInput,
   CompleteDraftOrderInput,
   CompletedDraftOrder,
   CancelDraftOrderInput,
@@ -113,11 +115,32 @@ function signedPost(path: string, queryParams: Record<string, string>, body: unk
  * comment. A test that specifically needs an anonymous caller passes
  * `query: { shop: SHOP }` explicitly (no `logged_in_customer_id`).
  */
+/**
+ * `shippingServiceTitle` IS DEFAULTED HERE, not written into every body.
+ *
+ * Shipping became a required field for order creation on 2026-11-15, and the
+ * nineteen request bodies in this file are about other things — eligibility,
+ * coalescing, idempotency, authentication. Defaulting keeps each of those
+ * tests saying what it is actually testing, instead of all nineteen carrying a
+ * line of shipping boilerplate that obscures the subject.
+ *
+ * Only filled in when the body looks like a plain order-creation request and
+ * does not already mention shipping or an intent, so the tests that DO care —
+ * the missing-field case, the unknown-service case, the rate-quote case — keep
+ * full control by saying so explicitly.
+ */
+function withDefaultShippingService(body: unknown): unknown {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return body;
+  const asRecord = body as Record<string, unknown>;
+  if ("shippingServiceTitle" in asRecord || "intent" in asRecord) return body;
+  return { ...asRecord, shippingServiceTitle: STANDARD_RATE.title };
+}
+
 function checkoutRequest(overrides: Partial<{ path: string; query: Record<string, string>; body: unknown }> = {}) {
   return signedPost(
     overrides.path ?? "/apps/carat/bank-checkout",
     overrides.query ?? { shop: SHOP, logged_in_customer_id: DEFAULT_CUSTOMER_ID },
-    overrides.body
+    withDefaultShippingService(overrides.body)
   );
 }
 
@@ -130,15 +153,54 @@ const SHIPPING_ADDRESS = {
   countryCode: "GB",
 };
 
-function fakeDraftOrderPort(): DraftOrderPort & {
+/**
+ * The shipping services the fake Shopify offers by default: the two paid
+ * contiguous-48 rates. Chosen so the DEFAULT case is the one where shipping
+ * costs money — a default of "complimentary only" would let a regression that
+ * drops the charge pass almost every test in this file.
+ */
+const STANDARD_RATE: AvailableShippingRate = {
+  handle: "handle-standard",
+  title: "Standard Insured Shipping with Signature",
+  priceMinorUnits: 3000n,
+  currency: "USD",
+};
+const EXPRESS_RATE: AvailableShippingRate = {
+  handle: "handle-express",
+  title: "Express Insured Shipping with Signature",
+  priceMinorUnits: 5500n,
+  currency: "USD",
+};
+const COMPLIMENTARY_RATE: AvailableShippingRate = {
+  handle: "handle-complimentary",
+  title: "Complimentary Express Insured Shipping with Signature",
+  priceMinorUnits: 0n,
+  currency: "USD",
+};
+
+function fakeDraftOrderPort(options?: {
+  /** Override what Shopify "offers". `[]` models an undeliverable destination. */
+  shippingRates?: readonly AvailableShippingRate[];
+}): DraftOrderPort & {
   createCalls: CreateDraftOrderInput[];
   invoiceCalls: SendDraftOrderInvoiceInput[];
+  shippingRateCalls: CalculateShippingRatesInput[];
 } {
   const createCalls: CreateDraftOrderInput[] = [];
   const invoiceCalls: SendDraftOrderInvoiceInput[] = [];
+  const shippingRateCalls: CalculateShippingRatesInput[] = [];
   return {
     createCalls,
     invoiceCalls,
+    shippingRateCalls,
+    async calculateAvailableShippingRates(input: CalculateShippingRatesInput) {
+      // RECORDED, because the prices sent here are the assertion that matters
+      // most: they must be the server-recomputed BANK prices, since that is
+      // what makes Shopify evaluate the $1,000 threshold against the Bank
+      // Payment merchandise total rather than the card total.
+      shippingRateCalls.push(input);
+      return options?.shippingRates ?? [STANDARD_RATE, EXPRESS_RATE];
+    },
     // Not exercised by this suite. Throws rather than returning a stub value,
     // so an accidental call is loud instead of silently succeeding.
     // The fallback-benefit redemption path. Refused rather than stubbed
@@ -1615,5 +1677,436 @@ describe("bank-payment-orders — private, uncacheable, and leaks nothing it sho
       }
       __resetEnvCacheForTests();
     }
+  });
+});
+
+/**
+ * ============================================================================
+ * SHIPPING ON BANK PAYMENT ORDERS (owner decision 2026-11-15, superseding D19)
+ * ============================================================================
+ * Bank Payment must not get free shipping merely because the customer chose
+ * Bank Payment. These run against the REAL route, with a fake Shopify that
+ * returns whatever rates the test names — so they prove the route's own
+ * behaviour rather than Shopify's.
+ *
+ * What they are really defending is the $0.00 case. Before this decision every
+ * Bank Payment draft carried an explicit "Shipping (included in item price) —
+ * $0.00", and a regression back to it would be silent, universal, and would
+ * cost money on every single order.
+ */
+describe("shipping is charged on Bank Payment orders (owner decision 2026-11-15)", () => {
+  it("quotes the available services without creating anything, on the rate intent", async () => {
+    const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 42_500n });
+    const port = fakeDraftOrderPort();
+    __setDraftOrderPortForTests(port);
+
+    const response = await action({
+      request: checkoutRequest({
+        body: {
+          mode: "bank",
+          intent: "shipping_rates",
+          email: `buyer-${uniq()}@example.com`,
+          shippingAddress: SHIPPING_ADDRESS,
+          lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 1 }],
+        },
+      }),
+    } as never);
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      shippingRates: { title: string; priceMinorUnits: string; currency: string }[];
+    };
+    expect(body.shippingRates).toEqual([
+      { title: "Standard Insured Shipping with Signature", priceMinorUnits: "3000", currency: "USD" },
+      { title: "Express Insured Shipping with Signature", priceMinorUnits: "5500", currency: "USD" },
+    ]);
+    // NOTHING WAS CREATED. A quote that created a draft order would leave an
+    // orphan behind every time a customer opened the dialog.
+    expect(port.createCalls).toHaveLength(0);
+  });
+
+  it("never returns a rate HANDLE to the browser", async () => {
+    // The browser picks by title and the server re-resolves the handle from
+    // its own fresh calculation. A handle on the wire would be a value a
+    // tampered client could try to substitute.
+    const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 42_500n });
+    __setDraftOrderPortForTests(fakeDraftOrderPort());
+
+    const response = await action({
+      request: checkoutRequest({
+        body: {
+          mode: "bank",
+          intent: "shipping_rates",
+          email: `buyer-${uniq()}@example.com`,
+          shippingAddress: SHIPPING_ADDRESS,
+          lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 1 }],
+        },
+      }),
+    } as never);
+
+    expect(JSON.stringify(await response.json())).not.toContain("handle");
+  });
+
+  it("charges the chosen service and adds it to the amount due", async () => {
+    const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 42_500n });
+    const port = fakeDraftOrderPort();
+    __setDraftOrderPortForTests(port);
+
+    const response = await action({
+      request: checkoutRequest({
+        body: {
+          mode: "bank",
+          email: `buyer-${uniq()}@example.com`,
+          shippingAddress: SHIPPING_ADDRESS,
+          lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 1 }],
+          shippingServiceTitle: "Standard Insured Shipping with Signature",
+        },
+      }),
+    } as never);
+
+    expect(response.status).toBe(200);
+    const dto = (await response.json()) as {
+      formattedAmountDue: string;
+      shipping: { serviceTitle: string; priceMinorUnits: string; currency: string };
+    };
+    // 425.00 merchandise + 30.00 shipping.
+    expect(dto.formattedAmountDue).toBe("455.00 USD");
+    expect(dto.shipping).toEqual({
+      serviceTitle: "Standard Insured Shipping with Signature",
+      priceMinorUnits: "3000",
+      currency: "USD",
+    });
+    expect(port.createCalls[0]?.shippingRateHandle).toBe("handle-standard");
+    expect(port.createCalls[0]?.expectedShippingPrice.amountMinorUnits).toBe(3000n);
+  });
+
+  it("never sends the superseded zero shipping line", async () => {
+    const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 42_500n });
+    const port = fakeDraftOrderPort();
+    __setDraftOrderPortForTests(port);
+
+    await action({
+      request: checkoutRequest({
+        body: {
+          mode: "bank",
+          email: `buyer-${uniq()}@example.com`,
+          shippingAddress: SHIPPING_ADDRESS,
+          lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 1 }],
+          shippingServiceTitle: "Express Insured Shipping with Signature",
+        },
+      }),
+    } as never);
+
+    expect(JSON.stringify(port.createCalls[0])).not.toContain("Shipping (included in item price)");
+    expect(port.createCalls[0]?.shippingRateHandle).toBe("handle-express");
+  });
+
+  it("persists the shipping service on the ORDER, with merchandise alone on the line", async () => {
+    const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 42_500n });
+    const email = `buyer-${uniq()}@example.com`;
+    __setDraftOrderPortForTests(fakeDraftOrderPort());
+
+    await action({
+      request: checkoutRequest({
+        body: {
+          mode: "bank",
+          email,
+          shippingAddress: SHIPPING_ADDRESS,
+          lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 1 }],
+          shippingServiceTitle: "Standard Insured Shipping with Signature",
+        },
+      }),
+    } as never);
+
+    const order = await prisma.bankPaymentOrder.findFirst({
+      where: { customerEmail: email.toLowerCase() },
+      include: { lines: true },
+    });
+    expect(order?.shippingServiceTitle).toBe("Standard Insured Shipping with Signature");
+    expect(order?.shippingPriceMinorUnits).toBe(3000n);
+    expect(order?.shippingCurrency).toBe("USD");
+    // Merchandise only on the line — the separation that stops a later
+    // merchandise refund from sweeping the shipping charge with it.
+    expect(order?.lines[0]?.quotedBankPaymentPriceMinorUnits).toBe(42_500n);
+  });
+
+  describe("the threshold is evaluated on the BANK price, not the card price", () => {
+    it("quotes rates against the server-recomputed bank unit price", async () => {
+      // THE OWNER'S EXAMPLE, at the point where it is decided. The prices sent
+      // to Shopify are what make the threshold bank-specific: if the route
+      // sent card prices, a 980 bank basket would be quoted as though it were
+      // 1,020 and would wrongly earn complimentary Express.
+      const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 98_000n });
+      const port = fakeDraftOrderPort();
+      __setDraftOrderPortForTests(port);
+
+      await action({
+        request: checkoutRequest({
+          body: {
+            mode: "bank",
+            intent: "shipping_rates",
+            email: `buyer-${uniq()}@example.com`,
+            shippingAddress: SHIPPING_ADDRESS,
+            lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 1 }],
+          },
+        }),
+      } as never);
+
+      expect(port.shippingRateCalls).toHaveLength(1);
+      const quoted = port.shippingRateCalls[0]!.lineItems[0]!;
+      expect(quoted.unitPrice.amountMinorUnits).toBe(98_000n);
+    });
+
+    it("multiplies quantity into the quote, so two 600 units are quoted as 1,200", async () => {
+      // Quantity must reach Shopify, or a basket that only qualifies in
+      // aggregate would be quoted against a single unit.
+      const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 60_000n });
+      const port = fakeDraftOrderPort();
+      __setDraftOrderPortForTests(port);
+
+      await action({
+        request: checkoutRequest({
+          body: {
+            mode: "bank",
+            intent: "shipping_rates",
+            email: `buyer-${uniq()}@example.com`,
+            shippingAddress: SHIPPING_ADDRESS,
+            lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 2 }],
+          },
+        }),
+      } as never);
+
+      const quoted = port.shippingRateCalls[0]!.lineItems[0]!;
+      expect(quoted.quantity).toBe(2);
+      expect(quoted.unitPrice.amountMinorUnits).toBe(60_000n);
+    });
+
+    it("charges nothing when complimentary Express is what Shopify offered", async () => {
+      const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 105_500n });
+      const port = fakeDraftOrderPort({ shippingRates: [COMPLIMENTARY_RATE] });
+      __setDraftOrderPortForTests(port);
+
+      const response = await action({
+        request: checkoutRequest({
+          body: {
+            mode: "bank",
+            email: `buyer-${uniq()}@example.com`,
+            shippingAddress: SHIPPING_ADDRESS,
+            lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 1 }],
+            shippingServiceTitle: "Complimentary Express Insured Shipping with Signature",
+          },
+        }),
+      } as never);
+
+      expect(response.status).toBe(200);
+      const dto = (await response.json()) as {
+        formattedAmountDue: string;
+        shipping: { priceMinorUnits: string };
+      };
+      // 1,055.00 and nothing added — earned, and recorded as a priced decision
+      // of zero rather than as an absent one.
+      expect(dto.formattedAmountDue).toBe("1055.00 USD");
+      expect(dto.shipping.priceMinorUnits).toBe("0");
+      expect(port.createCalls[0]?.expectedShippingPrice.amountMinorUnits).toBe(0n);
+    });
+
+    it("refuses paid Standard when only complimentary Express is offered", async () => {
+      // The 1,000-plus case from the other side: a stale dialog still showing
+      // Standard must not be able to buy it.
+      const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 105_500n });
+      const port = fakeDraftOrderPort({ shippingRates: [COMPLIMENTARY_RATE] });
+      __setDraftOrderPortForTests(port);
+
+      const response = await action({
+        request: checkoutRequest({
+          body: {
+            mode: "bank",
+            email: `buyer-${uniq()}@example.com`,
+            shippingAddress: SHIPPING_ADDRESS,
+            lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 1 }],
+            shippingServiceTitle: "Standard Insured Shipping with Signature",
+          },
+        }),
+      } as never);
+
+      expect(response.status).toBe(409);
+      const body = (await response.json()) as { error: string; shippingRates: { title: string }[] };
+      expect(body.error).toBe("shipping_service_unavailable");
+      // The live list comes back so the customer can re-pick.
+      expect(body.shippingRates.map((r) => r.title)).toEqual([
+        "Complimentary Express Insured Shipping with Signature",
+      ]);
+      expect(port.createCalls).toHaveLength(0);
+    });
+  });
+
+  describe("no order is created unless a valid service was resolved", () => {
+    it("refuses an order-creation request with no service chosen", async () => {
+      const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 42_500n });
+      const port = fakeDraftOrderPort();
+      __setDraftOrderPortForTests(port);
+
+      const response = await action({
+        request: checkoutRequest({
+          body: {
+            mode: "bank",
+            intent: "create_order",
+            email: `buyer-${uniq()}@example.com`,
+            shippingAddress: SHIPPING_ADDRESS,
+            lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 1 }],
+          },
+        }),
+      } as never);
+
+      expect(response.status).toBe(400);
+      expect(port.createCalls).toHaveLength(0);
+    });
+
+    it("refuses when the destination has no rates at all, rather than shipping free", async () => {
+      // THE MOST IMPORTANT FAILURE CASE. An undeliverable destination must not
+      // fall through to a free shipment.
+      const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 42_500n });
+      const port = fakeDraftOrderPort({ shippingRates: [] });
+      __setDraftOrderPortForTests(port);
+
+      const response = await action({
+        request: checkoutRequest({
+          body: {
+            mode: "bank",
+            email: `buyer-${uniq()}@example.com`,
+            shippingAddress: SHIPPING_ADDRESS,
+            lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 1 }],
+            shippingServiceTitle: "Standard Insured Shipping with Signature",
+          },
+        }),
+      } as never);
+
+      expect(response.status).toBe(400);
+      expect(((await response.json()) as { error: string }).error).toBe("shipping_unavailable");
+      expect(port.createCalls).toHaveLength(0);
+    });
+
+    it("refuses an unknown service rather than substituting one", async () => {
+      const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 42_500n });
+      const port = fakeDraftOrderPort();
+      __setDraftOrderPortForTests(port);
+
+      const response = await action({
+        request: checkoutRequest({
+          body: {
+            mode: "bank",
+            email: `buyer-${uniq()}@example.com`,
+            shippingAddress: SHIPPING_ADDRESS,
+            lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 1 }],
+            shippingServiceTitle: "Free Shipping",
+          },
+        }),
+      } as never);
+
+      expect(response.status).toBe(409);
+      expect(port.createCalls).toHaveLength(0);
+    });
+
+    it("refuses a body that both quotes and selects, rather than ignoring one", async () => {
+      const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 42_500n });
+      const port = fakeDraftOrderPort();
+      __setDraftOrderPortForTests(port);
+
+      const response = await action({
+        request: checkoutRequest({
+          body: {
+            mode: "bank",
+            intent: "shipping_rates",
+            email: `buyer-${uniq()}@example.com`,
+            shippingAddress: SHIPPING_ADDRESS,
+            lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 1 }],
+            shippingServiceTitle: "Standard Insured Shipping with Signature",
+          },
+        }),
+      } as never);
+
+      expect(response.status).toBe(400);
+      expect(port.createCalls).toHaveLength(0);
+    });
+
+    it("refuses when rate calculation itself fails, and creates nothing", async () => {
+      const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 42_500n });
+      const base = fakeDraftOrderPort();
+      __setDraftOrderPortForTests({
+        ...base,
+        async calculateAvailableShippingRates(): Promise<never> {
+          throw new Error("Shopify is down");
+        },
+      } as never);
+
+      const response = await action({
+        request: checkoutRequest({
+          body: {
+            mode: "bank",
+            email: `buyer-${uniq()}@example.com`,
+            shippingAddress: SHIPPING_ADDRESS,
+            lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 1 }],
+            shippingServiceTitle: "Standard Insured Shipping with Signature",
+          },
+        }),
+      } as never);
+
+      expect(response.status).toBe(503);
+      expect(base.createCalls).toHaveLength(0);
+    });
+  });
+
+  describe("idempotency distinguishes two services", () => {
+    it("treats a resubmission with a DIFFERENT service as a new order, not a replay", async () => {
+      // Otherwise the second submission replays the first result, and the
+      // customer is charged 30 for the Express service they re-picked.
+      const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 42_500n });
+      const email = `buyer-${uniq()}@example.com`;
+      const port = fakeDraftOrderPort();
+      __setDraftOrderPortForTests(port);
+
+      const submit = (title: string) =>
+        action({
+          request: checkoutRequest({
+            body: {
+              mode: "bank",
+              email,
+              shippingAddress: SHIPPING_ADDRESS,
+              lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 1 }],
+              shippingServiceTitle: title,
+            },
+          }),
+        } as never);
+
+      const first = (await (await submit("Standard Insured Shipping with Signature")).json()) as {
+        formattedAmountDue: string;
+      };
+      const second = (await (await submit("Express Insured Shipping with Signature")).json()) as {
+        formattedAmountDue: string;
+      };
+
+      expect(first.formattedAmountDue).toBe("455.00 USD");
+      expect(second.formattedAmountDue).toBe("480.00 USD");
+      expect(port.createCalls).toHaveLength(2);
+    });
+
+    it("still collapses a genuine double-submit of the SAME service to one order", async () => {
+      const variant = await makeSyncedVariant({ bankPaymentPriceMinorUnits: 42_500n });
+      const email = `buyer-${uniq()}@example.com`;
+      const port = fakeDraftOrderPort();
+      __setDraftOrderPortForTests(port);
+
+      const body = {
+        mode: "bank",
+        email,
+        shippingAddress: SHIPPING_ADDRESS,
+        lines: [{ shopifyVariantId: variant.variant.shopifyVariantGid, quantity: 1 }],
+        shippingServiceTitle: "Standard Insured Shipping with Signature",
+      };
+      await action({ request: checkoutRequest({ body }) } as never);
+      await action({ request: checkoutRequest({ body }) } as never);
+
+      expect(port.createCalls).toHaveLength(1);
+    });
   });
 });

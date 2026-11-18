@@ -294,6 +294,12 @@ async function main() {
           unitPrice: Money.fromMinorUnits(100_00n, "USD"),
         },
       ],
+      // Required since 2026-11-15. Deliberately a nonsense handle: this case
+      // asserts that an invalid request THROWS, and the invalid variant id is
+      // what it is probing. A real handle here would not make the call
+      // succeed, and inventing one would imply this case cared about shipping.
+      shippingRateHandle: "livegate-not-a-real-handle",
+      expectedShippingPrice: Money.fromMinorUnits(0n, "USD"),
     });
   } catch (e) {
     threw = true;

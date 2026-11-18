@@ -86,79 +86,149 @@ Three results worth stating rather than assuming:
 No legacy $8 / $15 / free-at-$70 rate appears anywhere (§6.5). Order count and
 draft-order count were **0 before and 0 after**, re-confirmed at the end.
 
-### ⚠️ OWNER DECISION REQUIRED — Bank Payment orders charge no shipping at all
+### RESOLVED 2026-11-15 — Bank Payment orders now charge shipping
 
-**This is a locked-policy conflict, left unresolved deliberately.**
+**This was raised here as an owner decision, and the owner made it on
+2026-11-15: CaratForUs shipping rules apply consistently regardless of payment
+method, and selecting Bank Payment must not earn free shipping.
+`docs/SHIPPING-AND-DELIVERY.md` §8 is the locked rule and supersedes D19 on
+shipping.** What follows is what the finding was, and what was done about it.
+
+#### The finding
 
 Everything above is the **native Shopify checkout**, which is the Card path.
 The **Bank Payment path does not use Shopify checkout**: it is a custom route
 (`apps.carat.bank-checkout`) that creates a **draft order**, and Shopify never
 applies delivery-profile rates to a draft order. Every Bank Payment draft
-order instead carries an explicit zero shipping line:
+instead carried an explicit zero shipping line titled *"Shipping (included in
+item price)"*, under **owner decision D19 (2026-09-21)** — so a $425 Bank
+Payment basket shipped free where Card charged $30.
 
-```
-shippingLine: { title: "Shipping (included in item price)", price: "0.00" }
-```
+#### The double-charge question, answered from the data
 
-That is **owner decision D19, approved 2026-09-21**
-(`docs/specs/SLICE-2C-BANK-PAYMENT-CHECKOUT.md` §4), whose stated reasoning is
-that shipping and insurance are already inside landed cost
-(`CostComponentType.shipping`, `.insurance`), so a separate charge would bill
-the customer twice. It is pinned by 2C criterion 95 and by
-`draftOrderAdapter.test.ts`.
+D19's reasoning was that shipping and insurance were already inside landed
+cost, so charging separately would bill the customer twice. If that had been
+right the new rule would have been incoherent, so it was checked against the
+production `cost_component` rows rather than assumed either way:
 
-D19 and `docs/SHIPPING-AND-DELIVERY.md` cannot both hold:
-
-| | D19 (2026-09-21) | SHIPPING-AND-DELIVERY §2 |
+| Component | Basis | Value |
 |---|---|---|
-| Below $1,000 | $0 — shipping is inside the item price | **$30 or $55, charged separately** |
-| $1,000 and above | $0 | $0 |
-| Basis | shipping is a cost component | shipping is a separately billed service |
+| `shipping` | `cost_side` | **$12.00** |
+| `insurance` | `cost_side` | **$3.00** |
 
-Consequences as the code stands today:
+It is an **internal fulfilment-cost allowance**, not a customer charge passed
+through at face value. Two independent reasons: $12.00 is neither $30 nor $55
+and nothing anywhere converts one into the other; and `cost_side` means they
+enter landed cost and are then *marked up* by the margin solve, so the customer
+pays a price computed to stay profitable after absorbing $12 of shipping cost
+rather than paying $12 of shipping. A pass-through charge would be
+`revenue_side`, or added after the solve. It is neither.
 
-- A Bank Payment order of $425 ships **free**, where the Card path charges
-  $30. The same basket costs less to ship by Bank Payment — on top of the
-  lower Bank Payment Price.
-- **§6.3 cannot be satisfied or even tested.** "A Bank Payment price reduction
-  that brings the total below $1,000 also removes complimentary Express
-  eligibility" presumes Bank Payment orders are charged shipping. They are not
-  charged at any value, so there is no eligibility to remove.
-- Alaska/Hawaii Bank Payment orders carry **no carrier rate**, so §3 does not
-  reach that path either.
+**So no double-charge existed, and the pricing engine was left completely
+alone** — which is what the brief asked for in that case.
+`shippingCostAllowanceFence.test.ts` pins the distinction, so the old reasoning
+cannot be quietly re-imported later.
 
-**Not fixed here, on purpose.** `CLAUDE.md` forbids silently changing a locked
-business decision, and the instruction for this round was explicitly not to
-reinterpret the policy. The override clause in `SHIPPING-AND-DELIVERY.md` §
-preamble covers "an older README summary, storefront draft, launch note, theme
-copy, or configuration" — **an approved owner decision is none of those**, so
-the newer document does not plainly supersede D19 on its own terms.
+#### How it is implemented
 
-It is also money-critical: charging Bank Payment customers $30/$55 means
-either billing shipping twice (if it stays in landed cost) or removing it from
-landed cost and repricing, which touches the pricing engine, the 24-hour
-guarantee basis, and Group Buy refund economics.
+One authority, no second rate engine. Card checkout reads the Shopify delivery
+profile natively; the Bank Payment path reads **the same configuration**
+through `draftOrderCalculate`'s `availableShippingRates`, passing the **Bank
+Payment line prices**. That is what makes the $1,000 threshold
+payment-method-specific — no code anywhere needs to know the threshold exists.
 
-Three ways out, for the owner to choose:
+`draftOrderCalculate` is a mutation by GraphQL convention but persists nothing,
+which is what makes it safe to call for a quote; draft-order count was 0 before
+and after every probe. A `variantId` is required for rates to come back at all
+— a custom line with only a title and a price returns an empty list, measured
+rather than assumed — which is why the Custom Jewelry and quote-redemption
+flows cannot simply adopt the same method.
 
-1. **D19 stands; the policy is contiguous-48 Card-checkout only.** Cheapest,
-   and needs a one-line scope sentence in `SHIPPING-AND-DELIVERY.md`. Leaves
-   Bank Payment structurally cheaper to ship.
-2. **Charge shipping on Bank Payment draft orders too.** Satisfies the policy
-   in full, including §6.3 and AK/HI. Requires removing shipping/insurance
-   from landed cost and repricing — a pricing-engine change, not a shipping
-   change.
-3. **Keep shipping in landed cost for both paths and drop the separate
-   charge.** Internally consistent and simplest to operate, but contradicts
-   §2's $30/$55 outright.
+Three properties, each closing a specific hole:
 
-Until this is decided, the Card path matches the policy exactly and the Bank
-Payment path is more generous than the policy. Nothing undercharges the
-customer and nothing overcharges them.
+- **The browser sends a service TITLE. Never a price, never a rate handle.**
+  The server re-calculates the authoritative rates and looks the handle up from
+  its own list, so there is nothing on the wire a tampered client could turn
+  into cheaper shipping. Shopify's handle is a signed JWT and a forged one is
+  rejected — tested, by mutating the price claim to `"0.0"` and keeping the
+  signature, which Shopify refuses outright — but "the upstream rejects it" is
+  a weaker guarantee than "it never gets there", and the observed rejection is
+  an opaque 500 rather than a `userError`.
+- **No order is created until a valid service is resolved.**
+  `CreateDraftOrderInput.shippingRateHandle` is non-optional, so the type
+  system enforces that rather than a runtime check someone can forget. An
+  undeliverable destination, an unrecognised service and a rate-calculation
+  outage are all refusals. **There is no free-shipping fallback on any path.**
+- **An adapter echo check** compares the shipping amount Shopify actually
+  applied against what the customer was quoted, in minor units — Shopify
+  normalises `"30.00"` to `"30.0"`, and comparing those as strings is a defect
+  this adapter has already had once. A *missing* shipping line fails too:
+  absence is not read as zero, because that would be the superseded behaviour
+  returning by the back door.
 
-Ring sizing (about 3 to 5 extra business days) and made-to-order lead times
-(about 3 to 6 weeks) stayed out of the rate names: they are product-level
-facts, and §4 requires processing time not be presented as transit time.
+The charge is recorded on `bank_payment_order` and
+`group_buy_bank_payment_order` — the **order header, never a line**. Settlement
+and refund arithmetic read the *lines*, so placement is what holds a
+non-merchandise charge out of merchandise recomputation.
+`groupBuyShippingSeparationFence.test.ts` fails if a shipping column appears on
+a line model, or if any settlement, refund, tier-pricing or
+Bank/Card-derivation module starts reading one.
+
+#### Runtime verification — the owner's eight cases
+
+Bank legs measured through `draftOrderCalculate` with Bank Payment price
+overrides, which is literally the call the route makes. Card legs measured
+through `/cart/shipping_rates.json`, the path native checkout uses.
+
+| # | Case | Offered |
+|---|---|---|
+| 1 | **Card** $425, contiguous 48 | Standard $30.00; Express $55.00 |
+| 2 | **Bank** $425, contiguous 48 | Standard $30.00; Express $55.00 |
+| 3 | **Card** exactly $1,000 | Complimentary Express **only** |
+| 4 | **Bank** exactly $1,000 | Complimentary Express **only** |
+| 5 | **Bank $980 / Card $1,025** — the owner's example | **Bank: Standard $30.00; Express $55.00.** Card, above $1,000: Complimentary Express only |
+| 6 | **Bank** Alaska, $425 *and* $1,055 | UPS Ground $32.25; 2nd Day $37.30; Next Day $82.16; Next Day Early $112.16 — **identical at both**, so no free threshold |
+| 7 | **Bank** Hawaii, $1,055 | identical UPS set |
+| 8 | No `Shipping (included in item price) $0.00` anywhere | asserted on the real route's outgoing draft and on the adapter request |
+
+Case 5 is the one the decision exists for: $980 on Bank Payment is below the
+threshold and is charged, while the same basket at $1,025 on card is above it
+and is not. The card threshold was verified **inclusive at exactly $1,000** and
+again at $1,055, which brackets $1,025 on what is a simple `>=` comparison.
+
+Order count and draft-order count were **0 before and 0 after**. No real paid
+order was placed.
+
+#### Deployment ordering
+
+The live **COMING SOON** theme still carries the pre-change checkout
+JavaScript, which sends no `shippingServiceTitle`. That request now **fails
+closed with a 400** — no order, and certainly no free shipping — and it is
+unreachable in any case, because no product is published and nothing can be
+added to a cart. The updated dialog, JavaScript and copy went to the **LAUNCH**
+theme, which is the one that will go live. LAUNCH remains unpublished.
+
+#### Still open — two flows this does not reach
+
+`createRedemptionDraftOrder` (quote redemption) and
+`createCustomJewelryDraftOrder` (Custom Jewelry final purchase) ship physical
+jewellery and **still carry the $0.00 line**, deliberately. Both price from a
+figure the customer has already formally agreed — a competitor-matched quote,
+and an approved custom-design price held as versioned acknowledgment evidence
+— so adding $30 or $55 afterwards changes an agreed total. Both also treat
+Card and Bank Payment identically today, so neither breaks the
+consistency-between-payment-methods rule; the gap is against §2's separate
+charge.
+
+Resolving it needs a different owner decision: **does an approved custom or
+quote-matched price include shipping, or is shipping added on top?** The
+design-approval flow would also have to state the answer *before* approval, not
+after. Recorded in `docs/SHIPPING-AND-DELIVERY.md` §8 rather than quietly
+decided here.
+
+`createServiceDraftOrder` (the $49 design deposit) keeps its zero line
+correctly and permanently — it is a service with nothing to ship.
+
 
 ## Returns policy
 

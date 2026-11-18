@@ -174,6 +174,14 @@ function cancellingPort(options: { fail?: boolean; confirmDifferentId?: string }
     // permissively: no Bank Payment, Group Buy, redemption or deposit flow
     // should ever create a custom jewelry draft order, so a call here is a
     // defect worth failing on.
+    // Not exercised by this suite: nothing it drives quotes a shipping
+    // rate. Throws rather than returning an empty array, because an empty
+    // array is a MEANINGFUL value here — "undeliverable destination" — and
+    // returning it by accident would quietly assert something this test
+    // never set out to check.
+    async calculateAvailableShippingRates(): Promise<never> {
+      throw new Error("calculateAvailableShippingRates is not expected in this test");
+    },
     async createCustomJewelryDraftOrder(): Promise<never> {
       throw new Error("createCustomJewelryDraftOrder is not expected in this test");
     },

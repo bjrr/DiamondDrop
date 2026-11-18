@@ -62,6 +62,14 @@ function recordingPort(options: { fail?: boolean } = {}): DraftOrderPort & {
   const calls: CreateCustomJewelryDraftOrderInput[] = [];
   return {
     calls,
+    // Not exercised by this suite: nothing it drives quotes a shipping
+    // rate. Throws rather than returning an empty array, because an empty
+    // array is a MEANINGFUL value here — "undeliverable destination" — and
+    // returning it by accident would quietly assert something this test
+    // never set out to check.
+    async calculateAvailableShippingRates(): Promise<never> {
+      throw new Error("calculateAvailableShippingRates is not expected in this test");
+    },
     async createCustomJewelryDraftOrder(
       input: CreateCustomJewelryDraftOrderInput
     ): Promise<CreatedDraftOrder> {

@@ -17,6 +17,10 @@ import { buildPaymentInstructionsView } from "~/domain/bankpayment/paymentInstru
 import { computeBankCheckoutIdempotencyKey } from "~/domain/bankpayment/idempotencyKey";
 import { normalizeShopifyVariantGid } from "~/domain/cart/shopifyVariantId";
 import {
+  resolveShippingRateSelection,
+  type AvailableShippingRate,
+} from "~/domain/shipping/shippingRateSelection";
+import {
   executeIdempotent,
   IdempotentOperationFailedError,
   InDoubtIdempotencyError,
@@ -148,6 +152,28 @@ const bankCheckoutRequestSchema = z.object({
   email: z.string().trim().email().max(320),
   shippingAddress: shippingAddressRequestSchema,
   lines: z.array(checkoutLineRequestSchema).min(1).max(MAX_REQUEST_LINES),
+  /**
+   * TWO REQUESTS, ONE ROUTE (owner decision 2026-11-15).
+   *
+   * `"shipping_rates"` quotes the services available for this basket and
+   * destination and creates NOTHING. Absent (or `"create_order"`) creates the
+   * order and REQUIRES `shippingServiceTitle`.
+   *
+   * One route rather than two because the rates must be calculated from the
+   * *same* server-recomputed Bank Payment line prices the order will use. A
+   * separate endpoint would have to duplicate variant resolution, the Group
+   * Buy exclusion, line coalescing and the published-price lookup — and the
+   * day the two copies disagreed, the customer would be quoted shipping
+   * against one merchandise total and charged against another.
+   */
+  intent: z.enum(["shipping_rates", "create_order"]).optional(),
+  /**
+   * The customer's chosen service, BY TITLE. Never a price and never a rate
+   * handle — see `shippingRateSelection.ts` for why the browser is given no
+   * way to express either. Required when creating an order; meaningless on a
+   * rate quote, and refused there rather than silently ignored.
+   */
+  shippingServiceTitle: z.string().trim().min(1).max(255).optional(),
 });
 
 function badRequest(reason: string) {
@@ -266,6 +292,8 @@ async function performBankCheckout(input: {
   customerGid: string;
   shippingAddress: DraftOrderShippingAddressInput;
   quotedLines: readonly QuotedCheckoutLine[];
+  /** Already validated against Shopify's own authoritative list — see `resolveShippingRateSelection`. */
+  shippingRate: AvailableShippingRate;
   idempotencyKey: string;
 }): Promise<BankCheckoutResultDto> {
   const lineItems: DraftOrderLineItemInput[] = input.quotedLines.map((line) => ({
@@ -278,6 +306,11 @@ async function performBankCheckout(input: {
     email: input.resolvedEmail,
     shippingAddress: input.shippingAddress,
     lineItems,
+    shippingRateHandle: input.shippingRate.handle,
+    expectedShippingPrice: Money.fromMinorUnits(
+      input.shippingRate.priceMinorUnits,
+      input.shippingRate.currency
+    ),
     // THE TAG IS WHAT MAKES AN `in_doubt` KEY RESOLVABLE BY HAND.
     //
     // If the transaction below fails after Shopify has already accepted the
@@ -332,6 +365,13 @@ async function performBankCheckout(input: {
         customerGid: input.customerGid,
         quotedAt,
         guaranteeExpiresAt,
+        // EVIDENCE, and the basis for what the customer owes. Persisted as
+        // the title and amount Shopify authoritatively applied, so a later
+        // reader can see which service was bought without re-deriving it
+        // from a rate table that may since have changed.
+        shippingServiceTitle: input.shippingRate.title,
+        shippingPriceMinorUnits: input.shippingRate.priceMinorUnits,
+        shippingCurrency: input.shippingRate.currency,
       },
     });
 
@@ -359,10 +399,16 @@ async function performBankCheckout(input: {
   // BIGINT THROUGHOUT. Amount due = sum of each line's CHARGED unit price
   // (bank price if eligible, card price if ineligible — criterion 71) times
   // quantity, formatted once at the end exactly as Group Buy does.
-  const totalDueMinorUnits = input.quotedLines.reduce(
+  const merchandiseDueMinorUnits = input.quotedLines.reduce(
     (sum, line) => sum + line.unitPriceMinorUnits * BigInt(line.quantity),
     0n
   );
+  // SHIPPING IS ADDED AFTER THE MERCHANDISE SUM, NEVER FOLDED INTO A LINE.
+  // Keeping it a separate addend is what keeps the two things separable
+  // downstream: the 24-hour guarantee covers merchandise only, Bank Payment
+  // savings are merchandise-only (CLAUDE.md #15), and a later merchandise
+  // refund must not quietly refund a shipping service already performed.
+  const totalDueMinorUnits = merchandiseDueMinorUnits + input.shippingRate.priceMinorUnits;
   const currency = input.quotedLines[0]!.currency;
   const formattedAmountDue = `${minorUnitsToDecimalString(totalDueMinorUnits)} ${currency}`;
 
@@ -410,6 +456,11 @@ async function performBankCheckout(input: {
     quotedAt,
     guaranteeExpiresAt,
     formattedAmountDue,
+    shipping: {
+      serviceTitle: input.shippingRate.title,
+      priceMinorUnits: input.shippingRate.priceMinorUnits,
+      currency: input.shippingRate.currency,
+    },
     lines: input.quotedLines,
   });
 }
@@ -487,6 +538,17 @@ export async function action({ request }: ActionFunctionArgs) {
   }
   const { mode, lines: requestLines, shippingAddress } = parsed.data;
   const resolvedEmail = parsed.data.email.toLowerCase();
+  const intent = parsed.data.intent ?? "create_order";
+
+  // Refused, not ignored. A caller that sends a service title on a rate quote
+  // has misunderstood the contract, and silently dropping it would let a
+  // theme bug "select" a service that was never applied to anything.
+  if (intent === "shipping_rates" && parsed.data.shippingServiceTitle !== undefined) {
+    return badRequest("shippingServiceTitle must not be sent with intent 'shipping_rates'");
+  }
+  if (intent === "create_order" && parsed.data.shippingServiceTitle === undefined) {
+    return badRequest("shippingServiceTitle is required to create an order");
+  }
 
   // --- PAYMENT COORDINATES MUST EXIST BEFORE ANY DRAFT ORDER DOES (D12). ---
   //
@@ -605,19 +667,6 @@ export async function action({ request }: ActionFunctionArgs) {
     return Response.json({ error: "pricing_failed" }, { status: 500 });
   }
 
-  // --- Idempotency key, committed BEFORE the Admin API call (criteria 75,
-  // 105, 106). ---
-  const idempotencyKey = computeBankCheckoutIdempotencyKey(
-    resolvedEmail,
-    mode,
-    quotedLines.map((line) => ({
-      shopifyVariantGid: line.shopifyVariantGid,
-      quantity: line.quantity,
-      unitPriceMinorUnits: line.unitPriceMinorUnits.toString(),
-      currency: line.currency,
-    }))
-  );
-
   // The coordinate gate lives further up, before the first Shopify call —
   // both D12/D15 branches added one, and the earlier placement wins because
   // a misconfigured deployment should create nothing at all, not a draft it
@@ -632,6 +681,123 @@ export async function action({ request }: ActionFunctionArgs) {
     });
     return Response.json({ error: "checkout_unavailable" }, { status: 503 });
   }
+
+  // ==========================================================================
+  // SHIPPING (docs/SHIPPING-AND-DELIVERY.md; owner decision 2026-11-15)
+  // ==========================================================================
+  // Calculated from the SERVER-RECOMPUTED Bank Payment line prices, so the
+  // $1,000 threshold is evaluated against the Bank Payment merchandise total
+  // — not the card total, and not anything the browser claimed. A basket at
+  // $1,020 on card and $980 on Bank Payment therefore qualifies on card and
+  // does not qualify here, and that difference is produced by the data rather
+  // than by a branch in this route.
+  //
+  // Placed BEFORE the idempotency key because the resolved shipping charge is
+  // part of what the key identifies: two submissions choosing different
+  // services are two different orders, not a double-submit.
+  let availableRates: readonly AvailableShippingRate[];
+  try {
+    availableRates = await draftOrderPort.calculateAvailableShippingRates({
+      shippingAddress,
+      lineItems: quotedLines.map((line) => ({
+        shopifyVariantGid: line.shopifyVariantGid,
+        quantity: line.quantity,
+        unitPrice: Money.fromMinorUnits(line.unitPriceMinorUnits, line.currency),
+      })),
+    });
+  } catch (error) {
+    // NO FALLBACK TO FREE SHIPPING. A rate-calculation outage makes checkout
+    // unavailable; it must never make shipping complimentary.
+    logger.error("bank_checkout.shipping_rates_failed", {
+      operation: error instanceof AdminApiError ? error.operation : "unknown",
+      problems: error instanceof AdminApiError ? error.problems : undefined,
+    });
+    return Response.json(
+      { error: "shipping_unavailable", reason: "Shipping options could not be retrieved. Please try again." },
+      { status: 503 }
+    );
+  }
+
+  if (intent === "shipping_rates") {
+    return Response.json(
+      {
+        shippingRates: availableRates.map((rate) => ({
+          // The HANDLE IS NOT RETURNED. The customer picks by title and the
+          // server looks the handle up again from its own fresh calculation,
+          // so there is nothing here a browser could tamper with into a
+          // cheaper rate. See shippingRateSelection.ts.
+          title: rate.title,
+          priceMinorUnits: rate.priceMinorUnits.toString(),
+          currency: rate.currency,
+        })),
+      },
+      { status: 200 }
+    );
+  }
+
+  const selection = resolveShippingRateSelection({
+    requestedServiceTitle: parsed.data.shippingServiceTitle!,
+    availableRates,
+  });
+
+  if (selection.kind === "no_rates_available") {
+    logger.warn("bank_checkout.no_shipping_rates", { lineCount: quotedLines.length });
+    return Response.json(
+      {
+        error: "shipping_unavailable",
+        reason: "We cannot ship to this address. Please check it, or contact us for help.",
+      },
+      { status: 400 }
+    );
+  }
+  if (selection.kind === "service_unavailable") {
+    // Recoverable and usually innocent: the basket crossed the $1,000
+    // threshold between the quote and the submit, so the chosen service no
+    // longer exists. The live list goes back so the customer re-picks instead
+    // of being told something vague.
+    logger.info("bank_checkout.shipping_service_unavailable", {
+      availableCount: selection.available.length,
+    });
+    return Response.json(
+      {
+        error: "shipping_service_unavailable",
+        reason: "The shipping option you chose is no longer available for this order. Please choose again.",
+        shippingRates: selection.available.map((rate) => ({
+          title: rate.title,
+          priceMinorUnits: rate.priceMinorUnits.toString(),
+          currency: rate.currency,
+        })),
+      },
+      { status: 409 }
+    );
+  }
+  const resolvedShippingRate = selection.rate;
+
+  if (resolvedShippingRate.currency !== currency) {
+    logger.error("bank_checkout.shipping_currency_mismatch", {
+      shippingCurrency: resolvedShippingRate.currency,
+      merchandiseCurrency: currency,
+    });
+    return Response.json({ error: "pricing_failed" }, { status: 500 });
+  }
+
+  // --- Idempotency key, committed BEFORE the Admin API call (criteria 75,
+  // 105, 106). ---
+  const idempotencyKey = computeBankCheckoutIdempotencyKey(
+    resolvedEmail,
+    mode,
+    quotedLines.map((line) => ({
+      shopifyVariantGid: line.shopifyVariantGid,
+      quantity: line.quantity,
+      unitPriceMinorUnits: line.unitPriceMinorUnits.toString(),
+      currency: line.currency,
+    })),
+    {
+      serviceTitle: resolvedShippingRate.title,
+      priceMinorUnits: resolvedShippingRate.priceMinorUnits.toString(),
+      currency: resolvedShippingRate.currency,
+    }
+  );
 
   try {
     const result = await executeIdempotent(
@@ -651,6 +817,7 @@ export async function action({ request }: ActionFunctionArgs) {
           customerGid,
           shippingAddress,
           quotedLines,
+          shippingRate: resolvedShippingRate,
           idempotencyKey,
         })
     );

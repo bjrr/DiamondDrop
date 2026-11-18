@@ -338,6 +338,34 @@
         </label>
       </div>
 
+      {%- comment -%}
+        SHIPPING — rendered by JavaScript, EMPTY IN THE MARKUP.
+
+        Owner decision 2026-11-15: Bank Payment orders are charged the same
+        shipping rates as Card checkout, so the customer must choose a service
+        before an order can be created.
+
+        The options cannot be rendered in Liquid. Which services exist depends
+        on the destination the customer is still typing and on the Bank Payment
+        merchandise total, and only the server knows both — it asks Shopify,
+        the one authority on CaratForUs shipping rates. Hard-coding "$30 or
+        $55" here would be a second rate engine in the theme, wrong for Alaska
+        and Hawaii, and wrong for any order over $1,000.
+
+        So this is a container, not a control. It stays empty, and therefore
+        silent to assistive technology, until real rates have been fetched.
+      {%- endcomment -%}
+      <fieldset
+        class="carat-bank-checkout-modal__shipping"
+        data-carat-bank-checkout-shipping
+        hidden
+      >
+        <legend class="carat-bank-checkout-modal__shipping-legend">
+          {{ 'sections.cart.bank_payment_checkout_form.shipping_legend' | t }}
+        </legend>
+        <div data-carat-bank-checkout-shipping-options></div>
+      </fieldset>
+
       <div class="carat-bank-checkout-modal__actions">
         <button type="submit" class="button" data-carat-bank-checkout-submit>
           {{ 'sections.cart.bank_payment_checkout_form.submit' | t }}

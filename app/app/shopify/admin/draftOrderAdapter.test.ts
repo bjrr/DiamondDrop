@@ -50,6 +50,12 @@ function baseInput(overrides: Partial<CreateDraftOrderInput> = {}): CreateDraftO
         unitPrice: Money.fromMinorUnits(150000n, "USD"), // $1,500.00
       },
     ],
+    // Shipping became required on 2026-11-15 (owner decision superseding
+    // D19's shipping treatment). $30.00 is the contiguous-48 Standard rate,
+    // so the default case in this file is one where shipping COSTS money —
+    // a default of zero would let a regression that drops the charge pass.
+    shippingRateHandle: "signed-handle-standard",
+    expectedShippingPrice: Money.fromMinorUnits(3000n, "USD"),
     ...overrides,
   };
 }
@@ -58,6 +64,11 @@ function createDraftOrderOkReply(opts: {
   id?: string;
   invoiceUrl?: string | null;
   lines: { variantGid: string; quantity: number; price: string }[];
+  /** What Shopify says it charged. Defaults to agreeing with `baseInput`. */
+  shippingTitle?: string;
+  shippingAmount?: string;
+  /** Omits the shipping total entirely, modelling a handle Shopify ignored. */
+  omitShipping?: boolean;
 }) {
   return {
     data: {
@@ -72,6 +83,20 @@ function createDraftOrderOkReply(opts: {
               variant: { id: l.variantGid },
             })),
           },
+          // "30.0", not "30.00" — Shopify NORMALISES trailing zeros on a
+          // MoneyBag amount, and the echo check must compare minor units
+          // rather than strings. Encoding the real wire format here is what
+          // makes that a tested property instead of a comment.
+          ...(opts.omitShipping
+            ? {}
+            : {
+                shippingLine: {
+                  title: opts.shippingTitle ?? "Standard Insured Shipping with Signature",
+                },
+                totalShippingPriceSet: {
+                  shopMoney: { amount: opts.shippingAmount ?? "30.0", currencyCode: "USD" },
+                },
+              }),
         },
         userErrors: [],
       },
@@ -161,20 +186,113 @@ describe("ShopifyDraftOrderAdapter.createDraftOrder", () => {
     expect(serialised).not.toContain("reserveInventoryUntil");
   });
 
-  it("sets an explicit zero-price shipping line (D19, criterion 95)", async () => {
-    const { client, calls } = fakeClient(
-      createDraftOrderOkReply({
-        lines: [{ variantGid: "gid://shopify/ProductVariant/1", quantity: 1, price: "1500.00" }],
-      })
-    );
-    const adapter = new ShopifyDraftOrderAdapter(client);
+  /**
+   * REPLACES "sets an explicit zero-price shipping line (D19, criterion 95)".
+   *
+   * That test asserted the old behaviour faithfully and the behaviour is gone:
+   * the owner superseded D19's shipping treatment on 2026-11-15, so a Bank
+   * Payment order is charged the policy rate rather than $0.00. Kept as a
+   * deliberate replacement rather than a deletion, because the thing worth
+   * pinning is the same — that shipping on this mutation is decided ONCE, in
+   * one place, and is visible in the request.
+   */
+  describe("shipping (owner decision 2026-11-15, superseding D19)", () => {
+    it("sends the signed rate handle and NEVER a price of its own", async () => {
+      const { client, calls } = fakeClient(
+        createDraftOrderOkReply({
+          lines: [{ variantGid: "gid://shopify/ProductVariant/1", quantity: 1, price: "1500.00" }],
+        })
+      );
+      const adapter = new ShopifyDraftOrderAdapter(client);
 
-    await adapter.createDraftOrder(baseInput());
+      await adapter.createDraftOrder(baseInput());
 
-    const variables = calls[0]?.variables as { input: { shippingLine: { title: string; price: string } } };
-    expect(variables.input.shippingLine).toEqual({
-      title: "Shipping (included in item price)",
-      price: "0.00",
+      const variables = calls[0]?.variables as { input: { shippingLine: Record<string, unknown> } };
+      expect(variables.input.shippingLine).toEqual({ shippingRateHandle: "signed-handle-standard" });
+      // THE POINT: no price and no title. Shopify derives both from its own
+      // signed claim, so there is no number here that could disagree with
+      // what the customer was quoted, and nothing a caller could tamper with.
+      expect(variables.input.shippingLine).not.toHaveProperty("price");
+      expect(variables.input.shippingLine).not.toHaveProperty("priceWithCurrency");
+      expect(variables.input.shippingLine).not.toHaveProperty("title");
+    });
+
+    it("never sends the superseded zero-price shipping line", async () => {
+      const { client, calls } = fakeClient(
+        createDraftOrderOkReply({
+          lines: [{ variantGid: "gid://shopify/ProductVariant/1", quantity: 1, price: "1500.00" }],
+        })
+      );
+      const adapter = new ShopifyDraftOrderAdapter(client);
+
+      await adapter.createDraftOrder(baseInput());
+
+      expect(JSON.stringify(calls[0]?.variables)).not.toContain("Shipping (included in item price)");
+    });
+
+    it("accepts Shopify's normalised amount — '30.0' is $30.00, not a mismatch", async () => {
+      const { client } = fakeClient(
+        createDraftOrderOkReply({
+          lines: [{ variantGid: "gid://shopify/ProductVariant/1", quantity: 1, price: "1500.00" }],
+          shippingAmount: "30.0",
+        })
+      );
+      const adapter = new ShopifyDraftOrderAdapter(client);
+
+      await expect(adapter.createDraftOrder(baseInput())).resolves.toMatchObject({
+        draftOrderGid: "gid://shopify/DraftOrder/1",
+      });
+    });
+
+    it("refuses the draft when Shopify charged something other than the quoted amount", async () => {
+      const { client } = fakeClient(
+        createDraftOrderOkReply({
+          lines: [{ variantGid: "gid://shopify/ProductVariant/1", quantity: 1, price: "1500.00" }],
+          // The customer was quoted $30.00 Standard; Shopify applied $55.00.
+          shippingTitle: "Express Insured Shipping with Signature",
+          shippingAmount: "55.00",
+        })
+      );
+      const adapter = new ShopifyDraftOrderAdapter(client);
+
+      await expect(adapter.createDraftOrder(baseInput())).rejects.toThrow(/shipping charge mismatch/i);
+    });
+
+    it("refuses the draft when the handle produced no shipping line at all", async () => {
+      // THE DANGEROUS CASE. A silently-ignored handle leaves a draft with no
+      // shipping, which is free shipping and the superseded behaviour
+      // returning by the back door. Absence must fail, not read as zero.
+      const { client } = fakeClient(
+        createDraftOrderOkReply({
+          lines: [{ variantGid: "gid://shopify/ProductVariant/1", quantity: 1, price: "1500.00" }],
+          omitShipping: true,
+        })
+      );
+      const adapter = new ShopifyDraftOrderAdapter(client);
+
+      await expect(adapter.createDraftOrder(baseInput())).rejects.toThrow(/echoed no shipping total/i);
+    });
+
+    it("accepts a genuinely free rate when that is what was quoted", async () => {
+      // Complimentary Express at $1,000+. Zero is a legitimate PRICE here, as
+      // distinct from the missing-line case above — the two must not collapse.
+      const { client } = fakeClient(
+        createDraftOrderOkReply({
+          lines: [{ variantGid: "gid://shopify/ProductVariant/1", quantity: 1, price: "1500.00" }],
+          shippingTitle: "Complimentary Express Insured Shipping with Signature",
+          shippingAmount: "0.0",
+        })
+      );
+      const adapter = new ShopifyDraftOrderAdapter(client);
+
+      await expect(
+        adapter.createDraftOrder(
+          baseInput({
+            shippingRateHandle: "signed-handle-complimentary",
+            expectedShippingPrice: Money.fromMinorUnits(0n, "USD"),
+          })
+        )
+      ).resolves.toMatchObject({ draftOrderGid: "gid://shopify/DraftOrder/1" });
     });
   });
 

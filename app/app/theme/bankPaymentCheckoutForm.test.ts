@@ -128,22 +128,75 @@ describe("CaratBankPaymentCheckout._internal — request body shape", () => {
     expect(address.phone).toBe("555-0100");
   });
 
-  it("buildRequestBody produces exactly the shape bankCheckoutRequestSchema expects: mode, email, shippingAddress, lines", () => {
-    const { _internal } = loadBankPaymentCheckout();
-    const values = _internal.normalizeValues({
-      email: "a@b.com",
-      address1: "1 Main St",
-      city: "Reno",
-      zip: "89501",
-      countryCode: "US",
+  /**
+   * TWO BODY SHAPES SINCE 2026-11-15, and the route REFUSES a body that mixes
+   * them (`shippingServiceTitle` alongside `intent: 'shipping_rates'` is a
+   * 400, not a silently-ignored field). So both shapes are asserted with
+   * `toEqual` — exact, no extra keys — because an extra key here is a
+   * server-side rejection the customer would see as a dead submit button.
+   */
+  describe("buildRequestBody — the two shapes bankCheckoutRequestSchema accepts", () => {
+    const valuesFor = (internal: ReturnType<typeof loadBankPaymentCheckout>["_internal"]) =>
+      internal.normalizeValues({
+        email: "a@b.com",
+        address1: "1 Main St",
+        city: "Reno",
+        zip: "89501",
+        countryCode: "US",
+      });
+    const LINES = [{ shopifyVariantId: "111", quantity: 2 }];
+    const ADDRESS = { address1: "1 Main St", city: "Reno", zip: "89501", countryCode: "US" };
+
+    it("asks for rates when no service has been chosen — and creates nothing", () => {
+      const { _internal } = loadBankPaymentCheckout();
+      const body = _internal.buildRequestBody(valuesFor(_internal), LINES);
+      expect(body).toEqual({
+        mode: "bank",
+        email: "a@b.com",
+        shippingAddress: ADDRESS,
+        lines: LINES,
+        intent: "shipping_rates",
+      });
     });
-    const lines = [{ shopifyVariantId: "111", quantity: 2 }];
-    const body = _internal.buildRequestBody(values, lines);
-    expect(body).toEqual({
-      mode: "bank",
-      email: "a@b.com",
-      shippingAddress: { address1: "1 Main St", city: "Reno", zip: "89501", countryCode: "US" },
-      lines: [{ shopifyVariantId: "111", quantity: 2 }],
+
+    it("sends the chosen service — and NOT the quote intent — when one is selected", () => {
+      const { _internal } = loadBankPaymentCheckout();
+      const body = _internal.buildRequestBody(
+        valuesFor(_internal),
+        LINES,
+        "Standard Insured Shipping with Signature"
+      );
+      expect(body).toEqual({
+        mode: "bank",
+        email: "a@b.com",
+        shippingAddress: ADDRESS,
+        lines: LINES,
+        shippingServiceTitle: "Standard Insured Shipping with Signature",
+      });
+    });
+
+    it("never sends a shipping PRICE or a rate handle — the server owns both", () => {
+      // The whole tamper argument in one assertion: if the browser could
+      // express a price, a tampered browser could express a cheaper one.
+      const { _internal } = loadBankPaymentCheckout();
+      const body = _internal.buildRequestBody(
+        valuesFor(_internal),
+        LINES,
+        "Complimentary Express Insured Shipping with Signature"
+      );
+      const serialised = JSON.stringify(body);
+      expect(serialised).not.toMatch(/price/i);
+      expect(serialised).not.toMatch(/handle/i);
+      expect(serialised).not.toMatch(/minorUnits/i);
+    });
+
+    it("treats a blank service as 'not chosen' rather than sending an empty title", () => {
+      // An empty string would fail the route's `min(1)` and read as a bug to
+      // the customer; falling back to the quote is the recoverable behaviour.
+      const { _internal } = loadBankPaymentCheckout();
+      const body = _internal.buildRequestBody(valuesFor(_internal), LINES, "") as Record<string, unknown>;
+      expect(body.intent).toBe("shipping_rates");
+      expect(body).not.toHaveProperty("shippingServiceTitle");
     });
   });
 

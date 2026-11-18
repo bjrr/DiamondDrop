@@ -1531,6 +1531,30 @@ model BankPaymentOrder {
   quotedAt           DateTime @map("quoted_at") @db.Timestamptz(6)
   guaranteeExpiresAt DateTime @map("guarantee_expires_at") @db.Timestamptz(6)
 
+  /// THE SHIPPING SERVICE BOUGHT, as Shopify authoritatively applied it
+  /// (owner decision 2026-11-15, `docs/SHIPPING-AND-DELIVERY.md`).
+  ///
+  /// A NON-MERCHANDISE CHARGE, recorded on the order and never on a line.
+  /// `bank_payment_order_line` holds merchandise only, and every merchandise
+  /// recomputation (refund economics, Bank Payment savings, the 24-hour
+  /// guarantee basis) sums the lines — so shipping living here is what keeps
+  /// it out of all of them. CLAUDE.md #15 requires Bank Payment savings to be
+  /// merchandise-only.
+  ///
+  /// NULLABLE ONLY FOR HISTORY. Before 2026-11-15 every Bank Payment draft
+  /// carried an explicit $0.00 shipping line under the superseded D19, so
+  /// rows written then have no shipping service to record and must not be
+  /// back-filled with an invented one. Every new row sets all three:
+  /// `apps.carat.bank-checkout.tsx` cannot create an order without a resolved
+  /// rate, and `CreateDraftOrderInput.shippingRateHandle` is non-optional.
+  ///
+  /// Zero in `shippingPriceMinorUnits` is NOT the same as null: it means
+  /// Complimentary Express Insured Shipping with Signature was genuinely
+  /// earned at $1,000+, which is a priced decision, not a missing one.
+  shippingServiceTitle    String? @map("shipping_service_title")
+  shippingPriceMinorUnits BigInt? @map("shipping_price_minor_units")
+  shippingCurrency        String? @map("shipping_currency") @db.Char(3)
+
   /// Manual admin verification of payment receipt (owner §8.6/8.7, criteria
   /// 49/50). Money paired with its own currency per the F-16 convention even
   /// though it will ordinarily match the order's line currency, rather than
@@ -2210,6 +2234,24 @@ model GroupBuyBankPaymentOrder {
   /// acknowledgment is absent, exactly like the RMA intake route.
   cancellationAcknowledgmentId String         @map("cancellation_acknowledgment_id") @db.Uuid
   cancellationAcknowledgment   Acknowledgment @relation(fields: [cancellationAcknowledgmentId], references: [id])
+
+  /// THE SHIPPING SERVICE BOUGHT (owner decision 2026-11-15). Same shape and
+  /// same reasoning as `bank_payment_order`'s three columns.
+  ///
+  /// CRITICAL FOR GROUP BUY SPECIFICALLY: shipping must stay outside the tier
+  /// price, the Bank/Card merchandise derivation, the tier savings, and the
+  /// refund due when a later tier reduces the merchandise price. Close
+  /// settlement recomputes merchandise from the campaign's frozen basis, the
+  /// final unlocked tier and `group_buy_bank_payment_order_line` — none of
+  /// which this column touches. A shipping amount folded into a line would be
+  /// swept into that recomputation and refunded as merchandise, refunding a
+  /// carrier service that was already performed.
+  ///
+  /// Nullable only for the five pre-2026-11-15 rows (all `inactive`), which
+  /// were created when shipping was unconditionally $0.00.
+  shippingServiceTitle    String? @map("shipping_service_title")
+  shippingPriceMinorUnits BigInt? @map("shipping_price_minor_units")
+  shippingCurrency        String? @map("shipping_currency") @db.Char(3)
 
   /// Set once, by the sweep, when 96 hours have elapsed since `quotedAt` with
   /// no reactivation resetting the clock (owner §24). Nullable while `active`.
