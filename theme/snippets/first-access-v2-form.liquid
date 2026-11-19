@@ -1,16 +1,41 @@
 {%- comment -%}
   FIRST ACCESS V2: the signup form, which lives in a modal.
 
-  THE FIELD CONTRACT IS V1's, EXACTLY. Same `{% form 'customer' %}`, same
-  input names, same hidden `contact[tags]` and `contact[accepts_marketing]`.
-  That is deliberate: the backend behind this (customer creation, tags,
-  interests, the `custom.first_access_mobile` metafield, proxy signature
-  checks, rate limiting) is proven and is not being touched. Only the
-  presentation is new, so only the classes are new.
+  THIS IS THE LIVE SIGNUP SURFACE. It renders on the COMING SOON homepage
+  (templates/index.json) and at /pages/first-access, whose page record carries
+  the template suffix "first-access-v2". The older V1 section survives only at
+  /pages/first-access-v1 as an archived reference. So an edit here changes what
+  every real visitor sees.
 
-  A PHONE NUMBER IS NOT CONSENT TO TEXT. The label says "Mobile number
-  (optional)" and nothing more. No SMS consent is set here, implied here, or
-  recorded anywhere by this form.
+  ===========================================================================
+  TWO SEPARATE, UNCHECKED MARKETING CONSENTS (owner decision 2026-11-18)
+  ===========================================================================
+  This form used to carry a HIDDEN field:
+
+      <input type="hidden" name="contact[accepts_marketing]" value="true">
+
+  Every signup was therefore recorded in Shopify as email-marketing SUBSCRIBED
+  without the customer agreeing to anything, with no wording shown and so no
+  wording to produce later. That is gone. Email consent is now a real checkbox
+  bound to the SAME native field, so an unchecked box sends nothing at all and
+  Shopify records no subscription.
+
+  EMAIL CONSENT IS NATIVE; SMS CONSENT CANNOT BE. `contact[accepts_marketing]`
+  is a field Shopify's own customer form understands, so the email opt-in needs
+  no JavaScript and no app code to take effect. Shopify has no equivalent
+  `contact[...]` field for SMS, so the SMS box is read by first-access-v2.js
+  and sent to /apps/carat/first-access-phone, which records it through
+  `customerSmsMarketingConsentUpdate`. Consent has to live where a STOP reply
+  is honoured, and that is Shopify.
+
+  A PHONE NUMBER IS STILL NOT CONSENT TO TEXT. The mobile field remains
+  optional and carries no implication on its own. Ticking SMS requires a
+  number (Shopify will not hold an SMS consent for an account with no phone),
+  which the script enforces before submitting; typing a number while leaving
+  the box unchecked captures the number and grants nothing.
+
+  NEITHER BOX IS PRE-CHECKED, and neither is required to submit. Browsing and
+  joining the list are both possible without agreeing to any marketing.
 
   NO EM DASH CHARACTERS, in markup or in comments. Owner rule for V2.
 {%- endcomment -%}
@@ -29,7 +54,6 @@
 <div class="fa2-form" data-fa2-signup>
   {%- form 'customer', id: form_id, class: 'fa2-form__el', novalidate: 'novalidate' -%}
     <input type="hidden" name="contact[tags]" value="first-access">
-    <input type="hidden" name="contact[accepts_marketing]" value="true">
 
     {%- if form.posted_successfully? or posted -%}
       {% render 'first-access-v2-success' %}
@@ -126,6 +150,68 @@
             </label>
           {%- endfor -%}
         </div>
+      </fieldset>
+
+      {%- comment -%}
+        THE TWO CONSENTS. Independent, unchecked, and each one named after the
+        channel it authorises.
+
+        EMAIL BINDS TO THE NATIVE FIELD. `contact[accepts_marketing]` is what
+        Shopify's customer form reads, and an unchecked checkbox is omitted
+        from the POST entirely by every browser, so "not ticked" reaches
+        Shopify as "no consent" without any code deciding that.
+
+        SMS BINDS TO NOTHING NATIVE, because Shopify has no SMS field on this
+        form. `data-fa2-sms-consent` is read by first-access-v2.js and sent to
+        the app proxy. It deliberately has NO `name` attribute: a named field
+        would be posted to Shopify, which would ignore it, and a field that
+        looks submitted but is not is how a consent gets quietly lost.
+
+        NO `required` ON EITHER. Agreeing to marketing is not a condition of
+        joining the list, let alone of browsing.
+      {%- endcomment -%}
+      <fieldset class="fa2-consent">
+        <legend class="visually-hidden">
+          {{- 'templates.first_access.form.consent_legend' | t -}}
+        </legend>
+
+        <label class="fa2-consent__row" for="{{ form_id }}-email-consent">
+          <input
+            id="{{ form_id }}-email-consent"
+            class="fa2-consent__box"
+            type="checkbox"
+            name="contact[accepts_marketing]"
+            value="true"
+            data-fa2-email-consent
+          >
+          <span class="fa2-consent__text">
+            {{- 'templates.first_access.form.email_consent' | t -}}
+          </span>
+        </label>
+
+        <label class="fa2-consent__row" for="{{ form_id }}-sms-consent">
+          <input
+            id="{{ form_id }}-sms-consent"
+            class="fa2-consent__box"
+            type="checkbox"
+            data-fa2-sms-consent
+          >
+          <span class="fa2-consent__text">
+            {{- 'templates.first_access.form.sms_consent' | t -}}
+          </span>
+        </label>
+
+        {%- comment -%}
+          THE POLICY LINKS SIT WITH THE CONSENTS, not in a page footer this
+          modal does not have. Both open in a new tab so reading them cannot
+          discard a half-filled form.
+        {%- endcomment -%}
+        <p class="fa2-consent__legal">
+          {{- 'templates.first_access.form.consent_legal_html' | t:
+            privacy_url: '/policies/privacy-policy',
+            terms_url: '/pages/terms-of-service'
+          -}}
+        </p>
       </fieldset>
 
       <button type="submit" class="fa2-btn fa2-btn--full" data-fa2-submit>

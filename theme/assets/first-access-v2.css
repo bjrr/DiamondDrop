@@ -768,3 +768,77 @@
     animation: none !important;
   }
 }
+
+/* ===========================================================================
+   MARKETING CONSENT (owner decision 2026-11-18)
+
+   Two independent, unchecked opt-ins. Styled as plain checkbox rows rather
+   than as the pill "chips" the interests use, and the difference is
+   deliberate: an interest is a preference, a consent is a permission, and a
+   control that looks like a toggleable tag invites the casual tap that a
+   marketing authorisation should not get.
+
+   A REAL CHECKBOX, not an opacity-0 input behind a styled face. The interests
+   hide theirs because the pill IS the affordance; here the box itself is the
+   affordance, and a visible native checkbox is what makes "this is unticked"
+   unmistakable at a glance. `accent-color` tints it to the brand without
+   taking over its rendering, so platform focus, hover and high-contrast
+   behaviour all survive.
+   =========================================================================== */
+.fa2-consent {
+  border: 0;
+  padding: 0;
+  margin: 1.8rem 0 0;
+  display: grid;
+  gap: 1.2rem;
+}
+
+.fa2-consent__row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1rem;
+  align-items: start;
+  cursor: pointer;
+}
+
+.fa2-consent__box {
+  /* 2rem, not the 4.4rem touch target the chips use: the whole row is the
+     label, so the hit area is the sentence, not the square. */
+  width: 2rem;
+  height: 2rem;
+  margin: 0.2rem 0 0;
+  accent-color: var(--fa2-bronze);
+  cursor: pointer;
+  flex: none;
+}
+
+.fa2-consent__box:focus-visible {
+  outline: 0.2rem solid var(--fa2-ink);
+  outline-offset: 0.2rem;
+}
+
+.fa2-consent__text {
+  font-size: 1.4rem;
+  line-height: 1.5;
+  color: var(--fa2-ink-soft);
+}
+
+/* The SMS row carries four disclosures in one sentence and is therefore the
+   longest text in the form. It stays at the same size as its sibling rather
+   than shrinking to fit: small print is how a disclosure becomes one. */
+.fa2-consent__legal {
+  margin: 0;
+  font-size: 1.3rem;
+  line-height: 1.5;
+  color: var(--fa2-ink-faint);
+}
+
+.fa2-consent__legal a {
+  color: var(--fa2-ink-soft);
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+}
+
+.fa2-consent__legal a:hover {
+  color: var(--fa2-ink);
+}

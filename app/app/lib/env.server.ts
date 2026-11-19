@@ -51,6 +51,17 @@ const envSchema = z.object({
   STORAGE_SECRET_ACCESS_KEY: z.string().optional(),
   EMAIL_API_KEY: z.string().optional(), // first transactional email (slice 7+)
   EMAIL_FROM: z.string().optional(),
+  /**
+   * SMS sending (owner decision 2026-11-18). OPTIONAL, and unset today.
+   *
+   * SMS marketing CONSENT is already recorded natively in Shopify without
+   * these; they are needed only to SEND, and supplying them is an owner action
+   * because it means an account with a sending provider and a payment method.
+   * `resolveSmsPort` reports the absence rather than pretending, so the app
+   * boots, builds and takes signups with neither set.
+   */
+  SMS_API_KEY: z.string().optional(),
+  SMS_FROM: z.string().optional(),
   STAFF_EMAIL_ALLOWLIST: z.string().optional(), // first admin auth (slice 2+)
 
   /**

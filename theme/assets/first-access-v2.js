@@ -31,6 +31,13 @@
   var ROOT = '[data-fa2]';
   var BASE_TAG = 'first-access';
   var PHONE_ENDPOINT = '/apps/carat/first-access-phone';
+  /*
+   * Must match FIRST_ACCESS_CONSENT_COPY_VERSION in
+   * app/app/domain/firstaccess/marketingConsentCopy.ts. Bump both when the
+   * consent wording changes; a mismatch is logged server-side rather than
+   * refused, because a cached page can legitimately be a version behind.
+   */
+  var CONSENT_COPY_VERSION = '2026-11-18';
   /** V2 specific, so a V1 tab and a V2 tab cannot read each other's stash. */
   var HANDOFF_KEY = 'caratFaV2Pending';
 
@@ -221,7 +228,41 @@
     var email = value('contact[email]');
     if (email === '') return null;
 
-    return { email: email, phone: value('contact[phone]') };
+    /*
+     * THE TWO CONSENTS (owner decision 2026-11-18).
+     *
+     * Sent as real booleans, never as the string "true" or as the checkbox
+     * value: the route reads them with `=== true` precisely so a truthy
+     * near-miss cannot become a marketing permission.
+     *
+     * EMAIL IS SENT EVEN THOUGH SHOPIFY ALREADY HAS IT. The native field
+     * `contact[accepts_marketing]` is the authority on the permission; this
+     * flag exists so the backend knows whether to record OUR OWN evidence of
+     * the wording that was shown. Reading the same checkbox twice is the
+     * point -- one read sets the permission, the other evidences it.
+     *
+     * SMS IS SENT BECAUSE NOTHING ELSE CARRIES IT. Shopify's customer form
+     * has no SMS field, so this request is the only path by which a ticked
+     * SMS box can ever become a consent.
+     */
+    function checked(selector) {
+      var box = form.querySelector(selector);
+      return !!(box && box.checked);
+    }
+
+    return {
+      email: email,
+      phone: value('contact[phone]'),
+      emailConsent: checked('[data-fa2-email-consent]'),
+      smsConsent: checked('[data-fa2-sms-consent]'),
+      /*
+       * Which wording this page rendered. The server records against its own
+       * current version regardless -- a client must never choose the policy it
+       * is consenting to -- but a mismatch tells us a cached page is showing
+       * customers wording we have moved on from.
+       */
+      consentCopyVersion: CONSENT_COPY_VERSION,
+    };
   }
 
   /**
@@ -329,6 +370,29 @@
         problem.field.focus();
         return;
       }
+
+      /*
+       * TICKING "TEXT ME" WITH NO NUMBER IS NOT A SIGNUP ERROR, IT IS AN
+       * UNFULFILLABLE CONSENT, and it must not be silently discarded.
+       *
+       * Shopify refuses to hold SMS marketing consent for a customer with no
+       * phone on the account, so there is genuinely nothing to record. The
+       * alternatives were to drop the consent quietly -- the customer asked to
+       * be texted and would never hear from us -- or to say so. This says so,
+       * and points at the field that fixes it rather than at the checkbox,
+       * because adding the number is what the customer almost certainly wants.
+       *
+       * Mobile stays OPTIONAL for everyone who does not tick the box.
+       */
+      var smsBox = form.querySelector('[data-fa2-sms-consent]');
+      var phoneField = form.querySelector('input[name="contact[phone]"]');
+      if (smsBox && smsBox.checked && phoneField && String(phoneField.value || '').trim() === '') {
+        event.preventDefault();
+        showError(form, s('errorSmsNeedsPhone', 'Add your mobile number so we can text you, or untick the text option.'));
+        phoneField.focus();
+        return;
+      }
+
       clearError(form);
 
       // Captured before either path destroys the form.

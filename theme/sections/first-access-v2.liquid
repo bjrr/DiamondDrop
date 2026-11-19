@@ -47,6 +47,12 @@
     errorEmail: {{ 'templates.first_access.form.error_email' | t | json }},
     errorFirstName: {{ 'templates.first_access.form.error_first_name' | t | json }},
     errorLastName: {{ 'templates.first_access.form.error_last_name' | t | json }},
+    {%- comment -%}
+      Shown when the SMS box is ticked with no mobile number. Shopify cannot
+      hold an SMS consent for an account with no phone, so the consent would
+      otherwise be discarded in silence.
+    {%- endcomment -%}
+    errorSmsNeedsPhone: {{ 'templates.first_access.form.error_sms_needs_phone' | t | json }},
     submitting: {{ 'templates.first_access.form.submitting' | t | json }}
   };
 </script>

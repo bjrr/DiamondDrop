@@ -150,9 +150,22 @@ describe("what this page must not become", () => {
     // no free shipping, no guarantee.
     expect(allCopy).not.toMatch(/\d+\s?%/);
     expect(allCopy).not.toMatch(/free shipping|money[- ]back|guarantee|risk[- ]free/i);
-    expect(allCopy).not.toMatch(
-      /\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i
-    );
+    /**
+     * A MONTH NEXT TO A NUMBER, not a month-shaped word.
+     *
+     * The bare list matched "may" in "Msg & data rates may apply" — the
+     * English modal verb, in a disclosure the SMS opt-in is required to
+     * carry. Flagging it would have forced the disclosure to be reworded to
+     * suit a regex, which is the wrong way round.
+     *
+     * A launch-date promise looks like "May 5", "5 May" or "May 2027", so
+     * adjacency to a number is what distinguishes one from a sentence that
+     * happens to contain a month name. Still catches every real date; stops
+     * catching the word "may".
+     */
+    const MONTHS = "january|february|march|april|may|june|july|august|september|october|november|december";
+    expect(allCopy).not.toMatch(new RegExp(`\\b(?:${MONTHS})\\b[\\s,]*\\d`, "i"));
+    expect(allCopy).not.toMatch(new RegExp(`\\d[\\s,]*\\b(?:${MONTHS})\\b`, "i"));
   });
 
   it("keeps the First Access benefit as a possibility, not a commitment", () => {
@@ -227,18 +240,41 @@ describe("the signup is Shopify-native and low friction", () => {
   });
 
   it("never treats a phone number as consent to text", () => {
-    // A number given for launch updates is not an SMS marketing opt-in. If
-    // CaratForUs ever sends marketing texts that needs its own unchecked
-    // control and its own disclosure, recorded separately — not inferred
-    // from a field someone filled in on a different promise.
-    const live = [
-      stripLiquidComments(formSnippet),
-      stripJsComments(script),
-      allCopy,
-    ].join("\n");
-    expect(live).not.toMatch(/accepts_sms|sms_consent|smsMarketing|accepts_text|text_consent/i);
+    /**
+     * THIS FILE TESTS V1, WHICH IS ARCHIVED AND HAS NO SMS CONSENT.
+     *
+     * The live signup moved to V2 (`/pages/first-access` carries the template
+     * suffix `first-access-v2`, and the COMING SOON homepage renders the same
+     * section). V2 gained a real, unchecked SMS opt-in on 2026-11-18, and that
+     * control's shape is asserted where it lives, in
+     * `app/domain/firstaccess/marketingConsentCopy.test.ts`.
+     *
+     * V1 must NOT acquire one. It is reachable at
+     * `/pages/first-access-v1` as an archived reference, and an archived page
+     * that quietly grew a consent control nobody maintains would be the worst
+     * of both: a live opt-in with no evidence path behind it.
+     *
+     * SCOPED TO V1's OWN FILES, not to `allCopy`. The locale file is SHARED
+     * with V2, so it now legitimately contains the SMS consent sentence and
+     * its `sms_consent` key — searching the shared copy for those strings
+     * would flag V2's correct implementation as a V1 defect, which is exactly
+     * what it did on first run.
+     */
+    const v1Only = [stripLiquidComments(formSnippet), stripJsComments(script)].join("\n");
+
+    // V1 renders no consent control and reads none.
+    expect(v1Only).not.toMatch(/sms_consent|data-fa2-sms-consent|smsConsent/i);
+    expect(v1Only).not.toMatch(/smsMarketing/i);
+
+    // AND THE NUMBER STILL GRANTS NOTHING ON ITS OWN, on either version. No
+    // copy anywhere claims that supplying a number is agreement to be texted,
+    // which is the defect this assertion has always existed to prevent.
+    const live = [v1Only, allCopy].join("\n");
     expect(live).not.toMatch(/by (providing|entering) your (mobile|phone)/i);
-    expect(live).not.toMatch(/consent to (receive )?(marketing )?(texts|sms)/i);
+    expect(live).not.toMatch(/by submitting.{0,40}(agree|consent).{0,40}(text|sms)/i);
+    // `accepts_sms` was never a real Shopify field; inventing it would be a
+    // shortcut around the proper consent record.
+    expect(live).not.toMatch(/accepts_sms|accepts_text|text_consent/i);
 
     /**
      * THE LABEL ITSELF MUST NOT PROMISE TEXTS.

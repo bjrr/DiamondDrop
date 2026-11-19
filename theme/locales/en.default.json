@@ -639,7 +639,12 @@
         "phone_placeholder": "Mobile number",
         "error_email": "Please enter a valid email address.",
         "error_first_name": "Please enter your first name.",
-        "error_last_name": "Please enter your last name."
+        "error_last_name": "Please enter your last name.",
+        "consent_legend": "Marketing preferences",
+        "email_consent": "Email me CaratForUs early access, new arrivals, Group Buys, special offers, sales, and promotions.",
+        "sms_consent": "Text me CaratForUs early access, new arrivals, Group Buys, special offers, sales, and promotions. Message frequency varies. Msg & data rates may apply. Reply STOP to unsubscribe.",
+        "consent_legal_html": "See our <a href=\"{{ privacy_url }}\" target=\"_blank\" rel=\"noopener\">Privacy Policy</a> and <a href=\"{{ terms_url }}\" target=\"_blank\" rel=\"noopener\">Terms</a>. You can unsubscribe at any time.",
+        "error_sms_needs_phone": "Add your mobile number so we can text you, or untick the text option."
       },
       "interests": {
         "loose_diamonds": "Loose Diamonds",
