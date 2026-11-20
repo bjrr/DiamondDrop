@@ -6,6 +6,7 @@ import {
   FIRST_ACCESS_EMAIL_CONSENT_POLICY_SLUG,
   FIRST_ACCESS_EMAIL_CONSENT_TEXT,
   FIRST_ACCESS_SMS_CONSENT_POLICY_SLUG,
+  FIRST_ACCESS_SMS_CONSENT_POLICY_VERSION,
   FIRST_ACCESS_SMS_CONSENT_TEXT,
 } from "~/domain/firstaccess/marketingConsentCopy";
 import { recordMarketingConsentEvidence } from "~/domain/firstaccess/marketingConsentEvidence.server";
@@ -81,8 +82,35 @@ describe("marketing consent evidence", () => {
     expect(row.exactText).toBe(FIRST_ACCESS_SMS_CONSENT_TEXT);
     // The SMS sentence carries disclosures the email one does not, and this is
     // the record that proves the customer saw them.
-    expect(row.exactText).toContain("Reply STOP to unsubscribe");
     expect(row.exactText).toContain("Msg & data rates may apply");
+    // And it names the opt-out that EXISTS. Owner decision 2026-11-19 withdrew
+    // "Reply STOP to unsubscribe": Shopify Messaging's toll-free sender cannot
+    // receive replies, so a record claiming the customer was shown that
+    // instruction would be evidence of a promise we could not keep.
+    expect(row.exactText).toContain("unsubscribe link included in our texts");
+    expect(row.exactText).not.toMatch(/reply\s+stop/i);
+  });
+
+  it("attaches a NEW consent to the corrected SMS version, not the withdrawn one", async () => {
+    // The append-only design earning its keep. Version 1 said "Reply STOP";
+    // version 2 names Shopify's unsubscribe link. A consent recorded today
+    // must point at 2 — while version 1 stays in the table unedited, because
+    // that is what any record pointing at it was actually shown.
+    const ref = customerRef();
+    const result = await recordMarketingConsentEvidence({
+      channel: "sms",
+      customerRef: ref,
+      consentedAt: new Date("2026-11-19T12:00:00.000Z"),
+    });
+    expect(result.outcome).toBe("recorded");
+    if (result.outcome !== "recorded") return;
+    expect(result.policyVersion).toBe(FIRST_ACCESS_SMS_CONSENT_POLICY_VERSION);
+    expect(FIRST_ACCESS_SMS_CONSENT_POLICY_VERSION).toBeGreaterThan(1);
+
+    const withdrawn = await prisma.policyVersion.findFirstOrThrow({
+      where: { slug: FIRST_ACCESS_SMS_CONSENT_POLICY_SLUG, version: 1 },
+    });
+    expect(withdrawn.text).toContain("Reply STOP to unsubscribe");
   });
 
   it("keeps the two channels INDEPENDENT for one customer", async () => {

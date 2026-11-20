@@ -60,7 +60,11 @@ them:
 | | Control | Wording |
 |---|---|---|
 | Email | checkbox bound to `name="contact[accepts_marketing]"` | *Email me CaratForUs early access, new arrivals, Group Buys, special offers, sales, and promotions.* |
-| SMS | checkbox with **no** `name`, read by the script | *Text me CaratForUs early access, new arrivals, Group Buys, special offers, sales, and promotions. Message frequency varies. Msg & data rates may apply. Reply STOP to unsubscribe.* |
+| SMS | checkbox with **no** `name`, read by the script | *Text me CaratForUs early access, new arrivals, Group Buys, special offers, sales, and promotions. Message frequency varies. Msg & data rates may apply. You can unsubscribe at any time using the unsubscribe link included in our texts.* |
+
+The SMS sentence is **version 2**. See
+[The unsubscribe correction](#the-unsubscribe-correction-owner-decision-2026-11-19)
+for why version 1's "Reply STOP to unsubscribe" was withdrawn.
 
 **Email consent is native; SMS cannot be.** `contact[accepts_marketing]` is a
 field Shopify's own customer form understands, so an unchecked box is omitted
@@ -134,20 +138,65 @@ time the SMS consent does not exist yet: it arrives on the separate request, so
 a handler asking "does this customer have SMS consent?" there would be racing
 the request that grants it.
 
-136 characters, one GSM-7 segment, pinned by a test. It identifies the brand
-(it is the first text from an unknown number), says what they joined, and
-repeats the rates line and HELP/STOP. **No offer, no code, no link** — this is
-the confirmation of a subscription, not the first campaign, and a link in an
-unexpected SMS is what both carriers and customers read as spam.
+Says what they joined and repeats the rates line. **No offer, no code, no
+link** — this is the confirmation of a subscription, not the first campaign,
+and a link in an unexpected SMS is what both carriers and customers read as
+spam.
 
-### ⚠️ No SMS provider is configured — this is the one owner action outstanding
+167 characters. **Two GSM-7 segments, not one**, and the test says so: an
+earlier draft fitted 160 characters, the owner's approved wording does not, and
+pinning `<= 160` would have failed on correct copy. What the test still
+enforces is GSM-7 — a single curly apostrophe would switch the message to
+UCS-2, **halving** per-segment capacity from 153 to 67 and silently adding a
+segment. The apostrophes in the body are deliberately straight for that reason.
+
+Three things the body deliberately omits, all because **Shopify Messaging owns
+them**: a reply instruction, an unsubscribe URL, and the `CaratForUs:` prefix.
+The shop's configured message prefix is already `CaratForUs`, so writing it
+here too would deliver *"CaratForUs: CaratForUs: …"*.
+
+### The unsubscribe correction (owner decision 2026-11-19)
+
+Both the opt-in sentence and the confirmation text originally said **"Reply
+STOP to unsubscribe"**. That was written on an assumption that holds for most
+SMS platforms and **not** for the one CaratForUs actually uses.
+
+**Shopify Messaging's US/Canada toll-free sender is delivery-only.** It cannot
+receive inbound messages. A customer replying STOP to it would have been
+following our own written instruction into a dead end — believing they had
+opted out while Shopify still had them `SUBSCRIBED`.
+
+That is the worst failure mode an unsubscribe instruction has, and worse than
+saying nothing: a customer who thinks they have opted out **stops looking for
+the mechanism that works**.
+
+What Shopify Messaging does do is **append its own unsubscribe URL** to
+marketing messages, so both surfaces now name the opt-out that exists.
+**CaratForUs must not build its own unsubscribe link.** Shopify's link is what
+actually mutates `smsMarketingConsent`; a parallel one would produce a customer
+who believes they unsubscribed while Shopify still considers them subscribed —
+the same defect in a different place.
+
+This is a **new policy version, never an edit**. SMS is at version 2; email
+stays at version 1 because its wording did not change. That asymmetry is the
+two-slug design earning its keep — a shared version number would have forced an
+email version 2 whose text was identical to version 1, and an auditor shown two
+versions with the same words cannot tell which one a customer was displayed.
+Version 1 stays in the table saying "Reply STOP", unedited, because that is
+what any record pointing at it was actually shown. A test asserts it survives.
+
+**No re-consent is needed.** Verified against the live shop rather than
+assumed: the single First Access customer holds **no SMS consent at all**, so
+no live consent rests on the withdrawn wording.
+
+### ⚠️ Sending is gated on toll-free verification — the one owner action outstanding
 
 **Consent is recorded and correct today. Nothing can send a text yet.**
 
-Shopify does not offer transactional SMS to apps; its SMS marketing is
-delivered through installed apps rather than an API an app may call. Sending
-therefore needs an account with a provider (Twilio or similar), which needs
-credentials and a payment method — the owner's to arrange.
+The sender is **Shopify Messaging** (owner decision 2026-11-19 — not Twilio or
+another outside provider). Its toll-free number `+1 888-847-6660` is **Under
+verification** for both the United States and Canada, and no workaround may
+bypass that requirement.
 
 So the seam is built and the send is gated: `resolveSmsPort` reports
 `configured: false` with a reason, the route logs
@@ -155,13 +204,9 @@ So the seam is built and the send is gated: `resolveSmsPort` reports
 Nothing claims a text was sent.
 
 **This ordering is deliberate.** A customer who opts in today is properly
-subscribed in Shopify today and becomes reachable the moment a provider exists
-— rather than being asked again later because we declined to write down what
-they had already told us.
-
-To finish it: set `SMS_API_KEY` and `SMS_FROM`, and add one adapter behind
-`SmsPort`. No flow changes — the consent gate, the message copy and the
-evidence are all independent of who sends.
+subscribed in Shopify today and becomes reachable the moment the sender is
+approved — rather than being asked again later because we declined to write
+down what they had already told us.
 
 ## What was preserved
 
@@ -209,7 +254,10 @@ text.
 
 - `marketingConsentCopy.test.ts` — reads the **real** theme locale JSON and the
   **real** migration SQL off disk and compares them to the module byte for
-  byte. Three places hold this wording and only the locale is what a customer
+  byte. It scans **every** migration rather than one pinned path, because the
+  v2 correction had to arrive in a second file; it also fences the reply-based
+  opt-out out of all four customer-readable surfaces at once, and asserts the
+  withdrawn v1 wording still exists unedited. Three places hold this wording and only the locale is what a customer
   sees; if the module drifts, every consent record stores a sentence nobody was
   shown. Also asserts the form has no hidden consent field, pre-checks neither
   box, requires neither, and renders from the locale rather than inline.
@@ -218,8 +266,10 @@ text.
   nothing else), `=== true` on both consents, `Customer.phone` written only
   inside the SMS function, no email-consent write, consent recorded before any
   send, and no log line carrying the number.
-- `signupSms.test.ts` — one GSM-7 segment, brand first, HELP and STOP present,
-  no link or offer.
+- `signupSms.test.ts` — GSM-7 only, within two segments, says what they joined,
+  no link or offer, and the three inversions from 2026-11-19: **no** reply
+  instruction, **no** self-built unsubscribe link, **no** `CaratForUs:` prefix
+  of our own.
 - `marketingConsentEvidence.test.ts` (integration) — the row stores the
   policy's own text, the channels stay independent for one customer, evidence
   is idempotent per channel, and the policy rows refuse being edited.

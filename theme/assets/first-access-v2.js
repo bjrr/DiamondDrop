@@ -37,7 +37,7 @@
    * consent wording changes; a mismatch is logged server-side rather than
    * refused, because a cached page can legitimately be a version behind.
    */
-  var CONSENT_COPY_VERSION = '2026-11-18';
+  var CONSENT_COPY_VERSION = '2026-11-19';
   /** V2 specific, so a V1 tab and a V2 tab cannot read each other's stash. */
   var HANDOFF_KEY = 'caratFaV2Pending';
 

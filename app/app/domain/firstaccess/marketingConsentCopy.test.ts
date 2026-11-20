@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 
@@ -36,13 +36,32 @@ const REPO_ROOT = join(process.cwd(), "..");
 const LOCALE_PATH = join(REPO_ROOT, "theme", "locales", "en.default.json");
 const FORM_SNIPPET_PATH = join(REPO_ROOT, "theme", "snippets", "first-access-v2-form.liquid");
 const THEME_JS_PATH = join(REPO_ROOT, "theme", "assets", "first-access-v2.js");
-const MIGRATION_PATH = join(
-  process.cwd(),
-  "prisma",
-  "migrations",
-  "20261118160000_first_access_marketing_consent_policies",
-  "migration.sql"
-);
+const MIGRATIONS_DIR = join(process.cwd(), "prisma", "migrations");
+
+/**
+ * Every migration's SQL, concatenated.
+ *
+ * NOT ONE PINNED PATH, and the 2026-11-19 SMS rewording is why. This used to
+ * name `20261118160000_first_access_marketing_consent_policies` directly,
+ * which worked only while both channels' current wording lived in one file.
+ * The SMS correction added version 2 in a SECOND migration — it had to, since
+ * `policy_version` is append-only — and a single-path fence would then have
+ * failed while the code was entirely correct, which is the kind of failure
+ * that teaches people to delete fences.
+ *
+ * Searching every migration keeps the real guarantee: the current wording is
+ * seeded SOMEWHERE with a matching hash. Which file does the seeding is an
+ * implementation detail of how versions accumulate.
+ */
+function allMigrationSql(): string {
+  return readdirSync(MIGRATIONS_DIR)
+    .sort()
+    .map((dir) => {
+      const file = join(MIGRATIONS_DIR, dir, "migration.sql");
+      return existsSync(file) ? readFileSync(file, "utf8") : "";
+    })
+    .join("\n");
+}
 
 /**
  * The snippet with its Liquid comments removed.
@@ -88,8 +107,8 @@ describe("the consent wording is one string, in three places", () => {
     expect(localeForm()[FIRST_ACCESS_SMS_CONSENT_LOCALE_KEY]).toBe(FIRST_ACCESS_SMS_CONSENT_TEXT);
   });
 
-  it("the migration stores both sentences verbatim, with hashes that match them", () => {
-    const sql = readFileSync(MIGRATION_PATH, "utf8");
+  it("the migrations store both CURRENT sentences verbatim, with hashes that match them", () => {
+    const sql = allMigrationSql();
 
     for (const [slug, text] of [
       [FIRST_ACCESS_EMAIL_CONSENT_POLICY_SLUG, FIRST_ACCESS_EMAIL_CONSENT_TEXT],
@@ -192,7 +211,52 @@ describe("the SMS wording carries the disclosures a marketing opt-in needs", () 
     expect(FIRST_ACCESS_SMS_CONSENT_TEXT).toContain("Text me");
     expect(FIRST_ACCESS_SMS_CONSENT_TEXT).toContain("Message frequency varies");
     expect(FIRST_ACCESS_SMS_CONSENT_TEXT).toContain("Msg & data rates may apply");
-    expect(FIRST_ACCESS_SMS_CONSENT_TEXT).toContain("Reply STOP to unsubscribe");
+    // HOW TO STOP, naming the mechanism that exists. Owner decision
+    // 2026-11-19 replaced "Reply STOP to unsubscribe" because Shopify
+    // Messaging's toll-free sender cannot receive replies.
+    expect(FIRST_ACCESS_SMS_CONSENT_TEXT).toContain("unsubscribe at any time");
+    expect(FIRST_ACCESS_SMS_CONSENT_TEXT).toContain("unsubscribe link included in our texts");
+  });
+
+  it("promises NO reply-based opt-out anywhere a customer can read it", () => {
+    // THE CORRECTION THIS VERSION EXISTS FOR, fenced in every place the
+    // sentence is rendered or stored rather than only on the module constant —
+    // because the constant is not what a customer reads.
+    //
+    // Shopify Messaging's US/Canada toll-free sender is delivery-only. Telling
+    // a customer to reply STOP would promise an opt-out that silently fails:
+    // they would believe they had unsubscribed while Shopify still had them
+    // SUBSCRIBED, and would stop looking for the link that works. A broken
+    // unsubscribe instruction is worse than none.
+    const surfaces: Array<readonly [string, string]> = [
+      ["module constant", FIRST_ACCESS_SMS_CONSENT_TEXT],
+      ["theme locale (what the customer reads)", localeForm()[FIRST_ACCESS_SMS_CONSENT_LOCALE_KEY]!],
+      ["consent legal line", localeForm().consent_legal_html!],
+      ["form markup", formMarkup()],
+    ];
+
+    for (const [where, text] of surfaces) {
+      expect(text, `${where} tells the customer to reply STOP`).not.toMatch(/reply\s+stop/i);
+      expect(text, `${where} tells the customer to reply HELP`).not.toMatch(/reply\s+help/i);
+      expect(text, `${where} tells the customer to text a keyword back`).not.toMatch(
+        /\btext\s+(?:back|STOP|HELP)\b/i
+      );
+    }
+  });
+
+  it("the withdrawn version 1 wording survives in the migrations, unedited", () => {
+    // The flip side of the fence above, and just as important. `policy_version`
+    // is append-only because an `acknowledgment` points at the version it was
+    // shown under — so version 1 must KEEP saying "Reply STOP" for as long as
+    // any record points at it. Deleting the old seed to tidy up the repo would
+    // retroactively change what a subscriber is recorded as having agreed to.
+    const sql = allMigrationSql();
+    expect(sql, "the version 1 SMS wording was edited or removed").toContain(
+      "Msg & data rates may apply. Reply STOP to unsubscribe."
+    );
+    // And the correction is a genuinely new version, not an UPDATE in disguise.
+    expect(FIRST_ACCESS_SMS_CONSENT_POLICY_VERSION).toBeGreaterThan(1);
+    expect(sql).not.toMatch(/UPDATE\s+"policy_version"/i);
   });
 
   it("names what will actually be sent, on both channels", () => {
@@ -229,9 +293,14 @@ describe("the policy identity", () => {
     }
   });
 
-  it("starts both channels at version 1", () => {
+  it("versions the two channels INDEPENDENTLY", () => {
+    // Both started at 1. The 2026-11-19 correction changed only the SMS
+    // sentence, so only SMS advanced — which is the whole point of two slugs.
+    // A shared version would have forced an email version 2 whose text was
+    // identical to version 1, and an auditor shown two versions with the same
+    // words cannot tell which one a customer was displayed.
     expect(FIRST_ACCESS_EMAIL_CONSENT_POLICY_VERSION).toBe(1);
-    expect(FIRST_ACCESS_SMS_CONSENT_POLICY_VERSION).toBe(1);
+    expect(FIRST_ACCESS_SMS_CONSENT_POLICY_VERSION).toBe(2);
   });
 
   it("records what the customer DID, not merely that they did something", () => {

@@ -62,16 +62,39 @@ export const FIRST_ACCESS_EMAIL_CONSENT_TEXT =
  * string precisely so none of them can be dropped by a later edit to the
  * markup — the label is this constant, not four spans a designer may reflow.
  *
- * "Reply STOP to unsubscribe" is a promise about behaviour, and it is one
- * Shopify keeps natively: STOP is handled by the platform's own SMS
- * unsubscribe handling against `smsMarketingConsent`, not by CaratForUs code.
- * That is the reason this flow records consent through
- * `customerSmsMarketingConsentUpdate` rather than into a private column — a
- * private column could not be unsubscribed from by replying to a text.
+ * ============================================================================
+ * VERSION 2 — WHY "Reply STOP" HAD TO GO (owner decision 2026-11-19)
+ * ============================================================================
+ * Version 1 said "Reply STOP to unsubscribe". That sentence was written on the
+ * assumption that the sender would honour replies, which is true of most SMS
+ * platforms and is NOT true of the one CaratForUs is actually using: Shopify
+ * Messaging's US/Canada toll-free sender is delivery-only and cannot receive
+ * inbound messages. A customer replying STOP to it would have been following
+ * our own written instruction into a dead end — believing they had opted out
+ * while remaining SUBSCRIBED, which is the single worst failure mode an
+ * unsubscribe instruction has.
+ *
+ * What Shopify Messaging DOES do is append an unsubscribe URL to marketing
+ * messages, so the opt-out named here is the one that exists. CaratForUs must
+ * not build its own unsubscribe URL: Shopify's link is what actually mutates
+ * `smsMarketingConsent`, and a parallel mechanism would create a customer who
+ * believes they unsubscribed while Shopify still considers them subscribed —
+ * the same defect in a different place.
+ *
+ * This is still a promise about behaviour kept natively, which remains the
+ * reason this flow records consent through `customerSmsMarketingConsentUpdate`
+ * rather than into a private column: a private column could not be
+ * unsubscribed from by Shopify's own link.
+ *
+ * Version 1 stays in the database untouched, pointing at what existing
+ * subscribers were shown. There is exactly one such subscriber as of this
+ * change and they hold no SMS consent, so no live consent rests on the
+ * withdrawn wording.
  */
 export const FIRST_ACCESS_SMS_CONSENT_TEXT =
   "Text me CaratForUs early access, new arrivals, Group Buys, special offers, sales, and promotions. " +
-  "Message frequency varies. Msg & data rates may apply. Reply STOP to unsubscribe.";
+  "Message frequency varies. Msg & data rates may apply. You can unsubscribe at any time using the " +
+  "unsubscribe link included in our texts.";
 
 /**
  * What the customer DID. Stored on the acknowledgment as the affirmative
@@ -101,9 +124,19 @@ export const FIRST_ACCESS_CONSENT_AFFIRMATIVE_ACTION_LABEL = "Checked the opt-in
 export const FIRST_ACCESS_EMAIL_CONSENT_POLICY_SLUG = "first-access-email-marketing-consent";
 export const FIRST_ACCESS_SMS_CONSENT_POLICY_SLUG = "first-access-sms-marketing-consent";
 
-/** Bump together with the text above, as a NEW version, on any approved wording change. */
+/**
+ * Bump together with the text above, as a NEW version, on any approved wording
+ * change.
+ *
+ * THE TWO CHANNELS VERSION INDEPENDENTLY, and this is the first case that
+ * proves the design was right: the 2026-11-19 correction changed only the SMS
+ * sentence, so SMS is at 2 while email stays at 1. A shared version number
+ * would have forced a meaningless email version 2 whose text was identical to
+ * version 1 — and an auditor reading two versions with the same words cannot
+ * tell which one a customer was shown.
+ */
 export const FIRST_ACCESS_EMAIL_CONSENT_POLICY_VERSION = 1;
-export const FIRST_ACCESS_SMS_CONSENT_POLICY_VERSION = 1;
+export const FIRST_ACCESS_SMS_CONSENT_POLICY_VERSION = 2;
 
 /**
  * The version string the THEME sends with a signup, so the server can tell
@@ -117,7 +150,7 @@ export const FIRST_ACCESS_SMS_CONSENT_POLICY_VERSION = 1;
  * mismatch, because a steady stream of them means a stale cache is showing
  * customers wording we no longer consider current.
  */
-export const FIRST_ACCESS_CONSENT_COPY_VERSION = "2026-11-18";
+export const FIRST_ACCESS_CONSENT_COPY_VERSION = "2026-11-19";
 
 /** The locale keys the theme renders these from. Pinned so the fence test can find them. */
 export const FIRST_ACCESS_EMAIL_CONSENT_LOCALE_KEY = "email_consent";

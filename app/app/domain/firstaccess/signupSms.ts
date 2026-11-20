@@ -32,20 +32,49 @@
  * ============================================================================
  * WHAT IT MUST CONTAIN, AND WHY EACH PART
  * ============================================================================
- *   - the brand, so the first text from an unknown number is identifiable;
  *   - what they opted into, so it is recognisable as the thing they asked for;
- *   - HELP and STOP, because the opt-in promised "Reply STOP to unsubscribe"
- *     and a confirmation that omits it is the worst place to drop it;
- *   - message and data rates, carried once more here for the same reason.
+ *   - message and data rates, the one disclosure worth repeating on the first
+ *     text rather than relying on the customer remembering the opt-in label.
  *
  * NO OFFER, NO LINK, NO DISCOUNT CODE. This is the confirmation of a
  * subscription, not the first marketing message. Putting a promotion in it
  * would make the very first text a campaign the customer had not yet seen the
  * list behave for.
  *
- * ONE SEGMENT WHERE POSSIBLE. Kept under 160 GSM-7 characters so it sends as a
- * single segment: pinned by a test, because a message that silently becomes
- * two costs twice and can arrive out of order.
+ * ============================================================================
+ * NO "Reply STOP", NO "Reply HELP", AND NO BRAND PREFIX OF OUR OWN
+ * ============================================================================
+ * Owner decision 2026-11-19. Three things this body deliberately does NOT do,
+ * all for the same underlying reason — Shopify Messaging owns them:
+ *
+ *   1. NO REPLY INSTRUCTION. Shopify's US/Canada toll-free sender is
+ *      delivery-only and cannot receive inbound messages. "Reply STOP" would
+ *      have been an instruction into a dead end, leaving a customer who
+ *      believes they opted out still SUBSCRIBED — worse than saying nothing,
+ *      because they stop looking for the mechanism that works.
+ *   2. NO UNSUBSCRIBE URL OF OURS. Shopify Messaging appends its own, and that
+ *      link is what actually mutates `smsMarketingConsent`. A CaratForUs-built
+ *      link would be a second opt-out that Shopify does not honour.
+ *   3. NO "CaratForUs:" PREFIX. Shopify Messaging prepends the configured
+ *      message prefix (verified as `CaratForUs` on the live shop), so writing
+ *      it here too produces "CaratForUs: CaratForUs: ...". Brand
+ *      identification is still present on the delivered text — it is just not
+ *      ours to add. This is why the body no longer leads with the brand, which
+ *      version 1 of this message did.
+ *
+ * ============================================================================
+ * SEGMENTS: TWO, MEASURED, NOT ONE
+ * ============================================================================
+ * The earlier body fitted a single 160-character GSM-7 segment. The owner's
+ * wording does not, and the test now pins what is actually true rather than
+ * the number we would prefer: 167 characters, plus Shopify's prefix and its
+ * appended unsubscribe URL, so the delivered message is two to three segments.
+ *
+ * What the test still enforces is the part that is a bug if it slips: the body
+ * stays within GSM-7. A single curly apostrophe (U+2019) would push the whole
+ * message to UCS-2 and HALVE the per-segment capacity from 153 to 67,
+ * silently adding a segment. That is why the apostrophes below are
+ * deliberately straight.
  */
 
 export interface SignupSmsContent {
@@ -59,8 +88,8 @@ export interface SignupSmsContent {
  * assert its length without calling anything.
  */
 export const FIRST_ACCESS_SIGNUP_SMS_BODY =
-  "CaratForUs: you're on the list for early access, Group Buys and offers. " +
-  "Msg & data rates may apply. Reply HELP for help, STOP to cancel.";
+  "You're on the First Access list. We'll text you about new launches, Group Buys, " +
+  "special offers and select promotions. Msg frequency varies. Msg & data rates may apply.";
 
 export function buildSignupConfirmationSms(): SignupSmsContent {
   return { body: FIRST_ACCESS_SIGNUP_SMS_BODY };
