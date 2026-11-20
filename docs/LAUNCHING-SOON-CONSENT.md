@@ -198,15 +198,40 @@ another outside provider). Its toll-free number `+1 888-847-6660` is **Under
 verification** for both the United States and Canada, and no workaround may
 bypass that requirement.
 
-So the seam is built and the send is gated: `resolveSmsPort` reports
-`configured: false` with a reason, the route logs
-`firstaccess.sms_confirmation_unconfigured`, and the signup completes normally.
-Nothing claims a text was sent.
-
 **This ordering is deliberate.** A customer who opts in today is properly
 subscribed in Shopify today and becomes reachable the moment the sender is
 approved — rather than being asked again later because we declined to write
-down what they had already told us.
+down what they had already told us. The permission and the send are separate
+concerns, which is why disabling the send costs nothing.
+
+### The app's own SMS sender is deprecated and disabled, not unfinished
+
+`resolveSmsPort` returns `configured: false` on **every** path — including when
+`SMS_API_KEY` and `SMS_FROM` are both set. **That is the disablement, not a
+gap**, and `smsSenderDisabledFence.test.ts` pins it.
+
+**The risk is duplicate sends.** Shopify Messaging decides for itself when a
+new SMS subscriber gets a welcome text. This app cannot see that decision and
+Shopify cannot see this one, so two live senders means two welcome texts for
+one signup — on the first text from an unknown number, which is exactly the
+impression a toll-free sender under carrier review must not make. There is no
+shared idempotency key between them, and inventing one would mean
+reimplementing Shopify's own send log.
+
+The slip being fenced is mundane and therefore likely: someone sets the two
+environment variables, which looks like the obvious way to finish an
+unconfigured integration, and starts sending without reading why they
+shouldn't. Hence the absolute assertion rather than a missing-credentials one.
+
+**If it is ever revived**, in order: confirm the Shopify Messaging welcome
+automation is OFF, get the copy re-approved (the constant in `signupSms.ts`
+predates the copy approved on 2026-11-19 for Messaging and is **not**
+interchangeable with it — a different sender means different sender
+identification and a different unsubscribe mechanism), then update the fence
+deliberately rather than deleting it.
+
+Meanwhile the route still logs `firstaccess.sms_confirmation_unconfigured`, the
+signup completes normally, and nothing claims a text was sent.
 
 ## What was preserved
 
