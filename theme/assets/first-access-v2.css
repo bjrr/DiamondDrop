@@ -65,7 +65,29 @@
 /* ------------------------------------------------------------------ type */
 
 .fa2-display {
-  margin: 1.2rem 0 0;
+  /*
+   * 2.8rem, and the number is doing a specific job (owner decision
+   * 2026-11-20).
+   *
+   * This margin used to be 1.2rem, which was the gap between the "Launching
+   * Soon" pill and the headline. The pill is gone, and `.fa2-hero__inner` is a
+   * flex column with NO `gap`, so this margin is now the ONLY thing between
+   * the logo and the headline. Left at 1.2rem the logo crowded the headline;
+   * left at the old total (1.4rem pill margin + about 2.8rem pill height +
+   * 1.2rem, so roughly 5.4rem) there would be a visible hole where the pill
+   * had been.
+   *
+   * 2.8rem sits deliberately above the hero's internal text rhythm, which runs
+   * 1.1rem to 1.8rem between consecutive lines, because this gap separates the
+   * brand mark from the content rather than one line from the next.
+   *
+   * ONE VALUE COVERS BOTH BREAKPOINTS. The mobile block overrides only
+   * `font-size` for this class, so there is no second margin to keep in step.
+   *
+   * This class is used by exactly one element, the hero h1, so the change
+   * cannot reach anything else.
+   */
+  margin: 2.8rem 0 0;
   font-family: var(--fa2-display);
   font-weight: 400;
   font-size: clamp(3.2rem, 6.4vw, 5.4rem);

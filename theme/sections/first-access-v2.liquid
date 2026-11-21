@@ -68,10 +68,12 @@
 <div class="fa2" data-fa2>
   {%- comment -%} ---------------------------------------------------- hero
 
-    Short by design. The logo is centered, "Launching Soon" sits directly
-    beneath it as a bronze pill, then one headline, one supporting line and
-    one button. The form is NOT here: it is in the modal, which is what buys
-    back the vertical space and leaves the photograph visible.
+    Short by design. The logo is centered, then one headline, one supporting
+    line and one button. The form is NOT here: it is in the modal, which is
+    what buys back the vertical space and leaves the photograph visible.
+
+    A bronze "Launching Soon" pill used to sit between the logo and the
+    headline. Removed 2026-11-20 by owner decision, with nothing in its place.
   {%- endcomment -%}
   <section class="fa2-hero" aria-labelledby="Fa2HeroHeading">
     <div class="fa2-hero__media" aria-hidden="true">
@@ -153,8 +155,22 @@
         <p class="fa2-logo fa2-logo--text">{{ shop.name }}</p>
       {%- endif -%}
 
-      <p class="fa2-badge">{{ 'templates.first_access_v2.launching' | t }}</p>
+      {%- comment -%}
+        THE "LAUNCHING SOON" PILL WAS REMOVED HERE on 2026-11-20 (owner
+        decision). Nothing replaces it: the logo now leads straight into the
+        headline.
 
+        The `.fa2-badge` CSS rule and the `launching` locale string both stay,
+        because the SIGNUP MODAL still renders the same pill further down this
+        file as `fa2-badge fa2-badge--modal`. Deleting either would have
+        removed a second, different instance the owner did not ask about.
+
+        THE GAP IS CLOSED BY `.fa2-display`'s TOP MARGIN, not by a wrapper or
+        a spacer. `.fa2-hero__inner` is a flex column with NO `gap`, so every
+        child's own margin is its spacing: with the pill gone, the only thing
+        separating the logo from the headline is the headline's margin-top.
+        See the note on that rule in first-access-v2.css.
+      {%- endcomment -%}
       <h1 class="fa2-display" id="Fa2HeroHeading">
         {{- 'templates.first_access_v2.hero.heading' | t -}}
       </h1>
