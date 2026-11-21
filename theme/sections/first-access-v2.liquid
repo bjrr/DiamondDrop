@@ -160,10 +160,9 @@
         decision). Nothing replaces it: the logo now leads straight into the
         headline.
 
-        The `.fa2-badge` CSS rule and the `launching` locale string both stay,
-        because the SIGNUP MODAL still renders the same pill further down this
-        file as `fa2-badge fa2-badge--modal`. Deleting either would have
-        removed a second, different instance the owner did not ask about.
+        The signup modal carried a second copy of the same pill. That one was
+        removed later the same day, and the `.fa2-badge` rules and the
+        `launching` locale string went with it. See the note at the modal.
 
         THE GAP IS CLOSED BY `.fa2-display`'s TOP MARGIN, not by a wrapper or
         a spacer. `.fa2-hero__inner` is a flex column with NO `gap`, so every
@@ -322,7 +321,26 @@
         </svg>
       </button>
 
-      <p class="fa2-badge fa2-badge--modal">{{ 'templates.first_access_v2.launching' | t }}</p>
+      {%- comment -%}
+        THE SECOND "LAUNCHING SOON" PILL WAS REMOVED HERE on 2026-11-20
+        (owner decision), after the hero one earlier the same day. Nothing
+        replaces it.
+
+        NO CSS CHANGE WAS NEEDED TO CLOSE THE GAP, and that is worth stating
+        because the hero removal did need one. The five DETAIL modals below
+        already have exactly this shape: `.fa2-modal__panel`, an absolutely
+        positioned close button that is out of flow, and an
+        `<h2 class="fa2-h2 fa2-h2--sm">` as the first in-flow child. There is
+        no `.fa2-modal--detail` rule anywhere in the stylesheet, so those
+        modals and this one are styled identically. Removing the pill makes
+        the signup modal match a layout that is already live and already
+        correct, with the panel's own top padding providing the spacing.
+
+        The `.fa2-badge` rules and the `templates.first_access_v2.launching`
+        string were deleted with this line: it was their last usage anywhere
+        in the theme, and only `en.default.json` carried the key, so no
+        translation was orphaned.
+      {%- endcomment -%}
       <h2 class="fa2-h2 fa2-h2--sm" id="Fa2ModalHeading">
         {{- 'templates.first_access_v2.modal.heading' | t -}}
       </h2>

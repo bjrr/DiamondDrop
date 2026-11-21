@@ -144,31 +144,15 @@
 
 /* --------------------------------------------------------------- the pill
 
-   LAUNCHING SOON has to be seen immediately without reading as a sale badge.
-   An outlined bronze pill on a warm fill does that: it is quiet in colour and
-   loud in placement, sitting directly under the logo where the eye lands
-   first. No red, no fill in gold, no animation. */
+   REMOVED 2026-11-20 (owner decision). The bronze "LAUNCHING SOON" pill used
+   to appear twice: under the hero logo, and at the top of the signup modal.
+   Both were removed the same day, and `.fa2-badge` / `.fa2-badge--modal` went
+   with the second one because that was their last usage anywhere in the
+   theme. The `templates.first_access_v2.launching` string was deleted too;
+   only `en.default.json` carried it, so no translation was orphaned.
 
-.fa2-badge {
-  display: inline-block;
-  margin: 1.4rem 0 0;
-  padding: 0.8rem 1.8rem;
-  border: 0.1rem solid var(--fa2-bronze);
-  border-radius: 10rem;
-  background: rgba(201, 169, 106, 0.1);
-  color: var(--fa2-bronze-deep);
-  font-size: 1.2rem;
-  font-weight: 700;
-  letter-spacing: 0.3em;
-  /* The tracking adds a trailing gap that makes a pill look off centre. */
-  text-indent: 0.3em;
-  text-transform: uppercase;
-  line-height: 1;
-}
-
-.fa2-badge--modal {
-  margin: 0 0 1.4rem;
-}
+   Kept as a note rather than silently deleted so that a future reader looking
+   for the pill in the stylesheet finds out what happened to it. */
 
 /* ---------------------------------------------------------------- buttons
 
