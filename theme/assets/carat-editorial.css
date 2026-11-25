@@ -923,10 +923,31 @@
     grid-column: 1 / -1;
   }
 
+  /* THE RAIL SCROLLS NORMALLY. IT MUST NOT BE STICKY.
+     It used to carry `position: sticky; top: 3rem`, which looked right while
+     the form was the only thing beside it and was wrong the moment anything
+     followed the pair.
+
+     A sticky grid item is held by its containing block, and measurement
+     showed that to be the WHOLE #MainContent grid, not the paired row.
+     Measured 2026-11-25 on /pages/custom-jewelry at 2201px: the pair row
+     ended at document y=1595, and the rail kept travelling to a bottom of
+     y=2565, which is exactly the grid container's own bottom
+     (124 + 2441). It therefore escaped the pair by 970px, precisely the
+     height of the full-width row below it, and painted straight over that
+     row: 21 hit-tested points where the rail covered the terms section,
+     including "I authorize the $49 Design Deposit" and "I have reviewed and
+     approve the design". Geometry tests cannot see this, because both
+     sections keep their boxes; one simply paints on top of the other.
+
+     Do not reintroduce sticky here. It would need a wrapper bounded to the
+     pair, and Shopify sections are siblings that cannot be nested, which is
+     the very reason this grid exists. Normal scrolling is correct.
+
+     `grid-column: 1` stays: it is what puts the rail beside the form. The
+     two-column layout is unchanged. */
   #MainContent:has(.carat-pair--lead) > .shopify-section:has(.carat-pair--lead) {
     grid-column: 1;
-    position: sticky;
-    top: 3rem;
   }
 
   #MainContent:has(.carat-pair--lead) > .shopify-section:has(.carat-pair--lead) + .shopify-section {
