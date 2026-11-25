@@ -39,10 +39,25 @@
   background: var(--fa2-ivory);
   color: var(--fa2-ink);
   font-family: var(--fa2-body);
-  /* Cancels the theme page shell so each band runs edge to edge. */
-  margin: 0 calc(50% - 50vw);
-  width: 100vw;
-  max-width: 100vw;
+  /* FULL BLEED, WITHOUT `100vw`.
+     `100vw` is the viewport WITH the classic vertical scrollbar; this
+     element's containing block is the one WITHOUT it. On any browser that
+     reserves scrollbar space (Windows Chrome, measured at 12px) that made
+     the band 12px wider than the page content box, and `calc(50% - 50vw)`
+     dragged it 6px past the left edge. Measured at 1440, 1280, 1024, 390
+     and 375, all five the same: `documentElement.scrollWidth` stopped
+     equalling `clientWidth` (6px of horizontal overflow), the right 6px of
+     every band was clipped by the `overflow-x` below, and every line inside
+     started on a fractional pixel (`.fa2-display` at `left: 11.92px`),
+     which is what made the type look soft.
+     There is also nothing here to cancel. This page renders through
+     `layout/first-access.liquid`, which has no header, no footer and no
+     page shell, so `main` and `.shopify-section` are already full width
+     with no padding and normal flow fills it exactly. Measured 2026-11-25:
+     the parent is at `left: 0` and exactly `clientWidth` wide.
+     Keep this free of `vw` units. `100svw` and `100dvw` count the scrollbar
+     too and would bring the same 6px straight back. */
+  margin: 0;
   overflow-x: hidden;
 }
 
