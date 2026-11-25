@@ -1,6 +1,6 @@
 # Jewelry Product Design (jpd) — Dawn product templates
 
-Status: installed on an **unpublished** duplicate theme ("Dawn — Jewelry Product Design") for review, 2026-11-24. Not published; no product is assigned a jpd template. Publication and template assignment require owner approval.
+Status: **live** since 2026-11-24 (owner approval). The jpd files were added directly to the live theme "COMING SOON - First Access homepage" (theme files only; the theme was not swapped). Non-product pages and products on the default `product` template render exactly as before (verified on the live site: homepage, Group Buys, Set Your Own Stone, collections, cart, and default product page selector markup). A product uses the new design only when its **Theme template** is set to one of the `jpd-*` templates. The earlier review copy "Dawn — Jewelry Product Design" remains unpublished.
 
 Source and full documentation: `bjrr/shopify-product-design` (branch `jpd-dawn-implementation`) — `INSTALLATION.md`, `TESTING.md`, `metafields/proposed-definitions.json`.
 
@@ -17,4 +17,4 @@ Source and full documentation: `bjrr/shopify-product-design` (branch `jpd-dawn-i
 - Ready to Ship / Made to Order only from `jpd.shipping_speed`; otherwise "Available to order".
 
 ## Deploy
-Only through `scripts/theme-push.sh` to a draft theme, per CLAUDE.md. The review duplicate was edited directly through the Shopify theme API, not from this folder; this folder now mirrors it.
+Only through `scripts/theme-push.sh` to a draft theme, per CLAUDE.md. The live theme and the review copy were edited through the Shopify theme API, not from this folder; this folder mirrors them.
