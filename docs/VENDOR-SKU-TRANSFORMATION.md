@@ -1,6 +1,6 @@
 # Vendor SKU Transformation — Locked Store-Wide Requirement
 
-Status: **LOCKED OWNER DECISION — 2026-11-02**
+Status: **LOCKED OWNER DECISION — 2026-11-02, amended by owner decision 2026-11-24 (§9)**
 
 This document is authoritative for vendor/manufacturer/source SKU handling throughout CaratForUs. If another document or implementation conflicts with this rule, this document controls unless the owner explicitly changes it.
 
@@ -65,7 +65,7 @@ This rule applies throughout the store to vendor-sourced merchandise, including:
 - Buy Now vendor merchandise
 - any other vendor-sourced Shopify product/variant
 
-Do not create vendor-specific SKU schemes.
+Do not create vendor-specific SKU schemes, except the per-vendor rule assignment in §9 (owner decision 2026-11-24). A vendor's rule applies to all of that vendor's products — never per product.
 
 ## 3. Shopify SKU vs vendor SKU
 
@@ -142,3 +142,24 @@ Never expose:
 - supplier cost or wholesale pricing
 
 If a SKU is shown to a customer, it must be the transformed CaratForUs SKU.
+
+## 9. Amendment — per-vendor rule (owner decision 2026-11-24)
+
+The +3 shift in §1 is unchanged. What changed is **which part of the vendor SKU it applies to**, chosen per vendor:
+
+| Rule id | Applies the +3 shift to | Vendors |
+|---|---|---|
+| `CARAT_SKU_SHIFT_PLUS_3_V1` (default) | the whole vendor SKU (periods are symbols and stay unchanged) | **George's Mountings**; every vendor not listed below |
+| `CARAT_SKU_SHIFT_PLUS_3_PREFIX_V2` | only the characters **before the first period**; the first period and everything after it (the variant suffix) stay exactly as supplied. A SKU with no period is shifted in full. | **Kira** |
+
+Examples:
+- George's (V1, unchanged from the live catalog): `R-6.5-HH-7.7x5.7 mm-WG-3.08G-1ST-1.00cts--2mm` → `U-9.8-KK-0.0a8.0 pp-ZJ-6.31J-4VW-4.33fwv--5pp`
+- Kira (V2): `KJ10249N.14Y-7` → `NM43572Q.14Y-7`; `KJ10249N` → `NM43572Q`
+
+Rules:
+- Existing George's Mountings SKUs stay as they are; no migration is required by this amendment.
+- The rule is chosen from the Shopify product vendor through one table (`VENDOR_SKU_RULES` in `app/app/domain/sku/caratSku.ts`). Adding a vendor means adding a row there and to the table above, with owner approval.
+- Changing a vendor's rule after its SKUs exist is a migration: plan it with `planSkuMigration` and the correct `ruleId`; a SKU that is neither raw nor correct under the vendor's rule is a **conflict** for a human, never re-shifted.
+- V2 leaves the suffix readable. Before a vendor is put on V2, confirm its suffix contains nothing that §8 forbids on the storefront (for example gram weight or cost data). George's Mountings stays on V1 for exactly this reason: its first period comes early and its SKUs carry gram weight.
+- **The theme never transforms.** Storefront templates display Shopify's variant `sku`, which already holds the CaratForUs SKU (§4).
+

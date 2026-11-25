@@ -1,0 +1,43 @@
+{%- comment -%}
+  Jewelry product design: customer-facing material label.
+  Accepts: value {String} the stored option value or material metafield text.
+  Plated silver is relabelled only when the stored text explicitly names silver
+  AND plating ("plated", "plating", "over", "vermeil") AND one karat AND one
+  gold color. Anything ambiguous is shown exactly as stored. The stored value
+  (and therefore the variant mapping) is never changed.
+{%- endcomment -%}
+{%- liquid
+  assign jpd_raw = value | strip
+  assign jpd_lower = jpd_raw | downcase
+  assign jpd_out = jpd_raw
+  assign jpd_plated = false
+  if jpd_lower contains 'silver'
+    if jpd_lower contains 'plat' or jpd_lower contains ' over ' or jpd_lower contains 'vermeil'
+      assign jpd_plated = true
+    endif
+  endif
+  if jpd_plated
+    assign jpd_karat = ''
+    assign jpd_karat_hits = 0
+    assign jpd_karats = '10k,14k,18k,22k,24k' | split: ','
+    for k in jpd_karats
+      if jpd_lower contains k
+        assign jpd_karat = k | upcase
+        assign jpd_karat_hits = jpd_karat_hits | plus: 1
+      endif
+    endfor
+    assign jpd_color = ''
+    assign jpd_color_hits = 0
+    assign jpd_colors = 'yellow,white,rose' | split: ','
+    for c in jpd_colors
+      if jpd_lower contains c
+        assign jpd_color = c | capitalize
+        assign jpd_color_hits = jpd_color_hits | plus: 1
+      endif
+    endfor
+    if jpd_karat_hits == 1 and jpd_color_hits == 1
+      assign jpd_out = 'Silver with ' | append: jpd_karat | append: ' ' | append: jpd_color | append: ' Gold Plating'
+    endif
+  endif
+-%}
+{{- jpd_out | escape -}}

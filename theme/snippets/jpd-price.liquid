@@ -1,0 +1,57 @@
+{%- comment -%}
+  Jewelry product design: optional labelled price tiers shown ABOVE Dawn's native
+  price block. Dawn's price block stays visible and authoritative (it carries the
+  real selling price, compare-at price, Bank Payment price, unit price and the
+  Shop Pay Installments banner). This snippet only adds labels and verified extra
+  tiers; it never calculates a price.
+
+  Tiers rendered only from verified destination data:
+  - Retail Price: variant metafield jpd.reference_price (money) when
+    jpd.reference_verified is true and it is above the selling price.
+  - Everyday Price: variant metafield jpd.everyday_price (money) when
+    jpd.promotion_active is true and it is above the selling price.
+  Currency must match the visitor's cart currency, otherwise the tier is hidden.
+{%- endcomment -%}
+{%- liquid
+  assign jpd_ref = variant.metafields.jpd.reference_price.value
+  assign jpd_every = variant.metafields.jpd.everyday_price.value
+  assign jpd_ref_cents = jpd_ref.amount | times: 100 | round
+  assign jpd_every_cents = jpd_every.amount | times: 100 | round
+
+  assign jpd_show_ref = false
+  if jpd_ref != blank and variant.metafields.jpd.reference_verified.value == true
+    if jpd_ref.currency.iso_code == cart.currency.iso_code and jpd_ref_cents > variant.price
+      assign jpd_show_ref = true
+    endif
+  endif
+
+  assign jpd_sale = false
+  if jpd_every != blank and variant.metafields.jpd.promotion_active.value == true
+    if jpd_every.currency.iso_code == cart.currency.iso_code and jpd_every_cents > variant.price
+      assign jpd_sale = true
+    endif
+  endif
+-%}
+{%- if jpd_show_ref or jpd_sale -%}
+  <div class="jpd-price{% if jpd_sale %} jpd-price--sale{% endif %}">
+    {%- if jpd_show_ref -%}
+      <p class="jpd-price__row jpd-price__row--reference">
+        <span>{{ settings.jpd_retail_label | default: 'Retail Price' | escape }}</span>
+        <s>{{ jpd_ref_cents | money }}</s>
+      </p>
+    {%- endif -%}
+    {%- if jpd_sale -%}
+      <p class="jpd-price__row jpd-price__row--everyday">
+        <span>{{ settings.jpd_everyday_label | default: 'Everyday Price' | escape }}</span>
+        <s>{{ jpd_every_cents | money }}</s>
+      </p>
+    {%- endif -%}
+    <p class="jpd-price__label">
+      {%- if jpd_sale -%}
+        {{ settings.jpd_sale_label | default: 'Sale Price' | escape }}
+      {%- else -%}
+        {{ settings.jpd_everyday_label | default: 'Everyday Price' | escape }}
+      {%- endif -%}
+    </p>
+  </div>
+{%- endif -%}

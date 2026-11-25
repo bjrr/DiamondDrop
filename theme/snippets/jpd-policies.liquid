@@ -1,0 +1,48 @@
+{%- comment -%}
+  Jewelry product design: collapsed Shipping, Returns, Warranty and Jewelry Care.
+  Shipping and Returns come from the store's own policies (Settings > Policies),
+  so this theme never carries policy text of its own. Warranty and Care come from
+  theme settings (Theme settings > Jewelry product design) and are hidden when empty.
+{%- endcomment -%}
+{%- capture jpd_policy_items -%}
+  {%- if shop.shipping_policy.body != blank -%}
+    <div class="product__accordion accordion jpd-policy">
+      <details>
+        <summary><div class="summary__title"><h2 class="h4 accordion__title">{{ settings.jpd_shipping_title | default: shop.shipping_policy.title | escape }}</h2></div>{{- 'icon-caret.svg' | inline_asset_content -}}</summary>
+        <div class="accordion__content rte">
+          <p>{{ shop.shipping_policy.body | strip_html | truncatewords: 60 }}</p>
+          <p><a class="link" href="{{ shop.shipping_policy.url }}">{{ 'jpd.policies.read_full' | t: title: shop.shipping_policy.title }}</a></p>
+        </div>
+      </details>
+    </div>
+  {%- endif -%}
+  {%- if shop.refund_policy.body != blank -%}
+    <div class="product__accordion accordion jpd-policy">
+      <details>
+        <summary><div class="summary__title"><h2 class="h4 accordion__title">{{ settings.jpd_returns_title | default: shop.refund_policy.title | escape }}</h2></div>{{- 'icon-caret.svg' | inline_asset_content -}}</summary>
+        <div class="accordion__content rte">
+          <p>{{ shop.refund_policy.body | strip_html | truncatewords: 60 }}</p>
+          <p><a class="link" href="{{ shop.refund_policy.url }}">{{ 'jpd.policies.read_full' | t: title: shop.refund_policy.title }}</a></p>
+        </div>
+      </details>
+    </div>
+  {%- endif -%}
+  {%- if settings.jpd_warranty_content != blank -%}
+    <div class="product__accordion accordion jpd-policy">
+      <details>
+        <summary><div class="summary__title"><h2 class="h4 accordion__title">{{ settings.jpd_warranty_title | default: 'Warranty' | escape }}</h2></div>{{- 'icon-caret.svg' | inline_asset_content -}}</summary>
+        <div class="accordion__content rte">{{ settings.jpd_warranty_content }}</div>
+      </details>
+    </div>
+  {%- endif -%}
+  {%- if settings.jpd_care_content != blank -%}
+    <div class="product__accordion accordion jpd-policy">
+      <details>
+        <summary><div class="summary__title"><h2 class="h4 accordion__title">{{ settings.jpd_care_title | default: 'Jewelry Care' | escape }}</h2></div>{{- 'icon-caret.svg' | inline_asset_content -}}</summary>
+        <div class="accordion__content rte">{{ settings.jpd_care_content }}</div>
+      </details>
+    </div>
+  {%- endif -%}
+{%- endcapture -%}
+{%- assign jpd_policy_clean = jpd_policy_items | strip -%}
+{%- if jpd_policy_clean != blank -%}<div class="jpd-policies">{{ jpd_policy_items }}</div>{%- endif -%}

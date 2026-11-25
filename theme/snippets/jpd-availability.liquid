@@ -1,0 +1,51 @@
+{%- comment -%}
+  Jewelry product design: availability and dispatch for the selected variant.
+  "Ready to Ship" and "Made to Order" are shown ONLY from the merchant-verified
+  variant metafield jpd.shipping_speed (values: "ready_to_ship" / "made_to_order",
+  or the same words with spaces). Inventory quantity alone is never treated as
+  proof of either. Anything else purchasable shows the neutral "available to order"
+  state. Sold out comes from Shopify's own availability.
+{%- endcomment -%}
+{%- liquid
+  assign jpd_speed = variant.metafields.jpd.shipping_speed.value
+  if jpd_speed == blank and product.has_only_default_variant
+    assign jpd_speed = product.metafields.jpd.shipping_speed.value
+  endif
+  assign jpd_speed = jpd_speed | downcase | replace: '_', ' ' | replace: '-', ' ' | strip
+  assign jpd_message = variant.metafields.jpd.dispatch_message.value
+  if jpd_message == blank and product.has_only_default_variant
+    assign jpd_message = product.metafields.jpd.dispatch_message.value
+  endif
+
+  if variant == blank
+    assign jpd_state = 'unavailable'
+  elsif variant.available == false
+    assign jpd_state = 'sold_out'
+  elsif jpd_speed == 'ready to ship'
+    assign jpd_state = 'ready'
+  elsif jpd_speed == 'made to order'
+    assign jpd_state = 'mto'
+  else
+    assign jpd_state = 'unknown'
+  endif
+-%}
+{%- unless jpd_state == 'unavailable' -%}
+  <div class="jpd-availability jpd-availability--{{ jpd_state }}">
+    {%- case jpd_state -%}
+      {%- when 'sold_out' -%}
+        <p class="jpd-availability__status">{{ 'products.product.sold_out' | t }}</p>
+      {%- when 'ready' -%}
+        <p class="jpd-availability__status">{{ settings.jpd_ready_label | default: 'Ready to Ship' | escape }}</p>
+        {%- if settings.jpd_ready_text != blank -%}<p>{{ settings.jpd_ready_text | escape }}</p>{%- endif -%}
+      {%- when 'mto' -%}
+        <p class="jpd-availability__status">{{ settings.jpd_mto_label | default: 'Made to Order' | escape }}</p>
+        {%- if settings.jpd_mto_text != blank -%}<p>{{ settings.jpd_mto_text | escape }}</p>{%- endif -%}
+      {%- else -%}
+        <p class="jpd-availability__status">{{ settings.jpd_unknown_label | default: 'Available to order' | escape }}</p>
+        {%- if settings.jpd_unknown_text != blank -%}<p>{{ settings.jpd_unknown_text | escape }}</p>{%- endif -%}
+    {%- endcase -%}
+    {%- if jpd_message != blank and variant.available -%}
+      <p>{{ jpd_message | escape }}</p>
+    {%- endif -%}
+  </div>
+{%- endunless -%}

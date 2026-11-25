@@ -38,6 +38,13 @@
         cannot strip legitimate options from unrelated products.
       endcomment
       assign is_syos_mounting = false
+      assign jpd_on = false
+      for jpd_b in section.blocks
+        if jpd_b.type == 'custom_liquid' and jpd_b.settings.custom_liquid contains 'jpd-panel'
+          assign jpd_on = true
+          break
+        endif
+      endfor
       if product.metafields.carat.syos_eligible.value == true
         assign is_syos_mounting = true
       endif
@@ -60,6 +67,34 @@
             assign picker_type = 'swatch_dropdown'
           else
             assign picker_type = 'swatch'
+          endif
+        endif
+
+        comment
+          Jewelry product design (jpd-* templates only): sizes and lengths use a
+          dropdown; a Metal option made only of "<karat> <color> Gold" values is
+          shown as Metal Purity + Gold Color (see snippets/jpd-metal-split.liquid).
+        endcomment
+        assign jpd_split = false
+        if jpd_on
+          assign jpd_opt = option.name | downcase
+          if jpd_opt contains 'length' or jpd_opt == 'size' or jpd_opt contains 'ring size' or jpd_opt contains 'finger size' or jpd_opt contains 'bracelet size' or jpd_opt contains 'necklace size' or jpd_opt contains 'chain size'
+            assign picker_type = 'dropdown'
+          elsif jpd_opt contains 'metal' or jpd_opt contains 'material'
+            if picker_type == 'button'
+              assign jpd_split = true
+              for jpd_v in option.values
+                assign jpd_w = jpd_v.name | split: ' '
+                assign jpd_p = jpd_w.first | upcase
+                assign jpd_last = jpd_w.last | downcase
+                assign jpd_k = jpd_p | slice: -1
+                assign jpd_n = jpd_p | remove: 'K' | plus: 0
+                if jpd_w.size < 3 or jpd_last != 'gold' or jpd_k != 'K' or jpd_n <= 0
+                  assign jpd_split = false
+                  break
+                endif
+              endfor
+            endif
           endif
         endif
       -%}
@@ -100,6 +135,8 @@
             {%- endfor -%}
           </select>
         </div>
+      {%- elsif jpd_split -%}
+        {%- render 'jpd-metal-split', product: product, option: option, block: block, product_form_id: product_form_id -%}
       {%- elsif picker_type == 'swatch' -%}
         <fieldset class="js product-form__input product-form__input--swatch">
           <legend class="form__label">

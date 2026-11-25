@@ -13,8 +13,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CARAT_SKU_PREFIX_RULE_ID,
   CARAT_SKU_RULE_ID,
   InvalidVendorSkuError,
+  skuRuleForVendor,
   caratSkuFor,
   isCaratSkuFor,
   planSkuMigration,
@@ -212,5 +214,65 @@ describe("the real pilot SKUs", () => {
     const carat = caratSkuFor("R-6.5-TU-7.7x5.7 mm-WG-1.77G-1ST-1.00cts--2mm");
     expect(carat).not.toContain("1.77G");
     expect(carat).not.toContain("3.09G");
+  });
+});
+
+describe("per-vendor rules (owner decision 2026-11-24)", () => {
+  const V2 = CARAT_SKU_PREFIX_RULE_ID;
+
+  it("Kira uses the prefix rule; George's Mountings and unknown vendors keep V1", () => {
+    expect(skuRuleForVendor("Kira Jewels Inc")).toBe(V2);
+    expect(skuRuleForVendor("KIRA")).toBe(V2);
+    expect(skuRuleForVendor("George's Mountings")).toBe(CARAT_SKU_RULE_ID);
+    expect(skuRuleForVendor("Georges Mountings")).toBe(CARAT_SKU_RULE_ID);
+    expect(skuRuleForVendor("Some Future Vendor")).toBe(CARAT_SKU_RULE_ID);
+    expect(skuRuleForVendor("")).toBe(CARAT_SKU_RULE_ID);
+    expect(skuRuleForVendor(null)).toBe(CARAT_SKU_RULE_ID);
+    expect(skuRuleForVendor("Kirakos Gems")).toBe(CARAT_SKU_RULE_ID);
+  });
+
+  it("V2 shifts only before the first period and keeps the suffix verbatim", () => {
+    expect(caratSkuFor("KJ10249N.14Y-7", V2)).toBe("NM43572Q.14Y-7");
+    expect(caratSkuFor("XYZ-789/ab.14KW-7", V2)).toBe("ABC-012/de.14KW-7");
+    expect(caratSkuFor("A.B.C", V2)).toBe("D.B.C");
+  });
+
+  it("V2 with no period equals V1 (canonical example still holds)", () => {
+    expect(caratSkuFor("KJ10249N", V2)).toBe("NM43572Q");
+  });
+
+  it("V2 with a leading period leaves the whole SKU unchanged", () => {
+    expect(caratSkuFor(".A1", V2)).toBe(".A1");
+  });
+
+  it("George's Mountings keeps the existing full shift (live SKU reproduced exactly)", () => {
+    expect(caratSkuFor("R-6.5-HH-7.7x5.7 mm-WG-3.08G-1ST-1.00cts--2mm")).toBe(
+      "U-9.8-KK-0.0a8.0 pp-ZJ-6.31J-4VW-4.33fwv--5pp",
+    );
+  });
+
+  it("V2 round-trips through vendorSkuFrom", () => {
+    for (const raw of ["KJ10249N.14Y-7", "XYZ.xyz", "Q9", "a.b"]) {
+      expect(vendorSkuFrom(caratSkuFor(raw, V2), V2)).toBe(raw);
+    }
+  });
+
+  it("isCaratSkuFor and planSkuMigration honour the rule", () => {
+    expect(isCaratSkuFor("NM43572Q.14Y-7", "KJ10249N.14Y-7", V2)).toBe(true);
+    expect(isCaratSkuFor("NM43572Q.47B-0", "KJ10249N.14Y-7", V2)).toBe(false);
+    expect(
+      planSkuMigration({ currentSku: "KJ10249N.14Y-7", retainedVendorSku: "KJ10249N.14Y-7", ruleId: V2 }),
+    ).toEqual({ kind: "migrate", vendorSku: "KJ10249N.14Y-7", caratSku: "NM43572Q.14Y-7" });
+    expect(
+      planSkuMigration({ currentSku: "NM43572Q.14Y-7", retainedVendorSku: "KJ10249N.14Y-7", ruleId: V2 }),
+    ).toEqual({ kind: "already", vendorSku: "KJ10249N.14Y-7", caratSku: "NM43572Q.14Y-7" });
+    // A V1-shifted Kira SKU is neither raw nor V2 — a human decides; never re-shift.
+    expect(
+      planSkuMigration({ currentSku: "NM43572Q.47B-0", retainedVendorSku: "KJ10249N.14Y-7", ruleId: V2 }).kind,
+    ).toBe("conflict");
+  });
+
+  it("rejects an unknown rule id instead of guessing", () => {
+    expect(() => caratSkuFor("ABC", "NOT_A_RULE" as never)).toThrow();
   });
 });

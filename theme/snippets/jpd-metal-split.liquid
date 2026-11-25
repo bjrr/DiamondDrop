@@ -1,0 +1,87 @@
+{%- comment -%}
+  Jewelry product design: present ONE native option whose values are all
+  "<karat> <color> Gold" (e.g. "14K Yellow Gold") as two steps:
+  Metal Purity, then Gold Color. There is still exactly one native radio group,
+  so Dawn's variant resolution is unchanged and no combination is invented:
+  - Gold Color shows the native inputs for the selected purity (others are hidden).
+  - Each Metal Purity button checks a real native input (same color when that
+    variant exists, otherwise the first available) via jpd-product.js.
+  Accepts: product, option, block, product_form_id
+{%- endcomment -%}
+{%- liquid
+  assign jpd_sel_words = option.selected_value.name | split: ' '
+  assign jpd_sel_purity = jpd_sel_words.first | upcase
+  assign jpd_sel_color = option.selected_value.name | remove_first: jpd_sel_words.first | strip | downcase
+  assign jpd_purities = ''
+  for value in option.values
+    assign jpd_p = value.name | split: ' ' | first | upcase
+    assign jpd_key = '|' | append: jpd_p | append: '|'
+    unless jpd_purities contains jpd_key
+      assign jpd_purities = jpd_purities | append: jpd_key
+    endunless
+  endfor
+  assign jpd_purity_list = jpd_purities | split: '|' | compact
+-%}
+<div class="product-form__input jpd-purity">
+  <span class="form__label" id="jpd-purity-label-{{ section.id }}-{{ option.position }}">
+    {{- settings.jpd_purity_label | default: 'Metal Purity' | escape -}}
+  </span>
+  {%- assign jpd_real = 0 -%}
+  {%- for p in jpd_purity_list -%}{%- if p != blank -%}{%- assign jpd_real = jpd_real | plus: 1 -%}{%- endif -%}{%- endfor -%}
+  {%- if jpd_real <= 1 -%}
+    <p class="jpd-fixed-value">{{ jpd_sel_purity | escape }} {{ 'jpd.options.gold' | t }}</p>
+  {%- else -%}
+    <div class="jpd-purity__list" role="group" aria-labelledby="jpd-purity-label-{{ section.id }}-{{ option.position }}">
+      {%- for p in jpd_purity_list -%}
+        {%- if p == blank -%}{%- continue -%}{%- endif -%}
+        {%- liquid
+          assign jpd_target = ''
+          assign jpd_fallback_avail = ''
+          assign jpd_fallback_any = ''
+          for value in option.values
+            assign jpd_words = value.name | split: ' '
+            assign jpd_vp = jpd_words.first | upcase
+            if jpd_vp != p
+              continue
+            endif
+            assign jpd_vc = value.name | remove_first: jpd_words.first | strip | downcase
+            capture jpd_input_id
+              echo section.id | append: '-' | append: option.position | append: '-' | append: forloop.index0
+            endcapture
+            if jpd_fallback_any == blank
+              assign jpd_fallback_any = jpd_input_id
+            endif
+            if value.available and jpd_fallback_avail == blank
+              assign jpd_fallback_avail = jpd_input_id
+            endif
+            if jpd_vc == jpd_sel_color and value.available
+              assign jpd_target = jpd_input_id
+            endif
+          endfor
+          if jpd_target == blank
+            assign jpd_target = jpd_fallback_avail | default: jpd_fallback_any
+          endif
+        -%}
+        <button
+          type="button"
+          class="jpd-purity__button"
+          data-jpd-select="{{ jpd_target }}"
+          aria-pressed="{% if p == jpd_sel_purity %}true{% else %}false{% endif %}"
+        >
+          {{- p | escape -}}
+        </button>
+      {%- endfor -%}
+    </div>
+  {%- endif -%}
+</div>
+<fieldset class="js product-form__input product-form__input--pill jpd-gold-color">
+  <legend class="form__label">{{ settings.jpd_gold_color_label | default: 'Gold Color' | escape }}</legend>
+  {% render 'product-variant-options',
+    product: product,
+    option: option,
+    block: block,
+    picker_type: 'button',
+    jpd_split: true,
+    jpd_purity: jpd_sel_purity
+  %}
+</fieldset>

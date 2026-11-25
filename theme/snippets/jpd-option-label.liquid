@@ -1,0 +1,72 @@
+{%- comment -%}
+  Jewelry product design: inner content of a native variant pill label.
+  The input value, option value ID and variant mapping are untouched; only the
+  visible label changes.
+  Accepts: option {product_option}, value {product_option_value}, jpd_split {Boolean}
+{%- endcomment -%}
+{%- liquid
+  assign jpd_opt = option.name | downcase
+  assign jpd_val = value.name | default: value
+  assign jpd_low = jpd_val | downcase
+  assign jpd_kind = 'text'
+  if jpd_opt contains 'shape'
+    assign jpd_kind = 'shape'
+  elsif jpd_split or jpd_opt contains 'metal' or jpd_opt contains 'material' or jpd_opt contains 'color' and jpd_low contains 'gold'
+    assign jpd_kind = 'metal'
+  endif
+
+  if jpd_kind == 'metal'
+    assign jpd_dot = ''
+    assign jpd_tones = 0
+    if jpd_low contains 'white'
+      assign jpd_tones = jpd_tones | plus: 1
+    endif
+    if jpd_low contains 'yellow'
+      assign jpd_tones = jpd_tones | plus: 1
+    endif
+    if jpd_low contains 'rose'
+      assign jpd_tones = jpd_tones | plus: 1
+    endif
+    assign jpd_is_plated = false
+    if jpd_low contains 'silver'
+      if jpd_low contains 'plat' or jpd_low contains ' over ' or jpd_low contains 'vermeil'
+        assign jpd_is_plated = true
+      endif
+    endif
+    if jpd_tones > 1 or jpd_low contains 'two-tone' or jpd_low contains 'two tone' or jpd_low contains 'tri-color'
+      assign jpd_dot = 'mixed'
+      if jpd_low contains 'rose'
+        assign jpd_dot = 'mixed-rose'
+      endif
+    elsif jpd_low contains 'rose'
+      assign jpd_dot = 'rose'
+    elsif jpd_low contains 'white'
+      assign jpd_dot = 'white'
+    elsif jpd_low contains 'yellow'
+      assign jpd_dot = 'yellow'
+    elsif jpd_low contains 'platinum'
+      assign jpd_dot = 'platinum'
+    elsif jpd_low contains 'silver' and jpd_is_plated == false
+      assign jpd_dot = 'silver'
+    elsif jpd_low contains 'gold'
+      assign jpd_dot = 'yellow'
+    endif
+  endif
+-%}
+{%- case jpd_kind -%}
+  {%- when 'shape' -%}
+    {%- render 'jpd-diamond-shape', shape: jpd_val -%}<span>{{ jpd_val | escape }}</span>
+  {%- when 'metal' -%}
+    {%- if jpd_dot != blank -%}<span class="jpd-dot jpd-dot--{{ jpd_dot }}" aria-hidden="true"></span>{%- endif -%}
+    <span>
+      {%- if jpd_split -%}
+        {%- assign jpd_words = jpd_val | split: ' ' -%}
+        {%- assign jpd_color_text = jpd_val | remove_first: jpd_words.first | strip -%}
+        {{- jpd_color_text | escape -}}
+      {%- else -%}
+        {%- render 'jpd-material-label', value: jpd_val -%}
+      {%- endif -%}
+    </span>
+  {%- else -%}
+    {{- jpd_val | escape -}}
+{%- endcase -%}

@@ -1142,5 +1142,49 @@
       "gate_hint": "Add to Cart is disabled until you agree to the Final Sale terms above.",
       "error": "We couldn't record your acknowledgment. Please try again before adding this item to your cart."
     }
+  },
+  "jpd": {
+    "details": {
+      "heading": "Product Details",
+      "material": "Metal",
+      "shape": "Diamond shape",
+      "center_shape": "Center diamond shape",
+      "diamond_color": "Diamond color",
+      "diamond_clarity": "Diamond clarity",
+      "total_weight": "Total diamond weight",
+      "pair_weight": "Total diamond weight (pair)",
+      "center_weight": "Center diamond weight",
+      "side_weight": "Side diamond weight",
+      "certification": "Certification",
+      "setting": "Setting style",
+      "hidden_halo": "Hidden halo",
+      "yes": "Yes",
+      "band_pave": "Band pavé diamonds",
+      "length": "Length",
+      "dimensions": "Dimensions",
+      "clasp": "Clasp",
+      "backing": "Earring back"
+    },
+    "policies": {
+      "read_full": "Read the full {{ title }}"
+    },
+    "options": {
+      "gold": "Gold"
+    },
+    "chain": {
+      "chain_price": "Chain",
+      "total": "Total",
+      "separate_lines": "The pendant and the chain are added to your cart as separate items.",
+      "needs_js": "Adding a chain needs JavaScript. Add the pendant and the chain separately.",
+      "error": "We couldn't add the pendant and chain. Please try again.",
+      "added": "Pendant and chain added to your cart."
+    },
+    "bracelet": {
+      "choose": "Choose a length",
+      "length": "Requested length",
+      "name": "Name",
+      "email": "Email",
+      "submit": "Request a quote"
+    }
   }
 }

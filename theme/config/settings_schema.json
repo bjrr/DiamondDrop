@@ -1466,5 +1466,252 @@
         "label": "t:settings_schema.customer_accounts.settings.customer_account_menu.label"
       }
     ]
+  },
+  {
+    "name": "Jewelry product design",
+    "settings": [
+      {
+        "type": "paragraph",
+        "content": "Used by the jpd product templates (product.jpd-ring, -wedding-band, -necklace, -bracelet, -earring, -pendant, -chain). Changing a label here updates every connected product page."
+      },
+      {
+        "type": "header",
+        "content": "Pricing labels"
+      },
+      {
+        "type": "text",
+        "id": "jpd_retail_label",
+        "label": "Retail price label",
+        "default": "Retail Price",
+        "info": "Shown only when a variant has a verified jpd.reference_price."
+      },
+      {
+        "type": "text",
+        "id": "jpd_everyday_label",
+        "label": "Everyday price label",
+        "default": "Everyday Price"
+      },
+      {
+        "type": "text",
+        "id": "jpd_sale_label",
+        "label": "Promotional sale price label",
+        "default": "Sale Price",
+        "info": "Shown only when a variant has jpd.everyday_price above its selling price and jpd.promotion_active is on. Prices themselves always come from Shopify."
+      },
+      {
+        "type": "color",
+        "id": "jpd_sale_color",
+        "label": "Promotional price color",
+        "default": "#B5563C"
+      },
+      {
+        "type": "color",
+        "id": "jpd_error_color",
+        "label": "Error message color",
+        "default": "#6E1F2E"
+      },
+      {
+        "type": "header",
+        "content": "Item number"
+      },
+      {
+        "type": "checkbox",
+        "id": "jpd_show_item_number",
+        "label": "Show item number",
+        "default": true,
+        "info": "Shows the variant SKU. Store SKUs must already hold the converted item number (never the raw vendor number)."
+      },
+      {
+        "type": "text",
+        "id": "jpd_item_label",
+        "label": "Item number label",
+        "default": "Item number"
+      },
+      {
+        "type": "header",
+        "content": "Selections"
+      },
+      {
+        "type": "text",
+        "id": "jpd_purity_label",
+        "label": "Metal purity label",
+        "default": "Metal Purity"
+      },
+      {
+        "type": "text",
+        "id": "jpd_gold_color_label",
+        "label": "Gold color label",
+        "default": "Gold Color"
+      },
+      {
+        "type": "header",
+        "content": "Availability"
+      },
+      {
+        "type": "text",
+        "id": "jpd_ready_label",
+        "label": "Ready to ship label",
+        "default": "Ready to Ship"
+      },
+      {
+        "type": "text",
+        "id": "jpd_ready_text",
+        "label": "Ready to ship message",
+        "info": "Shown when variant metafield jpd.shipping_speed is ready_to_ship."
+      },
+      {
+        "type": "text",
+        "id": "jpd_mto_label",
+        "label": "Made to order label",
+        "default": "Made to Order"
+      },
+      {
+        "type": "text",
+        "id": "jpd_mto_text",
+        "label": "Made to order message",
+        "info": "Shown when variant metafield jpd.shipping_speed is made_to_order."
+      },
+      {
+        "type": "text",
+        "id": "jpd_unknown_label",
+        "label": "Other available label",
+        "default": "Available to order"
+      },
+      {
+        "type": "text",
+        "id": "jpd_unknown_text",
+        "label": "Other available message",
+        "default": "Contact us for current dispatch timing."
+      },
+      {
+        "type": "header",
+        "content": "Information sections"
+      },
+      {
+        "type": "text",
+        "id": "jpd_shipping_title",
+        "label": "Shipping heading",
+        "default": "Shipping & Delivery",
+        "info": "Content comes from Settings > Policies > Shipping policy."
+      },
+      {
+        "type": "text",
+        "id": "jpd_returns_title",
+        "label": "Returns heading",
+        "default": "Returns",
+        "info": "Content comes from Settings > Policies > Refund policy."
+      },
+      {
+        "type": "text",
+        "id": "jpd_warranty_title",
+        "label": "Warranty heading",
+        "default": "Warranty"
+      },
+      {
+        "type": "richtext",
+        "id": "jpd_warranty_content",
+        "label": "Warranty content",
+        "info": "Hidden when empty."
+      },
+      {
+        "type": "text",
+        "id": "jpd_care_title",
+        "label": "Jewelry care heading",
+        "default": "Jewelry Care"
+      },
+      {
+        "type": "richtext",
+        "id": "jpd_care_content",
+        "label": "Jewelry care content",
+        "default": "<p>Store each piece separately in a soft pouch. Remove jewelry before swimming, cleaning or exercise, and clean gently with warm water, mild soap and a soft brush.</p>",
+        "info": "Hidden when empty."
+      },
+      {
+        "type": "text",
+        "id": "jpd_assist_label",
+        "label": "Assistance text",
+        "default": "Need assistance with this piece?"
+      },
+      {
+        "type": "text",
+        "id": "jpd_assist_link_text",
+        "label": "Assistance link text",
+        "default": "Contact us"
+      },
+      {
+        "type": "url",
+        "id": "jpd_assist_link",
+        "label": "Assistance link",
+        "info": "Leave empty to email the store contact address."
+      },
+      {
+        "type": "header",
+        "content": "Pendant chain add-on"
+      },
+      {
+        "type": "collection",
+        "id": "jpd_chain_collection",
+        "label": "Compatible chains collection",
+        "info": "Used when a pendant has no jpd.compatible_chains metafield. Only shown on pendants with jpd.chain_included = false."
+      },
+      {
+        "type": "text",
+        "id": "jpd_chain_heading",
+        "label": "Heading",
+        "default": "Chain"
+      },
+      {
+        "type": "text",
+        "id": "jpd_chain_only",
+        "label": "Pendant only option",
+        "default": "Pendant only — chain not included"
+      },
+      {
+        "type": "text",
+        "id": "jpd_chain_add",
+        "label": "Add chain option",
+        "default": "Add a chain"
+      },
+      {
+        "type": "text",
+        "id": "jpd_chain_soon",
+        "label": "No chains configured text",
+        "default": "Matching chains coming soon"
+      },
+      {
+        "type": "text",
+        "id": "jpd_chain_select",
+        "label": "Chain picker label",
+        "default": "Choose a chain"
+      },
+      {
+        "type": "header",
+        "content": "Bracelet size requests"
+      },
+      {
+        "type": "text",
+        "id": "jpd_bracelet_request_sizes",
+        "label": "Request-only bracelet lengths",
+        "info": "Comma separated, for example: 7.5 in, 8 in. Quoted by email only; never added to cart. Leave empty to hide."
+      },
+      {
+        "type": "text",
+        "id": "jpd_bracelet_heading",
+        "label": "Request link text",
+        "default": "Need a different length? Request a size"
+      },
+      {
+        "type": "text",
+        "id": "jpd_bracelet_note",
+        "label": "Request note",
+        "default": "Special-order lengths are quoted individually and are not added to your cart."
+      },
+      {
+        "type": "text",
+        "id": "jpd_bracelet_success",
+        "label": "Confirmation message",
+        "default": "Thank you. We have received your size request and will reply by email."
+      }
+    ]
   }
 ]

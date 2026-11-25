@@ -1,0 +1,58 @@
+{%- comment -%}
+  Jewelry product design: one refreshable panel inside Dawn's main-product section.
+  Used from a custom_liquid block:
+    {% render 'jpd-panel', product: product, component: 'price', category: 'ring' %}
+  Panels carry id="jpd-<component>-<section.id>" and data-jpd-refresh. jpd-product.js
+  swaps their HTML from the section response Dawn already fetches on every option
+  change (PUB_SUB_EVENTS.variantChange), so they always describe the selected variant.
+  component: assets | item | price | availability | details | policies | assistance | chain | bracelet
+{%- endcomment -%}
+{%- liquid
+  assign jpd_variant = product.selected_or_first_available_variant
+  assign jpd_panel_id = 'jpd-' | append: component | append: '-' | append: section.id
+  assign jpd_form_id = 'product-form-' | append: section.id
+-%}
+{%- case component -%}
+  {%- when 'assets' -%}
+    {{ 'jpd-product.css' | asset_url | stylesheet_tag }}
+    <script src="{{ 'jpd-product.js' | asset_url }}" defer="defer"></script>
+    <span
+      class="jpd-assets"
+      hidden
+      data-section="{{ section.id }}"
+      data-category="{{ category | escape }}"
+    ></span>
+    <style>
+      #MainProduct-{{ section.id }} {
+        --jpd-sale-color: {{ settings.jpd_sale_color | default: '#b5563c' }};
+        --jpd-error-color: {{ settings.jpd_error_color | default: '#6e1f2e' }};
+      }
+    </style>
+  {%- when 'chain' -%}
+    {%- render 'jpd-chain-addon', product: product, form_id: jpd_form_id -%}
+  {%- when 'bracelet' -%}
+    {%- render 'jpd-bracelet-request', product: product, variant: jpd_variant -%}
+  {%- else -%}
+    <div id="{{ jpd_panel_id }}" class="jpd-panel jpd-panel--{{ component }}" data-jpd-refresh>
+      {%- case component -%}
+        {%- when 'item' -%}
+          {%- comment -%}
+            Item number = the variant SKU. The store's SKU pipeline already writes the
+            converted item number there; the theme never converts it (no double transform).
+          {%- endcomment -%}
+          {%- if settings.jpd_show_item_number and jpd_variant.sku != blank -%}
+            <p class="jpd-item caption">{{ settings.jpd_item_label | default: 'Item number' | escape }}: {{ jpd_variant.sku | escape }}</p>
+          {%- endif -%}
+        {%- when 'price' -%}
+          {%- render 'jpd-price', product: product, variant: jpd_variant -%}
+        {%- when 'availability' -%}
+          {%- render 'jpd-availability', product: product, variant: jpd_variant -%}
+        {%- when 'details' -%}
+          {%- render 'jpd-details', product: product, variant: jpd_variant, category: category -%}
+        {%- when 'policies' -%}
+          {%- render 'jpd-policies', product: product -%}
+        {%- when 'assistance' -%}
+          {%- render 'jpd-assistance', product: product, variant: jpd_variant -%}
+      {%- endcase -%}
+    </div>
+{%- endcase -%}

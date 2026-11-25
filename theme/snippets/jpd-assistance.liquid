@@ -1,0 +1,21 @@
+{%- comment -%}
+  Jewelry product design: "Need assistance?" link. Uses the link chosen in
+  Theme settings > Jewelry product design; falls back to the store's own contact
+  email (Settings > Store details). No email address is stored in the theme.
+{%- endcomment -%}
+{%- liquid
+  assign jpd_subject = product.title
+  if variant.title != blank and product.has_only_default_variant == false
+    assign jpd_subject = jpd_subject | append: ' — ' | append: variant.title
+  endif
+-%}
+{%- if settings.jpd_assist_link != blank or shop.email != blank -%}
+  <p class="jpd-assistance">
+    {{ settings.jpd_assist_label | default: 'Need assistance with this piece?' | escape }}
+    {% if settings.jpd_assist_link != blank -%}
+      <a class="link" href="{{ settings.jpd_assist_link }}">{{ settings.jpd_assist_link_text | default: 'Contact us' | escape }}</a>
+    {%- else -%}
+      <a class="link" href="mailto:{{ shop.email | escape }}?subject={{ jpd_subject | url_encode }}">{{ settings.jpd_assist_link_text | default: 'Contact us' | escape }}</a>
+    {%- endif %}
+  </p>
+{%- endif -%}

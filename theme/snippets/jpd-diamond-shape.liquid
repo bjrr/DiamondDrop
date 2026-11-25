@@ -1,0 +1,15 @@
+{%- comment -%} Illustrated diamond shape outline. Accepts: shape {String}. Decorative only (aria-hidden). {%- endcomment -%}
+{%- assign shape = shape | strip | downcase | split: ' ' | first | capitalize -%}
+<svg class="jpd-shape-svg" focusable="false" viewBox="0 0 48 56" aria-hidden="true">
+{%- case shape -%}
+{%- when 'Round' -%}<circle cx="24" cy="28" r="19"/><path d="m24 9 13 6 6 13-6 13-13 6-13-6-6-13 6-13Z M15 19h18l4 9-4 9H15l-4-9Z M24 9l-9 10-4-4m26 0-4 4-9-10M43 28h-6m0 13-4-4-9 10-9-10-4 4M5 28h6"/>
+{%- when 'Oval' -%}<ellipse cx="24" cy="28" rx="15" ry="23"/><path d="m24 5 10 9 5 14-5 14-10 9-10-9-5-14 5-14Z M18 16h12l4 12-4 12H18l-4-12Z M24 5l-6 11m16-2-4 2m9 12h-5m0 14-4-2-6 11-6-11-4 2M9 28h5m0-14 4 2"/>
+{%- when 'Pear' -%}<path d="M24 4C21 13 7 24 7 35a17 17 0 0 0 34 0C41 24 27 13 24 4Z M24 15l10 17-3 10H17l-3-10Z M24 4v11M7 35l7-3m3 10-5 5m19-5 5 5m-12 5V42m17-7-7-3"/>
+{%- when 'Marquise' -%}<path d="M24 3C44 19 44 37 24 53 4 37 4 19 24 3Z M24 13l10 15-10 15-10-15Z M24 3v10M10 28h4m10 15v10m10-25h4M16 12l8 1 8-1m0 32-8-1-8 1"/>
+{%- when 'Princess' -%}<path d="M5 9h38v38H5Z m6 6h26v26H11Z m6 6h14v14H17Z M5 9l12 12m26-12L31 21m12 26L31 35M5 47l12-12"/>
+{%- when 'Emerald' -%}<path d="m13 4 22 0 7 7v34l-7 7H13l-7-7V11Z m3 6h16l4 4v28l-4 4H16l-4-4V14Z m3 6h10l2 2v20l-2 2H19l-2-2V18Z M6 11l11 7M42 11l-11 7M6 45l11-7M42 45l-11-7"/>
+{%- when 'Radiant' -%}<path d="M13 5h22l7 7v32l-7 7H13l-7-7V12Z M18 15h12l6 13-6 13H18l-6-13Z M13 5l5 10m17-10-5 10m12-3-6 16 6 16-12-3 5 10m-22 0 5-10L6 44l6-16-6-16Z M18 15l12 26M30 15 18 41"/>
+{%- when 'Cushion' -%}<path d="M14 6h20c6 0 9 3 9 9v26c0 6-3 9-9 9H14c-6 0-9-3-9-9V15c0-6 3-9 9-9Z M16 14h16l5 5v18l-5 5H16l-5-5V19Z M14 6l2 8m18-8-2 8m11 1-6 4m6 22-6-4M5 15l6 4M5 41l6-4m3 9 2-8m18 8-2-8"/>
+{%- else -%}<path d="m24 5 18 23-18 23L6 28Z m0 9 10 14-10 14-10-14Z M24 5v9m18 14h-8M24 51v-9M6 28h8"/>
+{%- endcase -%}
+</svg>

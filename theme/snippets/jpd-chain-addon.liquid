@@ -1,0 +1,92 @@
+{%- comment -%}
+  Jewelry product design: optional "Add a chain" for verified pendant-only pieces.
+  Shown ONLY when jpd.chain_included is explicitly false (variant first, then product).
+  It is never inferred from a title, tag or collection.
+
+  Compatible chains, first match wins:
+    1. product metafield jpd.compatible_chains (list.product_reference)
+    2. Theme settings > Jewelry product design > "Compatible chains collection"
+  Only real, available, priced variants are offered (no selling-plan-only variants).
+  The pendant and the chain are added as two separate cart lines by jpd-product.js.
+  Accelerated checkout is hidden while a chain is selected so it cannot skip the chain.
+
+  Accepts: product, section, form_id
+{%- endcomment -%}
+{%- liquid
+  assign jpd_v = product.selected_or_first_available_variant
+  assign jpd_fact = jpd_v.metafields.jpd.chain_included
+  if jpd_fact == blank
+    assign jpd_fact = product.metafields.jpd.chain_included
+  endif
+  assign jpd_show = false
+  if jpd_fact != blank and jpd_fact.value == false
+    assign jpd_show = true
+  endif
+
+  assign jpd_chains = product.metafields.jpd.compatible_chains.value
+  if jpd_chains == blank and settings.jpd_chain_collection != blank
+    assign jpd_chains = settings.jpd_chain_collection.products
+  endif
+  assign jpd_count = 0
+  assign jpd_control = form_id | append: '-jpd-chain'
+-%}
+{%- if jpd_show -%}
+  {%- capture jpd_options -%}
+    {%- for chain in jpd_chains limit: 50 -%}
+      {%- if chain.id == product.id -%}{%- continue -%}{%- endif -%}
+      {%- for cv in chain.variants -%}
+        {%- if cv.available == false or cv.price <= 0 or cv.requires_selling_plan -%}{%- continue -%}{%- endif -%}
+        {%- assign jpd_count = jpd_count | plus: 1 -%}
+        <option value="{{ cv.id }}" data-price="{{ cv.price }}" data-money="{{ cv.price | money | escape }}">
+          {{- chain.title | escape -}}
+          {%- unless chain.has_only_default_variant %} — {{ cv.title | escape }}{% endunless %} · +{{ cv.price | money | escape -}}
+        </option>
+      {%- endfor -%}
+    {%- endfor -%}
+  {%- endcapture -%}
+  <jpd-chain-addon
+    class="jpd-chain"
+    data-form="{{ form_id }}"
+    data-section="{{ section.id }}"
+    data-price="{{ jpd_v.price }}"
+    data-currency="{{ cart.currency.iso_code }}"
+    data-error="{{ 'jpd.chain.error' | t | escape }}"
+    data-added="{{ 'jpd.chain.added' | t | escape }}"
+  >
+    <fieldset class="jpd-chain__choices">
+      <legend class="form__label">{{ settings.jpd_chain_heading | default: 'Chain' | escape }}</legend>
+      <label class="jpd-chain__choice">
+        <input type="radio" name="{{ jpd_control }}-choice" value="only" checked data-chain-only>
+        <span>{{ settings.jpd_chain_only | default: 'Pendant only — chain not included' | escape }}</span>
+      </label>
+      <label class="jpd-chain__choice{% if jpd_count == 0 %} jpd-chain__choice--unavailable{% endif %}">
+        <input type="radio" name="{{ jpd_control }}-choice" value="add" data-chain-add{% if jpd_count == 0 %} disabled{% endif %}>
+        <span>
+          {%- if jpd_count > 0 -%}
+            {{ settings.jpd_chain_add | default: 'Add a chain' | escape }}
+          {%- else -%}
+            {{ settings.jpd_chain_soon | default: 'Matching chains coming soon' | escape }}
+          {%- endif -%}
+        </span>
+      </label>
+    </fieldset>
+    {%- if jpd_count > 0 -%}
+      <div class="jpd-chain__picker" data-chain-picker hidden>
+        <label class="form__label" for="{{ jpd_control }}">{{ settings.jpd_chain_select | default: 'Choose a chain' | escape }}</label>
+        <div class="select">
+          <select id="{{ jpd_control }}" class="select__select" data-chain-select disabled>
+            <option value="">{{ settings.jpd_chain_select | default: 'Choose a chain' | escape }}</option>
+            {{ jpd_options }}
+          </select>
+          <span class="svg-wrapper">{{- 'icon-caret.svg' | inline_asset_content -}}</span>
+        </div>
+        <p class="jpd-chain__line"><span>{{ 'jpd.chain.chain_price' | t }}</span> <strong data-chain-price></strong></p>
+        <p class="jpd-chain__line jpd-chain__total"><span>{{ 'jpd.chain.total' | t }}</span> <strong data-chain-total></strong></p>
+        <p class="caption">{{ 'jpd.chain.separate_lines' | t }}</p>
+      </div>
+      <noscript><p class="caption">{{ 'jpd.chain.needs_js' | t }}</p></noscript>
+    {%- endif -%}
+    <p class="jpd-error" role="alert" data-chain-error></p>
+    <span class="visually-hidden" aria-live="polite" data-chain-status></span>
+  </jpd-chain-addon>
+{%- endif -%}

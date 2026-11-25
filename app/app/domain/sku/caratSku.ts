@@ -7,9 +7,10 @@
  * ONE STORE, ONE RULE
  * ---------------------------------------------------------------------------
  * Every vendor/manufacturer SKU is transformed before it becomes Shopify's
- * normal variant `sku` or reaches a customer. George's Mountings, Kira, future
- * vendors, SYOS mountings, Buy Now merchandise — the same transformation, with
- * no per-vendor schemes.
+ * normal variant `sku` or reaches a customer. One +3 shift for every vendor;
+ * since owner decision 2026-11-24 a vendor may be assigned the PREFIX variant
+ * (suffix after the first period kept) through VENDOR_SKU_RULES — Kira does,
+ * George's Mountings keeps the full shift.
  *
  *   letters  forward 3 in the alphabet, wrapping (X→A, Y→B, Z→C), case kept
  *   digits   +3 with wraparound (0→3 … 7→0, 8→1, 9→2)
@@ -45,6 +46,34 @@
 
 /** Owner-locked 2026-11-02. A different shift would be a new rule id. */
 export const CARAT_SKU_RULE_ID = "CARAT_SKU_SHIFT_PLUS_3_V1" as const;
+
+/**
+ * Owner decision 2026-11-24 (docs/VENDOR-SKU-TRANSFORMATION.md §9): the same +3
+ * shift, applied only up to the vendor's variant suffix. Everything from the
+ * FIRST period onward (the period included) is kept exactly as the vendor
+ * supplied it. A SKU with no period is shifted in full, so V1 and V2 agree on it.
+ */
+export const CARAT_SKU_PREFIX_RULE_ID = "CARAT_SKU_SHIFT_PLUS_3_PREFIX_V2" as const;
+
+export type CaratSkuRuleId = typeof CARAT_SKU_RULE_ID | typeof CARAT_SKU_PREFIX_RULE_ID;
+
+/**
+ * Which rule each vendor uses. First match wins; vendors not listed use the
+ * default (CARAT_SKU_RULE_ID), so George's Mountings and every existing SKU are
+ * unchanged. To give another vendor a rule, add a row here and to §9 of the
+ * policy document — never pick a rule per product.
+ */
+export const VENDOR_SKU_RULES: ReadonlyArray<{ readonly vendor: RegExp; readonly ruleId: CaratSkuRuleId }> = [
+  { vendor: /\bkira\b/i, ruleId: CARAT_SKU_PREFIX_RULE_ID },
+  { vendor: /\bgeorge'?s mountings\b/i, ruleId: CARAT_SKU_RULE_ID },
+];
+
+/** The rule for a Shopify product vendor. Unknown or blank vendors get the default. */
+export function skuRuleForVendor(vendor: string | null | undefined): CaratSkuRuleId {
+  if (typeof vendor !== "string" || vendor.trim() === "") return CARAT_SKU_RULE_ID;
+  return VENDOR_SKU_RULES.find((row) => row.vendor.test(vendor))?.ruleId ?? CARAT_SKU_RULE_ID;
+}
+
 const SHIFT = 3;
 
 const UPPER_A = 65; // 'A'
@@ -74,6 +103,22 @@ function shiftAll(value: string, by: number): string {
   return Array.from(value).map((ch) => shiftChar(ch, by)).join("");
 }
 
+/** Apply a rule. V2 shifts only the part before the first period; the period
+ *  itself is never shifted, so it marks the same boundary in both directions. */
+function applyRule(value: string, by: number, ruleId: CaratSkuRuleId): string {
+  if (ruleId === CARAT_SKU_PREFIX_RULE_ID) {
+    const cut = value.indexOf(".");
+    if (cut !== -1) return shiftAll(value.slice(0, cut), by) + value.slice(cut);
+  }
+  return shiftAll(value, by);
+}
+
+function assertRule(ruleId: unknown): asserts ruleId is CaratSkuRuleId {
+  if (ruleId !== CARAT_SKU_RULE_ID && ruleId !== CARAT_SKU_PREFIX_RULE_ID) {
+    throw new Error(`Unknown CaratForUs SKU rule ${JSON.stringify(ruleId)}`);
+  }
+}
+
 export class InvalidVendorSkuError extends Error {
   constructor(readonly value: unknown, readonly why: string) {
     super(`Cannot transform vendor SKU ${JSON.stringify(value)}: ${why}`);
@@ -89,20 +134,22 @@ export class InvalidVendorSkuError extends Error {
  * and have it shift an already-shifted value, because callers have only the
  * retained original to give it.
  */
-export function caratSkuFor(vendorSku: string): string {
+export function caratSkuFor(vendorSku: string, ruleId: CaratSkuRuleId = CARAT_SKU_RULE_ID): string {
+  assertRule(ruleId);
   if (typeof vendorSku !== "string") throw new InvalidVendorSkuError(vendorSku, "not a string");
   // NOT trimmed, NOT case-folded, NOT normalised. A vendor SKU is an identifier
   // we must be able to hand back to the vendor unchanged; silently tidying it
   // would make our record of it disagree with theirs.
   if (vendorSku === "") throw new InvalidVendorSkuError(vendorSku, "empty");
-  return shiftAll(vendorSku, SHIFT);
+  return applyRule(vendorSku, SHIFT, ruleId);
 }
 
 /** The reverse shift. For verification and migration safety only. */
-export function vendorSkuFrom(caratSku: string): string {
+export function vendorSkuFrom(caratSku: string, ruleId: CaratSkuRuleId = CARAT_SKU_RULE_ID): string {
+  assertRule(ruleId);
   if (typeof caratSku !== "string") throw new InvalidVendorSkuError(caratSku, "not a string");
   if (caratSku === "") throw new InvalidVendorSkuError(caratSku, "empty");
-  return shiftAll(caratSku, -SHIFT);
+  return applyRule(caratSku, -SHIFT, ruleId);
 }
 
 /**
@@ -112,9 +159,13 @@ export function vendorSkuFrom(caratSku: string): string {
  * value is left alone rather than rewritten, and — more importantly — is never
  * mistaken for a raw SKU and shifted a second time.
  */
-export function isCaratSkuFor(candidate: string | null | undefined, vendorSku: string): boolean {
+export function isCaratSkuFor(
+  candidate: string | null | undefined,
+  vendorSku: string,
+  ruleId: CaratSkuRuleId = CARAT_SKU_RULE_ID,
+): boolean {
   if (typeof candidate !== "string" || candidate === "") return false;
-  return candidate === caratSkuFor(vendorSku);
+  return candidate === caratSkuFor(vendorSku, ruleId);
 }
 
 /**
@@ -148,14 +199,17 @@ export interface VariantSkuState {
    * wrong is a double-shifted SKU that looks perfectly valid.
    */
   readonly currentSkuIsPublishedByVendor?: boolean;
+  /** The vendor's rule (see skuRuleForVendor). Defaults to the store-wide V1. */
+  readonly ruleId?: CaratSkuRuleId;
 }
 
 export function planSkuMigration(state: VariantSkuState): SkuMigrationAction {
   const current = state.currentSku ?? "";
   const retained = state.retainedVendorSku ?? "";
+  const ruleId = state.ruleId ?? CARAT_SKU_RULE_ID;
 
   if (retained !== "") {
-    const expected = caratSkuFor(retained);
+    const expected = caratSkuFor(retained, ruleId);
     if (current === expected) return { kind: "already", vendorSku: retained, caratSku: expected };
     if (current === retained) return { kind: "migrate", vendorSku: retained, caratSku: expected };
     return {
@@ -180,5 +234,5 @@ export function planSkuMigration(state: VariantSkuState): SkuMigrationAction {
         `published SKUs. Confirm the source before transforming; do not infer it from the string.`,
     };
   }
-  return { kind: "migrate", vendorSku: current, caratSku: caratSkuFor(current) };
+  return { kind: "migrate", vendorSku: current, caratSku: caratSkuFor(current, ruleId) };
 }

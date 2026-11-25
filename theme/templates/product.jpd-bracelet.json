@@ -1,0 +1,164 @@
+{
+  "sections": {
+    "main": {
+      "type": "main-product",
+      "blocks": {
+        "vendor": {
+          "type": "text",
+          "settings": {
+            "text": "{{ product.vendor }}",
+            "text_style": "uppercase"
+          },
+          "disabled": true
+        },
+        "title": {
+          "type": "title",
+          "settings": {}
+        },
+        "price": {
+          "type": "price",
+          "settings": {}
+        },
+        "variant_picker": {
+          "type": "variant_picker",
+          "settings": {
+            "picker_type": "button",
+            "swatch_shape": "circle"
+          }
+        },
+        "quantity_selector": {
+          "type": "quantity_selector",
+          "settings": {}
+        },
+        "buy_buttons": {
+          "type": "buy_buttons",
+          "settings": {
+            "show_dynamic_checkout": true,
+            "show_gift_card_recipient": true
+          }
+        },
+        "description": {
+          "type": "description",
+          "settings": {}
+        },
+        "share": {
+          "type": "share",
+          "settings": {
+            "share_label": "Share"
+          }
+        },
+        "jpd_assets": {
+          "type": "custom_liquid",
+          "settings": {
+            "custom_liquid": "{% render 'jpd-panel', product: product, component: 'assets', category: 'bracelet' %}"
+          }
+        },
+        "jpd_item": {
+          "type": "custom_liquid",
+          "settings": {
+            "custom_liquid": "{% render 'jpd-panel', product: product, component: 'item', category: 'bracelet' %}"
+          }
+        },
+        "jpd_price": {
+          "type": "custom_liquid",
+          "settings": {
+            "custom_liquid": "{% render 'jpd-panel', product: product, component: 'price', category: 'bracelet' %}"
+          }
+        },
+        "jpd_availability": {
+          "type": "custom_liquid",
+          "settings": {
+            "custom_liquid": "{% render 'jpd-panel', product: product, component: 'availability', category: 'bracelet' %}"
+          }
+        },
+        "jpd_assistance": {
+          "type": "custom_liquid",
+          "settings": {
+            "custom_liquid": "{% render 'jpd-panel', product: product, component: 'assistance', category: 'bracelet' %}"
+          }
+        },
+        "jpd_details": {
+          "type": "custom_liquid",
+          "settings": {
+            "custom_liquid": "{% render 'jpd-panel', product: product, component: 'details', category: 'bracelet' %}"
+          }
+        },
+        "jpd_policies": {
+          "type": "custom_liquid",
+          "settings": {
+            "custom_liquid": "{% render 'jpd-panel', product: product, component: 'policies', category: 'bracelet' %}"
+          }
+        },
+        "jpd_bracelet": {
+          "type": "custom_liquid",
+          "settings": {
+            "custom_liquid": "{% render 'jpd-panel', product: product, component: 'bracelet', category: 'bracelet' %}"
+          }
+        }
+      },
+      "block_order": [
+        "jpd_assets",
+        "vendor",
+        "title",
+        "jpd_item",
+        "jpd_price",
+        "price",
+        "variant_picker",
+        "jpd_bracelet",
+        "jpd_availability",
+        "quantity_selector",
+        "buy_buttons",
+        "description",
+        "jpd_assistance",
+        "jpd_details",
+        "jpd_policies",
+        "share"
+      ],
+      "settings": {
+        "enable_sticky_info": true,
+        "color_scheme": "scheme-1",
+        "media_size": "large",
+        "constrain_to_viewport": true,
+        "media_fit": "contain",
+        "gallery_layout": "thumbnail",
+        "mobile_thumbnails": "hide",
+        "media_position": "left",
+        "image_zoom": "lightbox",
+        "hide_variants": true,
+        "enable_video_looping": false,
+        "padding_top": 36,
+        "padding_bottom": 12
+      }
+    },
+    "disclosures": {
+      "type": "disclosures",
+      "settings": {
+        "padding_top": 36,
+        "padding_bottom": 0
+      }
+    },
+    "related-products": {
+      "type": "related-products",
+      "settings": {
+        "heading": "You may also like",
+        "heading_size": "h2",
+        "products_to_show": 4,
+        "columns_desktop": 4,
+        "columns_mobile": "2",
+        "color_scheme": "scheme-1",
+        "image_ratio": "square",
+        "image_shape": "default",
+        "show_secondary_image": true,
+        "show_vendor": false,
+        "show_rating": false,
+        "padding_top": 36,
+        "padding_bottom": 28
+      }
+    }
+  },
+  "order": [
+    "main",
+    "disclosures",
+    "related-products"
+  ]
+}

@@ -6,6 +6,8 @@
   - option: {Object} current product_option object.
   - block: {Object} block object.
   - picker_type: {String} type of picker to dispay
+  - jpd_split: {Boolean} (jewelry product design) metal purity/color split in use
+  - jpd_purity: {String} (jewelry product design) purity whose colors are shown
 
 
   Usage:
@@ -18,6 +20,13 @@
 {% endcomment %}
 {%- liquid
   assign product_form_id = 'product-form-' | append: section.id
+  assign jpd_on = false
+  for jpd_b in section.blocks
+    if jpd_b.type == 'custom_liquid' and jpd_b.settings.custom_liquid contains 'jpd-panel'
+      assign jpd_on = true
+      break
+    endif
+  endfor
 -%}
 
 {%- for value in option.values -%}
@@ -61,6 +70,23 @@
 
   {% assign escaped_value = value | escape %}
 
+  {%- liquid
+    assign jpd_hide = false
+    if jpd_split and jpd_purity != blank
+      assign jpd_vp = value.name | split: ' ' | first | upcase
+      if jpd_vp != jpd_purity
+        assign jpd_hide = true
+      endif
+    endif
+    assign jpd_label_class = ''
+    if jpd_on
+      assign jpd_optname = option.name | downcase
+      if jpd_optname contains 'shape'
+        assign jpd_label_class = 'jpd-shape-label'
+      endif
+    endif
+  -%}
+
   {%- if picker_type == 'swatch' -%}
     {%- capture help_text -%}
       <span class="visually-hidden">{{ escaped_value }}</span>
@@ -93,13 +119,31 @@
       {% if option_disabled %}
         class="disabled"
       {% endif %}
+      {% if jpd_hide %}
+        hidden
+      {% endif %}
       {{ input_dataset }}
     >
-    <label for="{{ input_id }}">
-      {{ value -}}
+    <label for="{{ input_id }}"{% if jpd_label_class != blank %} class="{{ jpd_label_class }}"{% endif %}{% if jpd_hide %} hidden{% endif %}>
+      {% if jpd_on -%}
+        {%- render 'jpd-option-label', option: option, value: value, jpd_split: jpd_split -%}
+      {%- else -%}
+        {{ value -}}
+      {%- endif -%}
       {{ label_unavailable }}
     </label>
   {%- elsif picker_type == 'dropdown' or picker_type == 'swatch_dropdown' -%}
+    {%- liquid
+      assign jpd_option_text = value
+      if jpd_on
+        assign jpd_optname = option.name | downcase
+        if jpd_optname contains 'metal' or jpd_optname contains 'material'
+          capture jpd_option_text
+            render 'jpd-material-label', value: value.name
+          endcapture
+        endif
+      endif
+    -%}
     <option
       id="{{ input_id }}"
       value="{{ escaped_value }}"
@@ -115,9 +159,9 @@
       {{ input_dataset }}
     >
       {% if option_disabled -%}
-        {{- 'products.product.value_unavailable' | t: option_value: value -}}
+        {{- 'products.product.value_unavailable' | t: option_value: jpd_option_text -}}
       {%- else -%}
-        {{- value -}}
+        {{- jpd_option_text -}}
       {%- endif %}
     </option>
   {%- endif -%}

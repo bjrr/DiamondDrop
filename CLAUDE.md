@@ -174,6 +174,8 @@ Canonical example:
 
 Rules:
 - Apply this consistently to vendor-sourced products and variants throughout the store, including George's Mountings, Kira, and future suppliers.
+- **Per-vendor rule (owner decision 2026-11-24, policy §9):** George's Mountings and any vendor not listed use the full-string shift (V1). **Kira** uses the prefix rule (V2): shift only the characters before the first period; the first period and everything after it stay unchanged. The rule comes from the vendor via `VENDOR_SKU_RULES` in `app/app/domain/sku/caratSku.ts`, never per product.
+- The theme displays Shopify's variant SKU as the item number and never transforms anything itself.
 - Shopify's product/variant SKU used by CaratForUs and any customer-visible SKU must be the transformed SKU, never the raw vendor SKU.
 - Preserve the original vendor SKU only as internal/admin-only sourcing data when needed for purchasing, reconciliation or vendor lookup; never expose the raw vendor SKU on the storefront.
 - Transform each character exactly once. Never transform an already transformed CaratForUs SKU a second time.

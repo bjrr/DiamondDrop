@@ -1,0 +1,229 @@
+{%- comment -%}
+  Jewelry product design: "Product Details", expanded by default.
+  Only verified facts for the selected variant are listed; empty facts are skipped.
+  Sources, in order:
+    1. The selected variant's own option values (Metal, Size, Length, ...).
+    2. Specification metafields, variant first, then product (product-level only
+       when the product has a single variant OR the field is product-wide by nature).
+       Namespace custom.* (repository source names) and existing compatible
+       carat.* fields on this store.
+  Never shown: gold weight, diamond origin, certificate report numbers or images,
+  supplier/vendor identifiers. Certification shows the organization only (IGI/GIA)
+  when the stored text names it.
+  Accepts: product, variant, category (ring | wedding-band | necklace | bracelet | earring | pendant | chain)
+{%- endcomment -%}
+{%- liquid
+  assign jpd_is_ring = false
+  if category == 'ring' or category == 'wedding-band'
+    assign jpd_is_ring = true
+  endif
+  assign jpd_vf = variant.metafields.custom
+  assign jpd_pf = product.metafields.custom
+-%}
+{%- capture jpd_rows -%}
+  {%- unless product.has_only_default_variant -%}
+    {%- for option in product.options_with_values -%}
+      {%- assign jpd_name = option.name | downcase -%}
+      {%- assign jpd_value = variant.options[forloop.index0] -%}
+      {%- if jpd_value == blank -%}{%- continue -%}{%- endif -%}
+      <div class="jpd-details__row">
+        <dt>{{ option.name | escape }}</dt>
+        <dd>
+          {%- if jpd_name contains 'metal' or jpd_name contains 'material' -%}
+            {%- render 'jpd-material-label', value: jpd_value -%}
+          {%- else -%}
+            {{- jpd_value | escape -}}
+          {%- endif -%}
+        </dd>
+      </div>
+    {%- endfor -%}
+  {%- endunless -%}
+
+  {%- comment -%} Material metafield only when no option already states it. {%- endcomment -%}
+  {%- assign jpd_option_names = product.options | join: '|' | downcase -%}
+  {%- unless jpd_option_names contains 'metal' or jpd_option_names contains 'material' -%}
+    {%- assign jpd_mat = jpd_vf.material -%}
+    {%- if jpd_mat == blank and product.has_only_default_variant -%}{%- assign jpd_mat = jpd_pf.material -%}{%- endif -%}
+    {%- if jpd_mat != blank -%}
+      <div class="jpd-details__row">
+        <dt>{{ 'jpd.details.material' | t }}</dt>
+        <dd>
+          {%- if jpd_mat.type contains 'list.' -%}
+            {%- for part in jpd_mat.value -%}{%- render 'jpd-material-label', value: part -%}{%- unless forloop.last %} + {% endunless -%}{%- endfor -%}
+          {%- else -%}
+            {%- render 'jpd-material-label', value: jpd_mat.value -%}
+          {%- endif -%}
+        </dd>
+      </div>
+    {%- endif -%}
+  {%- endunless -%}
+
+  {%- liquid
+    assign jpd_shape = jpd_vf.center_stone_shape.value | default: jpd_vf.stones_shape.value
+    if jpd_shape == blank
+      assign jpd_shape = jpd_pf.center_stone_shape.value | default: jpd_pf.stones_shape.value | default: product.metafields.carat.syos_stone_shape.value
+    endif
+    assign jpd_shape = jpd_shape | join: ', '
+    unless jpd_option_names contains 'shape'
+      if jpd_shape != blank
+        echo '<div class="jpd-details__row"><dt>'
+        if jpd_is_ring
+          echo 'jpd.details.center_shape' | t
+        else
+          echo 'jpd.details.shape' | t
+        endif
+        echo '</dt><dd>'
+        echo jpd_shape | capitalize | escape
+        echo '</dd></div>'
+      endif
+    endunless
+
+    assign jpd_color = jpd_vf.center_stone_color.value | default: jpd_vf.stones_color.value
+    if jpd_color == blank and product.has_only_default_variant
+      assign jpd_color = jpd_pf.center_stone_color.value | default: jpd_pf.stones_color.value
+    endif
+    assign jpd_color = jpd_color | join: ', '
+    if jpd_color != blank
+      echo '<div class="jpd-details__row"><dt>'
+      echo 'jpd.details.diamond_color' | t
+      echo '</dt><dd>'
+      echo jpd_color | escape
+      echo '</dd></div>'
+    endif
+
+    assign jpd_clarity = jpd_vf.center_stone_clarity.value | default: jpd_vf.stones_clarity.value
+    if jpd_clarity == blank and product.has_only_default_variant
+      assign jpd_clarity = jpd_pf.center_stone_clarity.value | default: jpd_pf.stones_clarity.value
+    endif
+    assign jpd_clarity = jpd_clarity | join: ', '
+    if jpd_clarity != blank
+      echo '<div class="jpd-details__row"><dt>'
+      echo 'jpd.details.diamond_clarity' | t
+      echo '</dt><dd>'
+      echo jpd_clarity | escape
+      echo '</dd></div>'
+    endif
+
+    assign jpd_weight_keys = 'total_stones_weight_ct,center_stone_weight_ct,side_stones_weight_ct' | split: ','
+    for jpd_key in jpd_weight_keys
+      if jpd_is_ring == false and jpd_key != 'total_stones_weight_ct'
+        continue
+      endif
+      assign jpd_w = jpd_vf[jpd_key].value
+      if jpd_w == blank and product.has_only_default_variant
+        assign jpd_w = jpd_pf[jpd_key].value
+      endif
+      if jpd_w == blank or jpd_w <= 0
+        continue
+      endif
+      echo '<div class="jpd-details__row"><dt>'
+      if jpd_key == 'total_stones_weight_ct' and category == 'earring'
+        echo 'jpd.details.pair_weight' | t
+      elsif jpd_key == 'total_stones_weight_ct'
+        echo 'jpd.details.total_weight' | t
+      elsif jpd_key == 'center_stone_weight_ct'
+        echo 'jpd.details.center_weight' | t
+      else
+        echo 'jpd.details.side_weight' | t
+      endif
+      echo '</dt><dd>'
+      echo jpd_w
+      echo ' ct</dd></div>'
+    endfor
+
+    assign jpd_cert = jpd_vf.certificate_type.value | default: jpd_pf.certificate_type.value | upcase
+    assign jpd_cert_org = ''
+    if jpd_cert contains 'IGI'
+      assign jpd_cert_org = 'IGI'
+    elsif jpd_cert contains 'GIA'
+      assign jpd_cert_org = 'GIA'
+    endif
+    if jpd_cert_org != blank
+      echo '<div class="jpd-details__row"><dt>'
+      echo 'jpd.details.certification' | t
+      echo '</dt><dd>'
+      echo jpd_cert_org
+      echo '</dd></div>'
+    endif
+
+    assign jpd_setting = product.metafields.carat.syos_setting_style.value | default: jpd_pf.setting_type.value
+    if jpd_setting != blank
+      echo '<div class="jpd-details__row"><dt>'
+      echo 'jpd.details.setting' | t
+      echo '</dt><dd>'
+      echo jpd_setting | capitalize | escape
+      echo '</dd></div>'
+    endif
+    if product.metafields.carat.hidden_halo.value == true
+      echo '<div class="jpd-details__row"><dt>'
+      echo 'jpd.details.hidden_halo' | t
+      echo '</dt><dd>'
+      echo 'jpd.details.yes' | t
+      echo '</dd></div>'
+    endif
+    assign jpd_pave = product.metafields.carat.band_pave_diamond_count.value
+    if jpd_pave != blank and jpd_pave > 0
+      echo '<div class="jpd-details__row"><dt>'
+      echo 'jpd.details.band_pave' | t
+      echo '</dt><dd>'
+      echo jpd_pave
+      echo '</dd></div>'
+    endif
+
+    unless jpd_option_names contains 'length' or jpd_option_names contains 'size'
+      assign jpd_len = jpd_vf.length.value
+      if jpd_len == blank and product.has_only_default_variant
+        assign jpd_len = jpd_pf.length.value
+      endif
+      if jpd_len != blank and category != 'ring' and category != 'wedding-band' and category != 'earring'
+        echo '<div class="jpd-details__row"><dt>'
+        echo 'jpd.details.length' | t
+        echo '</dt><dd>'
+        echo jpd_len | escape
+        echo '</dd></div>'
+      endif
+    endunless
+
+    assign jpd_dims = jpd_vf.dimensions.value | default: jpd_pf.dimensions.value
+    if jpd_dims != blank
+      echo '<div class="jpd-details__row"><dt>'
+      echo 'jpd.details.dimensions' | t
+      echo '</dt><dd>'
+      echo jpd_dims | escape
+      echo '</dd></div>'
+    endif
+
+    assign jpd_back = jpd_vf.clasp_type.value | default: jpd_pf.clasp_type.value | strip
+    assign jpd_back_check = jpd_back | downcase
+    if jpd_back_check == 'n/a' or jpd_back_check == 'none' or jpd_back_check == 'unknown' or jpd_back_check == '-'
+      assign jpd_back = ''
+    endif
+    if jpd_back != blank
+      echo '<div class="jpd-details__row"><dt>'
+      if category == 'earring'
+        echo 'jpd.details.backing' | t
+      else
+        echo 'jpd.details.clasp' | t
+      endif
+      echo '</dt><dd>'
+      echo jpd_back | escape
+      echo '</dd></div>'
+    endif
+  -%}
+{%- endcapture -%}
+{%- assign jpd_rows_clean = jpd_rows | strip -%}
+{%- if jpd_rows_clean != blank -%}
+  <div class="product__accordion accordion jpd-details">
+    <details open>
+      <summary>
+        <div class="summary__title">
+          <h2 class="h4 accordion__title">{{ 'jpd.details.heading' | t }}</h2>
+        </div>
+        {{- 'icon-caret.svg' | inline_asset_content -}}
+      </summary>
+      <div class="accordion__content">
+        <dl class="jpd-details__list">{{ jpd_rows }}</dl>
+      </div>
+    </details>
+  </div>
+{%- endif -%}
