@@ -55,7 +55,7 @@
         "quote": {
           "type": "path",
           "settings": {
-            "title": "Beat Your Quote",
+            "title": "Beat Their Price",
             "text": "Already have a jewelry quote? Let us compete for your business.",
             "link": "/pages/let-us-beat-your-quote",
             "image": "shopify://shop_images/carat-c-quote.png"
@@ -194,7 +194,7 @@
       "settings": {
         "eyebrow": "CaratForUs",
         "heading": "Fine jewelry. Smarter ways to buy.",
-        "subheading": "Shop exceptional diamond jewelry, join a Group Buy, create something custom, discover limited Luxury Steals, or let us beat your quote.",
+        "subheading": "Shop exceptional diamond jewelry, join a Group Buy, create something custom, discover limited Luxury Steals, or let us beat their price.",
         "cta_label": "Shop jewelry",
         "cta_link": "/collections/all",
         "cta2_label": "How Group Buy works",

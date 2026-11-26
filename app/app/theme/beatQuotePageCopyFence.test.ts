@@ -49,22 +49,31 @@ import { describe, expect, it } from "vitest";
  * two the amendment does not restate.
  *
  * ============================================================================
- * TWO KNOWN GAPS, RECORDED RATHER THAN FIXED
+ * THE TWO GAPS THIS FENCE ORIGINALLY RECORDED ARE BOTH RESOLVED
  * ============================================================================
- * Two page strings are NARROWER than the locked wording. They are pinned here
- * exactly as they read today, with the document's fuller phrasing quoted
- * beside them, because the owner holds the decision on customer-facing copy
- * and a test is not the place to quietly rewrite it:
+ * When this fence was written, two page strings were narrower than the locked
+ * wording and were pinned as they read, because customer-facing copy is the
+ * owner's decision and a test is not the place to quietly rewrite it. Both
+ * were decided on 2026-11-26, in opposite directions:
  *
- *   - the page says "Valid for 90 days"; the amendment says "valid for 90
- *     calendar days from issuance";
- *   - the page says "Generally cannot be combined with another promotion
- *     unless approved"; the amendment says "not stackable with another
- *     promotional discount unless CaratForUs expressly authorizes the
- *     combination", with no "generally".
+ *   - VALIDITY: the page's "Valid for 90 days" was adopted as the decision,
+ *     and the specification's fallback rules, which previously stated no
+ *     validity period at all, now state "valid for 90 days from issuance".
+ *     The amendment keeps the fuller "valid for 90 calendar days from
+ *     issuance" and still controls, and `fallbackBenefit.ts` computes expiry
+ *     on calendar days regardless of either phrasing.
  *
- * Pinning the current strings means neither gap can widen unnoticed, and
- * closing either one is a deliberate edit to this file plus the template.
+ *   - COMBINING: the page's "Generally cannot be combined with another
+ *     promotion unless approved" was replaced. The hedge "generally" is gone,
+ *     "promotion" is now "promotional discount", and the approver is named.
+ *     The page now reads "Cannot be combined with another promotional discount
+ *     unless CaratForUs expressly authorizes it" against the amendment's "not
+ *     stackable with another promotional discount unless CaratForUs expressly
+ *     authorizes the combination". What remains between them is voice, not
+ *     substance: "cannot be combined with" for "not stackable with", and
+ *     "authorizes it" for "authorizes the combination".
+ *
+ * Both strings stay pinned, so neither can drift back.
  *
  * NOT IN SCOPE: the acknowledgment sentences. Those live in the database and
  * are pinned by `beatQuoteAcknowledgmentParity.test.ts` and
@@ -220,16 +229,30 @@ describe("the fallback figures on the page", () => {
   });
 
   it("names the five fallback rules, in the amendment's order", () => {
-    // "Valid for 90 days" and the "Generally" hedge are the two known gaps in
-    // this file's header: narrower than the amendment, pinned as they read
-    // today because the owner holds the copy decision.
+    // Both of these were owner decisions on 2026-11-26; see this file's
+    // header. "Valid for 90 days" is the adopted wording and the
+    // specification now matches it. The combining rule lost its "generally"
+    // hedge, gained "promotional discount" for "promotion", and names
+    // CaratForUs as the approver, which is what the amendment requires.
     expect(listSetting("fallback", "rules_items")).toEqual([
       "Valid for 90 days",
       "Single use",
       "Non-transferable",
       "No cash value",
-      "Generally cannot be combined with another promotion unless approved",
+      "Cannot be combined with another promotional discount unless CaratForUs expressly authorizes it",
     ]);
+  });
+
+  /**
+   * The hedge specifically. A material term that says a restriction applies
+   * "generally" tells a customer nothing about their own case, and it is the
+   * kind of word that creeps back in when copy is edited for tone in the
+   * theme editor. The amendment contains no such qualifier.
+   */
+  it("states the combining rule without a hedge", () => {
+    const rule = listSetting("fallback", "rules_items")[4] ?? "";
+    expect(rule.toLowerCase()).not.toMatch(/\b(generally|usually|normally|typically|in most cases)\b/);
+    expect(rule).toContain("CaratForUs expressly authorizes");
   });
 
   it("lists exactly the two eligible purchase types", () => {
