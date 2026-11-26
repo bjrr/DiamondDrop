@@ -35,12 +35,23 @@
 #
 #   THEME_STORE=...  override the store (default nnb1th-cm.myshopify.com)
 #   DELETE=1         permit remote deletions (refuses on the live theme)
+#   THEME_ROOT=...   push from a theme root other than ./theme
+#
+# WHY THEME_ROOT EXISTS. Some pushes must NOT come from the repo. Pushing the
+# live theme's locales/en.default.json means pushing the LIVE file with one
+# object replaced, because the repo's copy carries unreleased work the live
+# theme must not receive. Building that file in a scratch directory and pushing
+# it from there is the safe shape, and the alternative was to invoke
+# `shopify theme push` by hand, which is the one thing this script exists to
+# prevent. GUARD 1 still applies to whatever root is named, so the override
+# cannot be used to push from a directory that is not a theme.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
 STORE="${THEME_STORE:-nnb1th-cm.myshopify.com}"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ROOT="$REPO/theme"
+ROOT="${THEME_ROOT:-$REPO/theme}"
+ROOT="$(cd "$ROOT" 2>/dev/null && pwd || echo "$ROOT")"
 
 THEME_ID="${1:-}"; shift || true
 if [ -z "$THEME_ID" ] || [ "$#" -eq 0 ]; then
