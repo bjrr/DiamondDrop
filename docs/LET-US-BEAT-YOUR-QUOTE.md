@@ -1,16 +1,18 @@
-# Let Us Beat Your Quote! — MVP1 Locked Specification
+# Let Us Beat Their Price — MVP1 Locked Specification
 
 ## Status
 **LOCKED MVP1 REQUIREMENT**
 
-This document defines the approved CaratForUs **Let Us Beat Your Quote!** acquisition feature for Custom Jewelry and competing jewelry offers. It controls implementation of this feature unless the owner explicitly changes the policy.
+This document defines the approved CaratForUs **Let Us Beat Their Price** acquisition feature for Custom Jewelry and competing jewelry offers. It controls implementation of this feature unless the owner explicitly changes the policy.
+
+**PROGRAM NAME, owner decision 2026-11-26.** The program is named **Let Us Beat Their Price**. It was previously **Let Us Beat Your Quote!**, which is the name this file and its filename were written under. The page URL stays `/pages/let-us-beat-your-quote` and the navigation and footer label are unchanged, both by owner decision, so the old name is still the handle and still appears in some internal, staff-facing and customer-facing surfaces. Renaming those is a separate decision and is not authorized by this edit.
 
 ## Purpose
 CaratForUs should actively compete for customers who are considering custom jewelry or jewelry offers from other jewelers, including overseas sellers.
 
 The feature should be presented under the customer-facing headline:
 
-**Let Us Beat Your Quote!**
+**Let Us Beat Their Price**
 
 The objective is to let a customer submit a genuine competing offer and give CaratForUs the opportunity to match or beat the jewelry price while preserving CaratForUs's own production timeline, warranty, return/cancellation policy, shipping terms, and other service terms.
 
@@ -186,7 +188,7 @@ The competitor's service terms do not affect whether CaratForUs must copy those 
 ## Customer-Facing Entry Flow
 Customer-facing headline:
 
-**Let Us Beat Your Quote!**
+**Let Us Beat Their Price**
 
 Suggested supporting message:
 
@@ -240,12 +242,15 @@ Store, as applicable:
 When the full guarantee applies and CaratForUs cannot match or beat the qualifying verified jewelry price:
 - benefit = **10% off one eligible CaratForUs purchase**;
 - maximum savings = **$100**;
+- **valid for 90 days** from issuance;
 - one-time use;
 - non-transferable;
 - no cash value;
 - not stackable with other promotional codes unless expressly authorized;
 - intended for regular Buy Now merchandise or Custom Jewelry;
 - **Group Buys and Luxury Steals are excluded** from the fallback benefit unless the owner later changes this rule.
+
+The validity period was added here on 2026-11-26 by owner decision, to match the customer-facing page. The amendment states the same rule more fully as "valid for 90 calendar days from issuance" and controls; `fallbackBenefit.ts` computes expiry on calendar days and is unaffected by this wording.
 
 A fake, altered, unverifiable, non-comparable, or otherwise non-qualifying submission does **not** trigger the fallback benefit.
 
@@ -264,9 +269,11 @@ Required action: **I Understand & Agree**
 ### Acknowledgment 2 — Authenticity and Verification
 Required before submission:
 
-> I confirm the quote, listing, CAD, specifications, images, and seller information I submitted are authentic and have not been altered, fabricated, or AI-generated. I understand CaratForUs may request additional documentation or independently verify the seller, offer, specifications, and price.
+> I certify, as a formal representation made to induce CaratForUs to rely on it, that the quote, listing, CAD, specifications, images, and seller information I have submitted are true, complete, and authentic, and have not been altered, fabricated, or generated or edited by AI. I understand that knowingly submitting false or altered information may result in cancellation of any resulting price, order, or benefit, and may expose me to legal liability. I understand CaratForUs may request additional documentation or independently verify the seller, offer, specifications, and price.
 
 Required action: **I Confirm**
+
+This is **policy version 2** of slug `beat-quote-authenticity`, owner approved 2026-11-25 and provisioned by migration `20261125120000_beat_quote_authenticity_policy_v2`. Version 1 read "I confirm the quote, listing, CAD, specifications, images, and seller information I submitted are authentic and have not been altered, fabricated, or AI-generated. I understand CaratForUs may request additional documentation or independently verify the seller, offer, specifications, and price." Version 1 is retained unedited in the database, because `policy_version` is append-only and every acknowledgment recorded before that date points at it. The quoted sentence above is byte-identical to `BEAT_QUOTE_AUTHENTICITY_TEXT`. The other five acknowledgments in this section remain at version 1.
 
 ### Acknowledgment 3A — 7-Day Guarantee Eligibility
 For a qualifying recent custom quote:
