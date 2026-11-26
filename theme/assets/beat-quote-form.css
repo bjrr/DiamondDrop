@@ -1,5 +1,5 @@
 /*
- * Let Us Beat Your Quote — intake form.
+ * Let Us Beat Your Quote, intake form.
  *
  * Grouped into labelled fieldsets so a long form reads as four short ones.
  * The acknowledgments get their own visual treatment because they are the
@@ -206,7 +206,7 @@
 
 .carat-bq__upload-gate p { margin: 0; opacity: 0.8; }
 
-/* A real control, not a styled nothing — the input itself is hidden and the
+/* A real control, not a styled nothing, the input itself is hidden and the
    label does the work, which keeps keyboard and screen-reader behaviour. */
 .carat-bq__upload-button {
   display: inline-flex;
@@ -279,3 +279,48 @@
 }
 
 .carat-bq__upload-remove:hover { opacity: 1; }
+
+/* ------------------------------------------ redesign: type selector first */
+
+.carat-bq { scroll-margin-top: 12rem; }
+
+.carat-bq__intro {
+  font-size: 1.6rem;
+  line-height: 1.55;
+  opacity: 0.8;
+  margin: -1.8rem 0 3rem;
+  max-width: 60ch;
+}
+
+.carat-bq__legend--lead {
+  font-family: var(--font-heading-family);
+  font-size: clamp(2rem, 2.2vw, 2.4rem);
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 1;
+  font-weight: 400;
+}
+
+.carat-bq__choice-grid { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+
+@media screen and (min-width: 990px) {
+  .carat-bq__choice-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .carat-bq__choice { flex-direction: column; gap: 1rem; }
+}
+
+.carat-bq__choice { border-radius: 1.2rem; background: rgb(var(--color-background)); }
+.carat-bq__choice-title { font-weight: 600; }
+.carat-bq__choice:has(input:focus-visible) {
+  outline: 2px solid rgb(var(--color-foreground));
+  outline-offset: 3px;
+}
+
+.carat-bq__tagline {
+  font-family: var(--font-heading-family);
+  font-style: italic;
+  font-size: 1.9rem;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.carat-bq [hidden] { display: none !important; }

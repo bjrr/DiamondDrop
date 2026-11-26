@@ -1,5 +1,5 @@
 /*
- * Let Us Beat Your Quote — storefront intake.
+ * Let Us Beat Your Quote, storefront intake.
  *
  * ===========================================================================
  * TWO THINGS HERE ARE NOT COSMETIC
@@ -12,7 +12,7 @@
  *    the guarantee and the fallback outright. This mirrors the server's rule
  *    so the customer reads the term that will actually be recorded against
  *    them. The server derives treatment independently and remains the only
- *    authority — this is display, not decision.
+ *    authority, this is display, not decision.
  *
  * 2. MONEY IS NEVER PARSED AS A FLOAT.
  *    CLAUDE.md rule 6. `parseFloat("1234.56") * 100` is 123455.99999999999 in
@@ -46,7 +46,7 @@
    *
    * Duplicated here because the theme cannot import from the app, and pinned
    * character-for-character by beatQuoteAcknowledgmentParity.test.ts. If the
-   * approved wording ever changes, that test fails until BOTH sides move —
+   * approved wording ever changes, that test fails until BOTH sides move ,
    * which is the point. Evidence that says something the customer never read
    * is worse than a broken build.
    */
@@ -105,7 +105,7 @@
 
   /**
    * Mirrors deriveIntakeTreatment for DISPLAY. A future-dated quote counts as
-   * outside the window exactly as the server treats it — a negative age must
+   * outside the window exactly as the server treats it, a negative age must
    * not sail through a `<= 7` comparison and hand out the guarantee wording.
    */
   function pathAckIdFor(kind, quoteIssuedOn) {
@@ -159,8 +159,53 @@
 
   /* ------------------------------------- conditional fields and the ack */
 
+  /*
+   * Submission type drives the rest of the form: label variants, the
+   * fieldsets that wait for a type, and attachments (which belong to the
+   * type they were attached under, so a change of type clears them).
+   */
+  var lastKind = null;
+
+  function syncKindUi(kind) {
+    var shown = kind || 'custom_quote';
+    form.querySelectorAll('[data-carat-bq-label-kind]').forEach(function (n) {
+      n.hidden = n.getAttribute('data-carat-bq-label-kind') !== shown;
+    });
+    form.querySelectorAll('[data-carat-bq-when-any-kind]').forEach(function (n) {
+      n.hidden = kind === null;
+    });
+    if (kind !== lastKind) {
+      if (typeof uploads !== 'undefined' && uploads && uploads.length > 0) {
+        uploads.length = 0;
+        renderUploads();
+      }
+      lastKind = kind;
+    }
+  }
+
+  /*
+   * The route is `.strict()`, so type-specific extras with no key of their
+   * own (product description, gemstone specs, Group Buy tier) travel inside
+   * `specifications` as labelled lines. With only the main specs box filled
+   * the value is exactly what it was before the redesign.
+   */
+  function composeSpecifications(kind) {
+    var parts = [];
+    function add(label, sel) {
+      var n = el(sel);
+      var v = n && !n.closest('[hidden]') ? n.value.trim() : '';
+      if (v) parts.push(label ? label + ': ' + v : v);
+    }
+    if (kind === 'online_listing') add('Product description', '#BqProductDesc');
+    add('', '#BqSpecs');
+    if (kind === 'online_listing') add('Diamond or gemstone specs', '#BqGemSpecs');
+    if (kind === 'competing_group_buy') add('Current tier or participation level', '#BqTier');
+    return parts.join('\n\n');
+  }
+
   function syncConditionals() {
     var kind = selectedKind();
+    syncKindUi(kind);
 
     form.querySelectorAll('[data-carat-bq-when-kind]').forEach(function (node) {
       var kinds = node.getAttribute('data-carat-bq-when-kind').split(/\s+/);
@@ -174,16 +219,6 @@
       });
     });
 
-    // Switching away from the custom-quote path clears attachments too.
-    // The loop above empties the file INPUT, but the `uploads` array lives
-    // in JS — without this, a customer who attached a PDF, then changed to
-    // "an online listing", would submit files belonging to a path that does
-    // not take them. The server would accept them (purpose, owner and
-    // customer all still match), so nothing stops this but us.
-    if (kind !== 'custom_quote' && typeof uploads !== 'undefined' && uploads.length > 0) {
-      uploads.length = 0;
-      renderUploads();
-    }
 
     var dateInput = el('#BqQuoteDate');
     var ackId = pathAckIdFor(kind, dateInput ? dateInput.value : null);
@@ -376,7 +411,7 @@
   /**
    * One id per filled-in form, generated once. The route is idempotent on
    * `submissionId`, so a double-click or a retry after a dropped connection
-   * resolves to the SAME submission rather than two — and the loser writes
+   * resolves to the SAME submission rather than two, and the loser writes
    * no acknowledgments.
    */
   var submissionId = null;
@@ -420,7 +455,7 @@
       phone: el('#BqPhone').value.trim(),
       competitorSellerName: el('#BqSeller').value.trim(),
       competitorWebsite: el('#BqWebsite').value.trim(),
-      specifications: el('#BqSpecs').value.trim(),
+      specifications: composeSpecifications(kind),
     };
     Object.keys(optional).forEach(function (k) {
       if (optional[k]) payload[k] = optional[k];
@@ -451,7 +486,7 @@
     }
 
     // Only fully-uploaded files. A failed or in-flight entry is left out
-    // rather than sent as a key the server cannot verify — an unverifiable
+    // rather than sent as a key the server cannot verify, an unverifiable
     // key refuses the ENTIRE submission.
     var attached = uploads.filter(function (u) { return u.storageKey; });
     if (attached.length > 0) {
@@ -471,7 +506,7 @@
     }
 
     submitBtn.disabled = true;
-    setStatus('Sending your quote…');
+    setStatus('Sending your submission…');
 
     fetch(PROXY_PATH, {
       method: 'POST',
@@ -508,4 +543,18 @@
   });
 
   syncConditionals();
+
+  /*
+   * Links elsewhere on the page ("Submit an online price") can carry
+   * data-carat-bq-preselect to choose the matching type on arrival.
+   */
+  document.addEventListener('click', function (e) {
+    var link = e.target.closest ? e.target.closest('[data-carat-bq-preselect]') : null;
+    if (!link) return;
+    var radio = form.querySelector('[data-carat-bq-kind][value="' + link.getAttribute('data-carat-bq-preselect') + '"]');
+    if (radio) {
+      radio.checked = true;
+      syncConditionals();
+    }
+  });
 })();

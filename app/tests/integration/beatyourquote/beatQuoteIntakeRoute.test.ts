@@ -4,10 +4,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { prisma } from "~/db/client.server";
 import {
+  BEAT_QUOTE_AUTHENTICITY_POLICY_VERSION,
   BEAT_QUOTE_AUTHENTICITY_TEXT,
   BEAT_QUOTE_GROUP_BUY_TEXT,
   BEAT_QUOTE_OLDER_QUOTE_TEXT,
   BEAT_QUOTE_ONLINE_LISTING_TEXT,
+  BEAT_QUOTE_POLICY_SLUGS,
+  BEAT_QUOTE_POLICY_VERSION,
   BEAT_QUOTE_RECENT_QUOTE_TEXT,
   BEAT_QUOTE_WHAT_WE_MATCH_TEXT,
 } from "~/domain/beatyourquote/acknowledgmentText";
@@ -239,9 +242,18 @@ describe("the acknowledgment ALWAYS matches the derived treatment", () => {
     expect(texts).toContain(BEAT_QUOTE_AUTHENTICITY_TEXT);
     expect(texts).toContain(BEAT_QUOTE_RECENT_QUOTE_TEXT);
     // Each names the version it was shown under, so a later wording change
-    // cannot restate what this customer agreed to.
+    // cannot restate what this customer agreed to. THE SIX SLUGS VERSION
+    // INDEPENDENTLY: the authenticity term was revised on 2026-11-25 and is at
+    // version 2, the rest have never moved. Asserting a flat "1" here would
+    // have failed on the revision, and asserting nothing would let a
+    // submission record the OLD version's id against the NEW text, which is
+    // the one outcome this whole acknowledgment system exists to prevent.
     for (const row of rows) {
-      expect(row.policyVersion.version).toBe(1);
+      const expectedVersion =
+        row.policyVersion.slug === BEAT_QUOTE_POLICY_SLUGS.authenticity
+          ? BEAT_QUOTE_AUTHENTICITY_POLICY_VERSION
+          : BEAT_QUOTE_POLICY_VERSION;
+      expect(row.policyVersion.version, row.policyVersion.slug).toBe(expectedVersion);
       expect(row.exactText).toBe(row.policyVersion.text);
       expect(row.acknowledgedAt).toBeInstanceOf(Date);
     }
