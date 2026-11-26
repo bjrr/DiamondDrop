@@ -1,24 +1,175 @@
 {
   "sections": {
-    "terms": {
-      "type": "policy-terms",
+    "hero": {
+      "type": "carat-beat-hero",
+      "blocks": {
+        "card_custom": {
+          "type": "card",
+          "settings": {
+            "icon": "quote",
+            "title": "Custom Quote",
+            "line1": "Match or beat guarantee",
+            "line2": "10% fallback on qualifying quotes",
+            "link_label": "Learn More",
+            "target": "custom-quote",
+            "image": "shopify://shop_images/beat-price-custom-quote.png"
+          }
+        },
+        "card_online": {
+          "type": "card",
+          "settings": {
+            "icon": "online",
+            "title": "Online Price",
+            "line1": "Send us the link",
+            "line2": "Give us the chance to beat it",
+            "link_label": "Learn More",
+            "target": "online-price",
+            "image": "shopify://shop_images/beat-price-online-price.png"
+          }
+        },
+        "card_group": {
+          "type": "card",
+          "settings": {
+            "icon": "group",
+            "title": "Group Buy",
+            "line1": "Send us the offer",
+            "line2": "We will review it",
+            "link_label": "Learn More",
+            "target": "group-buy",
+            "image": "shopify://shop_images/beat-price-group-buy.png"
+          }
+        },
+        "trust_1": {
+          "type": "trust",
+          "settings": {
+            "icon": "shield",
+            "text": "Match or beat on qualifying quotes"
+          }
+        },
+        "trust_2": {
+          "type": "trust",
+          "settings": {
+            "icon": "tag",
+            "text": "10% fallback, up to $100"
+          }
+        },
+        "trust_3": {
+          "type": "trust",
+          "settings": {
+            "icon": "person",
+            "text": "Every submission reviewed by a person"
+          }
+        },
+        "trust_4": {
+          "type": "trust",
+          "settings": {
+            "icon": "diamond",
+            "text": "Custom and fine jewelry"
+          }
+        }
+      },
+      "block_order": [
+        "card_custom",
+        "card_online",
+        "card_group",
+        "trust_1",
+        "trust_2",
+        "trust_3",
+        "trust_4"
+      ],
       "settings": {
-        "heading": "Let Us Beat Your Quote — the terms",
-        "heading_size": "h2",
-        "group": "quote-match",
-        "show_version": true,
-        "color_scheme": "scheme-2",
-        "padding_top": 40,
-        "padding_bottom": 48
+        "heading": "Let Us Beat Their Price",
+        "subheading": "Found a better jewelry price? Give us the chance to beat it.",
+        "intro": "<p>Whether you have a recent custom quote, found a piece advertised online, or are considering another Group Buy, send it to us. Every submission is reviewed by a person.</p>",
+        "cta_label": "Submit a Price",
+        "cta_target": "submit-a-price",
+        "color_scheme": "scheme-1",
+        "padding_top": 56,
+        "padding_bottom": 40
       }
     },
-    "head": {
-      "type": "carat-pagehead",
+    "custom_quote": {
+      "type": "carat-beat-detail",
       "settings": {
-        "level": "functional",
+        "anchor": "custom-quote",
+        "icon": "quote",
+        "show_placeholder": true,
+        "media_right": false,
+        "tag": "Recent custom quote",
+        "heading": "Our strongest guarantee",
+        "body": "<p>Have a written custom jewelry quote from another jeweler? If it is genuine, verified, materially comparable, and issued within the last 7 calendar days, we will match or beat the qualifying jewelry price.</p>",
+        "highlight": "<p>If we cannot match or beat it, you may receive <strong>10% off one eligible CaratForUs purchase, up to $100</strong>.</p>",
+        "note": "<p>Older quotes are still welcome. We will review them and may offer a competitive price, without the guarantee or the 10% fallback.</p>",
+        "cta_label": "Submit a custom quote",
+        "cta_target": "submit-a-price",
+        "preselect": "custom_quote",
+        "link_label": "How the 10% fallback works",
+        "link_target": "fallback",
         "color_scheme": "scheme-1",
-        "heading": "Already have a jewelry quote?",
-        "subheading": "Let us take a look. Every submission is read by a person."
+        "padding_top": 48,
+        "padding_bottom": 40,
+        "image": "shopify://shop_images/beat-price-custom-quote.png"
+      }
+    },
+    "online_price": {
+      "type": "carat-beat-detail",
+      "settings": {
+        "anchor": "online-price",
+        "icon": "online",
+        "show_placeholder": true,
+        "media_right": true,
+        "tag": "Found a price online?",
+        "heading": "You do not need a formal quote",
+        "body": "<p>If you find a jewelry piece advertised online at a price you like, send us the live product link and the advertised price. We want the opportunity to review it and see if we can beat it.</p>",
+        "highlight": "<p>Found it online for less? Give us the chance to beat it.</p>",
+        "note": "<p>Online prices are reviewed one by one, with no guaranteed outcome. The match or beat guarantee and the 10% fallback apply only to qualifying recent written custom quotes.</p>",
+        "cta_label": "Submit an online price",
+        "cta_target": "submit-a-price",
+        "preselect": "online_listing",
+        "color_scheme": "scheme-1",
+        "padding_top": 40,
+        "padding_bottom": 40,
+        "image": "shopify://shop_images/beat-price-online-price.png"
+      }
+    },
+    "group_buy": {
+      "type": "carat-beat-detail",
+      "settings": {
+        "anchor": "group-buy",
+        "icon": "group",
+        "show_placeholder": true,
+        "media_right": false,
+        "tag": "Competing Group Buy",
+        "heading": "Considering another Group Buy?",
+        "body": "<p>Send us the offer: the link, the current advertised price, the specs, and the current tier or participation level if there is one. We will review it and tell you honestly whether we can match or beat it.</p>",
+        "note": "<p>A Group Buy review carries no guaranteed match or beat outcome and no 10% fallback.</p>",
+        "cta_label": "Submit a Group Buy",
+        "cta_target": "submit-a-price",
+        "preselect": "competing_group_buy",
+        "color_scheme": "scheme-1",
+        "padding_top": 40,
+        "padding_bottom": 40,
+        "image": "shopify://shop_images/beat-price-group-buy.png"
+      }
+    },
+    "fallback": {
+      "type": "carat-beat-fallback",
+      "settings": {
+        "anchor": "fallback",
+        "tag": "Qualifying custom quotes only",
+        "heading": "How the 10% fallback works",
+        "intro": "<p>If CaratForUs cannot match or beat a qualifying recent written custom jewelry quote, you may receive:</p>",
+        "offer": "10% off one eligible CaratForUs purchase, up to $100 maximum savings.",
+        "eligible_title": "Eligible",
+        "eligible_items": "Eligible regular Buy Now merchandise\nCustom Jewelry",
+        "excluded_title": "Not eligible",
+        "excluded_items": "Group Buys\nLuxury Steals",
+        "rules_title": "Good to know",
+        "rules_items": "Valid for 90 days\nSingle use\nNon-transferable\nNo cash value\nGenerally cannot be combined with another promotion unless approved",
+        "foot": "<p>Online prices and competing Group Buys do not qualify for the fallback. The full terms below govern if anything here differs.</p>",
+        "color_scheme": "scheme-1",
+        "padding_top": 32,
+        "padding_bottom": 48
       }
     },
     "rail": {
@@ -42,7 +193,7 @@
           "type": "note",
           "settings": {
             "title": "Which category yours falls into",
-            "text": "<p>A recent written custom quote carries our guarantee. An online listing or a competing Group Buy we will still review honestly, but with no guarantee attached. We tell you which before you decide anything.</p>"
+            "text": "<p>A recent written custom quote carries our guarantee. An advertised online price or a competing Group Buy we will still review honestly, but with no guarantee attached. We tell you which before you decide anything.</p>"
           }
         }
       },
@@ -59,15 +210,34 @@
     "form": {
       "type": "beat-quote-form",
       "settings": {
-        "heading": "Send us the quote",
+        "heading": "Submit a price",
+        "intro": "Tell us what you found. A person will review it and reply by email.",
+        "anchor": "submit-a-price",
         "color_scheme": "scheme-1",
+        "enable_uploads": false,
         "padding_top": 32,
+        "padding_bottom": 48
+      }
+    },
+    "terms": {
+      "type": "policy-terms",
+      "settings": {
+        "heading": "Let Us Beat Their Price: the full terms",
+        "heading_size": "h2",
+        "group": "quote-match",
+        "show_version": true,
+        "color_scheme": "scheme-2",
+        "padding_top": 40,
         "padding_bottom": 48
       }
     }
   },
   "order": [
-    "head",
+    "hero",
+    "custom_quote",
+    "online_price",
+    "group_buy",
+    "fallback",
     "rail",
     "form",
     "terms"

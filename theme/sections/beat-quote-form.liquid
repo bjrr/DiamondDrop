@@ -1,12 +1,18 @@
 {%- comment -%}
-  LET US BEAT YOUR QUOTE — storefront intake.
+  LET US BEAT THEIR PRICE: storefront intake.
 
   The backend already existed (`apps.carat.beat-quote-submission`); this is
-  the surface that was missing, so the page had no way to actually submit a
-  quote. The route's contract is strict and this form matches it exactly:
-  `.strict()` rejects unknown fields, and the three acknowledgments are
-  `z.literal(true)` rather than booleans, so an unchecked box is a rejected
-  submission rather than a silently-missing agreement.
+  the surface that submits to it. The route's contract is strict and this
+  form matches it exactly: `.strict()` rejects unknown fields, and the three
+  acknowledgments are `z.literal(true)` rather than booleans, so an unchecked
+  box is a rejected submission rather than a silently-missing agreement.
+
+  SUBMISSION TYPE FIRST. The customer picks Written Custom Quote, Advertised
+  Online Price or Competing Group Buy at the top, and only that type's fields
+  are shown. The type maps 1:1 to the route's `kind`. Type-specific extras
+  that the route has no key for (product description, gemstone specs, Group
+  Buy tier) are folded into `specifications` as labelled lines by the JS, so
+  the payload shape the route accepts is unchanged.
 
   ============================================================================
   THE THING THIS FORM MUST GET RIGHT
@@ -17,22 +23,17 @@
   wording that explicitly withdraws the guarantee and the fallback.
 
   So the acknowledgment text has to change as the customer types the date.
-  Showing the guarantee wording and recording the review-only one — or the
-  reverse — would mean our evidence says something the customer never read.
   The client mirrors the server's rule FOR DISPLAY ONLY; the server derives
-  treatment independently and is the sole authority. If they ever disagree,
-  the server wins and the submission is recorded under what the server
-  decided, which is why `beatQuoteAcknowledgmentParity.test.ts` pins the
-  copy on both sides character for character.
+  treatment independently and is the sole authority, which is why
+  `beatQuoteAcknowledgmentParity.test.ts` pins the copy on both sides
+  character for character.
 
-  THE CUSTOMER IS NEVER ASKED TO DECLARE THEIR OWN TREATMENT. There is no
-  "is this eligible?" field. Kind and date are facts; eligibility is
-  computed. That is also why the route refuses a `quoteIssuedOn` on any kind
-  but `custom_quote` instead of ignoring it.
+  THE CUSTOMER IS NEVER ASKED TO DECLARE THEIR OWN TREATMENT. Kind and date
+  are facts; eligibility is computed. That is also why the route refuses a
+  `quoteIssuedOn` on any kind but `custom_quote` instead of ignoring it.
 
   Sign-in is NOT required. The route treats `logged_in_customer_id` as
-  optional and records a null customerRef for anonymous submissions — a lead
-  form that demands an account is a lead form nobody fills in.
+  optional and records a null customerRef for anonymous submissions.
 {%- endcomment -%}
 
 {{ 'carat-editorial.css' | asset_url | stylesheet_tag }}
@@ -40,9 +41,12 @@
 <script src="{{ 'beat-quote-form.js' | asset_url }}" defer="defer"></script>
 
 <div class="color-{{ section.settings.color_scheme | default: 'scheme-1' }} gradient">
-  <div class="page-width section-{{ section.id }}-padding carat-bq">
+  <div class="page-width section-{{ section.id }}-padding carat-bq" id="{{ section.settings.anchor | default: 'submit-a-price' | handleize }}">
     {%- if section.settings.heading != blank -%}
       <h2 class="carat-bq__heading">{{ section.settings.heading | escape }}</h2>
+    {%- endif -%}
+    {%- if section.settings.intro != blank -%}
+      <p class="carat-bq__intro">{{ section.settings.intro | escape }}</p>
     {%- endif -%}
 
     <div
@@ -66,8 +70,7 @@
     {%- comment -%}
       `data-signed-in` drives the upload gate only. It is a UI hint, never an
       authorisation: the destination endpoint re-checks the signed
-      `logged_in_customer_id` itself and refuses anonymous callers regardless
-      of what this attribute says.
+      `logged_in_customer_id` itself.
     {%- endcomment -%}
     <form
       id="BeatQuoteForm"
@@ -76,6 +79,43 @@
       data-carat-bq-form
       data-signed-in="{% if customer %}true{% else %}false{% endif %}"
     >
+      {%- comment -%} ------------------------------ what are you submitting {%- endcomment -%}
+      <fieldset class="carat-bq__group carat-bq__group--kind">
+        <legend class="carat-bq__legend carat-bq__legend--lead">{{ 'templates.beat_quote.group_kind' | t }}</legend>
+
+        <div class="carat-bq__choices" role="radiogroup" aria-labelledby="BqKindLabel">
+          <p class="carat-bq__choices-label" id="BqKindLabel">{{ 'templates.beat_quote.kind_question' | t }} <span aria-hidden="true">*</span></p>
+
+          <div class="carat-bq__choice-grid">
+            <label class="carat-bq__choice">
+              <input type="radio" name="kind" value="custom_quote" data-carat-bq-kind required>
+              <span class="carat-bq__choice-body">
+                <span class="carat-bq__choice-title">{{ 'templates.beat_quote.kind_custom' | t }}</span>
+                <span class="carat-bq__choice-note">{{ 'templates.beat_quote.kind_custom_note' | t }}</span>
+              </span>
+            </label>
+
+            <label class="carat-bq__choice">
+              <input type="radio" name="kind" value="online_listing" data-carat-bq-kind>
+              <span class="carat-bq__choice-body">
+                <span class="carat-bq__choice-title">{{ 'templates.beat_quote.kind_listing' | t }}</span>
+                <span class="carat-bq__choice-note">{{ 'templates.beat_quote.kind_listing_note' | t }}</span>
+              </span>
+            </label>
+
+            <label class="carat-bq__choice">
+              <input type="radio" name="kind" value="competing_group_buy" data-carat-bq-kind>
+              <span class="carat-bq__choice-body">
+                <span class="carat-bq__choice-title">{{ 'templates.beat_quote.kind_groupbuy' | t }}</span>
+                <span class="carat-bq__choice-note">{{ 'templates.beat_quote.kind_groupbuy_note' | t }}</span>
+              </span>
+            </label>
+          </div>
+
+          <small class="carat-bq__error form__message" hidden data-carat-bq-error-for="kind"></small>
+        </div>
+      </fieldset>
+
       {%- comment -%} ---------------------------------------- about you {%- endcomment -%}
       <fieldset class="carat-bq__group">
         <legend class="carat-bq__legend">{{ 'templates.beat_quote.group_about' | t }}</legend>
@@ -106,44 +146,25 @@
         </div>
       </fieldset>
 
-      {%- comment -%} ------------------------------------- what you have {%- endcomment -%}
-      <fieldset class="carat-bq__group">
-        <legend class="carat-bq__legend">{{ 'templates.beat_quote.group_kind' | t }}</legend>
+      {%- comment -%}
+        ----------------------------------------------- the offer itself
+        Hidden until a type is chosen. Labels swap per type through
+        `data-carat-bq-label-kind`; fields that only one type uses sit in
+        `data-carat-bq-when-kind` wrappers, which the JS empties when hidden
+        so a value typed under one type never travels with another.
+      {%- endcomment -%}
+      <fieldset class="carat-bq__group" data-carat-bq-when-any-kind hidden>
+        <legend class="carat-bq__legend">
+          <span data-carat-bq-label-kind="custom_quote">{{ 'templates.beat_quote.details_custom' | t }}</span>
+          <span data-carat-bq-label-kind="online_listing" hidden>{{ 'templates.beat_quote.details_listing' | t }}</span>
+          <span data-carat-bq-label-kind="competing_group_buy" hidden>{{ 'templates.beat_quote.details_groupbuy' | t }}</span>
+        </legend>
 
-        <div class="carat-bq__choices" role="radiogroup" aria-labelledby="BqKindLabel">
-          <p class="carat-bq__choices-label" id="BqKindLabel">{{ 'templates.beat_quote.kind_question' | t }} <span aria-hidden="true">*</span></p>
-
-          <label class="carat-bq__choice">
-            <input type="radio" name="kind" value="custom_quote" data-carat-bq-kind required>
-            <span class="carat-bq__choice-body">
-              <span class="carat-bq__choice-title">{{ 'templates.beat_quote.kind_custom' | t }}</span>
-              <span class="carat-bq__choice-note">{{ 'templates.beat_quote.kind_custom_note' | t }}</span>
-            </span>
-          </label>
-
-          <label class="carat-bq__choice">
-            <input type="radio" name="kind" value="online_listing" data-carat-bq-kind>
-            <span class="carat-bq__choice-body">
-              <span class="carat-bq__choice-title">{{ 'templates.beat_quote.kind_listing' | t }}</span>
-              <span class="carat-bq__choice-note">{{ 'templates.beat_quote.kind_listing_note' | t }}</span>
-            </span>
-          </label>
-
-          <label class="carat-bq__choice">
-            <input type="radio" name="kind" value="competing_group_buy" data-carat-bq-kind>
-            <span class="carat-bq__choice-body">
-              <span class="carat-bq__choice-title">{{ 'templates.beat_quote.kind_groupbuy' | t }}</span>
-              <span class="carat-bq__choice-note">{{ 'templates.beat_quote.kind_groupbuy_note' | t }}</span>
-            </span>
-          </label>
-
-          <small class="carat-bq__error form__message" hidden data-carat-bq-error-for="kind"></small>
-        </div>
+        <p class="carat-bq__tagline" data-carat-bq-when-kind="online_listing" hidden>{{ 'templates.beat_quote.online_tagline' | t }}</p>
 
         {%- comment -%}
           Only a custom quote carries a date. The route REFUSES a
-          `quoteIssuedOn` on the other kinds rather than ignoring it, so this
-          block is removed from the payload entirely when it is hidden.
+          `quoteIssuedOn` on the other kinds rather than ignoring it.
         {%- endcomment -%}
         <div class="carat-bq__conditional" data-carat-bq-when-kind="custom_quote" hidden>
           <div class="field">
@@ -153,127 +174,132 @@
           </div>
           <p class="carat-bq__hint">{{ 'templates.beat_quote.quote_date_hint' | t }}</p>
         </div>
-      </fieldset>
-
-      {%- comment -%} --------------------------------------- the seller {%- endcomment -%}
-      <fieldset class="carat-bq__group">
-        <legend class="carat-bq__legend">{{ 'templates.beat_quote.group_seller' | t }}</legend>
 
         <div class="carat-bq__row">
           <div class="field">
             <input class="field__input" type="text" id="BqSeller" name="competitorSellerName" placeholder=" ">
-            <label class="field__label" for="BqSeller">{{ 'templates.beat_quote.seller_name' | t }}</label>
+            <label class="field__label" for="BqSeller">
+              <span data-carat-bq-label-kind="custom_quote">{{ 'templates.beat_quote.seller_custom' | t }}</span>
+              <span data-carat-bq-label-kind="online_listing" hidden>{{ 'templates.beat_quote.seller_listing' | t }}</span>
+              <span data-carat-bq-label-kind="competing_group_buy" hidden>{{ 'templates.beat_quote.seller_groupbuy' | t }}</span>
+            </label>
           </div>
-          <div class="field">
+          <div class="field" data-carat-bq-when-kind="custom_quote online_listing" hidden>
             <input class="field__input" type="text" id="BqWebsite" name="competitorWebsite" placeholder=" ">
-            <label class="field__label" for="BqWebsite">{{ 'templates.beat_quote.seller_site' | t }}</label>
+            <label class="field__label" for="BqWebsite">
+              <span data-carat-bq-label-kind="custom_quote">{{ 'templates.beat_quote.site_custom' | t }}</span>
+              <span data-carat-bq-label-kind="online_listing" hidden>{{ 'templates.beat_quote.site_listing' | t }}</span>
+              <span data-carat-bq-label-kind="competing_group_buy" hidden>{{ 'templates.beat_quote.site_listing' | t }}</span>
+            </label>
           </div>
         </div>
 
         {%- comment -%}
-          THE TWO PATHS CARRY DIFFERENT EVIDENCE, AND THE FORM SAYS SO.
-
-          A written quote is a document the customer holds, so they attach
-          it. An online offer or a competing Group Buy is a live page, so a
-          URL is the evidence — and the amendment says a screenshot alone
-          does not establish a live offer anyway.
-
-          Neither is mandatory. A customer without the PDF to hand can still
-          submit and send it later; refusing the submission would lose the
-          lead to protect a preference.
+          An online price or a competing Group Buy is a live page, so a URL is
+          the evidence. A screenshot alone does not establish a live offer.
+          Not mandatory: refusing the submission would lose the lead.
         {%- endcomment -%}
         <div class="carat-bq__conditional" data-carat-bq-when-kind="online_listing competing_group_buy" hidden>
           <div class="field">
             <input class="field__input" type="url" id="BqListingUrl" name="listingUrl" placeholder=" ">
-            <label class="field__label" for="BqListingUrl">{{ 'templates.beat_quote.listing_url' | t }}</label>
+            <label class="field__label" for="BqListingUrl">
+              <span data-carat-bq-label-kind="online_listing">{{ 'templates.beat_quote.url_listing' | t }}</span>
+              <span data-carat-bq-label-kind="competing_group_buy" hidden>{{ 'templates.beat_quote.url_groupbuy' | t }}</span>
+              <span data-carat-bq-label-kind="custom_quote" hidden>{{ 'templates.beat_quote.listing_url' | t }}</span>
+            </label>
             <small class="carat-bq__error form__message" hidden data-carat-bq-error-for="listingUrl"></small>
           </div>
           <p class="carat-bq__hint">{{ 'templates.beat_quote.listing_url_hint' | t }}</p>
         </div>
 
-        {%- comment -%}
-          GATED ON A SETTING, DEFAULT OFF.
-
-          The attachment control depends on a backend route
-          (`apps.carat.beat-quote-upload-destination`) and a table that only
-          exist after the app is deployed. The theme can ship ahead of that
-          deploy — it just did — and a visible Choose-a-file button that
-          always reports "Could not attach" is worse than no button.
-
-          Submissions are unaffected either way: with uploads off nothing is
-          attached, so the payload carries no `uploads` key and the older
-          deployed route accepts it exactly as before.
-
-          Turn this on once the deploy carrying the route has landed.
-        {%- endcomment -%}
-        <div class="carat-bq__conditional" data-carat-bq-when-kind="custom_quote" hidden>
-          <div class="carat-bq__uploads" data-carat-bq-uploads {% unless section.settings.enable_uploads %}hidden{% endunless %}>
-            <p class="carat-bq__uploads-label">{{ 'templates.beat_quote.upload_label' | t }}</p>
-
-            {%- comment -%}
-              Attaching requires sign-in. The destination endpoint mints
-              presigned writes to our bucket, so it is gated the same way the
-              warranty upload endpoint is. Signed-out customers are told this
-              plainly and can still submit without a file, rather than being
-              shown a control that silently fails.
-            {%- endcomment -%}
-            <div class="carat-bq__upload-gate" data-carat-bq-upload-gate hidden>
-              <p>{{ 'templates.beat_quote.upload_signin_required' | t }}</p>
-              {%- comment -%}
-                `routes.account_login_url` rather than a hardcoded path — the
-                account URL differs under new customer accounts, and a stale
-                literal would send people to a 404 on the one control that
-                exists to unblock them.
-              {%- endcomment -%}
-              <a class="carat-link" href="{{ routes.account_login_url }}{% if routes.account_login_url contains '?' %}&{% else %}?{% endif %}return_url={{ request.path | url_encode }}">
-                {{- 'templates.beat_quote.upload_signin_link' | t -}}
-              </a>
-            </div>
-
-            <div class="carat-bq__upload-control" data-carat-bq-upload-control hidden>
-              <label class="carat-bq__upload-button" for="BqQuoteFile">
-                <span>{{ 'templates.beat_quote.upload_choose' | t }}</span>
-                <input
-                  type="file"
-                  id="BqQuoteFile"
-                  accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif"
-                  multiple
-                  data-carat-bq-file
-                >
-              </label>
-              <p class="carat-bq__hint">{{ 'templates.beat_quote.upload_hint' | t }}</p>
-              <ul class="carat-bq__upload-list" data-carat-bq-upload-list></ul>
-            </div>
-          </div>
-        </div>
-
         <div class="carat-bq__row">
           <div class="field">
             <input class="field__input" type="text" inputmode="decimal" id="BqPrice" name="competitorPrice" placeholder=" ">
-            <label class="field__label" for="BqPrice">{{ 'templates.beat_quote.price' | t }}</label>
+            <label class="field__label" for="BqPrice">
+              <span data-carat-bq-label-kind="custom_quote">{{ 'templates.beat_quote.price_custom' | t }}</span>
+              <span data-carat-bq-label-kind="online_listing" hidden>{{ 'templates.beat_quote.price_listing' | t }}</span>
+              <span data-carat-bq-label-kind="competing_group_buy" hidden>{{ 'templates.beat_quote.price_groupbuy' | t }}</span>
+            </label>
             <small class="carat-bq__error form__message" hidden data-carat-bq-error-for="competitorPrice"></small>
+          </div>
+          <div class="field" data-carat-bq-when-kind="competing_group_buy" hidden>
+            <input class="field__input" type="text" id="BqTier" maxlength="500" placeholder=" ">
+            <label class="field__label" for="BqTier">{{ 'templates.beat_quote.tier' | t }}</label>
           </div>
         </div>
         <p class="carat-bq__hint">{{ 'templates.beat_quote.price_hint' | t }}</p>
+
+        {%- comment -%}
+          GATED ON A SETTING, DEFAULT OFF. The attachment control depends on
+          the upload route being deployed. With uploads off nothing is
+          attached and the payload carries no `uploads` key. Attachments are
+          cleared whenever the submission type changes.
+        {%- endcomment -%}
+        <div class="carat-bq__uploads" data-carat-bq-uploads {% unless section.settings.enable_uploads %}hidden{% endunless %}>
+          <p class="carat-bq__uploads-label">
+            <span data-carat-bq-label-kind="custom_quote">{{ 'templates.beat_quote.upload_label_custom' | t }}</span>
+            <span data-carat-bq-label-kind="online_listing" hidden>{{ 'templates.beat_quote.upload_label_listing' | t }}</span>
+            <span data-carat-bq-label-kind="competing_group_buy" hidden>{{ 'templates.beat_quote.upload_label_groupbuy' | t }}</span>
+          </p>
+
+          <div class="carat-bq__upload-gate" data-carat-bq-upload-gate hidden>
+            <p>{{ 'templates.beat_quote.upload_signin_required' | t }}</p>
+            {%- comment -%}
+              `routes.account_login_url` rather than a hardcoded path: the
+              account URL differs under new customer accounts.
+            {%- endcomment -%}
+            <a class="carat-link" href="{{ routes.account_login_url }}{% if routes.account_login_url contains '?' %}&{% else %}?{% endif %}return_url={{ request.path | url_encode }}">
+              {{- 'templates.beat_quote.upload_signin_link' | t -}}
+            </a>
+          </div>
+
+          <div class="carat-bq__upload-control" data-carat-bq-upload-control hidden>
+            <label class="carat-bq__upload-button" for="BqQuoteFile">
+              <span>{{ 'templates.beat_quote.upload_choose' | t }}</span>
+              <input
+                type="file"
+                id="BqQuoteFile"
+                accept="application/pdf,image/jpeg,image/png,image/webp,image/heic,image/heif"
+                multiple
+                data-carat-bq-file
+              >
+            </label>
+            <p class="carat-bq__hint">{{ 'templates.beat_quote.upload_hint' | t }}</p>
+            <ul class="carat-bq__upload-list" data-carat-bq-upload-list></ul>
+          </div>
+        </div>
       </fieldset>
 
       {%- comment -%} ---------------------------------------- the piece {%- endcomment -%}
-      <fieldset class="carat-bq__group">
+      <fieldset class="carat-bq__group" data-carat-bq-when-any-kind hidden>
         <legend class="carat-bq__legend">{{ 'templates.beat_quote.group_piece' | t }}</legend>
 
+        <div class="field" data-carat-bq-when-kind="online_listing" hidden>
+          <textarea class="text-area field__input" id="BqProductDesc" rows="3" maxlength="1500" placeholder=" "></textarea>
+          <label class="field__label" for="BqProductDesc">{{ 'templates.beat_quote.product_desc' | t }}</label>
+        </div>
+
         <div class="field">
-          <textarea class="text-area field__input" id="BqSpecs" name="specifications" rows="5" placeholder=" "></textarea>
-          <label class="field__label" for="BqSpecs">{{ 'templates.beat_quote.specs' | t }}</label>
+          <textarea class="text-area field__input" id="BqSpecs" name="specifications" rows="5" maxlength="2000" placeholder=" "></textarea>
+          <label class="field__label" for="BqSpecs">
+            <span data-carat-bq-label-kind="custom_quote">{{ 'templates.beat_quote.specs_custom' | t }}</span>
+            <span data-carat-bq-label-kind="online_listing" hidden>{{ 'templates.beat_quote.specs_listing' | t }}</span>
+            <span data-carat-bq-label-kind="competing_group_buy" hidden>{{ 'templates.beat_quote.specs_groupbuy' | t }}</span>
+          </label>
+        </div>
+
+        <div class="field" data-carat-bq-when-kind="online_listing" hidden>
+          <textarea class="text-area field__input" id="BqGemSpecs" rows="3" maxlength="1500" placeholder=" "></textarea>
+          <label class="field__label" for="BqGemSpecs">{{ 'templates.beat_quote.gem_specs' | t }}</label>
         </div>
         <p class="carat-bq__hint">{{ 'templates.beat_quote.specs_hint' | t }}</p>
       </fieldset>
 
       {%- comment -%}
         ----------------------------------------------- acknowledgments
-
         Never pre-checked, never inferred. The path acknowledgment's text is
         swapped by JS as kind and date change, and its wording is pinned to
-        the server's constants by a test.
+        the server's constants by a test. Unchanged by the redesign.
       {%- endcomment -%}
       <fieldset class="carat-bq__group carat-bq__group--ack">
         <legend class="carat-bq__legend">{{ 'templates.beat_quote.group_ack' | t }}</legend>
@@ -299,8 +325,7 @@
 
       {%- comment -%}
         The submit label is the acknowledgment's own affirmative action
-        label — "Submit Online Offer for Review" rather than a generic
-        "Submit" — so the button states what is being agreed to.
+        label, so the button states what is being agreed to.
       {%- endcomment -%}
       <div class="carat-bq__actions">
         <button type="submit" class="button carat-bq__submit" data-carat-bq-submit>
@@ -322,8 +347,10 @@
   "tag": "section",
   "settings": [
     { "type": "text", "id": "heading", "label": "Heading", "default": "Send us the quote" },
+    { "type": "text", "id": "intro", "label": "Intro line" },
+    { "type": "text", "id": "anchor", "label": "Section id (jump target)", "default": "submit-a-price" },
     { "type": "color_scheme", "id": "color_scheme", "label": "Colour scheme", "default": "scheme-1" },
-    { "type": "checkbox", "id": "enable_uploads", "label": "Allow quote attachments (needs the upload route deployed)", "default": false },
+    { "type": "checkbox", "id": "enable_uploads", "label": "Allow attachments (needs the upload route deployed)", "default": false },
     { "type": "range", "id": "padding_top", "min": 0, "max": 100, "step": 4, "unit": "px", "label": "Padding top", "default": 32 },
     { "type": "range", "id": "padding_bottom", "min": 0, "max": 100, "step": 4, "unit": "px", "label": "Padding bottom", "default": 48 }
   ],

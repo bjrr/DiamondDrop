@@ -1,0 +1,96 @@
+{%- comment -%}
+  LET US BEAT THEIR PRICE: one path explained (custom quote, online price,
+  Group Buy). The section id setting is the jump target the hero cards use.
+  Links with a "preselect" kind also choose that option in the form.
+{%- endcomment -%}
+{{ 'carat-beat-price.css' | asset_url | stylesheet_tag }}
+
+{%- assign img = section.settings.image -%}
+<section
+  id="{{ section.settings.anchor | handleize }}"
+  class="cbp cbp-detail{% if section.settings.media_right %} cbp-detail--media-right{% endif %}{% if img == blank and section.settings.show_placeholder == false %} cbp-detail--no-media{% endif %} color-{{ section.settings.color_scheme | default: 'scheme-1' }} gradient"
+  aria-labelledby="CbpDetail-{{ section.id }}"
+>
+  <div class="page-width section-{{ section.id }}-padding">
+    <div class="cbp-detail__grid">
+      {%- if img != blank or section.settings.show_placeholder -%}
+        <div class="cbp-detail__media">
+          {%- if img != blank -%}
+            {{ img | image_url: width: 1200 | image_tag:
+              widths: '500, 800, 1200',
+              sizes: '(min-width: 750px) 45vw, 92vw',
+              loading: 'lazy',
+              alt: img.alt | default: ''
+            }}
+          {%- else -%}
+            {% render 'carat-bp-icon', name: section.settings.icon %}
+          {%- endif -%}
+        </div>
+      {%- endif -%}
+      <div class="cbp-detail__copy">
+        {%- if section.settings.tag != blank -%}<p class="cbp-tag">{{ section.settings.tag | escape }}</p>{%- endif -%}
+        <h2 class="cbp-detail__heading" id="CbpDetail-{{ section.id }}">{{ section.settings.heading | escape }}</h2>
+        {%- if section.settings.body != blank -%}<div class="cbp-detail__body">{{ section.settings.body }}</div>{%- endif -%}
+        {%- if section.settings.highlight != blank -%}
+          <div class="cbp-highlight">{% render 'carat-bp-icon', name: 'check' %}<div>{{ section.settings.highlight }}</div></div>
+        {%- endif -%}
+        {%- if section.settings.note != blank -%}<div class="cbp-detail__note">{{ section.settings.note }}</div>{%- endif -%}
+        <div class="cbp-detail__links">
+          {%- if section.settings.cta_label != blank -%}
+            <a class="button cbp-cta" href="#{{ section.settings.cta_target | default: 'submit-a-price' | handleize }}"{% if section.settings.preselect != 'none' %} data-carat-bq-preselect="{{ section.settings.preselect }}"{% endif %}>
+              {{- section.settings.cta_label | escape -}}
+            </a>
+          {%- endif -%}
+          {%- if section.settings.link_label != blank -%}
+            <a class="cbp-link" href="#{{ section.settings.link_target | handleize }}">{{ section.settings.link_label | escape }}</a>
+          {%- endif -%}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "Beat price detail",
+  "tag": "div",
+  "settings": [
+    { "type": "text", "id": "anchor", "label": "Section id (jump target)", "default": "custom-quote" },
+    { "type": "image_picker", "id": "image", "label": "Image" },
+    { "type": "checkbox", "id": "show_placeholder", "label": "Show styled panel when no image", "default": true },
+    { "type": "select", "id": "icon", "label": "Placeholder icon", "default": "diamond", "options": [
+      { "value": "quote", "label": "Quote" }, { "value": "online", "label": "Online" }, { "value": "group", "label": "Group" }, { "value": "diamond", "label": "Diamond" }
+    ] },
+    { "type": "checkbox", "id": "media_right", "label": "Image on the right", "default": false },
+    { "type": "text", "id": "tag", "label": "Label" },
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Our strongest guarantee" },
+    { "type": "richtext", "id": "body", "label": "Body" },
+    { "type": "richtext", "id": "highlight", "label": "Highlighted line" },
+    { "type": "richtext", "id": "note", "label": "Small note" },
+    { "type": "text", "id": "cta_label", "label": "Button label" },
+    { "type": "text", "id": "cta_target", "label": "Button jumps to section id", "default": "submit-a-price" },
+    { "type": "select", "id": "preselect", "label": "Button also selects in form", "default": "none", "options": [
+      { "value": "none", "label": "Nothing" }, { "value": "custom_quote", "label": "Written Custom Quote" }, { "value": "online_listing", "label": "Advertised Online Price" }, { "value": "competing_group_buy", "label": "Competing Group Buy" }
+    ] },
+    { "type": "text", "id": "link_label", "label": "Text link label" },
+    { "type": "text", "id": "link_target", "label": "Text link jumps to section id" },
+    { "type": "color_scheme", "id": "color_scheme", "label": "Colour scheme", "default": "scheme-1" },
+    { "type": "range", "id": "padding_top", "min": 0, "max": 120, "step": 4, "unit": "px", "label": "Padding top", "default": 48 },
+    { "type": "range", "id": "padding_bottom", "min": 0, "max": 120, "step": 4, "unit": "px", "label": "Padding bottom", "default": 48 }
+  ],
+  "presets": [{ "name": "Beat price detail" }]
+}
+{% endschema %}
+
+{%- style -%}
+  .section-{{ section.id }}-padding {
+    padding-top: {{ section.settings.padding_top | times: 0.75 | round: 0 }}px;
+    padding-bottom: {{ section.settings.padding_bottom | times: 0.75 | round: 0 }}px;
+  }
+  @media screen and (min-width: 750px) {
+    .section-{{ section.id }}-padding {
+      padding-top: {{ section.settings.padding_top }}px;
+      padding-bottom: {{ section.settings.padding_bottom }}px;
+    }
+  }
+{%- endstyle -%}
