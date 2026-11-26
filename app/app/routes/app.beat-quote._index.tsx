@@ -234,7 +234,7 @@ export default function BeatQuoteIndexPage() {
     <AppProvider apiKey={apiKey}>
       <AdminNavigation />
       <main style={{ padding: "1.5rem", maxWidth: "80rem" }}>
-        <h1 style={{ marginTop: 0 }}>Let Us Beat Your Quote — review queue</h1>
+        <h1 style={{ marginTop: 0 }}>Let Us Beat Their Price: review queue</h1>
 
         {owedCount > 0 ? (
           <p role="alert" style={{ fontWeight: 600 }}>

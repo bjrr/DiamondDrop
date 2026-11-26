@@ -1493,7 +1493,7 @@ export class ShopifyDraftOrderAdapter implements DraftOrderPort {
           value: discountFloat,
           amountWithCurrency: { amount: discountDecimalString, currencyCode: currency },
           title: input.discountTitle,
-          description: `Let Us Beat Your Quote fallback benefit (redemption ${input.redemptionIntentId})`,
+          description: `Let Us Beat Their Price fallback benefit (redemption ${input.redemptionIntentId})`,
         },
         // Amendment §3's non-stacking promise, enforced at Shopify's checkout
         // rather than only in our own arithmetic.

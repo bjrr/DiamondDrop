@@ -275,7 +275,7 @@ async function main() {
       title: "Custom Jewelry — live gate probe (CJ-LIVEGATE, approved design v1)",
       grossPrice: GROSS,
       totalCredit: CREDIT,
-      creditTitle: "Design Deposit credit + Let Us Beat Your Quote benefit",
+      creditTitle: "Design Deposit credit + Let Us Beat Their Price benefit",
       paymentBasis: "card",
       // Shipping became required on 2026-11-18. The LIVE gate resolves it the
       // way production does — from Shopify's own availableShippingRates for
@@ -374,7 +374,7 @@ async function main() {
       title: "Custom Jewelry — live gate probe (CJ-LIVEGATE, approved design v1)",
       grossPrice: GROSS,
       totalCredit: CREDIT,
-      creditTitle: "Design Deposit credit + Let Us Beat Your Quote benefit",
+      creditTitle: "Design Deposit credit + Let Us Beat Their Price benefit",
       paymentBasis: "bank_payment",
       // Shipping became required on 2026-11-18. The LIVE gate resolves it the
       // way production does — from Shopify's own availableShippingRates for

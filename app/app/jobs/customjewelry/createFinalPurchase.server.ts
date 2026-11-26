@@ -598,7 +598,7 @@ function describePiece(pkg: CustomJewelryApprovalPackage & { project: { projectR
 function describeCredit(depositCredit: Money, benefitDiscount: Money): string {
   const parts: string[] = [];
   if (depositCredit.amountMinorUnits > 0n) parts.push("Design Deposit credit");
-  if (benefitDiscount.amountMinorUnits > 0n) parts.push("Let Us Beat Your Quote benefit");
+  if (benefitDiscount.amountMinorUnits > 0n) parts.push("Let Us Beat Their Price benefit");
   // Never empty in practice: the caller sends no discount at all when the
   // total credit is zero. Named defensively so a future caller cannot produce
   // an untitled discount line.

@@ -1,4 +1,4 @@
-# Let Us Beat Their Price — MVP1 Locked Specification
+# Let Us Beat Their Price: MVP1 Locked Specification
 
 ## Status
 **LOCKED MVP1 REQUIREMENT**
@@ -138,12 +138,12 @@ CaratForUs may independently verify:
 
 CaratForUs may request additional documentation or seller contact information and may contact the quoting seller when reasonably necessary.
 
-The customer must certify that submitted quotes, listings, CADs, specifications, screenshots, images, and other evidence are authentic and unaltered.
+The customer must certify that submitted quotes, listings, CADs, specifications, screenshots, images, and other evidence are true, complete and authentic, and have not been altered, fabricated, or generated or edited by AI.
 
 The following do not qualify for the guarantee:
 - fabricated quotes;
 - altered or materially edited quotes;
-- AI-generated fake evidence;
+- evidence generated or edited by AI;
 - forged or manipulated screenshots/documents;
 - unverifiable sellers or prices;
 - insufficient design/specification evidence;

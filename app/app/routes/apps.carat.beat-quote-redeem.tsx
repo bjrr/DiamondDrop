@@ -540,7 +540,7 @@ export async function action({ request }: ActionFunctionArgs) {
           ? {
               appliedDiscount: {
                 amountMinorUnits: prospective.discount.amountMinorUnits,
-                title: `Let Us Beat Your Quote — ${BEAT_QUOTE_FALLBACK_PERCENT}% off`,
+                title: `Let Us Beat Their Price: ${BEAT_QUOTE_FALLBACK_PERCENT}% off`,
               },
             }
           : {}),
@@ -645,7 +645,7 @@ export async function action({ request }: ActionFunctionArgs) {
         ? {
             appliedDiscount: {
               amountMinorUnits: discount.amountMinorUnits,
-              title: `Let Us Beat Your Quote — ${BEAT_QUOTE_FALLBACK_PERCENT}% off`,
+              title: `Let Us Beat Their Price: ${BEAT_QUOTE_FALLBACK_PERCENT}% off`,
             },
           }
         : {}),
@@ -712,9 +712,9 @@ export async function action({ request }: ActionFunctionArgs) {
         resolvedShippingRate.currency
       ),
       discount,
-      discountTitle: `Let Us Beat Your Quote — ${BEAT_QUOTE_FALLBACK_PERCENT}% off`,
+      discountTitle: `Let Us Beat Their Price: ${BEAT_QUOTE_FALLBACK_PERCENT}% off`,
       redemptionIntentId: intent.id,
-      note: `Let Us Beat Your Quote fallback benefit ${benefitCode} (redemption ${intent.id})`,
+      note: `Let Us Beat Their Price fallback benefit ${benefitCode} (redemption ${intent.id})`,
       // THE TAG IS A LOOKUP HINT, NOT AN AUTHORISATION. `orders/paid` reads it
       // to find which intent might belong to the order, then asks Shopify
       // which order this intent's draft order actually became and refuses if

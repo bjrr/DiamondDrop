@@ -129,7 +129,7 @@ function redemptionInput(
     shippingAddress: SHIPPING_ADDRESS,
     lineItems: [{ shopifyVariantGid: VARIANT, quantity: 1, unitPrice: Money.fromMinorUnits(50_000n, "USD") }],
     discount: Money.fromMinorUnits(5_000n, "USD"),
-    discountTitle: "Let Us Beat Your Quote — 10% off",
+    discountTitle: "Let Us Beat Their Price: 10% off",
     redemptionIntentId: "11111111-2222-3333-4444-555555555555",
     // Shipping became required on 2026-11-18. $30.00 Standard, so the
     // default case in this file is one where shipping COSTS money.
