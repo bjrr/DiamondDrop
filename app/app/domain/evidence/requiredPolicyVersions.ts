@@ -204,6 +204,16 @@ export const REQUIRED_POLICY_VERSIONS: readonly RequiredPolicyVersion[] = [
     version: BEAT_QUOTE_AUTHENTICITY_POLICY_VERSION,
     text: BEAT_QUOTE_AUTHENTICITY_TEXT,
   }),
+  // STILL REQUIRED, THOUGH NO LONGER ACKNOWLEDGED. Owner decision 2026-11-26
+  // removed the third checkbox from the recent-quote path, so
+  // `apps.carat.beat-quote-submission` no longer records an acknowledgment
+  // against this slug. The row stays required because the POLICY PAGE still
+  // quotes it: `publishedPolicyTerms.ts` publishes it under "A recent custom
+  // quote", `apps.carat.policies` serves it, and
+  // `publishedPolicyTerms.test.ts` refuses to publish any slug that is absent
+  // from this registry. Dropping the entry would stop /health reporting a row
+  // the page needs and would leave that term silently missing from the terms a
+  // customer reads.
   toRequiredPolicyVersion({
     slug: BEAT_QUOTE_POLICY_SLUGS.recentQuote,
     version: BEAT_QUOTE_POLICY_VERSION,
