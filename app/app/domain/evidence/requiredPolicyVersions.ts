@@ -1,6 +1,7 @@
 import { sha256Hex } from "./hash";
 import { buildPolicyVersionRecord } from "./policyVersion";
 import {
+  BEAT_QUOTE_AUTHENTICITY_POLICY_VERSION,
   BEAT_QUOTE_AUTHENTICITY_TEXT,
   BEAT_QUOTE_GROUP_BUY_TEXT,
   BEAT_QUOTE_OLDER_QUOTE_TEXT,
@@ -194,9 +195,13 @@ export const REQUIRED_POLICY_VERSIONS: readonly RequiredPolicyVersion[] = [
     version: BEAT_QUOTE_POLICY_VERSION,
     text: BEAT_QUOTE_WHAT_WE_MATCH_TEXT,
   }),
+  // VERSION 2. The authenticity wording was revised on 2026-11-25 and is the
+  // only one of the six that has moved. Registered at the version the route
+  // will actually serve, so /health reports the new row missing rather than
+  // passing on the strength of version 1 still being there.
   toRequiredPolicyVersion({
     slug: BEAT_QUOTE_POLICY_SLUGS.authenticity,
-    version: BEAT_QUOTE_POLICY_VERSION,
+    version: BEAT_QUOTE_AUTHENTICITY_POLICY_VERSION,
     text: BEAT_QUOTE_AUTHENTICITY_TEXT,
   }),
   toRequiredPolicyVersion({

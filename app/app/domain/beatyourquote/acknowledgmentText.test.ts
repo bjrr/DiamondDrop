@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   BEAT_QUOTE_AUTHENTICITY_ACTION,
+  BEAT_QUOTE_AUTHENTICITY_POLICY_VERSION,
   BEAT_QUOTE_AUTHENTICITY_TEXT,
   BEAT_QUOTE_GROUP_BUY_ACTION,
   BEAT_QUOTE_GROUP_BUY_TEXT,
@@ -10,6 +11,7 @@ import {
   BEAT_QUOTE_ONLINE_LISTING_ACTION,
   BEAT_QUOTE_ONLINE_LISTING_TEXT,
   BEAT_QUOTE_POLICY_SLUGS,
+  BEAT_QUOTE_POLICY_VERSION,
   BEAT_QUOTE_RECENT_QUOTE_ACTION,
   BEAT_QUOTE_RECENT_QUOTE_TEXT,
   BEAT_QUOTE_WHAT_WE_MATCH_ACTION,
@@ -75,13 +77,29 @@ describe("the approved acknowledgment text", () => {
   });
 
   it("2 — authenticity and verification", () => {
+    // VERSION 2 wording, owner decision 2026-11-25.
     expect(BEAT_QUOTE_AUTHENTICITY_TEXT).toBe(
-      "I confirm the quote, listing, CAD, specifications, images, and seller information I submitted are " +
-        "authentic and have not been altered, fabricated, or AI-generated. I understand CaratForUs may " +
-        "request additional documentation or independently verify the seller, offer, specifications, and " +
-        "price."
+      "I certify, as a formal representation made to induce CaratForUs to rely on it, that the quote, " +
+        "listing, CAD, specifications, images, and seller information I have submitted are true, complete, " +
+        "and authentic, and have not been altered, fabricated, or generated or edited by AI. I understand " +
+        "that knowingly submitting false or altered information may result in cancellation of any " +
+        "resulting price, order, or benefit, and may expose me to legal liability. I understand CaratForUs " +
+        "may request additional documentation or independently verify the seller, offer, specifications, " +
+        "and price."
     );
     expect(BEAT_QUOTE_AUTHENTICITY_ACTION).toBe("I Confirm");
+  });
+
+  /**
+   * THE SIX SLUGS VERSION INDEPENDENTLY. Pinned here because the thing that
+   * would silently break this program is the authenticity slug being served or
+   * recorded at version 1 while the module holds version 2's words. Evidence
+   * would then name a version whose stored text is a sentence the customer
+   * never saw. The other five have never been revised.
+   */
+  it("the authenticity term is at version 2; the other five remain at version 1", () => {
+    expect(BEAT_QUOTE_AUTHENTICITY_POLICY_VERSION).toBe(2);
+    expect(BEAT_QUOTE_POLICY_VERSION).toBe(1);
   });
 });
 

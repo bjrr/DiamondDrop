@@ -45,9 +45,26 @@ export const BEAT_QUOTE_WHAT_WE_MATCH_TEXT =
   "services.";
 export const BEAT_QUOTE_WHAT_WE_MATCH_ACTION = "I Understand & Agree";
 
+/**
+ * VERSION 2 (owner decision 2026-11-25). Version 1 read:
+ *
+ *   "I confirm the quote, listing, CAD, specifications, images, and seller
+ *   information I submitted are authentic and have not been altered,
+ *   fabricated, or AI-generated. I understand CaratForUs may request additional
+ *   documentation or independently verify the seller, offer, specifications,
+ *   and price."
+ *
+ * The new wording makes the certification an explicit representation relied on,
+ * names AI editing as well as AI generation, and states the consequence of
+ * submitting false information. Version 1 is NOT edited; see
+ * `BEAT_QUOTE_AUTHENTICITY_POLICY_VERSION` below.
+ */
 export const BEAT_QUOTE_AUTHENTICITY_TEXT =
-  "I confirm the quote, listing, CAD, specifications, images, and seller information I submitted are " +
-  "authentic and have not been altered, fabricated, or AI-generated. I understand CaratForUs may request " +
+  "I certify, as a formal representation made to induce CaratForUs to rely on it, that the quote, " +
+  "listing, CAD, specifications, images, and seller information I have submitted are true, complete, and " +
+  "authentic, and have not been altered, fabricated, or generated or edited by AI. I understand that " +
+  "knowingly submitting false or altered information may result in cancellation of any resulting price, " +
+  "order, or benefit, and may expose me to legal liability. I understand CaratForUs may request " +
   "additional documentation or independently verify the seller, offer, specifications, and price.";
 export const BEAT_QUOTE_AUTHENTICITY_ACTION = "I Confirm";
 
@@ -93,7 +110,28 @@ export const BEAT_QUOTE_POLICY_SLUGS = {
   onlineListing: "beat-quote-online-listing-review",
 } as const;
 
+/**
+ * THE SIX SLUGS VERSION INDEPENDENTLY, and the authenticity term is the first
+ * one to move.
+ *
+ * `BEAT_QUOTE_POLICY_VERSION` is version 1 of the five terms whose approved
+ * wording has never changed. The authenticity term was rewritten on 2026-11-25
+ * and is therefore version 2, provisioned by migration
+ * `20261125120000_beat_quote_authenticity_policy_v2`.
+ *
+ * WHY NOT BUMP ALL SIX TOGETHER. `policy_version` is append-only, and an
+ * `acknowledgment` row points at the version it was shown under. Inserting an
+ * identical version 2 of the other five would leave an auditor with two rows
+ * carrying the same words and no way to tell which one a customer saw. That is
+ * the same reasoning migration `20261119120000` applied when it bumped the SMS
+ * consent slug and left the email slug at version 1.
+ *
+ * Version 1 of the authenticity term keeps its original words for as long as
+ * any acknowledgment points at it. That is the whole purpose of versioning: it
+ * is what the customers who submitted before today actually read.
+ */
 export const BEAT_QUOTE_POLICY_VERSION = 1;
+export const BEAT_QUOTE_AUTHENTICITY_POLICY_VERSION = 2;
 
 export type BeatQuotePathAcknowledgmentId = "recent_quote" | "older_quote" | "group_buy" | "online_listing";
 
