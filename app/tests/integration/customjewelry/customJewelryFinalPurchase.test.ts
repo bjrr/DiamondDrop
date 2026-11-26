@@ -603,7 +603,7 @@ describe("what cannot be purchased", () => {
   });
 });
 
-describe("the Let Us Beat Your Quote benefit on a Custom Jewelry purchase", () => {
+describe("the Let Us Beat Their Price benefit on a Custom Jewelry purchase", () => {
   it("applies 10% of the GROSS price, capped at $100, alongside the deposit credit", async () => {
     // $5,175 card gross -> 10% is $517.50, capped at $100. Plus the $49
     // deposit credit, so $5,026 is collected.
@@ -627,7 +627,7 @@ describe("the Let Us Beat Your Quote benefit on a Custom Jewelry purchase", () =
     expect(p.benefitDiscountMinorUnits).not.toBe(p.depositCreditMinorUnits);
     // Both named on the invoice, since Shopify's discount is singular.
     expect(port.calls[0]!.creditTitle).toContain("Design Deposit credit");
-    expect(port.calls[0]!.creditTitle).toContain("Let Us Beat Your Quote");
+    expect(port.calls[0]!.creditTitle).toContain("Let Us Beat Their Price");
   });
 
   it("the DEPOSIT CREDIT does not shrink the benefit's base", async () => {
@@ -875,7 +875,7 @@ describe("shipping on the final purchase (owner decision 2026-11-18)", () => {
       expect(port.calls).toHaveLength(0);
     });
 
-    it("does not leave a Let Us Beat Your Quote benefit locked when shipping refuses", async () => {
+    it("does not leave a Let Us Beat Their Price benefit locked when shipping refuses", async () => {
       // The benefit is reserved BEFORE shipping is resolved, and it is single
       // use. A customer who never got a checkout must be able to try again —
       // the same guarantee the draft-order failure path already made.
@@ -897,7 +897,7 @@ describe("shipping on the final purchase (owner decision 2026-11-18)", () => {
 
   describe("a quote-match benefit DOES reduce the qualifying total", () => {
     it("passes the benefit discount to the rate quote, unlike the deposit", async () => {
-      // The other half of the distinction. A Let Us Beat Your Quote benefit
+      // The other half of the distinction. A Let Us Beat Their Price benefit
       // genuinely reduces what the jewellery costs, so §2 qualifies on the
       // reduced total — "after all discounts". The deposit credit does not.
       const code = await benefit();
