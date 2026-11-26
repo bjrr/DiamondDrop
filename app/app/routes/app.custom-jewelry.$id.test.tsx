@@ -376,7 +376,7 @@ describe("the purchase panel", () => {
     expect(html).toContain("5000.00 USD");
     expect(html).toContain("Design Deposit credit");
     expect(html).toContain("gid://shopify/Order/dep-1");
-    expect(html).toContain("Let Us Beat Your Quote benefit");
+    expect(html).toContain("Let Us Beat Their Price benefit");
     expect(html).toContain("100.00 USD");
     expect(html).toContain("4851.00 USD");
   });

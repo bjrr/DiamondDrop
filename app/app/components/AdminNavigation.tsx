@@ -44,7 +44,7 @@ export const ADMIN_NAV_ITEMS: readonly AdminNavItem[] = [
   { label: "Group Buys", to: "/app/group-buy-campaigns" },
   { label: "Luxury Steals", to: "/app/luxury-steals" },
   { label: "Custom Jewelry", to: "/app/custom-jewelry" },
-  { label: "Beat Your Quote", to: "/app/beat-quote" },
+  { label: "Beat Their Price", to: "/app/beat-quote" },
   { label: "Bank Payments", to: "/app/bank-payments" },
   { label: "Returns", to: "/app/rma" },
   { label: "Warranty", to: "/app/warranty-claims" },

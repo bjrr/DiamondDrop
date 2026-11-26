@@ -524,7 +524,7 @@ export default function BeatQuoteDetailPage() {
   return (
     <AppProvider apiKey={apiKey}>
       <main style={{ padding: "1.5rem", maxWidth: "60rem" }}>
-        <h1 style={{ marginTop: 0 }}>Beat Your Quote — {s.submissionReference}</h1>
+        <h1 style={{ marginTop: 0 }}>Beat Their Price: {s.submissionReference}</h1>
 
         {actionData?.error ? (
           <p role="alert" style={{ fontWeight: 600 }}>

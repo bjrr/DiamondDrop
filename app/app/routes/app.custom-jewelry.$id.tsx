@@ -787,7 +787,7 @@ export default function CustomJewelryProjectPage() {
                     {purchase.depositCredit}
                     {purchase.depositPaymentReference ? ` (paid on ${purchase.depositPaymentReference})` : ""}
                   </dd>
-                  <dt>Let Us Beat Your Quote benefit</dt>
+                  <dt>Let Us Beat Their Price benefit</dt>
                   <dd>{purchase.benefitDiscount}</dd>
                   <dt>Balance due</dt>
                   <dd>

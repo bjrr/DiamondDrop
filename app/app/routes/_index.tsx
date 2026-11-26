@@ -245,7 +245,7 @@ export default function AppHome() {
             )}
           />
           <Card
-            title="Let Us Beat Your Quote"
+            title="Let Us Beat Their Price"
             to="/app/beat-quote"
             note={pluralise(counts.beatQuotePendingReview, "submission", "awaiting review")}
           />

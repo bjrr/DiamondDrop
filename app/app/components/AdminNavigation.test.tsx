@@ -26,7 +26,7 @@ describe("admin navigation targets", () => {
       "Group Buys",
       "Luxury Steals",
       "Custom Jewelry",
-      "Beat Your Quote",
+      "Beat Their Price",
       "Bank Payments",
       "Returns",
       "Warranty",
@@ -39,7 +39,7 @@ describe("admin navigation targets", () => {
     const byLabel = Object.fromEntries(ADMIN_NAV_ITEMS.map((i) => [i.label, i.to]));
     expect(byLabel.Returns).toBe("/app/rma");
     expect(byLabel.Warranty).toBe("/app/warranty-claims");
-    expect(byLabel["Beat Your Quote"]).toBe("/app/beat-quote");
+    expect(byLabel["Beat Their Price"]).toBe("/app/beat-quote");
     expect(byLabel["Ready Mountings"]).toBe("/app/ready-settings");
     expect(byLabel["Price Approvals"]).toBe("/app/price-approvals");
     expect(byLabel["Group Buys"]).toBe("/app/group-buy-campaigns");
