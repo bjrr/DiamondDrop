@@ -121,17 +121,42 @@ const bodySchema = z
     competitorWarranty: z.string().trim().min(1).max(2000).optional(),
 
     /**
-     * The three required affirmations. Each must be the LITERAL `true` —
+     * The required affirmations. Each must be the LITERAL `true` —
      * `z.boolean()` would accept `false` and leave "did they actually agree?"
      * to a later `if`. Never pre-checked, never inferred.
      *
      * The customer affirms the PATH acknowledgment without naming it: which
      * text they were shown is determined server-side, so they cannot claim to
      * have accepted the more favourable variant.
+     *
+     * ========================================================================
+     * WHY THE PATH AFFIRMATION IS OPTIONAL IN THE SCHEMA AND REQUIRED BELOW
+     * ========================================================================
+     * Owner decision 2026-11-26: a custom quote inside the 7 day window no
+     * longer carries a signed acceptance of the 7 day term, so the storefront
+     * stops showing that checkbox and stops sending this key. The term itself
+     * is unchanged and is still quoted on the page from its policy row.
+     *
+     * It stays REQUIRED for the other three paths (older quote, online
+     * listing, competing Group Buy), each of which withdraws a guarantee the
+     * customer might otherwise assume. Which one applies is decided from the
+     * DERIVED treatment after this schema has run, so the requirement cannot
+     * be expressed here: `.optional()` is the only shape that lets the check
+     * happen where the treatment is known. See the enforcement below, which is
+     * what actually holds the line.
+     *
+     * `z.literal(true).optional()` still refuses an explicit `false` on every
+     * path, so "absent" and "ticked" are the only accepted states and an
+     * UNTICKED box can never read as agreement.
+     *
+     * A `true` sent for the recent-quote path is accepted and DISCARDED rather
+     * than refused, because the deployed storefront still sends it. That is
+     * also why this change ships before the theme does: if the app refused the
+     * key, every live submission would break the moment it deployed.
      */
     whatWeMatchAccepted: z.literal(true),
     authenticityConfirmed: z.literal(true),
-    pathAcknowledgmentAccepted: z.literal(true),
+    pathAcknowledgmentAccepted: z.literal(true).optional(),
 
     /**
      * The quote documents the customer attached, each identified by a
@@ -293,6 +318,19 @@ export async function action({ request }: ActionFunctionArgs) {
 
   const pathAcknowledgment = selectPathAcknowledgment(body.kind, derived.treatment);
 
+  /**
+   * WHETHER THIS SUBMISSION CARRIES A SIGNED PATH ACKNOWLEDGMENT.
+   *
+   * Owner decision 2026-11-26: the recent-quote path does not. The other three
+   * do, because each of them withdraws something, and a customer who is not
+   * told plainly that there is no guarantee and no fallback may reasonably
+   * believe there is one.
+   *
+   * Keyed off the DERIVED acknowledgment id, not off the request. A client
+   * cannot reach this branch by claiming its quote is recent.
+   */
+  const pathAckRequired = pathAcknowledgment.id !== "recent_quote";
+
   // Every acknowledgment must name the version it was shown under. A missing
   // policy row means the required evidence cannot be recorded, so the
   // submission is refused rather than accepted without it.
@@ -301,20 +339,71 @@ export async function action({ request }: ActionFunctionArgs) {
     getLatestPolicyVersion(BEAT_QUOTE_POLICY_SLUGS.authenticity),
     getLatestPolicyVersion(pathAcknowledgment.slug),
   ]);
-  if (!whatWeMatchPolicy || !authenticityPolicy || !pathPolicy) {
+  // The path row is only load-bearing when a path acknowledgment is actually
+  // recorded. For the recent-quote path its absence changes nothing, and
+  // refusing the submission over a row nothing reads would be an outage for no
+  // benefit. The row itself remains required for the POLICY PAGE, which quotes
+  // the 7 day term, and `/health` still reports it missing.
+  if (!whatWeMatchPolicy || !authenticityPolicy || (pathAckRequired && !pathPolicy)) {
     logger.error("beat_quote_submission.policy_unavailable", {
       pathSlug: pathAcknowledgment.slug,
       whatWeMatch: Boolean(whatWeMatchPolicy),
       authenticity: Boolean(authenticityPolicy),
       path: Boolean(pathPolicy),
+      pathAckRequired,
     });
     return Response.json({ error: "acknowledgment_copy_unavailable" }, { status: 503 });
+  }
+
+  /**
+   * THE TREATMENT THE SERVER DERIVED NEEDS AN ACKNOWLEDGMENT THE CLIENT DID
+   * NOT SEND.
+   *
+   * The honest case this exists for: the storefront decides which checkbox to
+   * show from the visitor's own clock, and the server decides the treatment
+   * from the STORE's calendar. At the 7 day boundary those can disagree by a
+   * day, so a customer can submit in good faith believing their quote is
+   * recent, omitting the box, while the server derives `older_quote`.
+   *
+   * REFUSED, WITH THE TEXT, rather than recorded or quietly dropped. Recording
+   * it would file an acceptance the customer never gave, which is the single
+   * thing this whole acknowledgment system exists to prevent. Dropping it
+   * would hand a review-only submission no record that the customer was told
+   * there is no guarantee. So the response carries the acknowledgment the
+   * storefront must now show, and the customer ticks it and submits again, on
+   * the same `submissionId`, which the route is idempotent on.
+   *
+   * A DISTINCT ERROR CODE, not the generic 400, so the storefront can tell
+   * this apart from a malformed body and respond by showing a checkbox rather
+   * than by telling the customer to try again.
+   */
+  if (pathAckRequired && body.pathAcknowledgmentAccepted !== true) {
+    logger.info("beat_quote_submission.path_acknowledgment_required", {
+      submissionId: body.submissionId,
+      kind: body.kind,
+      treatment: derived.treatment,
+      acknowledgmentId: pathAcknowledgment.id,
+    });
+    return Response.json(
+      {
+        error: "path_acknowledgment_required",
+        // Shown so the customer can read and accept it. Returning the text is
+        // not accepting it; nothing is written by this response.
+        acknowledgment: {
+          id: pathAcknowledgment.id,
+          version: pathPolicy!.version,
+          text: pathAcknowledgment.text,
+          affirmativeActionLabel: pathAcknowledgment.affirmativeActionLabel,
+        },
+      },
+      { status: 422, headers: { "Cache-Control": "private, no-store" } }
+    );
   }
 
   const acknowledgedAt = new Date();
 
   // ONE TRANSACTION. A submission without its acknowledgments is not a valid
-  // submission, and three acknowledgment rows pointing at a submission that
+  // submission, and acknowledgment rows pointing at a submission that
   // failed to write are orphans in an append-only table.
   // CONVERGENCE LIVES OUT HERE, OUTSIDE THE TRANSACTION.
   //
@@ -325,7 +414,7 @@ export async function action({ request }: ActionFunctionArgs) {
   // for. So the P2002 is caught here, after the transaction has ended, and the
   // winner's submission is read with a clean connection.
   //
-  // The loser writes NO acknowledgments: the winner already wrote three, and a
+  // The loser writes NO acknowledgments: the winner already wrote them, and a
   // second set would imply the customer agreed twice.
   let result;
   try {
@@ -437,15 +526,20 @@ export async function action({ request }: ActionFunctionArgs) {
       },
       tx
     );
-    await createAcknowledgment(
-      {
-        ...common,
-        exactText: pathAcknowledgment.text,
-        policyVersionId: pathPolicy.id,
-        affirmativeActionLabel: pathAcknowledgment.affirmativeActionLabel,
-      },
-      tx
-    );
+    // ONLY WHEN THE CUSTOMER ACTUALLY TICKED ONE. The recent-quote path shows
+    // no third checkbox, so there is nothing to record and writing a row would
+    // assert an acceptance that never happened.
+    if (pathAckRequired) {
+      await createAcknowledgment(
+        {
+          ...common,
+          exactText: pathAcknowledgment.text,
+          policyVersionId: pathPolicy!.id,
+          affirmativeActionLabel: pathAcknowledgment.affirmativeActionLabel,
+        },
+        tx
+      );
+    }
 
       return { submission, created };
     });
@@ -481,13 +575,19 @@ export async function action({ request }: ActionFunctionArgs) {
     {
       ...toBeatQuoteSubmissionConfirmation(result.submission),
       // Returned so the storefront can show what was agreed to. Derived, and
-      // returning it is not accepting it.
-      acknowledgment: {
-        id: pathAcknowledgment.id,
-        version: pathPolicy.version,
-        text: pathAcknowledgment.text,
-        affirmativeActionLabel: pathAcknowledgment.affirmativeActionLabel,
-      },
+      // returning it is not accepting it. ABSENT on the recent-quote path,
+      // because no path acknowledgment was shown or recorded, and echoing one
+      // back would tell the customer they agreed to something they never saw.
+      ...(pathAckRequired
+        ? {
+            acknowledgment: {
+              id: pathAcknowledgment.id,
+              version: pathPolicy!.version,
+              text: pathAcknowledgment.text,
+              affirmativeActionLabel: pathAcknowledgment.affirmativeActionLabel,
+            },
+          }
+        : {}),
     },
     {
       // 201 on first write, 200 on a converged retry — the customer sees

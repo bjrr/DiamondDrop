@@ -198,14 +198,43 @@ describe("an over-age custom quote cannot obtain guarantee treatment", () => {
 });
 
 describe("the acknowledgment ALWAYS matches the derived treatment", () => {
-  it.each([
-    ["custom_quote", 2, BEAT_QUOTE_RECENT_QUOTE_TEXT, "recent_quote"],
-    ["custom_quote", 20, BEAT_QUOTE_OLDER_QUOTE_TEXT, "older_quote"],
-  ] as const)("a %s aged %s days gets the %s variant", async (kind, age, expectedText, expectedId) => {
-    const { json } = await submit({ kind, quoteIssuedOn: daysBefore(age) });
+  /**
+   * OWNER DECISION 2026-11-26: THE RECENT-QUOTE PATH CARRIES NO PATH
+   * ACKNOWLEDGMENT. The storefront shows no third checkbox for a quote inside
+   * the 7 day window, so there is nothing to record, and a row written anyway
+   * would assert an acceptance that never happened. The 7 day term itself is
+   * unchanged and is still quoted on the page from its policy row.
+   *
+   * These two cases used to be one `it.each`. They are separate now because
+   * the shapes genuinely differ, and a parameterised test that papered over
+   * that would be asserting the weaker of the two.
+   */
+  it("a recent custom quote records NO path acknowledgment and echoes none back", async () => {
+    const { status, json } = await submit({ kind: "custom_quote", quoteIssuedOn: daysBefore(2) });
+    expect(status).toBe(201);
+
+    // Nothing echoed, because nothing was shown or accepted.
+    expect(json.acknowledgment).toBeUndefined();
+
+    const rows = await prisma.acknowledgment.findMany({
+      where: { submissionRef: json.submissionId as string },
+      include: { policyVersion: true },
+    });
+    expect(rows).toHaveLength(2);
+    const texts = rows.map((r) => r.exactText);
+    expect(texts).toContain(BEAT_QUOTE_WHAT_WE_MATCH_TEXT);
+    expect(texts).toContain(BEAT_QUOTE_AUTHENTICITY_TEXT);
+    // THE ASSERTION THAT MATTERS. The 7 day wording must not be filed against
+    // a submission whose customer was never shown it.
+    expect(texts).not.toContain(BEAT_QUOTE_RECENT_QUOTE_TEXT);
+    expect(rows.some((r) => r.policyVersion.slug === BEAT_QUOTE_POLICY_SLUGS.recentQuote)).toBe(false);
+  });
+
+  it("an older custom quote still gets the older-quote variant, recorded", async () => {
+    const { json } = await submit({ kind: "custom_quote", quoteIssuedOn: daysBefore(20) });
     const ack = json.acknowledgment as Record<string, unknown>;
-    expect(ack.id).toBe(expectedId);
-    expect(ack.text).toBe(expectedText);
+    expect(ack.id).toBe("older_quote");
+    expect(ack.text).toBe(BEAT_QUOTE_OLDER_QUOTE_TEXT);
 
     // And the EVIDENCE row carries that exact text, not the response's.
     const rows = await prisma.acknowledgment.findMany({
@@ -213,7 +242,7 @@ describe("the acknowledgment ALWAYS matches the derived treatment", () => {
       include: { policyVersion: true },
     });
     expect(rows).toHaveLength(3);
-    expect(rows.map((r) => r.exactText)).toContain(expectedText);
+    expect(rows.map((r) => r.exactText)).toContain(BEAT_QUOTE_OLDER_QUOTE_TEXT);
   });
 
   it("an online listing gets the AMENDMENT's variant, never the 3A guarantee text", async () => {
@@ -231,8 +260,10 @@ describe("the acknowledgment ALWAYS matches the derived treatment", () => {
     expect((json.acknowledgment as Record<string, unknown>).text).toBe(BEAT_QUOTE_GROUP_BUY_TEXT);
   });
 
-  it("records all THREE acknowledgments with their exact text and policy version", async () => {
-    const { json } = await submit({ quoteIssuedOn: daysBefore(1) });
+  it("records each acknowledgment with its exact text and policy version", async () => {
+    // A REVIEW-ONLY path, so all three are present. The recent-quote path's
+    // two-row shape is asserted above.
+    const { json } = await submit({ kind: "competing_group_buy", quoteIssuedOn: undefined });
     const rows = await prisma.acknowledgment.findMany({
       where: { submissionRef: json.submissionId as string },
       include: { policyVersion: true },
@@ -240,7 +271,7 @@ describe("the acknowledgment ALWAYS matches the derived treatment", () => {
     const texts = rows.map((r) => r.exactText);
     expect(texts).toContain(BEAT_QUOTE_WHAT_WE_MATCH_TEXT);
     expect(texts).toContain(BEAT_QUOTE_AUTHENTICITY_TEXT);
-    expect(texts).toContain(BEAT_QUOTE_RECENT_QUOTE_TEXT);
+    expect(texts).toContain(BEAT_QUOTE_GROUP_BUY_TEXT);
     // Each names the version it was shown under, so a later wording change
     // cannot restate what this customer agreed to. THE SIX SLUGS VERSION
     // INDEPENDENTLY: the authenticity term was revised on 2026-11-25 and is at
@@ -265,24 +296,129 @@ describe("acceptance must be affirmative and unchecked — never inferred", () =
     ["whatWeMatchAccepted omitted", { whatWeMatchAccepted: undefined }],
     ["whatWeMatchAccepted false", { whatWeMatchAccepted: false }],
     ["authenticityConfirmed false", { authenticityConfirmed: false }],
-    ["pathAcknowledgmentAccepted omitted", { pathAcknowledgmentAccepted: undefined }],
+    ["authenticityConfirmed omitted", { authenticityConfirmed: undefined }],
+    // STILL REFUSED EVERYWHERE. The path box became optional in the schema so
+    // the requirement could be decided from the derived treatment, but an
+    // explicit `false` is an UNTICKED box and must never read as agreement on
+    // any path.
+    ["pathAcknowledgmentAccepted false", { pathAcknowledgmentAccepted: false }],
     ["pathAcknowledgmentAccepted the string 'true'", { pathAcknowledgmentAccepted: "true" }],
   ])("REFUSES when %s, and stores nothing", async (_label, override) => {
     const body = validBody(override);
-    if ((override as Record<string, unknown>).whatWeMatchAccepted === undefined && "whatWeMatchAccepted" in override) {
-      delete (body as Record<string, unknown>).whatWeMatchAccepted;
-    }
-    if (
-      (override as Record<string, unknown>).pathAcknowledgmentAccepted === undefined &&
-      "pathAcknowledgmentAccepted" in override
-    ) {
-      delete (body as Record<string, unknown>).pathAcknowledgmentAccepted;
+    for (const key of ["whatWeMatchAccepted", "authenticityConfirmed", "pathAcknowledgmentAccepted"]) {
+      if (key in override && (override as Record<string, unknown>)[key] === undefined) {
+        delete (body as Record<string, unknown>)[key];
+      }
     }
     const response = await call(signedPost(body));
     expect(response.status).toBe(400);
     expect(
       await prisma.beatQuoteSubmission.count({ where: { id: body.submissionId as string } })
     ).toBe(0);
+  });
+
+  /**
+   * THE THREE REVIEW-ONLY PATHS STILL REQUIRE THE BOX. Each of them withdraws
+   * something, and a customer who is not told plainly that there is no
+   * guarantee and no fallback may reasonably believe there is one. Only the
+   * recent-quote path lost its checkbox.
+   */
+  it.each([
+    ["an older custom quote", { kind: "custom_quote", quoteIssuedOn: daysBefore(20) }],
+    ["an online listing", { kind: "online_listing", quoteIssuedOn: undefined }],
+    ["a competing Group Buy", { kind: "competing_group_buy", quoteIssuedOn: undefined }],
+  ])("REFUSES %s with the path box omitted, and stores nothing", async (_label, override) => {
+    const body = validBody(override);
+    delete (body as Record<string, unknown>).pathAcknowledgmentAccepted;
+
+    const response = await call(signedPost(body));
+    expect(response.status).toBe(422);
+    const json = (await response.json()) as Record<string, unknown>;
+
+    // A DISTINGUISHABLE code, so the storefront can show the checkbox rather
+    // than tell the customer to try again.
+    expect(json.error).toBe("path_acknowledgment_required");
+
+    // And it hands back the exact text to display, so the customer can read
+    // what they are being asked to accept.
+    const ack = json.acknowledgment as Record<string, unknown>;
+    expect(typeof ack.text).toBe("string");
+    expect((ack.text as string).length).toBeGreaterThan(0);
+    expect(typeof ack.version).toBe("number");
+    expect(typeof ack.affirmativeActionLabel).toBe("string");
+
+    // NOTHING WAS WRITTEN. Not the submission, and above all not an
+    // acknowledgment the customer never ticked.
+    expect(
+      await prisma.beatQuoteSubmission.count({ where: { id: body.submissionId as string } })
+    ).toBe(0);
+    expect(
+      await prisma.acknowledgment.count({ where: { submissionRef: body.submissionId as string } })
+    ).toBe(0);
+  });
+
+  /**
+   * THE BOUNDARY CASE THE NEW ERROR EXISTS FOR. The storefront picks which
+   * checkbox to show from the VISITOR's clock; the server derives the
+   * treatment from the STORE's calendar. At the 7 day boundary they can
+   * disagree by a day, so a customer can omit the box in good faith believing
+   * their quote is recent while the server derives `older_quote`.
+   *
+   * The refusal names the older-quote wording specifically, which is what lets
+   * the storefront show that exact checkbox and let them resubmit on the same
+   * id.
+   */
+  it("names the older-quote wording when the server disagrees about recency", async () => {
+    const body = validBody({ kind: "custom_quote", quoteIssuedOn: daysBefore(8) });
+    delete (body as Record<string, unknown>).pathAcknowledgmentAccepted;
+
+    const response = await call(signedPost(body));
+    expect(response.status).toBe(422);
+    const json = (await response.json()) as Record<string, unknown>;
+    const ack = json.acknowledgment as Record<string, unknown>;
+    expect(ack.id).toBe("older_quote");
+    expect(ack.text).toBe(BEAT_QUOTE_OLDER_QUOTE_TEXT);
+    // Never the guarantee wording. Handing that back on a refusal would show
+    // the customer a promise this submission cannot carry.
+    expect(ack.text).not.toBe(BEAT_QUOTE_RECENT_QUOTE_TEXT);
+  });
+
+  /**
+   * AND IT ACCEPTS THE KEY BEING ABSENT ON THE PATH THAT NO LONGER SENDS IT,
+   * which is the whole point of the change. Asserted together with "stores no
+   * third row" because accepting the submission while quietly filing the 7 day
+   * acknowledgment anyway would be the worst of both.
+   */
+  it("ACCEPTS a recent custom quote with the path box absent, and files no third row", async () => {
+    const body = validBody({ kind: "custom_quote", quoteIssuedOn: daysBefore(1) });
+    delete (body as Record<string, unknown>).pathAcknowledgmentAccepted;
+
+    const response = await call(signedPost(body));
+    expect(response.status).toBe(201);
+    expect(
+      await prisma.acknowledgment.count({ where: { submissionRef: body.submissionId as string } })
+    ).toBe(2);
+  });
+
+  /**
+   * THE ROLLOUT CASE. The deployed storefront still sends `true` for a recent
+   * quote, and it keeps sending it until the theme is pushed. Accepted and
+   * DISCARDED: the submission succeeds, and no 7 day acknowledgment is filed
+   * from it. If this refused, every live submission would break between the
+   * app deploy and the theme push.
+   */
+  it("accepts and DISCARDS a path affirmation sent for a recent quote", async () => {
+    const { status, json } = await submit({
+      kind: "custom_quote",
+      quoteIssuedOn: daysBefore(1),
+      pathAcknowledgmentAccepted: true,
+    });
+    expect(status).toBe(201);
+    const rows = await prisma.acknowledgment.findMany({
+      where: { submissionRef: json.submissionId as string },
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.exactText)).not.toContain(BEAT_QUOTE_RECENT_QUOTE_TEXT);
   });
 });
 
@@ -298,8 +434,9 @@ describe("retries converge on one submission", () => {
 
     expect(await prisma.beatQuoteSubmission.count({ where: { id: submissionId } })).toBe(1);
     // AND the acknowledgments are not duplicated — writing them again would
-    // imply the customer agreed twice.
-    expect(await prisma.acknowledgment.count({ where: { submissionRef: submissionId } })).toBe(3);
+    // imply the customer agreed twice. TWO, not three: the default body is a
+    // recent custom quote, which carries no path acknowledgment.
+    expect(await prisma.acknowledgment.count({ where: { submissionRef: submissionId } })).toBe(2);
   });
 
   it("a retry cannot REWRITE the frozen treatment by changing the quote date", async () => {
@@ -315,14 +452,14 @@ describe("retries converge on one submission", () => {
     expect(row.quoteAgeCalendarDays).toBe(30);
   });
 
-  it("CONCURRENT identical requests produce exactly one submission and three acknowledgments", async () => {
+  it("CONCURRENT identical requests produce exactly one submission and one set of acknowledgments", async () => {
     const submissionId = randomUUID();
     const body = validBody({ submissionId });
     const [a, b] = await Promise.all([call(signedPost(body)), call(signedPost(body))]);
 
     expect([a.status, b.status].sort()).toEqual([200, 201]);
     expect(await prisma.beatQuoteSubmission.count({ where: { id: submissionId } })).toBe(1);
-    expect(await prisma.acknowledgment.count({ where: { submissionRef: submissionId } })).toBe(3);
+    expect(await prisma.acknowledgment.count({ where: { submissionRef: submissionId } })).toBe(2);
   });
 });
 
