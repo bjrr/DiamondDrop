@@ -108,6 +108,37 @@
    * outside the window exactly as the server treats it, a negative age must
    * not sail through a `<= 7` comparison and hand out the guarantee wording.
    */
+  /**
+   * WHICH PATHS STILL ASK FOR A SIGNED ACKNOWLEDGMENT.
+   *
+   * Owner decision 2026-11-26: a custom quote inside the 7 day window does
+   * not. The other three do, because each of them withdraws a guarantee the
+   * customer might otherwise assume, and `apps.carat.beat-quote-submission`
+   * refuses those without it.
+   *
+   * Mirrors `pathAckRequired` in the route. The SERVER decides for real; this
+   * only decides what to show.
+   */
+  function pathAckRequiredFor(ackId) {
+    return ackId !== 'recent_quote';
+  }
+
+  /** The path checkbox's state. `null` leaves `checked` alone. */
+  function setPathBox(required, checked) {
+    var box = pathWrap ? pathWrap.querySelector('input') : null;
+    if (!box) return;
+    box.required = !!required;
+    if (checked !== null) box.checked = !!checked;
+  }
+
+  function msg(attr, fallback) {
+    return form.getAttribute(attr) || fallback;
+  }
+
+  function customQuoteSubmitLabel() {
+    return msg('data-label-submit-custom-quote', 'Submit Custom Quote');
+  }
+
   function pathAckIdFor(kind, quoteIssuedOn) {
     if (kind === 'online_listing') return 'online_listing';
     if (kind === 'competing_group_buy') return 'group_buy';
@@ -223,9 +254,28 @@
     var dateInput = el('#BqQuoteDate');
     var ackId = pathAckIdFor(kind, dateInput ? dateInput.value : null);
 
-    if (ackId && PATH_ACK[ackId]) {
+    if (ackId && !pathAckRequiredFor(ackId)) {
+      /*
+       * THE RECENT-QUOTE PATH CARRIES NO THIRD CHECKBOX (owner decision
+       * 2026-11-26). Hidden, UNCHECKED and NOT required, and the payload
+       * leaves the key out entirely rather than sending false, which the
+       * route would refuse. The 7 day term is unchanged and is still on the
+       * page, quoted in the full terms below the form.
+       *
+       * `required` is cleared as well as hidden. The form carries `novalidate`
+       * so nothing blocks on it today, but a required control the customer
+       * cannot see is wrong on its own terms, and removing `novalidate` later
+       * should not resurrect a silent submit failure.
+       */
+      pathWrap.hidden = true;
+      pathText.textContent = '';
+      setPathBox(false, false);
+      if (ackPrompt) ackPrompt.hidden = true;
+      if (submitBtn) submitBtn.textContent = customQuoteSubmitLabel();
+    } else if (ackId && PATH_ACK[ackId]) {
       pathText.textContent = PATH_ACK[ackId].text;
       pathWrap.hidden = false;
+      setPathBox(true, null);
       if (ackPrompt) ackPrompt.hidden = true;
       if (submitBtn) submitBtn.textContent = PATH_ACK[ackId].action;
     } else {
@@ -233,14 +283,30 @@
       // tick the guarantee wording and then change the date underneath it.
       pathWrap.hidden = true;
       pathText.textContent = '';
-      var box = pathWrap.querySelector('input');
-      if (box) box.checked = false;
+      setPathBox(false, false);
       if (ackPrompt) ackPrompt.hidden = false;
       if (submitBtn) submitBtn.textContent = submitBtn.getAttribute('data-default-label') || submitBtn.textContent;
     }
   }
 
   if (submitBtn) submitBtn.setAttribute('data-default-label', submitBtn.textContent.trim());
+
+  /**
+   * NO FUTURE QUOTE DATES, in the VISITOR's own timezone.
+   *
+   * Set here rather than in Liquid because Liquid renders on the server and
+   * cannot know the visitor's clock. A customer a day ahead of the store would
+   * otherwise be told their own "today" is in the future, or be allowed a date
+   * the store considers tomorrow.
+   *
+   * `max` is the picker's own guard; the submit handler checks it again,
+   * because `max` is advisory on a typed date and is absent entirely on
+   * browsers that fall back to a text input.
+   */
+  (function capQuoteDateToToday() {
+    var dateInput = el('#BqQuoteDate');
+    if (dateInput) dateInput.setAttribute('max', todayIso());
+  })();
 
   form.addEventListener('change', function (e) {
     if (e.target.matches('[data-carat-bq-kind]') || e.target.id === 'BqQuoteDate') {
@@ -446,8 +512,16 @@
       kind: kind,
       whatWeMatchAccepted: form.querySelector('[name="whatWeMatchAccepted"]').checked,
       authenticityConfirmed: form.querySelector('[name="authenticityConfirmed"]').checked,
-      pathAcknowledgmentAccepted: form.querySelector('[name="pathAcknowledgmentAccepted"]').checked,
     };
+
+    /*
+     * THE PATH AFFIRMATION IS SENT ONLY WHEN ONE WAS SHOWN. The route's schema
+     * accepts the key being ABSENT, and refuses an explicit `false`, so a
+     * hidden checkbox must be omitted rather than sent as false.
+     */
+    var pathBox = pathWrap ? pathWrap.querySelector('input') : null;
+    var pathShown = !!(pathWrap && !pathWrap.hidden && pathBox);
+    if (pathShown) payload.pathAcknowledgmentAccepted = pathBox.checked;
 
     // `.strict()` on the route rejects unknown keys, and optional fields must
     // be ABSENT rather than empty strings. Only add what has a value.
@@ -465,6 +539,15 @@
       var d = el('#BqQuoteDate').value;
       if (!d) {
         showError('quoteIssuedOn', 'Tell us the date on the quote.');
+        return;
+      }
+      // A quote cannot have been issued after today. Compared as `YYYY-MM-DD`
+      // strings, which sort lexicographically in date order, against the
+      // VISITOR's own today. The server also refuses to treat a future-dated
+      // quote as recent, so this is the friendly half of a rule that is
+      // enforced in both places.
+      if (d > todayIso()) {
+        showError('quoteIssuedOn', msg('data-msg-date-future', "The quote date can't be in the future."));
         return;
       }
       payload.quoteIssuedOn = d;
@@ -500,8 +583,14 @@
         };
       });
     }
-    if (!payload.whatWeMatchAccepted || !payload.authenticityConfirmed || !payload.pathAcknowledgmentAccepted) {
-      showError('acknowledgments', 'Please confirm all three statements before submitting.');
+    // "all three" was wrong the moment the recent-quote path dropped to two
+    // boxes, so the message no longer counts them.
+    if (
+      !payload.whatWeMatchAccepted ||
+      !payload.authenticityConfirmed ||
+      (pathShown && !payload.pathAcknowledgmentAccepted)
+    ) {
+      showError('acknowledgments', msg('data-msg-ack-required', 'Please confirm the statements above before submitting.'));
       return;
     }
 
@@ -519,6 +608,37 @@
         });
       })
       .then(function (r) {
+        /*
+         * THE SERVER DISAGREED ABOUT RECENCY.
+         *
+         * This page decides which checkbox to show from the VISITOR's clock;
+         * the route derives the treatment from the STORE's calendar. At the
+         * 7 day boundary they can differ by a day, so a quote this page
+         * treated as recent (and therefore sent with no third box) can come
+         * back needing the older-quote acknowledgment.
+         *
+         * The route refuses rather than filing an acceptance nobody gave, and
+         * hands back the exact wording. So show that wording, in the
+         * acknowledgment's own place in the form, and ask for a tick. The
+         * submission id is unchanged and the route is idempotent on it, so
+         * submitting again completes the same submission rather than making a
+         * second one.
+         */
+        if (r.status === 422 && r.body && r.body.error === 'path_acknowledgment_required' && r.body.acknowledgment) {
+          submitBtn.disabled = false;
+          if (pathWrap && pathText) {
+            pathText.textContent = r.body.acknowledgment.text;
+            pathWrap.hidden = false;
+            setPathBox(true, false);
+            if (ackPrompt) ackPrompt.hidden = true;
+            if (submitBtn && r.body.acknowledgment.affirmativeActionLabel) {
+              submitBtn.textContent = r.body.acknowledgment.affirmativeActionLabel;
+            }
+            pathWrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+          setStatus(msg('data-msg-ack-added', 'Please read and accept the statement we added above, then submit again.'));
+          return;
+        }
         if (!r.ok) {
           submitBtn.disabled = false;
           setStatus(

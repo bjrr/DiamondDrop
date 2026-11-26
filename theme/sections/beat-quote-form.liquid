@@ -78,6 +78,15 @@
       novalidate
       data-carat-bq-form
       data-signed-in="{% if customer %}true{% else %}false{% endif %}"
+      {%- comment -%}
+        Messages the JS shows, passed in rather than hardcoded in the asset so
+        they are translatable. The JS keeps an English fallback for each, so a
+        missing key degrades to readable text rather than to nothing.
+      {%- endcomment -%}
+      data-msg-ack-required="{{ 'templates.beat_quote.ack_required' | t }}"
+      data-msg-ack-added="{{ 'templates.beat_quote.ack_added_resubmit' | t }}"
+      data-msg-date-future="{{ 'templates.beat_quote.quote_date_future' | t }}"
+      data-label-submit-custom-quote="{{ 'templates.beat_quote.submit_custom_quote' | t }}"
     >
       {%- comment -%} ------------------------------ what are you submitting {%- endcomment -%}
       <fieldset class="carat-bq__group carat-bq__group--kind">
